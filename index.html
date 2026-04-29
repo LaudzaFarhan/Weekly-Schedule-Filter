@@ -1,20 +1,24 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Schedule Integration & Availability Dashboard</title>
-    
+
     <!-- Google Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@500;600;700&display=swap" rel="stylesheet">
-    
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@500;600;700&display=swap"
+        rel="stylesheet">
+
     <!-- PapaParse for CSV processing -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
 
     <link rel="stylesheet" href="styles.css">
 </head>
+
 <body>
 
     <main class="dashboard-container">
@@ -23,20 +27,26 @@
             <div class="header-content">
                 <h1>Schedule Intelligence</h1>
                 <p>Automated Conflict Detection &amp; Instructor Availability</p>
-                
+
                 <div class="url-input-container">
                     <label for="sheet-url">Published Sheet URL</label>
                     <input type="text" id="sheet-url"
                         placeholder="Paste your Google Sheets 'Publish to Web' link here..."
-                        value="https://docs.google.com/spreadsheets/d/e/2PACX-1vTvG0owsnrlEZPDHEeDhTPSvvh8rG7NSgOjWwdEbsfwJYHPKPjn6GrRx9MJX1ZlHJTwr0Hy-wveovTw/pubhtml">
+                        value="https://docs.google.com/spreadsheets/d/e/2PACX-1vS2ZEndjqsEzgvblfHF44IPQmJQRVHo65zzOya727KEZ0HjtmhXNAmXgzDXTPtGt9q3A02RqG0EV-7d/pubhtml">
                 </div>
             </div>
-            
+
             <div class="header-actions">
                 <div class="sync-controls">
                     <div class="sync-status" id="last-sync-time">Not synced yet</div>
                     <button id="sync-btn" class="btn btn-primary">
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/><path d="M16 16h5v5"/></svg>
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+                            <path d="M3 3v5h5" />
+                            <path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16" />
+                            <path d="M16 16h5v5" />
+                        </svg>
                         Sync Schedule
                     </button>
                 </div>
@@ -58,7 +68,11 @@
                 <div class="panel-body">
                     <div id="conflicts-container" class="list-container">
                         <div class="empty-state">
-                            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg>
+                            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                                <circle cx="12" cy="12" r="10" />
+                                <path d="m9 12 2 2 4-4" />
+                            </svg>
                             <p>No conflicts detected yet.</p>
                             <span class="subtext">Sync the schedule to run analysis.</span>
                         </div>
@@ -160,7 +174,11 @@
                             <input type="text" id="leave-reason" placeholder="e.g. Sick, Holiday...">
                         </div>
                         <button id="leave-add-btn" class="btn btn-warning leave-add-btn" disabled>
-                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14"/><path d="M5 12h14"/></svg>
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M12 5v14" />
+                                <path d="M5 12h14" />
+                            </svg>
                             Mark On Leave
                         </button>
                     </div>
@@ -223,21 +241,34 @@
                             </select>
                         </div>
                         <button id="trial-add-btn" class="btn btn-primary trial-add-btn" disabled>
-                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14"/><path d="M5 12h14"/></svg>
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M12 5v14" />
+                                <path d="M5 12h14" />
+                            </svg>
                             <span id="trial-btn-text">Add</span>
                         </button>
                     </div>
-                    <div class="trial-form-row" id="trial-working-days-container" style="display: none; margin-top: 1rem; border-top: 1px dashed var(--border); padding-top: 1rem;">
+                    <div class="trial-form-row" id="trial-working-days-container"
+                        style="display: none; margin-top: 1rem; border-top: 1px dashed var(--border); padding-top: 1rem;">
                         <div class="input-group" style="width: 100%;">
                             <label>Select Working Days</label>
-                            <div class="working-days-grid" style="display: flex; gap: 1rem; flex-wrap: wrap; margin-top: 0.5rem;">
-                                <label class="day-checkbox"><input type="checkbox" value="Monday" class="trial-day-cb"> Monday</label>
-                                <label class="day-checkbox"><input type="checkbox" value="Tuesday" class="trial-day-cb"> Tuesday</label>
-                                <label class="day-checkbox"><input type="checkbox" value="Wednesday" class="trial-day-cb"> Wednesday</label>
-                                <label class="day-checkbox"><input type="checkbox" value="Thursday" class="trial-day-cb"> Thursday</label>
-                                <label class="day-checkbox"><input type="checkbox" value="Friday" class="trial-day-cb"> Friday</label>
-                                <label class="day-checkbox"><input type="checkbox" value="Saturday" class="trial-day-cb"> Saturday</label>
-                                <label class="day-checkbox"><input type="checkbox" value="Sunday" class="trial-day-cb"> Sunday</label>
+                            <div class="working-days-grid"
+                                style="display: flex; gap: 1rem; flex-wrap: wrap; margin-top: 0.5rem;">
+                                <label class="day-checkbox"><input type="checkbox" value="Monday" class="trial-day-cb">
+                                    Monday</label>
+                                <label class="day-checkbox"><input type="checkbox" value="Tuesday" class="trial-day-cb">
+                                    Tuesday</label>
+                                <label class="day-checkbox"><input type="checkbox" value="Wednesday"
+                                        class="trial-day-cb"> Wednesday</label>
+                                <label class="day-checkbox"><input type="checkbox" value="Thursday"
+                                        class="trial-day-cb"> Thursday</label>
+                                <label class="day-checkbox"><input type="checkbox" value="Friday" class="trial-day-cb">
+                                    Friday</label>
+                                <label class="day-checkbox"><input type="checkbox" value="Saturday"
+                                        class="trial-day-cb"> Saturday</label>
+                                <label class="day-checkbox"><input type="checkbox" value="Sunday" class="trial-day-cb">
+                                    Sunday</label>
                             </div>
                         </div>
                     </div>
@@ -248,12 +279,14 @@
                     <div class="trial-legend-item">
                         <span class="trial-type-badge type-kinder-junior">Kinder & Junior</span>
                         <span class="trial-arrow">→</span>
-                        <span class="trial-legend-desc">Can trial <strong>Kinder</strong> &amp; <strong>Junior</strong></span>
+                        <span class="trial-legend-desc">Can trial <strong>Kinder</strong> &amp;
+                            <strong>Junior</strong></span>
                     </div>
                     <div class="trial-legend-item">
                         <span class="trial-type-badge type-junior-coder">Junior & Coder</span>
                         <span class="trial-arrow">→</span>
-                        <span class="trial-legend-desc">Can trial <strong>All</strong> (Kinder, Junior &amp; Coder)</span>
+                        <span class="trial-legend-desc">Can trial <strong>All</strong> (Kinder, Junior &amp;
+                            Coder)</span>
                     </div>
                 </div>
 
@@ -307,13 +340,19 @@
                 <!-- Cards row + pagination -->
                 <div class="finder-cards-wrapper">
                     <button class="finder-nav-btn" id="finder-prev" aria-label="Previous">
-                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="m15 18-6-6 6-6" />
+                        </svg>
                     </button>
                     <div class="finder-cards-viewport">
                         <div class="finder-cards-track" id="finder-cards-track"></div>
                     </div>
                     <button class="finder-nav-btn" id="finder-next" aria-label="Next">
-                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="m9 18 6-6-6-6" />
+                        </svg>
                     </button>
                 </div>
 
@@ -322,7 +361,11 @@
 
                 <!-- Empty state -->
                 <div id="finder-empty" class="empty-state">
-                    <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+                    <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"
+                        stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="11" cy="11" r="8" />
+                        <path d="m21 21-4.3-4.3" />
+                    </svg>
                     <p>Sync the schedule to find free instructors.</p>
                 </div>
             </div>
@@ -333,7 +376,8 @@
             <div class="panel-header">
                 <h2>Master Schedule View</h2>
                 <div class="filter-controls">
-                    <input type="text" id="schedule-filter" placeholder="Filter by teacher, student, module..." disabled>
+                    <input type="text" id="schedule-filter" placeholder="Filter by teacher, student, module..."
+                        disabled>
                     <div class="input-group">
                         <label for="filter-instructor">Instructor</label>
                         <select id="filter-instructor" disabled>
@@ -367,4 +411,5 @@
 
     <script src="script.js"></script>
 </body>
+
 </html>

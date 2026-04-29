@@ -212,8 +212,11 @@ function parseCSVData(csvText, dayName) {
                 let time    = row['Time']           ? row['Time'].trim()           : lastTime;
                 let term    = row['Term-Branch']    ? row['Term-Branch'].trim()    : lastTerm;
                 
-                // Base teacher from Column C
-                let baseTeacher = row['Main Inst/PIC'] ? row['Main Inst/PIC'].trim()  : lastBaseTeacher;
+                // Check if Column C (Main Inst/PIC) has an actual value in THIS row
+                const rawColumnC = row['Main Inst/PIC'] ? row['Main Inst/PIC'].trim() : '';
+                
+                // Base teacher from Column C (with inheritance for merged cells)
+                let baseTeacher = rawColumnC || lastBaseTeacher;
                 let teacher = baseTeacher;
 
                 if (baseTeacher) lastBaseTeacher = baseTeacher;
@@ -232,6 +235,13 @@ function parseCSVData(csvText, dayName) {
                         // Also update lastTeacher so merged cells below it inherit the right person
                         teacher = assignedInstructor;
                     }
+                } else if (!lessonArrange || lessonArrange.trim() === '') {
+                    // Column F is empty — check if Column C has an actual value for THIS row
+                    // If Column C is also empty, this teacher is NOT assigned to this class
+                    if (!rawColumnC) {
+                        teacher = ''; // No teacher assigned — don't inherit from previous rows
+                    }
+                    // If Column C has a value, the base teacher (from Column C) is the assigned teacher
                 }
 
                 // Fix occasional stray leading zero from Google Sheets
