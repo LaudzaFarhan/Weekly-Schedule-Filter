@@ -161,7 +161,8 @@ function getProxyUrl(targetUrl) {
         return `/proxy?url=${encodeURIComponent(targetUrl)}`;
     } else {
         // When hosted statically on GitHub Pages, use a public CORS proxy
-        return `https://api.allorigins.win/raw?url=${encodeURIComponent(targetUrl)}`;
+        // allorigins is currently unstable, using codetabs proxy instead
+        return `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(targetUrl)}`;
     }
 }
 
