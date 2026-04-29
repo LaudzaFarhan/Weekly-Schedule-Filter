@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin - Schedule Intelligence</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
+    <style>
+        .admin-panel { max-width: 600px; margin: 0 auto; width: 100%; }
+        .toggle-row { display: flex; justify-content: space-between; align-items: center; padding: 1rem 0; border-bottom: 1px solid var(--border-color); }
+        .toggle-row:last-child { border-bottom: none; }
+        .toggle-info h3 { font-size: 1rem; color: var(--text-main); margin-bottom: 0.25rem; }
+        .toggle-info p { font-size: 0.85rem; color: var(--text-muted); }
+        
+        /* The switch - the box around the slider */
+        .switch { position: relative; display: inline-block; width: 44px; height: 24px; flex-shrink: 0; }
+        .switch input { opacity: 0; width: 0; height: 0; }
+        .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #cbd5e1; transition: .4s; border-radius: 24px; }
+        .slider:before { position: absolute; content: ""; height: 18px; width: 18px; left: 3px; bottom: 3px; background-color: white; transition: .4s; border-radius: 50%; box-shadow: 0 1px 2px rgba(0,0,0,0.1); }
+        input:checked + .slider { background-color: var(--primary-blue); }
+        input:checked + .slider:before { transform: translateX(20px); }
+    </style>
+</head>
+<body>
+    <main class="dashboard-container">
+        <header class="app-header admin-panel">
+            <div class="header-content">
+                <h1>Admin Settings</h1>
+                <p>Toggle features on or off for the main dashboard</p>
+            </div>
+            <div class="header-actions">
+                <a href="/" class="btn btn-primary" style="text-decoration:none;">
+                    Back to Dashboard
+                </a>
+            </div>
+        </header>
+
+        <section class="panel admin-panel">
+            <div class="panel-header">
+                <h2>Feature Toggles</h2>
+            </div>
+            <div class="panel-body">
+                <div id="toggles-container">
+                    <!-- Toggles will be injected by JS -->
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <script>
+        const features = [
+            { id: 'conflicts', title: 'Conflict Report', desc: 'Shows scheduling conflicts' },
+            { id: 'availability', title: 'Slot Availability Checker', desc: 'Check who is free or busy for a specific slot',
+              children: [
+                  { id: 'avail_available', title: 'Show "Available" Column', desc: 'Display instructors who are free' },
+                  { id: 'avail_busy', title: 'Show "Busy" Column', desc: 'Display instructors who are busy' },
+                  { id: 'avail_leave', title: 'Show "On Leave" Column', desc: 'Display instructors who are on leave' }
+              ]
+            },
+            { id: 'leave', title: 'Leave Management', desc: 'Mark instructors as on leave' },
+            { id: 'trial', title: 'Trial Priority Instructors', desc: 'Manage trial capabilities' },
+            { id: 'trial_overview', title: 'Trial Availability Overview', desc: 'Weekly table of trial slots' },
+            { id: 'finder', title: 'Free Instructor Finder', desc: 'Find free instructors easily' },
+            { id: 'schedule', title: 'Master Schedule View', desc: 'Full master schedule table' }
+        ];
+
+        const defaultState = {
+            conflicts: true,
+            availability: true,
+            avail_available: true,
+            avail_busy: true,
+            avail_leave: true,
+            leave: true,
+            trial: true,
+            trial_overview: true,
+            finder: true,
+            schedule: true
+        };
+
+        const state = JSON.parse(localStorage.getItem('featureToggles') || JSON.stringify(defaultState));
+
+        // If newly added toggles are missing from saved state, initialize them
+        if (state.avail_available === undefined) state.avail_available = true;
+        if (state.avail_busy === undefined) state.avail_busy = true;
+        if (state.avail_leave === undefined) state.avail_leave = true;
+        if (state.trial_overview === undefined) state.trial_overview = true;
+
+        const container = document.getElementById('toggles-container');
+
+        features.forEach(f => {
+            const isChecked = state[f.id] !== false; // default to true
+
+            const row = document.createElement('div');
+            row.className = 'toggle-row';
+            row.innerHTML = `
+                <div class="toggle-info">
+                    <h3>${f.title}</h3>
+                    <p>${f.desc}</p>
+                </div>
+                <label class="switch">
+                    <input type="checkbox" id="toggle-${f.id}" ${isChecked ? 'checked' : ''}>
+                    <span class="slider"></span>
+                </label>
+            `;
+            container.appendChild(row);
+
+            document.getElementById(`toggle-${f.id}`).addEventListener('change', (e) => {
+                state[f.id] = e.target.checked;
+                localStorage.setItem('featureToggles', JSON.stringify(state));
+            });
+
+            // Add children if they exist
+            if (f.children) {
+                const childContainer = document.createElement('div');
+                childContainer.style.paddingLeft = '2rem';
+                childContainer.style.borderLeft = '2px solid var(--border-color)';
+                childContainer.style.marginLeft = '1rem';
+                childContainer.style.marginTop = '-1rem';
+                childContainer.style.marginBottom = '1rem';
+                
+                f.children.forEach(child => {
+                    const isChildChecked = state[child.id] !== false;
+                    const childRow = document.createElement('div');
+                    childRow.className = 'toggle-row';
+                    childRow.style.borderBottom = 'none';
+                    childRow.style.padding = '0.5rem 0';
+                    childRow.innerHTML = `
+                        <div class="toggle-info">
+                            <h3 style="font-size:0.9rem;">${child.title}</h3>
+                        </div>
+                        <label class="switch">
+                            <input type="checkbox" id="toggle-${child.id}" ${isChildChecked ? 'checked' : ''}>
+                            <span class="slider"></span>
+                        </label>
+                    `;
+                    childContainer.appendChild(childRow);
+                    
+                    setTimeout(() => {
+                        document.getElementById(`toggle-${child.id}`).addEventListener('change', (e) => {
+                            state[child.id] = e.target.checked;
+                            localStorage.setItem('featureToggles', JSON.stringify(state));
+                        });
+                    }, 0);
+                });
+                container.appendChild(childContainer);
+            }
+        });
+    </script>
+</body>
+</html>

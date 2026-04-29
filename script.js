@@ -1,4 +1,67 @@
 // ==========================================
+// FEATURE TOGGLES
+// ==========================================
+(function applyFeatureToggles() {
+    const defaultState = {
+        conflicts: true,
+        availability: true,
+        avail_available: true,
+        avail_busy: true,
+        avail_leave: true,
+        leave: true,
+        trial: true,
+        trial_overview: true,
+        finder: true,
+        schedule: true
+    };
+    const state = JSON.parse(localStorage.getItem('featureToggles') || JSON.stringify(defaultState));
+    
+    if (state.conflicts === false) { const el = document.querySelector('.conflicts-panel'); if (el) el.style.display = 'none'; }
+    if (state.availability === false) { const el = document.querySelector('.availability-panel'); if (el) el.style.display = 'none'; }
+    if (state.leave === false) { const el = document.querySelector('.leave-panel'); if (el) el.style.display = 'none'; }
+    if (state.trial === false) { const el = document.querySelector('.trial-priority-panel'); if (el) el.style.display = 'none'; }
+    if (state.trial_overview === false) { const el = document.querySelector('.trial-overview-panel'); if (el) el.style.display = 'none'; }
+    if (state.finder === false) { const el = document.querySelector('.free-finder-panel'); if (el) el.style.display = 'none'; }
+    if (state.schedule === false) { const el = document.querySelector('.full-schedule-panel'); if (el) el.style.display = 'none'; }
+
+    // Sub-toggles for Availability Columns
+    if (state.availability !== false) {
+        const columns = document.querySelectorAll('.availability-panel .result-column');
+        let visibleCount = 3;
+        if (columns.length === 3) {
+            if (state.avail_available === false) { columns[0].style.display = 'none'; visibleCount--; }
+            if (state.avail_busy === false) { columns[1].style.display = 'none'; visibleCount--; }
+            if (state.avail_leave === false) { columns[2].style.display = 'none'; visibleCount--; }
+        }
+
+        const resGrid = document.querySelector('.availability-panel .results-grid');
+        if (resGrid) {
+            if (visibleCount === 2) {
+                resGrid.classList.remove('results-grid-3');
+                resGrid.style.gridTemplateColumns = '1fr 1fr';
+            } else if (visibleCount === 1) {
+                resGrid.classList.remove('results-grid-3');
+                resGrid.style.gridTemplateColumns = '1fr';
+            } else if (visibleCount === 0) {
+                resGrid.style.display = 'none';
+            }
+        }
+    }
+
+    // Fix grid styling if one of the ROW 1 panels is hidden
+    const grid = document.querySelector('.dashboard-grid');
+    if (grid) {
+        if (state.conflicts === false && state.availability !== false) {
+            grid.style.gridTemplateColumns = '1fr';
+        } else if (state.conflicts !== false && state.availability === false) {
+            grid.style.gridTemplateColumns = '1fr';
+        } else if (state.conflicts === false && state.availability === false) {
+            grid.style.display = 'none';
+        }
+    }
+})();
+
+// ==========================================
 // CONFIGURATION
 // ==========================================
 // Day names to look for in sheet tab names (case-insensitive matching)
@@ -91,12 +154,23 @@ function fetchWithTimeout(url, timeoutMs = 15000) {
     ]);
 }
 
+// Get the appropriate proxy URL based on the environment
+function getProxyUrl(targetUrl) {
+    const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+    if (isLocalhost) {
+        return `/proxy?url=${encodeURIComponent(targetUrl)}`;
+    } else {
+        // When hosted statically on GitHub Pages, use a public CORS proxy
+        return `https://api.allorigins.win/raw?url=${encodeURIComponent(targetUrl)}`;
+    }
+}
+
 // Auto-discover tabs from the pubhtml page
 async function discoverTabs() {
     const pubHtmlUrl = getPubHtmlUrl();
     if (!pubHtmlUrl) throw new Error("Invalid URL");
 
-    const proxyUrl = `/proxy?url=${encodeURIComponent(pubHtmlUrl)}`;
+    const proxyUrl = getProxyUrl(pubHtmlUrl);
     const res = await fetchWithTimeout(proxyUrl, 20000);
     if (!res.ok) throw new Error(`Failed to load sheet (HTTP ${res.status})`);
 
@@ -157,7 +231,7 @@ async function fetchAndParseSchedule() {
         const results = await Promise.allSettled(
             dayTabs.map(async (tab) => {
                 const targetUrl = `${baseUrl}?gid=${tab.gid}&single=true&output=csv`;
-                const proxyUrl  = `/proxy?url=${encodeURIComponent(targetUrl)}`;
+                const proxyUrl  = getProxyUrl(targetUrl);
                 const response = await fetchWithTimeout(proxyUrl, 15000);
                 if (!response.ok) throw new Error(`HTTP ${response.status}`);
                 const csvText = await response.text();
@@ -338,6 +412,7 @@ function processParsedData() {
     populateFinderDropdowns();
     populateTrialInstructorDropdown();
     populateLeaveInstructorDropdown();
+    renderTrialOverview();
 
     // Populate Global Instructor Filter
     filterInstructor.innerHTML = '<option value="all">All Instructors</option>';
@@ -1317,6 +1392,85 @@ function renderLeaveTable() {
 
 // Initial render (from localStorage)
 renderLeaveTable();
+
+// ==========================================
+// TRIAL AVAILABILITY OVERVIEW
+// ==========================================
+
+function renderTrialOverview() {
+    const tbody = document.getElementById('trial-overview-tbody');
+    if (!tbody) return;
+
+    if (allClasses.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="8" class="empty-state-table" style="padding: 2rem;">Sync the schedule to generate trial overview.</td></tr>';
+        return;
+    }
+
+    // 1. Get all unique timeslots
+    const timeSet = new Set();
+    allClasses.forEach(c => {
+        if (c.time) timeSet.add(c.time);
+    });
+
+    // Sort time slots chronologically
+    const sortedTimes = Array.from(timeSet).sort((a, b) => {
+        const pA = parseTimeSlot(a);
+        const pB = parseTimeSlot(b);
+        if (!pA) return 1;
+        if (!pB) return -1;
+        return pA.start - pB.start;
+    });
+
+    const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+    let html = '';
+
+    sortedTimes.forEach(time => {
+        html += `<tr>`;
+        html += `<td style="font-weight: 600; font-size: 0.8rem; color: var(--text-main); white-space: nowrap;">${time}</td>`;
+
+        days.forEach(day => {
+            // Find if any trial priority instructor is available
+            const availableTypes = new Set();
+
+            trialPriorityList.forEach(instructor => {
+                // Check if working this day
+                if (instructor.workingStatus === 'parttime' && (!instructor.workingDays || !instructor.workingDays.includes(day))) {
+                    return;
+                }
+
+                // Check if on leave
+                const isOnLeave = leaveList.some(l => l.name === instructor.name && l.day === day);
+                if (isOnLeave) return;
+
+                // Check if busy
+                const isBusy = allClasses.some(c => c.teacher === instructor.name && c.day === day && doTimeSlotsOverlap(c.time, time));
+                if (isBusy) return;
+
+                // Instructor is available!
+                availableTypes.add(instructor.type);
+            });
+
+            let cellContent = '<span style="color: var(--text-muted); opacity: 0.5;">-</span>';
+            if (availableTypes.has('junior-coder') && availableTypes.has('kinder-junior')) {
+                cellContent = `<span class="badge" style="background: var(--success-bg); color: var(--success); border: 1px solid var(--success-border);">All Types</span>`;
+            } else if (availableTypes.has('junior-coder')) {
+                cellContent = `<span class="badge" style="background: #ecfeff; color: #0891b2; border: 1px solid #cffafe;">Junior & Coder</span>`;
+            } else if (availableTypes.has('kinder-junior')) {
+                cellContent = `<span class="badge" style="background: #fff7ed; color: #ea580c; border: 1px solid #ffedd5;">Kinder & Junior</span>`;
+            }
+
+            html += `<td>${cellContent}</td>`;
+        });
+
+        html += `</tr>`;
+    });
+
+    if (sortedTimes.length === 0) {
+        html = '<tr><td colspan="8" class="empty-state-table" style="padding: 2rem;">No time slots found.</td></tr>';
+    }
+
+    tbody.innerHTML = html;
+}
 
 // ── Init ─────────────────────────────────────────────
 syncBtn.addEventListener('click', fetchAndParseSchedule);

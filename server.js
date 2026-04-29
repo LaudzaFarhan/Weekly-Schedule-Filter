@@ -67,6 +67,9 @@ const server = http.createServer((req, res) => {
 
     // ─── STATIC FILE SERVER ─────────────────────────────────────────
     let filePath = path.join(__dirname, url.pathname === '/' ? 'index.html' : url.pathname);
+    if (url.pathname === '/admin') {
+        filePath = path.join(__dirname, 'admin.html');
+    }
     const ext = path.extname(filePath);
 
     if (!fs.existsSync(filePath)) {
