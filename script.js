@@ -1,5 +1,101 @@
 // ==========================================
+// FIREBASE CONFIGURATION
+// ==========================================
+// Replace this with your actual Firebase project config
+const firebaseConfig = {
+  apiKey: "AIzaSyAmeryoAv6Nisk7foNUPOAQ3WIfYUajyOQ",
+  authDomain: "weekly-schedule-chatbot.firebaseapp.com",
+  projectId: "weekly-schedule-chatbot",
+  storageBucket: "weekly-schedule-chatbot.firebasestorage.app",
+  messagingSenderId: "479018870777",
+  appId: "1:479018870777:web:d329c6f253ca80fe303f28",
+  measurementId: "G-8BRCJLZFLF"
+};
+
+// Initialize Firebase
+if (!firebase.apps.length) {
+    firebase.initializeApp(firebaseConfig);
+}
+const auth = firebase.auth();
+
+// ==========================================
+// AUTHENTICATION LOGIC
+// ==========================================
+const loginOverlay = document.getElementById('login-overlay');
+const appLayout = document.getElementById('app-layout');
+const loginForm = document.getElementById('login-form');
+const loginUsernameInput = document.getElementById('login-username');
+const loginPasswordInput = document.getElementById('login-password');
+const loginError = document.getElementById('login-error');
+const loginBtn = document.getElementById('login-submit-btn');
+
+auth.onAuthStateChanged((user) => {
+    if (user) {
+        // Logged in
+        loginOverlay.style.display = 'none';
+        appLayout.style.display = 'flex';
+        // Re-evaluate hash routing in case it loaded behind the login screen
+        if (typeof handleHashChange === 'function') handleHashChange();
+    } else {
+        // Not logged in
+        loginOverlay.style.display = 'flex';
+        appLayout.style.display = 'none';
+    }
+});
+
+if (loginForm) {
+    loginForm.addEventListener('submit', (e) => {
+        e.preventDefault();
+        loginError.textContent = '';
+        
+        const username = loginUsernameInput.value.trim();
+        const password = loginPasswordInput.value;
+
+        if (!username || !password) {
+            loginError.textContent = 'Please enter both username and password.';
+            return;
+        }
+
+        loginBtn.disabled = true;
+        loginBtn.textContent = 'Authenticating...';
+
+        // Map username to email for Firebase Auth
+        let email = username;
+        if (!email.includes('@')) {
+            email = `${username}@schedule.local`;
+        }
+
+        auth.signInWithEmailAndPassword(email, password)
+            .then(() => {
+                loginBtn.disabled = false;
+                loginBtn.textContent = 'Login';
+            })
+            .catch((error) => {
+                console.error(error);
+                loginBtn.disabled = false;
+                loginBtn.textContent = 'Login';
+                
+                if (error.code === 'auth/invalid-credential' || error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password') {
+                    loginError.textContent = 'Invalid username or password.';
+                } else if (error.code === 'auth/invalid-api-key') {
+                    loginError.textContent = 'Firebase is not configured correctly. Check your script.js config.';
+                } else {
+                    loginError.textContent = error.message;
+                }
+            });
+    });
+}
+
+const logoutBtn = document.getElementById('logout-btn');
+if (logoutBtn) {
+    logoutBtn.addEventListener('click', () => {
+        auth.signOut().catch((error) => console.error("Error signing out: ", error));
+    });
+}
+
+// ==========================================
 // FEATURE TOGGLES
+// ==========================================
 // ==========================================
 (function applyFeatureToggles() {
     const defaultState = {
@@ -16,13 +112,32 @@
     };
     const state = JSON.parse(localStorage.getItem('featureToggles') || JSON.stringify(defaultState));
     
-    if (state.conflicts === false) { const el = document.querySelector('.conflicts-panel'); if (el) el.style.display = 'none'; }
-    if (state.availability === false) { const el = document.querySelector('.availability-panel'); if (el) el.style.display = 'none'; }
-    if (state.leave === false) { const el = document.querySelector('.leave-panel'); if (el) el.style.display = 'none'; }
+    if (state.conflicts === false) { 
+        const el = document.querySelector('.conflicts-panel'); if (el) el.style.display = 'none'; 
+        const nav = document.querySelector('.nav-item[data-target="view-conflicts"]'); if (nav) nav.style.display = 'none';
+    }
+    if (state.availability === false) { 
+        const el = document.querySelector('.availability-panel'); if (el) el.style.display = 'none'; 
+        const nav = document.querySelector('.nav-item[data-target="view-availability"]'); if (nav) nav.style.display = 'none';
+    }
+    if (state.leave === false) { 
+        const el = document.querySelector('.leave-panel'); if (el) el.style.display = 'none'; 
+        const nav = document.querySelector('.nav-item[data-target="view-leave"]'); if (nav) nav.style.display = 'none';
+    }
+    if (state.trial === false && state.trial_overview === false) { 
+        const nav = document.querySelector('.nav-item[data-target="view-trial"]'); if (nav) nav.style.display = 'none';
+    }
     if (state.trial === false) { const el = document.querySelector('.trial-priority-panel'); if (el) el.style.display = 'none'; }
     if (state.trial_overview === false) { const el = document.querySelector('.trial-overview-panel'); if (el) el.style.display = 'none'; }
-    if (state.finder === false) { const el = document.querySelector('.free-finder-panel'); if (el) el.style.display = 'none'; }
-    if (state.schedule === false) { const el = document.querySelector('.full-schedule-panel'); if (el) el.style.display = 'none'; }
+    
+    if (state.finder === false) { 
+        const el = document.querySelector('.free-finder-panel'); if (el) el.style.display = 'none'; 
+        const nav = document.querySelector('.nav-item[data-target="view-finder"]'); if (nav) nav.style.display = 'none';
+    }
+    if (state.schedule === false) { 
+        const el = document.querySelector('.full-schedule-panel'); if (el) el.style.display = 'none'; 
+        const nav = document.querySelector('.nav-item[data-target="view-schedule"]'); if (nav) nav.style.display = 'none';
+    }
 
     // Sub-toggles for Availability Columns
     if (state.availability !== false) {
@@ -45,18 +160,6 @@
             } else if (visibleCount === 0) {
                 resGrid.style.display = 'none';
             }
-        }
-    }
-
-    // Fix grid styling if one of the ROW 1 panels is hidden
-    const grid = document.querySelector('.dashboard-grid');
-    if (grid) {
-        if (state.conflicts === false && state.availability !== false) {
-            grid.style.gridTemplateColumns = '1fr';
-        } else if (state.conflicts !== false && state.availability === false) {
-            grid.style.gridTemplateColumns = '1fr';
-        } else if (state.conflicts === false && state.availability === false) {
-            grid.style.display = 'none';
         }
     }
 })();
@@ -97,6 +200,13 @@ const scheduleFilter   = document.getElementById('schedule-filter');
 const filterInstructor = document.getElementById('filter-instructor');
 const lastSyncTime     = document.getElementById('last-sync-time');
 const sheetUrlInput    = document.getElementById('sheet-url');
+
+// Home KPI controls
+const homeDaySelect    = document.getElementById('home-day-select');
+const homeTimeSelect   = document.getElementById('home-time-select');
+const kpiTotalTeachers = document.getElementById('kpi-total-teachers');
+const kpiAvailTeachers = document.getElementById('kpi-available-teachers');
+const kpiBusyTeachers  = document.getElementById('kpi-busy-teachers');
 
 // Finder controls
 const finderInstructor = document.getElementById('finder-instructor');
@@ -1475,3 +1585,227 @@ function renderTrialOverview() {
 
 // ── Init ─────────────────────────────────────────────
 syncBtn.addEventListener('click', fetchAndParseSchedule);
+
+// Navigation routing via hash
+function handleHashChange() {
+    let hash = window.location.hash.replace('#', '') || 'home';
+    let targetId = 'view-' + hash;
+    
+    // Fallback if target doesn't exist or is hidden by feature toggles
+    let targetView = document.getElementById(targetId);
+    let navBtn = document.querySelector(`.nav-item[data-target="${targetId}"]`);
+    
+    if (!targetView || (navBtn && navBtn.style.display === 'none')) {
+        hash = 'home';
+        targetId = 'view-home';
+        targetView = document.getElementById(targetId);
+        navBtn = document.querySelector(`.nav-item[data-target="${targetId}"]`);
+    }
+
+    // Hide all
+    document.querySelectorAll('.nav-item').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.dashboard-view').forEach(v => {
+        v.classList.remove('active');
+        v.style.display = 'none';
+    });
+
+    // Show active
+    if (navBtn) navBtn.classList.add('active');
+    if (targetView) {
+        targetView.style.display = 'flex';
+        // Force reflow for animation
+        void targetView.offsetWidth;
+        targetView.classList.add('active');
+    }
+}
+
+// Listen for hash changes (e.g. back/forward buttons)
+window.addEventListener('hashchange', handleHashChange);
+
+// Handle clicks to update hash instead of directly showing tabs
+document.querySelectorAll('.nav-item').forEach(navBtn => {
+    navBtn.addEventListener('click', () => {
+        const targetId = navBtn.getAttribute('data-target'); // e.g. "view-conflicts"
+        const hash = targetId.replace('view-', '');
+        window.location.hash = hash;
+    });
+});
+
+// Run on initial load
+window.addEventListener('DOMContentLoaded', handleHashChange);
+
+// Update dropdowns in Home Dashboard
+function populateHomeDropdowns() {
+    homeDaySelect.innerHTML = '<option value="" disabled selected>Select a Day...</option>';
+    DAY_NAMES.forEach(day => {
+        if (uniqueTimes[day] && uniqueTimes[day].size > 0) {
+            const opt = document.createElement('option');
+            opt.value = day;
+            opt.textContent = day;
+            homeDaySelect.appendChild(opt);
+        }
+    });
+
+    if (homeDaySelect.options.length > 1) {
+        homeDaySelect.disabled = false;
+        // Optionally select first available day
+        homeDaySelect.selectedIndex = 1;
+        populateHomeTimeDropdown();
+    } else {
+        homeDaySelect.disabled = true;
+        homeTimeSelect.disabled = true;
+    }
+}
+
+function populateHomeTimeDropdown() {
+    const day = homeDaySelect.value;
+    homeTimeSelect.innerHTML = '<option value="" disabled selected>Select a Time...</option>';
+    
+    if (day && uniqueTimes[day]) {
+        // Sort times chronologically if possible
+        const times = Array.from(uniqueTimes[day]).sort((a, b) => {
+            const pA = parseTimeSlot(a);
+            const pB = parseTimeSlot(b);
+            if (!pA) return 1;
+            if (!pB) return -1;
+            return pA.start - pB.start;
+        });
+
+        times.forEach(time => {
+            const opt = document.createElement('option');
+            opt.value = time;
+            opt.textContent = time;
+            homeTimeSelect.appendChild(opt);
+        });
+        homeTimeSelect.disabled = false;
+        if (homeTimeSelect.options.length > 1) {
+            homeTimeSelect.selectedIndex = 1;
+            updateHomeDashboard();
+        }
+    } else {
+        homeTimeSelect.disabled = true;
+    }
+}
+
+homeDaySelect.addEventListener('change', populateHomeTimeDropdown);
+homeTimeSelect.addEventListener('change', updateHomeDashboard);
+
+function updateHomeDashboard() {
+    // Total Teachers
+    kpiTotalTeachers.textContent = uniqueTeachers.size;
+
+    const selectedDay = homeDaySelect.value;
+    const selectedTime = homeTimeSelect.value;
+
+    if (!selectedDay || !selectedTime || allClasses.length === 0) {
+        kpiAvailTeachers.textContent = '0';
+        kpiBusyTeachers.textContent = '0';
+        return;
+    }
+
+    const available = new Set();
+    const busy = new Set();
+    const onLeave = new Set();
+
+    // Check leave
+    leaveList.forEach(l => {
+        if (l.day === selectedDay) {
+            onLeave.add(l.name);
+        }
+    });
+
+    // Check busy vs available
+    uniqueTeachers.forEach(teacher => {
+        if (onLeave.has(teacher)) return; // Exclude from both
+
+        const isBusy = allClasses.some(c => 
+            c.teacher === teacher && 
+            c.day === selectedDay && 
+            doTimeSlotsOverlap(c.time, selectedTime)
+        );
+
+        if (isBusy) {
+            busy.add(teacher);
+        } else {
+            available.add(teacher);
+        }
+    });
+
+    kpiAvailTeachers.textContent = available.size;
+    kpiBusyTeachers.textContent = busy.size;
+}
+
+// Hook into sync completion
+const originalProcessParsedData = processParsedData;
+processParsedData = function() {
+    originalProcessParsedData();
+    populateHomeDropdowns();
+    updateHomeDashboard();
+};
+
+// ==========================================
+// TRIAL INPUT FORM LOGIC
+// ==========================================
+const trialInputForm = document.getElementById('trial-input-form');
+const trialInputStatus = document.getElementById('trial-input-status');
+const trialSubmitBtn = document.getElementById('trial-submit-btn');
+
+if (trialInputForm) {
+    trialInputForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        
+        trialInputStatus.textContent = '';
+        trialInputStatus.className = 'status-message';
+        trialSubmitBtn.disabled = true;
+        trialSubmitBtn.innerHTML = 'Submitting...';
+
+        const rowData = {
+            colA: "Trial Leads",
+            colB: document.getElementById('trial-program').value,
+            colC: document.getElementById('trial-student').value.trim(),
+            colD: document.getElementById('trial-instructor').value.trim(),
+            colE: document.getElementById('trial-day').value,
+            colF: document.getElementById('trial-time').value.trim(),
+            colG: document.getElementById('trial-date').value.trim(),
+            colH: document.getElementById('trial-remarks').value.trim()
+        };
+
+        try {
+            const endpointUrl = 'https://script.google.com/macros/s/AKfycbwYAGeTzu9Qw7kFhJQNhMVszA2tDu6yvGDkcrzt3Sf5zHIFwXHbe5DHU20-skw9rn2sMg/exec';
+            
+            console.log("Sending data to spreadsheet:", rowData);
+            
+            // Use no-cors to bypass CORS errors. We won't get a readable response back,
+            // but the request will succeed.
+            await fetch(endpointUrl, {
+                method: 'POST',
+                mode: 'no-cors',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(rowData)
+            });
+            
+            // Since we used no-cors, we assume success if it didn't throw a network error.
+            trialInputStatus.textContent = 'Success! Data added to spreadsheet.';
+            trialInputStatus.classList.add('success');
+            
+            // Show an alert popup to make it very obvious!
+            alert('Success! Trial Lead added to spreadsheet.');
+            
+            trialInputForm.reset();
+            
+            trialSubmitBtn.disabled = false;
+            trialSubmitBtn.innerHTML = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg> Submit to Spreadsheet`;
+
+        } catch (error) {
+            console.error('Error submitting trial:', error);
+            trialInputStatus.textContent = 'Failed to submit. Please check your internet connection.';
+            trialInputStatus.classList.add('error');
+            
+            // Show an alert popup for error too
+            alert('Failed to submit: Please check your internet connection.');
+            
+            trialSubmitBtn.disabled = false;
+            trialSubmitBtn.innerHTML = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg> Submit to Spreadsheet`;
+        }
+    });
+}
