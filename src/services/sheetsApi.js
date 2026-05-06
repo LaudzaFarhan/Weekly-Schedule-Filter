@@ -16,9 +16,14 @@ export function getBaseUrl(url) {
 
 /**
  * Build a proxy URL to avoid CORS.
+ * Uses local proxy on localhost, public CORS proxy when deployed (e.g. GitHub Pages).
  */
 export function getProxyUrl(targetUrl) {
-  return `/proxy?url=${encodeURIComponent(targetUrl)}`;
+  const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+  if (isLocal) {
+    return `/proxy?url=${encodeURIComponent(targetUrl)}`;
+  }
+  return `https://corsproxy.io/?${encodeURIComponent(targetUrl)}`;
 }
 
 /**
