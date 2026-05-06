@@ -39,6 +39,11 @@ export function ScheduleProvider({ children }) {
     try { return JSON.parse(localStorage.getItem('featureToggles') || JSON.stringify(defaults)); } catch { return defaults; }
   });
 
+  // Disabled instructors (persisted in localStorage)
+  const [disabledInstructors, setDisabledInstructors] = useState(() => {
+    try { return new Set(JSON.parse(localStorage.getItem('disabledInstructors') || '[]')); } catch { return new Set(); }
+  });
+
   const updateLeaveList = useCallback((newList) => {
     setLeaveList(newList);
     localStorage.setItem('leaveList', JSON.stringify(newList));
@@ -52,6 +57,11 @@ export function ScheduleProvider({ children }) {
   const updateFeatureToggles = useCallback((newToggles) => {
     setFeatureToggles(newToggles);
     localStorage.setItem('featureToggles', JSON.stringify(newToggles));
+  }, []);
+
+  const updateDisabledInstructors = useCallback((newSet) => {
+    setDisabledInstructors(newSet);
+    localStorage.setItem('disabledInstructors', JSON.stringify([...newSet]));
   }, []);
 
   const syncSchedule = useCallback(async () => {
@@ -170,6 +180,7 @@ export function ScheduleProvider({ children }) {
     leaveList, updateLeaveList,
     trialPriorityList, updateTrialPriorityList,
     featureToggles, updateFeatureToggles,
+    disabledInstructors, updateDisabledInstructors,
   };
 
   return <ScheduleContext.Provider value={value}>{children}</ScheduleContext.Provider>;

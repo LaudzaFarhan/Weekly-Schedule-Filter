@@ -5,12 +5,12 @@ import { DAY_NAMES, CARDS_PER_PAGE } from '../utils/constants';
 import { Search, ChevronLeft, ChevronRight } from 'lucide-react';
 
 export default function FinderPage() {
-  const { uniqueBaseTeachers, uniqueTimes, allClasses, leaveList } = useSchedule();
+  const { uniqueBaseTeachers, uniqueTimes, allClasses, leaveList, disabledInstructors } = useSchedule();
   const [selectedInstructor, setSelectedInstructor] = useState('all');
   const [activeDay, setActiveDay] = useState(null);
   const [cardPage, setCardPage] = useState(0);
 
-  const sortedTeachers = [...uniqueBaseTeachers].sort();
+  const sortedTeachers = [...uniqueBaseTeachers].filter((t) => !disabledInstructors.has(t)).sort();
   const availableDays = DAY_NAMES.filter(
     (day) => uniqueTimes[day] && uniqueTimes[day].size > 0
   );
@@ -32,7 +32,7 @@ export default function FinderPage() {
       const busyTeachers = [];
 
       const teachersToCheck = selectedInstructor === 'all'
-        ? [...uniqueBaseTeachers]
+        ? [...uniqueBaseTeachers].filter((t) => !disabledInstructors.has(t))
         : [selectedInstructor];
 
       teachersToCheck.forEach((teacher) => {
@@ -54,7 +54,7 @@ export default function FinderPage() {
 
       return { timeSlot, freeTeachers, busyTeachers };
     });
-  }, [currentDay, selectedInstructor, uniqueBaseTeachers, uniqueTimes, allClasses, leaveList]);
+  }, [currentDay, selectedInstructor, uniqueBaseTeachers, uniqueTimes, allClasses, leaveList, disabledInstructors]);
 
   const totalCardPages = Math.ceil(cards.length / CARDS_PER_PAGE);
   const visibleCards = cards.slice(cardPage * CARDS_PER_PAGE, (cardPage + 1) * CARDS_PER_PAGE);

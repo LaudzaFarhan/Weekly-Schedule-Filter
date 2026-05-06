@@ -12,6 +12,7 @@ export default function TrialPriorityPage() {
   const {
     uniqueBaseTeachers, trialPriorityList, updateTrialPriorityList,
     allClasses, uniqueTimes, allTimeSlots, leaveList,
+    disabledInstructors,
   } = useSchedule();
   const [selectedName, setSelectedName] = useState('');
   const [selectedType, setSelectedType] = useState('');
@@ -21,7 +22,7 @@ export default function TrialPriorityPage() {
   const [page, setPage] = useState(1);
   const [selectedSlotData, setSelectedSlotData] = useState(null);
 
-  const sortedTeachers = [...uniqueBaseTeachers].sort();
+  const sortedTeachers = [...uniqueBaseTeachers].filter((t) => !disabledInstructors.has(t)).sort();
   const totalPages = Math.ceil(trialPriorityList.length / PAGE_SIZE);
   const paged = trialPriorityList.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
@@ -85,6 +86,8 @@ export default function TrialPriorityPage() {
       DAY_NAMES.forEach((day) => {
         const slotData = { available: [], unavailable: [] };
         trialPriorityList.forEach((p) => {
+          // Skip disabled instructors
+          if (disabledInstructors.has(p.name)) return;
           let reason = '';
           let isAvailable = true;
           
@@ -114,7 +117,7 @@ export default function TrialPriorityPage() {
       });
       return row;
     });
-  }, [trialPriorityList, allClasses, leaveList]);
+  }, [trialPriorityList, allClasses, leaveList, disabledInstructors]);
 
   return (
     <section className="dashboard-view active">

@@ -6,7 +6,7 @@ import { DAY_NAMES } from '../utils/constants';
 import { parseTimeSlot, doTimeSlotsOverlap } from '../utils/timeUtils';
 
 export default function TrialInputPage() {
-  const { uniqueTimes, uniqueBaseTeachers, allClasses, leaveList } = useSchedule();
+  const { uniqueTimes, uniqueBaseTeachers, allClasses, leaveList, disabledInstructors } = useSchedule();
   const [form, setForm] = useState({
     program: '', student: '', instructor: '', day: '', time: '', date: '', remarks: '',
   });
@@ -101,6 +101,7 @@ export default function TrialInputPage() {
 
     const available = [];
     uniqueBaseTeachers.forEach((teacher) => {
+      if (disabledInstructors.has(teacher)) return;
       if (onLeave.has(teacher)) return;
       const isBusy = allClasses?.some(
         (c) =>
@@ -112,7 +113,7 @@ export default function TrialInputPage() {
     });
 
     return available;
-  }, [form.day, form.time, uniqueBaseTeachers, allClasses, leaveList]);
+  }, [form.day, form.time, uniqueBaseTeachers, allClasses, leaveList, disabledInstructors]);
 
   const handleChange = (field) => (e) => {
     setForm((prev) => ({ ...prev, [field]: e.target.value }));
@@ -291,6 +292,7 @@ export default function TrialInputPage() {
       
       if (uniqueBaseTeachers) {
         for (const teacher of uniqueBaseTeachers) {
+          if (disabledInstructors.has(teacher)) continue;
           if (onLeave.has(teacher)) continue;
           const isBusy = allClasses?.some(
             (c) =>
@@ -315,7 +317,7 @@ export default function TrialInputPage() {
     }
 
     return schedules;
-  }, [form.day, uniqueBaseTeachers, allClasses, leaveList, TRIAL_SLOTS]);
+  }, [form.day, uniqueBaseTeachers, allClasses, leaveList, TRIAL_SLOTS, disabledInstructors]);
 
   return (
     <section className="dashboard-view active">
