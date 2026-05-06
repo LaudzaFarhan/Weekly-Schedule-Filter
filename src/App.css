@@ -267,6 +267,16 @@ body {
 .day-checkbox { display: flex; align-items: center; gap: 0.35rem; font-size: 0.85rem; cursor: pointer; }
 .trial-avail-count { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 8px; background: var(--success-bg); color: var(--success); font-weight: 700; font-size: 0.85rem; }
 .trial-avail-none { color: var(--text-muted); }
+.trial-avail-chip {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 24px; height: 24px; border-radius: 6px;
+  font-weight: 700; font-size: 0.75rem; padding: 0 4px;
+  transition: transform 0.15s ease;
+}
+.trial-avail-chip:hover { transform: scale(1.15); }
+.chip-kinder { background: #fce7f3; color: #db2777; }
+.chip-junior { background: #dbeafe; color: #2563eb; }
+.chip-coder { background: #f1f5f9; color: #1e293b; }
 
 /* ── Free Finder ──────────────────────────────────────── */
 .finder-controls { display: flex; align-items: center; gap: 1rem; }

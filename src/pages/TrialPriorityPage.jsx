@@ -231,6 +231,14 @@ export default function TrialPriorityPage() {
             <h2>Trial Availability Overview</h2>
             <span className="subtext">Weekly overview of available trial slots</span>
           </div>
+          <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
+            <span className="trial-avail-chip chip-kinder" style={{ fontSize: '0.7rem', gap: '3px' }}>K</span>
+            <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Kinder</span>
+            <span className="trial-avail-chip chip-junior" style={{ fontSize: '0.7rem', gap: '3px' }}>J</span>
+            <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Junior</span>
+            <span className="trial-avail-chip chip-coder" style={{ fontSize: '0.7rem', gap: '3px' }}>C</span>
+            <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Coder</span>
+          </div>
         </div>
         <div className="panel-body">
           <div style={{ overflowX: 'auto' }}>
@@ -250,15 +258,28 @@ export default function TrialPriorityPage() {
                       <td style={{ padding: 10, textAlign: 'left', fontWeight: 500 }}>{row.time}</td>
                       {DAY_NAMES.map((day) => (
                         <td key={day} style={{ padding: 10 }}>
-                          {row[day].available.length > 0 ? (
-                            <span 
-                              className="trial-avail-count" 
-                              style={{ cursor: 'pointer' }}
-                              onClick={() => setSelectedSlotData({ day, time: row.time, ...row[day] })}
-                            >
-                              {row[day].available.length}
-                            </span>
-                          ) : (
+                          {row[day].available.length > 0 ? (() => {
+                            const avail = row[day].available;
+                            const kinderCount = avail.length; // both types can do kinder
+                            const juniorCount = avail.length; // both types can do junior
+                            const coderCount = avail.filter((p) => p.type === 'junior-coder').length;
+                            return (
+                              <span 
+                                style={{ cursor: 'pointer', display: 'inline-flex', gap: '4px', alignItems: 'center' }}
+                                onClick={() => setSelectedSlotData({ day, time: row.time, ...row[day] })}
+                              >
+                                <span className="trial-avail-chip chip-kinder" title="Kinder available">
+                                  {kinderCount}
+                                </span>
+                                <span className="trial-avail-chip chip-junior" title="Junior available">
+                                  {juniorCount}
+                                </span>
+                                <span className="trial-avail-chip chip-coder" title="Coder available">
+                                  {coderCount}
+                                </span>
+                              </span>
+                            );
+                          })() : (
                             <span 
                               className="trial-avail-none"
                               style={{ cursor: 'pointer' }}
