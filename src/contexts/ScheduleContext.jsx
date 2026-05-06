@@ -16,7 +16,7 @@ export function ScheduleProvider({ children }) {
   const [syncStatus, setSyncStatus] = useState('Ready to Sync');
   const [lastSyncTime, setLastSyncTime] = useState(null);
   const [sheetUrl, setSheetUrl] = useState(
-    import.meta.env.VITE_DEFAULT_SHEET_URL || ''
+    'https://docs.google.com/spreadsheets/d/e/2PACX-1vS2ZEndjqsEzgvblfHF44IPQmJQRVHo65zzOya727KEZ0HjtmhXNAmXgzDXTPtGt9q3A02RqG0EV-7d/pubhtml'
   );
 
   // Leave list (persisted in localStorage)
