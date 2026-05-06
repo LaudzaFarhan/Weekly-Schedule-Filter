@@ -1692,14 +1692,14 @@ homeTimeSelect.addEventListener('change', updateHomeDashboard);
 
 function updateHomeDashboard() {
     // Total Teachers
-    kpiTotalTeachers.textContent = uniqueTeachers.size;
+    kpiTotalTeachers.textContent = uniqueBaseTeachers.size;
 
     const selectedDay = homeDaySelect.value;
     const selectedTime = homeTimeSelect.value;
 
-    if (!selectedDay || !selectedTime || allClasses.length === 0) {
-        kpiAvailTeachers.textContent = '0';
-        kpiBusyTeachers.textContent = '0';
+    if (!selectedDay || !selectedTime) {
+        kpiAvailTeachers.textContent = '-';
+        kpiBusyTeachers.textContent = '-';
         return;
     }
 
@@ -1715,7 +1715,7 @@ function updateHomeDashboard() {
     });
 
     // Check busy vs available
-    uniqueTeachers.forEach(teacher => {
+    uniqueBaseTeachers.forEach(teacher => {
         if (onLeave.has(teacher)) return; // Exclude from both
 
         const isBusy = allClasses.some(c => 

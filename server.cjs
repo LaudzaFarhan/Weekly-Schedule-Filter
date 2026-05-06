@@ -1,33 +1,30 @@
 /**
- * Simple proxy server for the Schedule Integration Tool.
- * This server serves the local files AND proxies requests to Google Sheets,
- * bypassing the browser's CORS restriction when opening local files.
+ * Simple CORS proxy server for the Schedule Integration Tool (React version).
+ * Runs on port 3001 — Vite dev server proxies /proxy requests here.
  *
- * HOW TO RUN: Double-click "Start Server.bat" in this folder.
- * Then open: http://localhost:3000
+ * HOW TO RUN: Use "npm start" to launch both Vite + this proxy.
  */
 
 const http = require('http');
 const https = require('https');
-const fs = require('fs');
-const path = require('path');
 
-const PORT = 3000;
-
-const MIME_TYPES = {
-    '.html': 'text/html',
-    '.css':  'text/css',
-    '.js':   'text/javascript',
-    '.json': 'application/json',
-    '.png':  'image/png',
-    '.ico':  'image/x-icon',
-};
+const PORT = 3001;
 
 const server = http.createServer((req, res) => {
     const url = new URL(req.url, `http://localhost:${PORT}`);
 
+    // ─── CORS headers for preflight ──────────────────────────────────
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+
+    if (req.method === 'OPTIONS') {
+        res.writeHead(204);
+        res.end();
+        return;
+    }
+
     // ─── PROXY ENDPOINT ─────────────────────────────────────────────
-    // The browser calls: GET /proxy?url=<encoded_google_url>
     if (url.pathname === '/proxy') {
         const target = url.searchParams.get('url');
         if (!target) {
@@ -42,7 +39,7 @@ const server = http.createServer((req, res) => {
                 'Accept': 'text/csv,text/plain,*/*',
             }
         }, (proxyRes) => {
-            // Follow one redirect if needed (Google redirects /pub to CDN)
+            // Follow one redirect if needed
             if ((proxyRes.statusCode === 301 || proxyRes.statusCode === 302 || proxyRes.statusCode === 307) && proxyRes.headers.location) {
                 https.get(proxyRes.headers.location, { headers: { 'User-Agent': 'Mozilla/5.0' } }, (finalRes) => {
                     res.writeHead(200, {
@@ -65,28 +62,14 @@ const server = http.createServer((req, res) => {
         return;
     }
 
-    // ─── STATIC FILE SERVER ─────────────────────────────────────────
-    let filePath = path.join(__dirname, url.pathname === '/' ? 'index.html' : url.pathname);
-    if (url.pathname === '/admin') {
-        filePath = path.join(__dirname, 'admin.html');
-    }
-    const ext = path.extname(filePath);
-
-    if (!fs.existsSync(filePath)) {
-        res.writeHead(404);
-        res.end('Not found');
-        return;
-    }
-
-    res.writeHead(200, { 'Content-Type': MIME_TYPES[ext] || 'application/octet-stream' });
-    fs.createReadStream(filePath).pipe(res);
+    // Any other path → 404
+    res.writeHead(404);
+    res.end('Not found — this server only handles /proxy requests.');
 });
 
 server.listen(PORT, () => {
     console.log('');
-    console.log('  ✅  Schedule Tool Server is running!');
-    console.log(`  🌐  Open this link in your browser: http://localhost:${PORT}`);
-    console.log('');
-    console.log('  Press Ctrl+C to stop the server.');
+    console.log('  ✅  CORS Proxy Server is running!');
+    console.log(`  🌐  Proxy listening on: http://localhost:${PORT}/proxy`);
     console.log('');
 });

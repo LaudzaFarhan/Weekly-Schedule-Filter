@@ -1,7 +1,10 @@
 @echo off
+echo ============================================
+echo   Schedule Intelligence - React Dashboard
+echo ============================================
 echo.
-echo  Starting Schedule Integration Tool...
-echo  Please wait while the server starts up.
+echo Starting CORS proxy server + Vite dev server...
 echo.
-node "%~dp0server.js"
+cd /d "%~dp0"
+npx concurrently "node server.cjs" "npx vite --open"
 pause
