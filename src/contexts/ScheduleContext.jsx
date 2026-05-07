@@ -1,8 +1,6 @@
 'use client';
 
 import { createContext, useContext, useState, useCallback } from 'react';
-import { discoverTabs, filterDayTabs, getBaseUrl, getProxyUrl, fetchWithTimeout } from '../services/sheetsApi';
-import { parseCSVData } from '../utils/csvParser';
 import { doTimeSlotsOverlap, parseTimeSlot } from '../utils/timeUtils';
 import { DAY_NAMES } from '../utils/constants';
 
@@ -67,73 +65,41 @@ export function ScheduleProvider({ children }) {
   }, []);
 
   const syncSchedule = useCallback(async () => {
-    const baseUrl = getBaseUrl(sheetUrl);
-    if (!baseUrl) {
+    if (!sheetUrl) {
       alert('Please enter a valid Google Sheets Publish link.');
       return;
     }
 
     setIsSyncing(true);
-    setSyncStatus('Discovering tabs...');
+    setSyncStatus('Syncing via API...');
 
     try {
-      const allTabs = await discoverTabs(baseUrl);
-      const dayTabs = filterDayTabs(allTabs);
+      const response = await fetch(`/api/schedule?sheetUrl=${encodeURIComponent(sheetUrl)}`);
+      const data = await response.json();
 
-      if (dayTabs.length === 0) {
-        const tabNames = allTabs.map((t) => t.name).join(', ');
-        throw new Error(`No day tabs found! Found tabs: [${tabNames}]`);
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || 'Sync failed');
       }
 
-      setSyncStatus(`Syncing ${dayTabs.length} tabs...`);
-
-      const results = await Promise.allSettled(
-        dayTabs.map(async (tab) => {
-          const targetUrl = `${baseUrl}?gid=${tab.gid}&single=true&output=csv`;
-          const proxyUrl = getProxyUrl(targetUrl);
-          const response = await fetchWithTimeout(proxyUrl, 15000);
-          if (!response.ok) throw new Error(`HTTP ${response.status}`);
-          const csvText = await response.text();
-          return { tab, csvText };
-        })
-      );
-
-      const newClasses = [];
-      const newTeachers = new Set();
-      const newBaseTeachers = new Set();
+      const newTeachers = new Set(data.teachers);
+      const newBaseTeachers = new Set(data.baseTeachers);
       const newTimes = {};
       const newAllTimeSlots = new Set();
-      let successCount = 0;
-      let failedTabs = [];
 
-      for (const result of results) {
-        if (result.status === 'fulfilled') {
-          const { tab, csvText } = result.value;
-          const parsed = parseCSVData(csvText, tab.name);
-          newClasses.push(...parsed.classes);
-          parsed.teachers.forEach((t) => newTeachers.add(t));
-          parsed.baseTeachers.forEach((t) => newBaseTeachers.add(t));
-          if (!newTimes[tab.name]) newTimes[tab.name] = new Set();
-          parsed.times.forEach((t) => { newTimes[tab.name].add(t); newAllTimeSlots.add(t); });
-          successCount++;
-        } else {
-          failedTabs.push(result.reason.message);
-        }
+      for (const [day, dayTimes] of Object.entries(data.times)) {
+        newTimes[day] = new Set(dayTimes);
+        dayTimes.forEach((t) => newAllTimeSlots.add(t));
       }
 
-      if (successCount === 0) {
-        throw new Error('All tabs failed to load.');
-      }
-
-      setAllClasses(newClasses);
+      setAllClasses(data.classes);
       setUniqueTeachers(newTeachers);
       setUniqueBaseTeachers(newBaseTeachers);
       setUniqueTimes(newTimes);
       setAllTimeSlots(newAllTimeSlots);
       setLastSyncTime(new Date());
 
-      let statusMsg = `Synced ${successCount}/${dayTabs.length} day(s)`;
-      if (failedTabs.length > 0) statusMsg += ` (${failedTabs.length} failed)`;
+      let statusMsg = `Synced ${data.syncedTabs}/${data.totalTabs} day(s)`;
+      if (data.failedTabs.length > 0) statusMsg += ` (${data.failedTabs.length} failed)`;
       setSyncStatus(statusMsg);
     } catch (error) {
       console.error('Sync error:', error);
