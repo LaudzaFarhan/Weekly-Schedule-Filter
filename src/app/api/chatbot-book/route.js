@@ -107,8 +107,8 @@ export async function POST(request) {
       remarks || 'Via Chatbot'        // Col H
     ];
 
-    // Using the native googleSheets.js API helper — tab name is "Trial"
-    await appendRow('Trial', rowData);
+    // Using the native googleSheets.js API helper — tab name is "Summary All"
+    await appendRow('Summary All', rowData);
 
     return NextResponse.json({
       success: true,
