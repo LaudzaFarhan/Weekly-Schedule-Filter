@@ -1,12 +1,50 @@
 'use client';
 
-import { createContext, useContext, useState, useCallback } from 'react';
+import { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react';
 import { doTimeSlotsOverlap, parseTimeSlot } from '../utils/timeUtils';
 import { DAY_NAMES } from '../utils/constants';
 
 const ScheduleContext = createContext(null);
 
+/* ─── helpers ────────────────────────────────────────────────────── */
+
+/** Safe localStorage read */
+function loadLocal(key, fallback) {
+  try {
+    if (typeof window === 'undefined') return fallback;
+    const raw = localStorage.getItem(key);
+    return raw ? JSON.parse(raw) : fallback;
+  } catch { return fallback; }
+}
+
+/** Save to localStorage (instant) + POST to API (background) */
+function persistConfig(key, value) {
+  // 1) localStorage — instant cache
+  try { localStorage.setItem(key, JSON.stringify(value)); } catch { /* ignore */ }
+
+  // 2) API — background fire-and-forget
+  fetch('/api/config', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ key, value }),
+  }).catch(() => { /* API not configured or offline — localStorage is the fallback */ });
+}
+
+/* ─── default values ─────────────────────────────────────────────── */
+
+const DEFAULT_TOGGLES = {
+  conflicts: true, availability: true, avail_available: true,
+  avail_busy: true, avail_leave: true, leave: true,
+  trial: true, trial_overview: true, finder: true, schedule: true, trial_input: true,
+};
+
+const DEFAULT_SHEET_URL = process.env.NEXT_PUBLIC_DEFAULT_SHEET_URL ||
+  'https://docs.google.com/spreadsheets/d/e/2PACX-1vS2ZEndjqsEzgvblfHF44IPQmJQRVHo65zzOya727KEZ0HjtmhXNAmXgzDXTPtGt9q3A02RqG0EV-7d/pubhtml';
+
+/* ─── provider ───────────────────────────────────────────────────── */
+
 export function ScheduleProvider({ children }) {
+  // Schedule data
   const [allClasses, setAllClasses] = useState([]);
   const [uniqueTeachers, setUniqueTeachers] = useState(new Set());
   const [uniqueBaseTeachers, setUniqueBaseTeachers] = useState(new Set());
@@ -15,54 +53,77 @@ export function ScheduleProvider({ children }) {
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncStatus, setSyncStatus] = useState('Ready to Sync');
   const [lastSyncTime, setLastSyncTime] = useState(null);
-  const [sheetUrl, setSheetUrl] = useState(
-    'https://docs.google.com/spreadsheets/d/e/2PACX-1vS2ZEndjqsEzgvblfHF44IPQmJQRVHo65zzOya727KEZ0HjtmhXNAmXgzDXTPtGt9q3A02RqG0EV-7d/pubhtml'
-  );
+  const [sheetUrl, setSheetUrl] = useState(DEFAULT_SHEET_URL);
 
-  // Leave list (persisted in localStorage)
-  const [leaveList, setLeaveList] = useState(() => {
-    try { return JSON.parse(localStorage.getItem('leaveList') || '[]'); } catch { return []; }
-  });
+  // Config data — initialised from localStorage (instant), then overwritten by API
+  const [leaveList, setLeaveList] = useState(() => loadLocal('leaveList', []));
+  const [trialPriorityList, setTrialPriorityList] = useState(() => loadLocal('trialPriority', []));
+  const [featureToggles, setFeatureToggles] = useState(() => loadLocal('featureToggles', DEFAULT_TOGGLES));
+  const [disabledInstructors, setDisabledInstructors] = useState(() => new Set(loadLocal('disabledInstructors', [])));
 
-  // Trial priority list (persisted in localStorage)
-  const [trialPriorityList, setTrialPriorityList] = useState(() => {
-    try { return JSON.parse(localStorage.getItem('trialPriority') || '[]'); } catch { return []; }
-  });
+  // Track whether we already loaded from API to avoid overwriting user edits
+  const apiLoaded = useRef(false);
 
-  // Feature toggles
-  const [featureToggles, setFeatureToggles] = useState(() => {
-    const defaults = {
-      conflicts: true, availability: true, avail_available: true,
-      avail_busy: true, avail_leave: true, leave: true,
-      trial: true, trial_overview: true, finder: true, schedule: true, trial_input: true,
-    };
-    try { return JSON.parse(localStorage.getItem('featureToggles') || JSON.stringify(defaults)); } catch { return defaults; }
-  });
+  // ─── Dual Storage: load from API on mount ────────────────────────
+  useEffect(() => {
+    if (apiLoaded.current) return;
+    apiLoaded.current = true;
 
-  // Disabled instructors (persisted in localStorage)
-  const [disabledInstructors, setDisabledInstructors] = useState(() => {
-    try { return new Set(JSON.parse(localStorage.getItem('disabledInstructors') || '[]')); } catch { return new Set(); }
-  });
+    fetch('/api/config')
+      .then((res) => res.json())
+      .then((data) => {
+        if (!data.configured) {
+          console.log('Config API: not configured — using localStorage only');
+          return;
+        }
+        console.log('Config API: loaded from Google Sheets');
+
+        // Only overwrite if the API returned data for each key
+        if (data.leaveList) {
+          setLeaveList(data.leaveList);
+          localStorage.setItem('leaveList', JSON.stringify(data.leaveList));
+        }
+        if (data.trialPriority) {
+          setTrialPriorityList(data.trialPriority);
+          localStorage.setItem('trialPriority', JSON.stringify(data.trialPriority));
+        }
+        if (data.featureToggles) {
+          setFeatureToggles(data.featureToggles);
+          localStorage.setItem('featureToggles', JSON.stringify(data.featureToggles));
+        }
+        if (data.disabledInstructors) {
+          setDisabledInstructors(new Set(data.disabledInstructors));
+          localStorage.setItem('disabledInstructors', JSON.stringify(data.disabledInstructors));
+        }
+      })
+      .catch(() => {
+        console.log('Config API: unreachable — using localStorage only');
+      });
+  }, []);
+
+  // ─── Update functions (dual storage) ─────────────────────────────
 
   const updateLeaveList = useCallback((newList) => {
     setLeaveList(newList);
-    localStorage.setItem('leaveList', JSON.stringify(newList));
+    persistConfig('leaveList', newList);
   }, []);
 
   const updateTrialPriorityList = useCallback((newList) => {
     setTrialPriorityList(newList);
-    localStorage.setItem('trialPriority', JSON.stringify(newList));
+    persistConfig('trialPriority', newList);
   }, []);
 
   const updateFeatureToggles = useCallback((newToggles) => {
     setFeatureToggles(newToggles);
-    localStorage.setItem('featureToggles', JSON.stringify(newToggles));
+    persistConfig('featureToggles', newToggles);
   }, []);
 
   const updateDisabledInstructors = useCallback((newSet) => {
     setDisabledInstructors(newSet);
-    localStorage.setItem('disabledInstructors', JSON.stringify([...newSet]));
+    persistConfig('disabledInstructors', [...newSet]);
   }, []);
+
+  // ─── Schedule sync ───────────────────────────────────────────────
 
   const syncSchedule = useCallback(async () => {
     if (!sheetUrl) {
@@ -110,7 +171,8 @@ export function ScheduleProvider({ children }) {
     }
   }, [sheetUrl]);
 
-  // Conflict engine
+  // ─── Conflict engine ─────────────────────────────────────────────
+
   const conflicts = (() => {
     const result = [];
     const teacherSchedule = {};
@@ -140,6 +202,8 @@ export function ScheduleProvider({ children }) {
     }
     return result;
   })();
+
+  // ─── Context value ────────────────────────────────────────────────
 
   const value = {
     allClasses, uniqueTeachers, uniqueBaseTeachers, uniqueTimes, allTimeSlots,
