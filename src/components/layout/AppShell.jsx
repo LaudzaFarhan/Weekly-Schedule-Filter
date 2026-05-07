@@ -14,6 +14,7 @@ import TrialPriorityPage from '@/views/TrialPriorityPage';
 import FinderPage from '@/views/FinderPage';
 import SchedulePage from '@/views/SchedulePage';
 import TrialInputPage from '@/views/TrialInputPage';
+import ApiDocsPage from '@/views/ApiDocsPage';
 import AdminPage from '@/views/AdminPage';
 
 const PAGE_MAP = {
@@ -25,6 +26,7 @@ const PAGE_MAP = {
   finder: FinderPage,
   schedule: SchedulePage,
   'trial-input': TrialInputPage,
+  'api-docs': ApiDocsPage,
   admin: AdminPage,
 };
 

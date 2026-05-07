@@ -16,6 +16,7 @@ const FEATURE_LABELS = {
   finder: 'Free Instructor Finder',
   schedule: 'Master Schedule View',
   trial_input: 'Input Trial Leads',
+  api_docs: 'API Documentation',
 };
 
 export default function AdminPage() {

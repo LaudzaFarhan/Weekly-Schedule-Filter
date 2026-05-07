@@ -44,6 +44,7 @@ const DEFAULT_TOGGLES = {
   conflicts: true, availability: true, avail_available: true,
   avail_busy: true, avail_leave: true, leave: true,
   trial: true, trial_overview: true, finder: true, schedule: true, trial_input: true,
+  api_docs: true,
 };
 
 const DEFAULT_SHEET_URL = process.env.NEXT_PUBLIC_DEFAULT_SHEET_URL ||

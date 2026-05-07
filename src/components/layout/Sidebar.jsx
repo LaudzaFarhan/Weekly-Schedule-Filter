@@ -4,7 +4,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useSchedule } from '@/contexts/ScheduleContext';
 import {
   Home, AlertTriangle, Calendar, Activity, Star,
-  Search, FileText, PenLine, Settings, LogOut,
+  Search, FileText, PenLine, Terminal, Settings, LogOut,
 } from 'lucide-react';
 
 const navItems = [
@@ -16,6 +16,7 @@ const navItems = [
   { id: 'finder', icon: Search, label: 'Free Finder' },
   { id: 'schedule', icon: FileText, label: 'Master Schedule' },
   { id: 'trial-input', icon: PenLine, label: 'Input Trial Leads' },
+  { id: 'api-docs', icon: Terminal, label: 'API Documentation' },
   { id: 'admin', icon: Settings, label: 'Admin Settings' },
 ];
 
@@ -36,6 +37,7 @@ export default function Sidebar({ currentPage, onNavigate }) {
   if (!featureToggles.finder) hiddenPages.add('finder');
   if (!featureToggles.schedule) hiddenPages.add('schedule');
   if (!featureToggles.trial_input) hiddenPages.add('trial-input');
+  if (!featureToggles.api_docs) hiddenPages.add('api-docs');
 
   return (
     <aside className="sidebar">
