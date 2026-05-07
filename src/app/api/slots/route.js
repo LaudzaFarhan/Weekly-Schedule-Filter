@@ -21,11 +21,22 @@ export async function GET(request) {
     // 2. Parse Query Params
     const { searchParams } = new URL(request.url);
     const day = searchParams.get('day');
-    const program = searchParams.get('program');
+    let program = searchParams.get('program');
+    const age = searchParams.get('age');
+
+    // Automatically convert Age to Program if age is provided
+    if (age && !program) {
+      const ageNum = parseInt(age, 10);
+      if (!isNaN(ageNum)) {
+        if (ageNum >= 4 && ageNum <= 7) program = 'Trial Kinder';
+        else if (ageNum >= 8 && ageNum <= 10) program = 'Trial Junior';
+        else if (ageNum >= 11) program = 'Trial Coder';
+      }
+    }
 
     if (!day || !program) {
       return NextResponse.json(
-        { error: 'Missing required parameters: day, program' },
+        { error: 'Missing required parameters: day and either (program OR age)' },
         { status: 400 }
       );
     }

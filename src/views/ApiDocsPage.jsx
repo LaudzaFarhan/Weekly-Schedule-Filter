@@ -72,10 +72,15 @@ export default function ApiDocsPage() {
                       <td style={{ padding: '0.75rem 0', color: 'var(--text-muted)' }}>Yes</td>
                       <td style={{ padding: '0.75rem 0', color: 'var(--text-muted)' }}>e.g., "Monday", "Saturday"</td>
                     </tr>
-                    <tr>
+                    <tr style={{ borderBottom: '1px solid var(--border-color)' }}>
                       <td style={{ padding: '0.75rem 0', fontFamily: 'monospace' }}>program</td>
-                      <td style={{ padding: '0.75rem 0', color: 'var(--text-muted)' }}>Yes</td>
-                      <td style={{ padding: '0.75rem 0', color: 'var(--text-muted)' }}>e.g., "Trial Kinder", "Trial Coder"</td>
+                      <td style={{ padding: '0.75rem 0', color: 'var(--text-muted)' }}>No*</td>
+                      <td style={{ padding: '0.75rem 0', color: 'var(--text-muted)' }}>e.g., "Trial Kinder". *Required if age is missing.</td>
+                    </tr>
+                    <tr>
+                      <td style={{ padding: '0.75rem 0', fontFamily: 'monospace' }}>age</td>
+                      <td style={{ padding: '0.75rem 0', color: 'var(--text-muted)' }}>No*</td>
+                      <td style={{ padding: '0.75rem 0', color: 'var(--text-muted)' }}>e.g., "5". Automatically sets program. *Required if program missing.</td>
                     </tr>
                   </tbody>
                 </table>
@@ -91,6 +96,68 @@ export default function ApiDocsPage() {
     "10.30 - 11.30 am",
     "11.00 am - 12.00 pm"
   ]
+}`}
+                </pre>
+              </div>
+            </div>
+          </div>
+
+          <div style={{ marginBottom: '2rem' }}>
+            <h3 style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1rem', color: 'var(--text-main)' }}>
+              <Terminal size={20} className="text-primary" />
+              Chatbot Booking API
+            </h3>
+            <p style={{ color: 'var(--text-muted)', marginBottom: '1rem', lineHeight: 1.5 }}>
+              Use this endpoint at the end of the Chatbot flow to finalize and save the booking into the Trial Leads Google Sheet. It automatically finds an available instructor. Note: Requires Google Service Account configured in Vercel.
+            </p>
+            
+            <div style={{ background: 'var(--bg-dashboard)', border: '1px solid var(--border-color)', borderRadius: '8px', overflow: 'hidden' }}>
+              <div style={{ padding: '1rem', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
+                  <span style={{ background: '#059669', color: 'white', padding: '0.2rem 0.6rem', borderRadius: '4px', fontSize: '0.85rem', fontWeight: 'bold' }}>POST</span>
+                  <code style={{ color: 'var(--text-main)', fontSize: '0.9rem' }}>/api/chatbot-book</code>
+                </div>
+                <button 
+                  onClick={() => handleCopy(`${baseUrl}/api/chatbot-book`)}
+                  style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.2rem' }}
+                >
+                  <Copy size={16} />
+                  <span style={{ fontSize: '0.85rem' }}>Copy URL</span>
+                </button>
+              </div>
+              
+              <div style={{ padding: '1.5rem', background: 'var(--bg-panel)' }}>
+                <h4 style={{ fontSize: '0.9rem', color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '0.5rem' }}>Headers</h4>
+                <div style={{ background: 'var(--bg-dashboard)', padding: '1rem', borderRadius: '6px', marginBottom: '1.5rem', fontFamily: 'monospace', fontSize: '0.9rem', color: 'var(--text-main)' }}>
+                  Authorization: Bearer &lt;YOUR_CHATBOT_API_KEY&gt;<br />
+                  Content-Type: application/json
+                </div>
+
+                <h4 style={{ fontSize: '0.9rem', color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '0.5rem' }}>JSON Body payload</h4>
+                <pre style={{ background: 'var(--bg-dashboard)', padding: '1rem', borderRadius: '6px', overflowX: 'auto', fontFamily: 'monospace', fontSize: '0.9rem', color: 'var(--text-main)', marginBottom: '1.5rem' }}>
+{`{
+  "student": "Sky Rianto",
+  "age": 8,
+  "day": "Monday",
+  "date": "2026-05-15",
+  "time": "3.00 - 4.00 pm",
+  "remarks": "Parent phone: 12345"
+}`}
+                </pre>
+
+                <h4 style={{ fontSize: '0.9rem', color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '0.5rem' }}>Success Response (200 OK)</h4>
+                <pre style={{ background: 'var(--bg-dashboard)', padding: '1rem', borderRadius: '6px', overflowX: 'auto', fontFamily: 'monospace', fontSize: '0.9rem', color: 'var(--text-main)' }}>
+{`{
+  "success": true,
+  "message": "Booking successfully saved",
+  "data": {
+    "student": "Sky Rianto",
+    "program": "Trial Junior",
+    "instructor": "Teacher Sarah",
+    "day": "Monday",
+    "date": "2026-05-15",
+    "time": "3.00 - 4.00 pm"
+  }
 }`}
                 </pre>
               </div>
