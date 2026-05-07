@@ -163,6 +163,28 @@ export default function ApiDocsPage() {
               </div>
             </div>
           </div>
+
+          {/* New Postman Guide Section */}
+          <div style={{ marginTop: '3rem', paddingTop: '2rem', borderTop: '1px solid var(--border-color)' }}>
+            <h3 style={{ marginBottom: '1rem', color: 'var(--text-main)' }}>How to test these APIs in Postman</h3>
+            <div style={{ background: 'var(--bg-panel)', padding: '1.5rem', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
+              <ol style={{ paddingLeft: '1.5rem', color: 'var(--text-muted)', lineHeight: '1.8' }}>
+                <li style={{ marginBottom: '0.5rem' }}>Open Postman and create a new request.</li>
+                <li style={{ marginBottom: '0.5rem' }}>Set the method to <strong>GET</strong> (for slots) or <strong>POST</strong> (for booking).</li>
+                <li style={{ marginBottom: '0.5rem' }}>Paste the full URL (e.g., <code>https://weekly-schedule-filter.vercel.app/api/slots?day=Saturday&program=Trial%20Kinder</code>).</li>
+                <li style={{ marginBottom: '0.5rem' }}>
+                  Click the <strong>Authorization</strong> tab right below the URL bar.
+                </li>
+                <li style={{ marginBottom: '0.5rem' }}>
+                  Change the Type to <strong>Bearer Token</strong>.
+                </li>
+                <li style={{ marginBottom: '0.5rem' }}>
+                  In the <strong>Token</strong> field, paste your API key (e.g., <code>qontak-secure-key-12345</code>).
+                </li>
+                <li>Click <strong>Send</strong>! You should see the JSON response appear at the bottom.</li>
+              </ol>
+            </div>
+          </div>
           
         </div>
       </div>
