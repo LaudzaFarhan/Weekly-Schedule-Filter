@@ -191,14 +191,36 @@ export async function setConfigValue(key, value) {
 
 /**
  * Append a row of data to a specific sheet.
+ * Auto-creates the sheet tab if it doesn't exist.
  */
 export async function appendRow(sheetName, values) {
   const sheets = getSheetsClient();
   const spreadsheetId = process.env.GOOGLE_SPREADSHEET_ID;
 
+  // Ensure the target sheet exists
+  const meta = await sheets.spreadsheets.get({ spreadsheetId });
+  const exists = meta.data.sheets.some(s => s.properties.title === sheetName);
+
+  if (!exists) {
+    await sheets.spreadsheets.batchUpdate({
+      spreadsheetId,
+      requestBody: {
+        requests: [{ addSheet: { properties: { title: sheetName } } }],
+      },
+    });
+
+    // Add header row
+    await sheets.spreadsheets.values.update({
+      spreadsheetId,
+      range: `'${sheetName}'!A1:H1`,
+      valueInputOption: 'RAW',
+      requestBody: { values: [['Source', 'Program', 'Student', 'Instructor', 'Day', 'Time', 'Date', 'Remarks']] },
+    });
+  }
+
   await sheets.spreadsheets.values.append({
     spreadsheetId,
-    range: `${sheetName}!A:Z`,
+    range: `'${sheetName}'!A:Z`,
     valueInputOption: 'USER_ENTERED',
     requestBody: { values: [values] },
   });
