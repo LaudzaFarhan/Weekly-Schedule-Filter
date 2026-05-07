@@ -6,15 +6,15 @@ import { ScheduleProvider } from '@/contexts/ScheduleContext';
 import LoginOverlay from '@/components/auth/LoginOverlay';
 import Sidebar from '@/components/layout/Sidebar';
 import Header from '@/components/layout/Header';
-import HomePage from '@/pages/HomePage';
-import ConflictsPage from '@/pages/ConflictsPage';
-import AvailabilityPage from '@/pages/AvailabilityPage';
-import LeavePage from '@/pages/LeavePage';
-import TrialPriorityPage from '@/pages/TrialPriorityPage';
-import FinderPage from '@/pages/FinderPage';
-import SchedulePage from '@/pages/SchedulePage';
-import TrialInputPage from '@/pages/TrialInputPage';
-import AdminPage from '@/pages/AdminPage';
+import HomePage from '@/views/HomePage';
+import ConflictsPage from '@/views/ConflictsPage';
+import AvailabilityPage from '@/views/AvailabilityPage';
+import LeavePage from '@/views/LeavePage';
+import TrialPriorityPage from '@/views/TrialPriorityPage';
+import FinderPage from '@/views/FinderPage';
+import SchedulePage from '@/views/SchedulePage';
+import TrialInputPage from '@/views/TrialInputPage';
+import AdminPage from '@/views/AdminPage';
 
 const PAGE_MAP = {
   home: HomePage,
