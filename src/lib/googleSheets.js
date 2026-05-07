@@ -190,40 +190,49 @@ export async function setConfigValue(key, value) {
 }
 
 /**
- * Append a row of data to a specific sheet.
- * Auto-creates the sheet tab if it doesn't exist.
+ * Insert a row of data into a specific sheet at a fixed row (default: 480).
+ * Pushes existing data below that row downward.
  */
-export async function appendRow(sheetName, values) {
+export async function appendRow(sheetName, values, insertAtRow = 480) {
   const sheets = getSheetsClient();
   const spreadsheetId = process.env.GOOGLE_SPREADSHEET_ID;
 
-  // Ensure the target sheet exists
+  // Get the sheet ID (required for insertDimension)
   const meta = await sheets.spreadsheets.get({ spreadsheetId });
-  const exists = meta.data.sheets.some(s => s.properties.title === sheetName);
+  const sheetMeta = meta.data.sheets.find(s => s.properties.title === sheetName);
 
-  if (!exists) {
-    await sheets.spreadsheets.batchUpdate({
-      spreadsheetId,
-      requestBody: {
-        requests: [{ addSheet: { properties: { title: sheetName } } }],
-      },
-    });
-
-    // Add header row
-    await sheets.spreadsheets.values.update({
-      spreadsheetId,
-      range: `'${sheetName}'!A1:H1`,
-      valueInputOption: 'RAW',
-      requestBody: { values: [['Source', 'Program', 'Student', 'Instructor', 'Day', 'Time', 'Date', 'Remarks']] },
-    });
+  if (!sheetMeta) {
+    throw new Error(`Sheet "${sheetName}" not found in the spreadsheet.`);
   }
 
-  await sheets.spreadsheets.values.append({
+  const sheetId = sheetMeta.properties.sheetId;
+
+  // 1. Insert a blank row at the target position (0-indexed, so row 480 = index 479)
+  await sheets.spreadsheets.batchUpdate({
     spreadsheetId,
-    range: `'${sheetName}'!A:Z`,
+    requestBody: {
+      requests: [{
+        insertDimension: {
+          range: {
+            sheetId: sheetId,
+            dimension: 'ROWS',
+            startIndex: insertAtRow - 1,  // 0-indexed
+            endIndex: insertAtRow,         // insert 1 row
+          },
+          inheritFromBefore: true,
+        },
+      }],
+    },
+  });
+
+  // 2. Write the data into the newly inserted row
+  await sheets.spreadsheets.values.update({
+    spreadsheetId,
+    range: `'${sheetName}'!A${insertAtRow}:${String.fromCharCode(64 + values.length)}${insertAtRow}`,
     valueInputOption: 'USER_ENTERED',
     requestBody: { values: [values] },
   });
 
   return { success: true };
 }
+
