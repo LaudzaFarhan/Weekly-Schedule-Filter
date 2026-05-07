@@ -63,12 +63,11 @@ function getSheetsClient() {
   if (_sheets) return _sheets;
 
   const creds = getCredentials();
-  const auth = new google.auth.JWT(
-    creds.email,
-    null,
-    creds.key,
-    ['https://www.googleapis.com/auth/spreadsheets']
-  );
+  const auth = new google.auth.JWT({
+    email: creds.email,
+    key: creds.key,
+    scopes: ['https://www.googleapis.com/auth/spreadsheets'],
+  });
 
   _sheets = google.sheets({ version: 'v4', auth });
   return _sheets;

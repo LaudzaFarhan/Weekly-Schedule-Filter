@@ -42,12 +42,11 @@ export async function GET() {
   // Step 3: Try to authenticate
   try {
     let key = sa.private_key.replace(/\\n/g, '\n');
-    const auth = new google.auth.JWT(
-      sa.client_email,
-      null,
-      key,
-      ['https://www.googleapis.com/auth/spreadsheets']
-    );
+    const auth = new google.auth.JWT({
+      email: sa.client_email,
+      key: key,
+      scopes: ['https://www.googleapis.com/auth/spreadsheets'],
+    });
     await auth.authorize();
     results.step3_auth = { success: true };
   } catch (e) {
@@ -58,12 +57,11 @@ export async function GET() {
   // Step 4: Try to read the spreadsheet
   try {
     let key = sa.private_key.replace(/\\n/g, '\n');
-    const auth = new google.auth.JWT(
-      sa.client_email,
-      null,
-      key,
-      ['https://www.googleapis.com/auth/spreadsheets']
-    );
+    const auth = new google.auth.JWT({
+      email: sa.client_email,
+      key: key,
+      scopes: ['https://www.googleapis.com/auth/spreadsheets'],
+    });
     const sheets = google.sheets({ version: 'v4', auth });
     const meta = await sheets.spreadsheets.get({
       spreadsheetId: process.env.GOOGLE_SPREADSHEET_ID,
