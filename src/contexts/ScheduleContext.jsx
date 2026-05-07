@@ -8,12 +8,20 @@ const ScheduleContext = createContext(null);
 
 /* ─── helpers ────────────────────────────────────────────────────── */
 
-/** Safe localStorage read */
+/** Safe localStorage read, merges with defaults if it's an object */
 function loadLocal(key, fallback) {
   try {
     if (typeof window === 'undefined') return fallback;
     const raw = localStorage.getItem(key);
-    return raw ? JSON.parse(raw) : fallback;
+    if (!raw) return fallback;
+    const parsed = JSON.parse(raw);
+    
+    // If it's the toggles object, merge with defaults to prevent missing new keys
+    if (key === 'featureToggles' && typeof parsed === 'object') {
+      return { ...fallback, ...parsed };
+    }
+    
+    return parsed;
   } catch { return fallback; }
 }
 
@@ -88,8 +96,9 @@ export function ScheduleProvider({ children }) {
           localStorage.setItem('trialPriority', JSON.stringify(data.trialPriority));
         }
         if (data.featureToggles) {
-          setFeatureToggles(data.featureToggles);
-          localStorage.setItem('featureToggles', JSON.stringify(data.featureToggles));
+          const mergedToggles = { ...DEFAULT_TOGGLES, ...data.featureToggles };
+          setFeatureToggles(mergedToggles);
+          localStorage.setItem('featureToggles', JSON.stringify(mergedToggles));
         }
         if (data.disabledInstructors) {
           setDisabledInstructors(new Set(data.disabledInstructors));

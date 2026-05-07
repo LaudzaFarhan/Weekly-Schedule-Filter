@@ -60,3 +60,41 @@ export function doTimeSlotsOverlap(slot1, slot2) {
 
   return parsed1.start < parsed2.end && parsed2.start < parsed1.end;
 }
+
+/**
+ * Generate 1-hour trial slots for a given day (e.g. "Monday").
+ */
+export function generateTrialSlots(dayName) {
+  if (!dayName || dayName === 'Sunday') return [];
+  
+  const isSaturday = dayName === 'Saturday';
+  const startHour = isSaturday ? 10 : 11;
+  
+  const slots = [];
+  for (let hour = startHour; hour <= 18; hour++) {
+    for (let min of [0, 30]) {
+      const formatTime = (h, m) => {
+        const isPM = h >= 12;
+        const displayH = h > 12 ? h - 12 : h;
+        const ampm = isPM ? 'pm' : 'am';
+        return `${displayH}.${m === 0 ? '00' : '30'} ${ampm}`;
+      };
+      
+      const startStr = formatTime(hour, min);
+      const endHour = hour + 1;
+      const endStr = formatTime(endHour, min);
+      
+      const startIsPM = hour >= 12;
+      const endIsPM = endHour >= 12;
+      
+      let slotString = '';
+      if (startIsPM === endIsPM) {
+        slotString = `${startStr.replace(/ am| pm/g, '')} - ${endStr}`;
+      } else {
+        slotString = `${startStr} - ${endStr}`;
+      }
+      slots.push(slotString);
+    }
+  }
+  return slots;
+}
