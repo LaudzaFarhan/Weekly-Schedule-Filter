@@ -226,41 +226,30 @@ export async function appendRow(sheetName, values, insertAtRow = 480) {
     });
   }
 
-  // Insert row + write data in a single atomic batchUpdate
-  const cellData = values.map(v => ({
-    userEnteredValue: { stringValue: String(v) },
-  }));
-
+  // Step 1: Insert a blank row at the target position
   await sheets.spreadsheets.batchUpdate({
     spreadsheetId,
     requestBody: {
-      requests: [
-        // 1. Insert a blank row at the target position
-        {
-          insertDimension: {
-            range: {
-              sheetId: sheetId,
-              dimension: 'ROWS',
-              startIndex: insertAtRow - 1,
-              endIndex: insertAtRow,
-            },
-            inheritFromBefore: true,
+      requests: [{
+        insertDimension: {
+          range: {
+            sheetId: sheetId,
+            dimension: 'ROWS',
+            startIndex: insertAtRow - 1,
+            endIndex: insertAtRow,
           },
+          inheritFromBefore: false,
         },
-        // 2. Write data into the newly inserted row
-        {
-          updateCells: {
-            start: {
-              sheetId: sheetId,
-              rowIndex: insertAtRow - 1,
-              columnIndex: 0,
-            },
-            rows: [{ values: cellData }],
-            fields: 'userEnteredValue',
-          },
-        },
-      ],
+      }],
     },
+  });
+
+  // Step 2: Write data using values.update (proven to work)
+  await sheets.spreadsheets.values.update({
+    spreadsheetId,
+    range: `'${sheetName}'!A${insertAtRow}:H${insertAtRow}`,
+    valueInputOption: 'USER_ENTERED',
+    requestBody: { values: [values] },
   });
 
   return { success: true };
