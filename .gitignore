@@ -1,5 +1,28 @@
-node_modules
-dist
-.env.local
-.env
-*.log
+# dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# next.js
+.next/
+out/
+
+# production
+build/
+dist/
+
+# env files
+.env*.local
+
+# misc
+.DS_Store
+*.pem
+
+# debug
+npm-debug.log*
+
+# local
+*.local
+
+# vercel
+.vercel

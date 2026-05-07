@@ -1,3 +1,5 @@
+'use client';
+
 import { useState, useMemo } from 'react';
 import { useSchedule } from '../contexts/ScheduleContext';
 import { doTimeSlotsOverlap, parseTimeSlot } from '../utils/timeUtils';

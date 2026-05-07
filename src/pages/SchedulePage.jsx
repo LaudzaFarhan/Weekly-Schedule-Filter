@@ -1,3 +1,5 @@
+'use client';
+
 import { useState, useMemo } from 'react';
 import { useSchedule } from '../contexts/ScheduleContext';
 import { SCHEDULE_PAGE_SIZE } from '../utils/constants';

@@ -1,3 +1,5 @@
+'use client';
+
 import { useState, useMemo } from 'react';
 import { submitTrialLead } from '../services/trialSubmit';
 import { Send, Clock, Calendar } from 'lucide-react';

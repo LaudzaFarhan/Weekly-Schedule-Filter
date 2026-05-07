@@ -1,3 +1,5 @@
+'use client';
+
 import { createContext, useContext, useState, useCallback } from 'react';
 import { discoverTabs, filterDayTabs, getBaseUrl, getProxyUrl, fetchWithTimeout } from '../services/sheetsApi';
 import { parseCSVData } from '../utils/csvParser';

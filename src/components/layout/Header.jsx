@@ -1,3 +1,5 @@
+'use client';
+
 import { useSchedule } from '../../contexts/ScheduleContext';
 import { RefreshCw } from 'lucide-react';
 

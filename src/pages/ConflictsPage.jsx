@@ -1,3 +1,5 @@
+'use client';
+
 import { useState } from 'react';
 import { useSchedule } from '../contexts/ScheduleContext';
 import Badge from '../components/ui/Badge';
