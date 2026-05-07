@@ -24,13 +24,24 @@ function getCredentials() {
   if (process.env.GOOGLE_SERVICE_ACCOUNT) {
     try {
       const sa = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT);
-      return { email: sa.client_email, key: sa.private_key };
-    } catch { return null; }
+      // Ensure private_key has real newlines (Vercel may double-escape them)
+      let key = sa.private_key;
+      if (key && !key.includes('-----BEGIN')) {
+        // Key might be base64 or corrupted
+        return null;
+      }
+      // Replace literal \n with real newlines if needed
+      key = key.replace(/\\n/g, '\n');
+      return { email: sa.client_email, key };
+    } catch (e) {
+      console.error('Failed to parse GOOGLE_SERVICE_ACCOUNT:', e.message);
+      return null;
+    }
   }
   if (process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL && process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY) {
     return {
       email: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
-      key: process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY,
+      key: process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY.replace(/\\n/g, '\n'),
     };
   }
   return null;
@@ -55,7 +66,7 @@ function getSheetsClient() {
   const auth = new google.auth.JWT(
     creds.email,
     null,
-    creds.key.replace(/\\n/g, '\n'),
+    creds.key,
     ['https://www.googleapis.com/auth/spreadsheets']
   );
 
