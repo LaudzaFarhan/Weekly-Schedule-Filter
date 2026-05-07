@@ -17,15 +17,31 @@ let _sheets = null;
 let _configured = null;
 
 /**
+ * Parse the service account credentials from a single JSON env var
+ * or fall back to separate env vars.
+ */
+function getCredentials() {
+  if (process.env.GOOGLE_SERVICE_ACCOUNT) {
+    try {
+      const sa = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT);
+      return { email: sa.client_email, key: sa.private_key };
+    } catch { return null; }
+  }
+  if (process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL && process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY) {
+    return {
+      email: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
+      key: process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY,
+    };
+  }
+  return null;
+}
+
+/**
  * Check if Google Sheets API credentials are configured.
  */
 export function isConfigured() {
   if (_configured !== null) return _configured;
-  _configured = !!(
-    process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL &&
-    process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY &&
-    process.env.GOOGLE_SPREADSHEET_ID
-  );
+  _configured = !!(getCredentials() && process.env.GOOGLE_SPREADSHEET_ID);
   return _configured;
 }
 
@@ -35,10 +51,11 @@ export function isConfigured() {
 function getSheetsClient() {
   if (_sheets) return _sheets;
 
+  const creds = getCredentials();
   const auth = new google.auth.JWT(
-    process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
+    creds.email,
     null,
-    process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY.replace(/\\n/g, '\n'),
+    creds.key.replace(/\\n/g, '\n'),
     ['https://www.googleapis.com/auth/spreadsheets']
   );
 
