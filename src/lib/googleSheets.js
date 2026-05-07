@@ -161,3 +161,20 @@ export async function setConfigValue(key, value) {
 
   return { success: true, key };
 }
+
+/**
+ * Append a row of data to a specific sheet.
+ */
+export async function appendRow(sheetName, values) {
+  const sheets = getSheetsClient();
+  const spreadsheetId = process.env.GOOGLE_SPREADSHEET_ID;
+
+  await sheets.spreadsheets.values.append({
+    spreadsheetId,
+    range: `${sheetName}!A:Z`,
+    valueInputOption: 'USER_ENTERED',
+    requestBody: { values: [values] },
+  });
+
+  return { success: true };
+}
