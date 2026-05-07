@@ -44,7 +44,14 @@ const DEFAULT_TOGGLES = {
   conflicts: true, availability: true, avail_available: true,
   avail_busy: true, avail_leave: true, leave: true,
   trial: true, trial_overview: true, finder: true, schedule: true, trial_input: true,
-  api_docs: true,
+  api_docs: true, admin: true,
+};
+
+const DEFAULT_ROLE_TOGGLES = {
+  SPA: { ...DEFAULT_TOGGLES },
+  EC: { ...DEFAULT_TOGGLES, api_docs: false, admin: false },
+  Instructor: { ...DEFAULT_TOGGLES, api_docs: false, admin: false, trial_input: false },
+  Supervisor: { ...DEFAULT_TOGGLES }
 };
 
 const DEFAULT_SHEET_URL = process.env.NEXT_PUBLIC_DEFAULT_SHEET_URL ||
@@ -69,6 +76,10 @@ export function ScheduleProvider({ children }) {
   const [trialPriorityList, setTrialPriorityList] = useState(() => loadLocal('trialPriority', []));
   const [featureToggles, setFeatureToggles] = useState(() => loadLocal('featureToggles', DEFAULT_TOGGLES));
   const [disabledInstructors, setDisabledInstructors] = useState(() => new Set(loadLocal('disabledInstructors', [])));
+  
+  // RBAC Config
+  const [users, setUsers] = useState(() => loadLocal('users', { 'admin@schedule.local': 'SPA' }));
+  const [roleToggles, setRoleToggles] = useState(() => loadLocal('roleToggles', DEFAULT_ROLE_TOGGLES));
 
   // Track whether we already loaded from API to avoid overwriting user edits
   const apiLoaded = useRef(false);
@@ -105,6 +116,15 @@ export function ScheduleProvider({ children }) {
           setDisabledInstructors(new Set(data.disabledInstructors));
           localStorage.setItem('disabledInstructors', JSON.stringify(data.disabledInstructors));
         }
+        if (data.users) {
+          setUsers(data.users);
+          localStorage.setItem('users', JSON.stringify(data.users));
+        }
+        if (data.roleToggles) {
+          const merged = { ...DEFAULT_ROLE_TOGGLES, ...data.roleToggles };
+          setRoleToggles(merged);
+          localStorage.setItem('roleToggles', JSON.stringify(merged));
+        }
       })
       .catch(() => {
         console.log('Config API: unreachable — using localStorage only');
@@ -131,6 +151,16 @@ export function ScheduleProvider({ children }) {
   const updateDisabledInstructors = useCallback((newSet) => {
     setDisabledInstructors(newSet);
     persistConfig('disabledInstructors', [...newSet]);
+  }, []);
+
+  const updateUsers = useCallback((newUsers) => {
+    setUsers(newUsers);
+    persistConfig('users', newUsers);
+  }, []);
+
+  const updateRoleToggles = useCallback((newRoleToggles) => {
+    setRoleToggles(newRoleToggles);
+    persistConfig('roleToggles', newRoleToggles);
   }, []);
 
   // ─── Schedule sync ───────────────────────────────────────────────
@@ -223,6 +253,8 @@ export function ScheduleProvider({ children }) {
     trialPriorityList, updateTrialPriorityList,
     featureToggles, updateFeatureToggles,
     disabledInstructors, updateDisabledInstructors,
+    users, updateUsers,
+    roleToggles, updateRoleToggles,
   };
 
   return <ScheduleContext.Provider value={value}>{children}</ScheduleContext.Provider>;

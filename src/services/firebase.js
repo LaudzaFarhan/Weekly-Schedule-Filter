@@ -1,4 +1,4 @@
-import { initializeApp } from 'firebase/app';
+import { initializeApp, getApps, getApp } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
 
 const firebaseConfig = {
@@ -11,6 +11,12 @@ const firebaseConfig = {
   measurementId: process.env.NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID,
 };
 
-const app = initializeApp(firebaseConfig);
+const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
 export const auth = getAuth(app);
+
+// Secondary app for creating accounts without logging the admin out
+const secondaryApp = getApps().find(a => a.name === 'Secondary') 
+  || initializeApp(firebaseConfig, 'Secondary');
+export const secondaryAuth = getAuth(secondaryApp);
+
 export default app;
