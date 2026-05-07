@@ -197,7 +197,7 @@ export async function appendRow(sheetName, values, insertAtRow = 480) {
   const sheets = getSheetsClient();
   const spreadsheetId = process.env.GOOGLE_SPREADSHEET_ID;
 
-  // Get the sheet ID (required for insertDimension)
+  // Get the sheet ID and current grid size
   const meta = await sheets.spreadsheets.get({ spreadsheetId });
   const sheetMeta = meta.data.sheets.find(s => s.properties.title === sheetName);
 
@@ -206,6 +206,25 @@ export async function appendRow(sheetName, values, insertAtRow = 480) {
   }
 
   const sheetId = sheetMeta.properties.sheetId;
+  const currentRowCount = sheetMeta.properties.gridProperties.rowCount;
+
+  // If the sheet is too small, expand it first
+  if (currentRowCount < insertAtRow) {
+    await sheets.spreadsheets.batchUpdate({
+      spreadsheetId,
+      requestBody: {
+        requests: [{
+          updateSheetProperties: {
+            properties: {
+              sheetId: sheetId,
+              gridProperties: { rowCount: insertAtRow + 100 },
+            },
+            fields: 'gridProperties.rowCount',
+          },
+        }],
+      },
+    });
+  }
 
   // 1. Insert a blank row at the target position (0-indexed, so row 480 = index 479)
   await sheets.spreadsheets.batchUpdate({
@@ -216,8 +235,8 @@ export async function appendRow(sheetName, values, insertAtRow = 480) {
           range: {
             sheetId: sheetId,
             dimension: 'ROWS',
-            startIndex: insertAtRow - 1,  // 0-indexed
-            endIndex: insertAtRow,         // insert 1 row
+            startIndex: insertAtRow - 1,
+            endIndex: insertAtRow,
           },
           inheritFromBefore: true,
         },
