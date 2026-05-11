@@ -257,12 +257,14 @@ export default function ProfilePage() {
                           ) : <span style={{ color: 'var(--text-muted)' }}>—</span>}
                         </td>
                         <td style={{ textAlign: 'center' }}>
-                          <button className="btn-icon" onClick={() => handleEdit(p)} title="Edit" style={{ color: 'var(--primary-blue)' }}>
-                            <Pencil size={16} />
-                          </button>
-                          <button className="btn-icon btn-icon-danger" onClick={() => handleDelete(p.id)} title="Delete">
-                            <Trash2 size={16} />
-                          </button>
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem' }}>
+                            <button className="btn-icon" onClick={() => handleEdit(p)} title="Edit" style={{ color: 'var(--primary-blue)' }}>
+                              <Pencil size={16} />
+                            </button>
+                            <button className="btn-icon btn-icon-danger" onClick={() => handleDelete(p.id)} title="Delete">
+                              <Trash2 size={16} />
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     ))
