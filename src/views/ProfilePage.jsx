@@ -39,23 +39,42 @@ export default function ProfilePage() {
   const activeBranch = branches?.find(b => b.id === activeBranchId);
   const branchName = activeBranch?.name || 'Default Branch';
 
+  /**
+   * Find the instructor's profile using multiple matching strategies:
+   * 1. Exact match by document ID (user.email)
+   * 2. Match by linkedEmail field (set after first save)
+   * 3. Match by nickname matching the user's display name or email local part
+   */
+  const findMyProfile = (profiles, email) => {
+    if (!profiles || !email) return null;
+    
+    // 1. Exact document ID match
+    const exactMatch = profiles.find(p => p.id === email);
+    if (exactMatch) return exactMatch;
+
+    // 2. Match by linkedEmail field
+    const linkedMatch = profiles.find(p => p.linkedEmail === email);
+    if (linkedMatch) return linkedMatch;
+
+    // 3. Match by nickname (case-insensitive) against the email local part
+    const localPart = email.split('@')[0].toLowerCase();
+    const nicknameMatch = profiles.find(p => 
+      p.nickname && p.nickname.toLowerCase() === localPart
+    );
+    if (nicknameMatch) return nicknameMatch;
+
+    return null;
+  };
+
   useEffect(() => {
     // If not a supervisor, automatically open their own profile
     if (!isSupervisor && instructorProfiles) {
-      const myProfile = instructorProfiles.find(p => p.id === user.email);
+      const myProfile = findMyProfile(instructorProfiles, user.email);
       if (myProfile) {
         setEditingProfile(myProfile);
       } else {
-        // Init empty profile
-        setEditingProfile({
-          id: user.email,
-          fullname: '',
-          nickname: '',
-          specialization: '',
-          phoneNumber: '',
-          location: '',
-          trainingProgress: {}
-        });
+        // No linked profile found — show read-only message
+        setEditingProfile(null);
       }
     }
   }, [isSupervisor, instructorProfiles, user.email]);
@@ -94,14 +113,21 @@ export default function ProfilePage() {
     e.preventDefault();
     setLoading(true);
     try {
-      const email = editingProfile.id || user.email;
+      // Use the profile's original document ID (not user.email) to update the correct document
+      const docId = editingProfile.id || user.email;
       // Strip 'id' from the payload — it's the document key, not a field
       const { id, ...profileData } = editingProfile;
-      await saveProfile(email, profileData);
+      
+      // Store the real auth email so future logins can find this profile
+      if (!isSupervisor && user.email !== docId) {
+        profileData.linkedEmail = user.email;
+      }
+      
+      await saveProfile(docId, profileData);
       await refreshProfiles();
       alert('Profile saved successfully!');
       
-      if (isSupervisor && email !== user.email) {
+      if (isSupervisor && docId !== user.email) {
         setEditingProfile(null);
       }
     } catch (error) {
@@ -171,7 +197,23 @@ export default function ProfilePage() {
   };
 
   if (!isSupervisor && !editingProfile) {
-    return <div className="loading-screen"><div className="loading-spinner" /></div>;
+    return (
+      <section className="dashboard-view active">
+        <div className="panel animation-fade-in">
+          <div className="panel-header">
+            <h2>Instructor Profile</h2>
+          </div>
+          <div className="panel-body" style={{ padding: '3rem', textAlign: 'center' }}>
+            <p style={{ fontSize: '1.1rem', color: 'var(--text-secondary)', marginBottom: '0.5rem' }}>
+              Your profile hasn't been linked yet.
+            </p>
+            <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>
+              Please contact your supervisor to add you to the Trial Priority list and sync profiles.
+            </p>
+          </div>
+        </div>
+      </section>
+    );
   }
 
   return (
