@@ -10,6 +10,8 @@ const DAY_NAMES = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Satu
 export async function GET(request) {
   const { searchParams } = new URL(request.url);
   let sheetUrl = searchParams.get('sheetUrl');
+  const branchId = searchParams.get('branchId') || 'default';
+  const branchName = searchParams.get('branchName') || 'Default';
 
   if (!sheetUrl) {
     return NextResponse.json({ error: 'Missing sheetUrl parameter' }, { status: 400 });
@@ -96,7 +98,7 @@ export async function GET(request) {
     for (const result of results) {
       if (result.status === 'fulfilled') {
         const { tab, csvText } = result.value;
-        const parsed = parseCSVData(csvText, tab.name);
+        const parsed = parseCSVData(csvText, tab.name, branchId, branchName);
         allClasses.push(...parsed.classes);
         parsed.teachers.forEach((t) => teachers.add(t));
         parsed.baseTeachers.forEach((t) => baseTeachers.add(t));
@@ -134,7 +136,7 @@ export async function GET(request) {
  * Parse CSV text from a Google Sheets tab into class records.
  * Exact same logic as the existing csvParser.js
  */
-function parseCSVData(csvText, dayName) {
+function parseCSVData(csvText, dayName, branchId, branchName) {
   const classes = [];
   const teachers = new Set();
   const baseTeachers = new Set();
@@ -188,6 +190,8 @@ function parseCSVData(csvText, dayName) {
     if (student && teacher && time) {
       classes.push({
         day: dayName,
+        branchId,
+        branchName,
         time,
         program: term,
         teacher,

@@ -3,6 +3,9 @@
 import { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react';
 import { doTimeSlotsOverlap, parseTimeSlot } from '../utils/timeUtils';
 import { DAY_NAMES } from '../utils/constants';
+import { getAllProfiles } from '../services/profileService';
+import { auth } from '../services/firebase';
+import { onAuthStateChanged } from 'firebase/auth';
 
 const ScheduleContext = createContext(null);
 
@@ -57,21 +60,27 @@ const DEFAULT_ROLE_TOGGLES = {
 const DEFAULT_SHEET_URL = process.env.NEXT_PUBLIC_DEFAULT_SHEET_URL ||
   'https://docs.google.com/spreadsheets/d/e/2PACX-1vS2ZEndjqsEzgvblfHF44IPQmJQRVHo65zzOya727KEZ0HjtmhXNAmXgzDXTPtGt9q3A02RqG0EV-7d/pubhtml';
 
+const DEFAULT_BRANCHES = [
+  { id: 'default', name: 'Default Branch', url: DEFAULT_SHEET_URL }
+];
+
 /* ─── provider ───────────────────────────────────────────────────── */
 
 export function ScheduleProvider({ children }) {
-  // Schedule data
-  const [allClasses, setAllClasses] = useState([]);
+  const [allClasses, setAllClasses] = useState([]); // Active branch classes
+  const [overallClasses, setOverallClasses] = useState([]); // All branches classes (from full sync)
   const [uniqueTeachers, setUniqueTeachers] = useState(new Set());
   const [uniqueBaseTeachers, setUniqueBaseTeachers] = useState(new Set());
   const [uniqueTimes, setUniqueTimes] = useState({});
   const [allTimeSlots, setAllTimeSlots] = useState(new Set());
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncStatus, setSyncStatus] = useState('Ready to Sync');
+  const [syncProgress, setSyncProgress] = useState(0); // 0-100%
   const [lastSyncTime, setLastSyncTime] = useState(null);
-  const [sheetUrl, setSheetUrl] = useState(DEFAULT_SHEET_URL);
 
   // Config data — initialised from localStorage (instant), then overwritten by API
+  const [branches, setBranches] = useState(() => loadLocal('branches', DEFAULT_BRANCHES));
+  const [activeBranchId, setActiveBranchId] = useState(() => loadLocal('activeBranchId', 'default'));
   const [leaveList, setLeaveList] = useState(() => loadLocal('leaveList', []));
   const [trialPriorityList, setTrialPriorityList] = useState(() => loadLocal('trialPriority', []));
   const [featureToggles, setFeatureToggles] = useState(() => loadLocal('featureToggles', DEFAULT_TOGGLES));
@@ -80,6 +89,9 @@ export function ScheduleProvider({ children }) {
   // RBAC Config
   const [users, setUsers] = useState(() => loadLocal('users', { 'admin@schedule.local': 'SPA' }));
   const [roleToggles, setRoleToggles] = useState(() => loadLocal('roleToggles', DEFAULT_ROLE_TOGGLES));
+
+  // Instructor Profiles
+  const [instructorProfiles, setInstructorProfiles] = useState([]);
 
   // Track whether we already loaded from API to avoid overwriting user edits
   const apiLoaded = useRef(false);
@@ -116,6 +128,10 @@ export function ScheduleProvider({ children }) {
           setDisabledInstructors(new Set(data.disabledInstructors));
           localStorage.setItem('disabledInstructors', JSON.stringify(data.disabledInstructors));
         }
+        if (data.branches) {
+          setBranches(data.branches);
+          localStorage.setItem('branches', JSON.stringify(data.branches));
+        }
         if (data.users) {
           setUsers(data.users);
           localStorage.setItem('users', JSON.stringify(data.users));
@@ -131,11 +147,38 @@ export function ScheduleProvider({ children }) {
       });
   }, []);
 
+  // ─── Fetch profiles when Auth is ready ──────────────────────────
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      if (user) {
+        getAllProfiles().then(profiles => {
+          setInstructorProfiles(profiles);
+        }).catch(err => {
+          console.error('Failed to load instructor profiles from Firestore:', err);
+        });
+      } else {
+        setInstructorProfiles([]);
+      }
+    });
+
+    return () => unsubscribe();
+  }, []);
+
   // ─── Update functions (dual storage) ─────────────────────────────
 
   const updateLeaveList = useCallback((newList) => {
     setLeaveList(newList);
     persistConfig('leaveList', newList);
+  }, []);
+
+  const updateBranches = useCallback((newBranches) => {
+    setBranches(newBranches);
+    persistConfig('branches', newBranches);
+  }, []);
+
+  const changeActiveBranch = useCallback((branchId) => {
+    setActiveBranchId(branchId);
+    try { localStorage.setItem('activeBranchId', JSON.stringify(branchId)); } catch {}
   }, []);
 
   const updateTrialPriorityList = useCallback((newList) => {
@@ -163,20 +206,34 @@ export function ScheduleProvider({ children }) {
     persistConfig('roleToggles', newRoleToggles);
   }, []);
 
-  // ─── Schedule sync ───────────────────────────────────────────────
+  const refreshProfiles = useCallback(async () => {
+    try {
+      const profiles = await getAllProfiles();
+      setInstructorProfiles(profiles);
+    } catch (err) {
+      console.error('Failed to refresh instructor profiles:', err);
+    }
+  }, []);
 
-  const syncSchedule = useCallback(async () => {
-    if (!sheetUrl) {
-      alert('Please enter a valid Google Sheets Publish link.');
+  // ─── Quick Sync (Single Branch) ───────────────────────────────
+
+  const syncActiveBranch = useCallback(async () => {
+    const activeBranch = branches.find(b => b.id === activeBranchId) || branches[0];
+    if (!activeBranch || !activeBranch.url) {
+      alert('Active branch does not have a valid Google Sheets Publish link.');
       return;
     }
 
     setIsSyncing(true);
-    setSyncStatus('Syncing via API...');
+    setSyncStatus(`Syncing ${activeBranch.name}...`);
+    setSyncProgress(0);
 
     try {
-      const response = await fetch(`/api/schedule?sheetUrl=${encodeURIComponent(sheetUrl)}`);
+      const qs = `sheetUrl=${encodeURIComponent(activeBranch.url)}&branchId=${encodeURIComponent(activeBranch.id)}&branchName=${encodeURIComponent(activeBranch.name)}`;
+      const response = await fetch(`/api/schedule?${qs}`);
       const data = await response.json();
+
+      setSyncProgress(100);
 
       if (!response.ok || !data.success) {
         throw new Error(data.error || 'Sync failed');
@@ -199,17 +256,75 @@ export function ScheduleProvider({ children }) {
       setAllTimeSlots(newAllTimeSlots);
       setLastSyncTime(new Date());
 
-      let statusMsg = `Synced ${data.syncedTabs}/${data.totalTabs} day(s)`;
+      let statusMsg = `Synced ${activeBranch.name}: ${data.syncedTabs}/${data.totalTabs} day(s)`;
       if (data.failedTabs.length > 0) statusMsg += ` (${data.failedTabs.length} failed)`;
       setSyncStatus(statusMsg);
     } catch (error) {
-      console.error('Sync error:', error);
-      setSyncStatus('Sync Failed');
-      alert(`Sync Failed!\n\nError: ${error.message}`);
+      console.error('Quick Sync error:', error);
+      setSyncStatus('Quick Sync Failed');
+      alert(`Sync Failed for ${activeBranch.name}!\n\nError: ${error.message}`);
     } finally {
       setIsSyncing(false);
+      setTimeout(() => setSyncProgress(0), 1000); // clear progress bar after a sec
     }
-  }, [sheetUrl]);
+  }, [branches, activeBranchId]);
+
+  // ─── Full Sync (All Branches) ───────────────────────────────────
+
+  const syncAllBranches = useCallback(async () => {
+    if (!branches || branches.length === 0) return;
+
+    setIsSyncing(true);
+    setSyncStatus('Syncing All Branches...');
+    setSyncProgress(0);
+
+    try {
+      let completed = 0;
+      let allCombinedClasses = [];
+      
+      // Parallel fetch all branches
+      const results = await Promise.allSettled(
+        branches.map(async (branch) => {
+          if (!branch.url) return { success: false, error: 'No URL', branch };
+          const qs = `sheetUrl=${encodeURIComponent(branch.url)}&branchId=${encodeURIComponent(branch.id)}&branchName=${encodeURIComponent(branch.name)}`;
+          const res = await fetch(`/api/schedule?${qs}`);
+          const data = await res.json();
+          if (!res.ok || !data.success) throw new Error(data.error || 'Failed');
+          
+          // Update progress
+          completed++;
+          setSyncProgress(Math.round((completed / branches.length) * 100));
+          
+          return { success: true, data, branch };
+        })
+      );
+
+      let successCount = 0;
+      let failCount = 0;
+
+      for (const result of results) {
+        if (result.status === 'fulfilled' && result.value.success) {
+          allCombinedClasses.push(...result.value.data.classes);
+          successCount++;
+        } else {
+          failCount++;
+        }
+      }
+
+      setOverallClasses(allCombinedClasses);
+      setLastSyncTime(new Date());
+      setSyncStatus(`Full Sync: ${successCount} successful, ${failCount} failed.`);
+    } catch (error) {
+      console.error('Full Sync error:', error);
+      setSyncStatus('Full Sync Failed');
+    } finally {
+      setIsSyncing(false);
+      setTimeout(() => setSyncProgress(0), 1000);
+    }
+  }, [branches]);
+
+  // Legacy syncSchedule points to Quick Sync to not break existing calls
+  const syncSchedule = syncActiveBranch;
 
   // ─── Conflict engine ─────────────────────────────────────────────
 
@@ -246,15 +361,26 @@ export function ScheduleProvider({ children }) {
   // ─── Context value ────────────────────────────────────────────────
 
   const value = {
-    allClasses, uniqueTeachers, uniqueBaseTeachers, uniqueTimes, allTimeSlots,
-    isSyncing, syncStatus, lastSyncTime, sheetUrl, setSheetUrl,
-    syncSchedule, conflicts,
+    // Branch state
+    branches, updateBranches,
+    activeBranchId, changeActiveBranch,
+    
+    // Data state
+    allClasses, overallClasses,
+    uniqueTeachers, uniqueBaseTeachers, uniqueTimes, allTimeSlots,
+    
+    // Sync state
+    isSyncing, syncStatus, syncProgress, lastSyncTime,
+    syncSchedule, syncActiveBranch, syncAllBranches,
+    
+    conflicts,
     leaveList, updateLeaveList,
     trialPriorityList, updateTrialPriorityList,
     featureToggles, updateFeatureToggles,
     disabledInstructors, updateDisabledInstructors,
     users, updateUsers,
     roleToggles, updateRoleToggles,
+    instructorProfiles, refreshProfiles,
   };
 
   return <ScheduleContext.Provider value={value}>{children}</ScheduleContext.Provider>;

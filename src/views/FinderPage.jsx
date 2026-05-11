@@ -7,7 +7,7 @@ import { DAY_NAMES, CARDS_PER_PAGE } from '../utils/constants';
 import { Search, ChevronLeft, ChevronRight } from 'lucide-react';
 
 export default function FinderPage() {
-  const { uniqueBaseTeachers, uniqueTimes, allClasses, leaveList, disabledInstructors } = useSchedule();
+  const { uniqueBaseTeachers, uniqueTimes, overallClasses, leaveList, disabledInstructors } = useSchedule();
   const [selectedInstructor, setSelectedInstructor] = useState('all');
   const [activeDay, setActiveDay] = useState(null);
   const [cardPage, setCardPage] = useState(0);
@@ -40,15 +40,16 @@ export default function FinderPage() {
       teachersToCheck.forEach((teacher) => {
         if (leaveList.some((l) => l.name === teacher && l.day === currentDay)) return;
 
-        const isBusy = allClasses.some(
+        const isBusy = overallClasses.some(
           (c) => c.teacher === teacher && c.day === currentDay && doTimeSlotsOverlap(c.time, timeSlot)
         );
 
         if (isBusy) {
-          const cls = allClasses.find(
+          const cls = overallClasses.find(
             (c) => c.teacher === teacher && c.day === currentDay && doTimeSlotsOverlap(c.time, timeSlot)
           );
-          busyTeachers.push({ name: teacher, detail: cls ? cls.program : '' });
+          const badge = cls && cls.branchName ? `[${cls.branchName}] ` : '';
+          busyTeachers.push({ name: teacher, detail: cls ? `${badge}${cls.program}` : '' });
         } else {
           freeTeachers.push({ name: teacher });
         }
@@ -56,7 +57,7 @@ export default function FinderPage() {
 
       return { timeSlot, freeTeachers, busyTeachers };
     });
-  }, [currentDay, selectedInstructor, uniqueBaseTeachers, uniqueTimes, allClasses, leaveList, disabledInstructors]);
+  }, [currentDay, selectedInstructor, uniqueBaseTeachers, uniqueTimes, overallClasses, leaveList, disabledInstructors]);
 
   const totalCardPages = Math.ceil(cards.length / CARDS_PER_PAGE);
   const visibleCards = cards.slice(cardPage * CARDS_PER_PAGE, (cardPage + 1) * CARDS_PER_PAGE);
@@ -102,10 +103,15 @@ export default function FinderPage() {
             </div>
           )}
 
-          {cards.length === 0 ? (
+          {overallClasses.length === 0 ? (
             <div className="empty-state">
               <Search size={40} />
-              <p>Sync the schedule to find free instructors.</p>
+              <p>Click <strong>"Sync All Branches"</strong> to find free instructors across all locations.</p>
+            </div>
+          ) : cards.length === 0 ? (
+            <div className="empty-state">
+              <Search size={40} />
+              <p>No schedule times found for this day.</p>
             </div>
           ) : (
             <>

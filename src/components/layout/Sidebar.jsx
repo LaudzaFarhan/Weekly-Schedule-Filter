@@ -4,7 +4,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useSchedule } from '@/contexts/ScheduleContext';
 import {
   Home, AlertTriangle, Calendar, Activity, Star,
-  Search, FileText, PenLine, Terminal, Settings, LogOut,
+  Search, FileText, PenLine, Terminal, Settings, LogOut, User,
 } from 'lucide-react';
 
 const navItems = [
@@ -16,6 +16,7 @@ const navItems = [
   { id: 'finder', icon: Search, label: 'Free Finder' },
   { id: 'schedule', icon: FileText, label: 'Master Schedule' },
   { id: 'trial-input', icon: PenLine, label: 'Input Trial Leads' },
+  { id: 'profiles', icon: User, label: 'Instructor Profiles' },
   { id: 'api-docs', icon: Terminal, label: 'API Documentation' },
   { id: 'admin', icon: Settings, label: 'Admin Settings' },
 ];
@@ -45,6 +46,7 @@ export default function Sidebar({ currentPage, onNavigate }) {
   if (!currentToggles.trial_input) hiddenPages.add('trial-input');
   if (!currentToggles.api_docs) hiddenPages.add('api-docs');
   if (!currentToggles.admin) hiddenPages.add('admin');
+  // Profiles is visible to everyone
 
   return (
     <aside className="sidebar">

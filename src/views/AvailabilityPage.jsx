@@ -39,7 +39,7 @@ function PaginatedList({ items, emptyText }) {
 }
 
 export default function AvailabilityPage() {
-  const { uniqueBaseTeachers, uniqueTimes, allClasses, leaveList } = useSchedule();
+  const { uniqueBaseTeachers, uniqueTimes, overallClasses, leaveList } = useSchedule();
   const [selectedDay, setSelectedDay] = useState('');
   const [selectedTime, setSelectedTime] = useState('');
 
@@ -77,21 +77,22 @@ export default function AvailabilityPage() {
 
     uniqueBaseTeachers.forEach((teacher) => {
       if (onLeaveSet.has(teacher)) return;
-      const busyClass = allClasses.find(
+      const busyClass = overallClasses.find(
         (c) =>
           c.teacher === teacher &&
           c.day === selectedDay &&
           doTimeSlotsOverlap(c.time, selectedTime)
       );
       if (busyClass) {
-        busyItems.push({ name: teacher, detail: `${busyClass.time} — ${busyClass.program}` });
+        const badge = busyClass.branchName ? `[${busyClass.branchName}] ` : '';
+        busyItems.push({ name: teacher, detail: `${busyClass.time} — ${badge}${busyClass.program}` });
       } else {
         availableItems.push({ name: teacher });
       }
     });
 
     return { available: availableItems, busy: busyItems, onLeave: onLeaveItems };
-  }, [selectedDay, selectedTime, uniqueBaseTeachers, allClasses, leaveList]);
+  }, [selectedDay, selectedTime, uniqueBaseTeachers, overallClasses, leaveList]);
 
   return (
     <section className="dashboard-view active">

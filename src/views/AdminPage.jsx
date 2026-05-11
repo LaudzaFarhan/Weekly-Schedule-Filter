@@ -5,6 +5,7 @@ import { useSchedule } from '../contexts/ScheduleContext';
 import { Search, UserPlus, Settings, Users, Shield, Lock, Copy, Mail } from 'lucide-react';
 import { createUserWithEmailAndPassword, signOut, sendPasswordResetEmail } from 'firebase/auth';
 import { auth, secondaryAuth } from '../services/firebase';
+import { saveProfile } from '../services/profileService';
 
 const INTERNAL_FEATURES = {
   conflicts: 'Conflict Report',
@@ -34,6 +35,7 @@ export default function AdminPage() {
     users, updateUsers,
     uniqueBaseTeachers,
     disabledInstructors, updateDisabledInstructors,
+    refreshProfiles
   } = useSchedule();
 
   const [activeTab, setActiveTab] = useState('settings');
@@ -86,18 +88,54 @@ export default function AdminPage() {
     setUserStatus('');
 
     try {
-      // 1. Create user in Firebase securely without logging out admin
       let formattedEmail = newEmail;
       if (!formattedEmail.includes('@')) formattedEmail = `${formattedEmail}@schedule.local`;
       
-      await createUserWithEmailAndPassword(secondaryAuth, formattedEmail, newPassword);
-      await signOut(secondaryAuth); // Clear the secondary auth state immediately
+      let alreadyExists = false;
+      
+      try {
+        // 1. Create user in Firebase securely without logging out admin
+        await createUserWithEmailAndPassword(secondaryAuth, formattedEmail, newPassword);
+        await signOut(secondaryAuth); // Clear the secondary auth state immediately
+      } catch (authError) {
+        if (authError.code === 'auth/email-already-in-use') {
+           alreadyExists = true;
+           // We continue so we can sync the role and profile
+        } else {
+           throw authError;
+        }
+      }
 
       // 2. Add role mapping
       const newUsersList = { ...users, [formattedEmail]: newRole };
       updateUsers(newUsersList);
+      
+      // 3. Create/Sync Instructor Profile if they are an instructor
+      if (newRole === 'Instructor') {
+        try {
+          const namePart = formattedEmail.split('@')[0];
+          await saveProfile(formattedEmail, {
+            fullname: namePart,
+            nickname: namePart,
+            email: formattedEmail,
+            specialization: 'all', // default
+            trainingProgress: {
+               kinderFoundation: 0, kinderCore: 0,
+               juniorFoundation: 0, juniorCore: 0,
+               coderBasic: 0, coderIntermediate: 0, coderAdvance: 0
+            }
+          });
+          if (refreshProfiles) refreshProfiles();
+        } catch (profileError) {
+          alert(`Warning: Account created, but failed to sync profile: ${profileError.message}`);
+        }
+      }
 
-      setUserStatus('User created successfully!');
+      if (alreadyExists) {
+        setUserStatus('User already exists! Synced role and profile.');
+      } else {
+        setUserStatus('User created and synced successfully!');
+      }
       setCreatedUser({ email: formattedEmail, password: newPassword, role: newRole });
       setNewEmail('');
       setNewPassword('');

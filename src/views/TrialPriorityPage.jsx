@@ -7,14 +7,17 @@ import { DAY_NAMES } from '../utils/constants';
 import Badge from '../components/ui/Badge';
 import Pagination from '../components/ui/Pagination';
 import { Trash2 } from 'lucide-react';
+import { createUserWithEmailAndPassword, signOut } from 'firebase/auth';
+import { secondaryAuth } from '../services/firebase';
+import { saveProfile } from '../services/profileService';
 
 const PAGE_SIZE = 8;
 
 export default function TrialPriorityPage() {
   const {
     uniqueBaseTeachers, trialPriorityList, updateTrialPriorityList,
-    allClasses, uniqueTimes, allTimeSlots, leaveList,
-    disabledInstructors,
+    overallClasses, uniqueTimes, allTimeSlots, leaveList,
+    disabledInstructors, users, updateUsers, refreshProfiles
   } = useSchedule();
   const [selectedName, setSelectedName] = useState('');
   const [selectedType, setSelectedType] = useState('');
@@ -29,24 +32,77 @@ export default function TrialPriorityPage() {
   const paged = trialPriorityList.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
   const canAdd = selectedName && selectedType;
+  const [isAdding, setIsAdding] = useState(false);
 
-  const handleAdd = () => {
-    if (!canAdd) return;
-    const days = selectedStatus === 'fulltime' ? DAY_NAMES : workingDays;
-    const entry = { name: selectedName, type: selectedType, status: selectedStatus, workingDays: days };
+  const handleAdd = async () => {
+    if (!canAdd || isAdding) return;
+    setIsAdding(true);
 
-    let newList;
-    if (editIndex >= 0) {
-      newList = [...trialPriorityList];
-      newList[editIndex] = entry;
-      setEditIndex(-1);
-    } else {
-      const exists = trialPriorityList.some((p) => p.name === selectedName);
-      if (exists) { alert(`${selectedName} is already in the priority list.`); return; }
-      newList = [...trialPriorityList, entry];
+    try {
+      const days = selectedStatus === 'fulltime' ? DAY_NAMES : workingDays;
+      const entry = { name: selectedName, type: selectedType, status: selectedStatus, workingDays: days };
+
+      let newList;
+      if (editIndex >= 0) {
+        newList = [...trialPriorityList];
+        newList[editIndex] = entry;
+        setEditIndex(-1);
+      } else {
+        const exists = trialPriorityList.some((p) => p.name === selectedName);
+        if (exists) { alert(`${selectedName} is already in the priority list.`); return; }
+        
+        // Auto-create Firebase account and profile for new additions in the background
+        // so it never blocks the UI or causes the button to hang
+        (async () => {
+          // Format email according to admin settings preference
+          const email = `${selectedName.replace(/\s+/g, '')}@schedule.local`;
+          const password = 'instructor123';
+          
+          try {
+            // 1. Try to create auth user silently
+            await createUserWithEmailAndPassword(secondaryAuth, email, password);
+            await signOut(secondaryAuth); // Clear the secondary auth state immediately
+          } catch (authError) {
+            if (authError.code !== 'auth/email-already-in-use') {
+               console.warn(`Could not create Firebase login account for ${selectedName}. Error: ${authError.message}`);
+               return; // Exit if it's a real error (like network issue)
+            }
+            // If already in use, that's fine, we still want to sync their profile and role below!
+          }
+          
+          try {
+            // 2. Add to global users config for Admin Settings with Instructor role
+            const newUsersList = { ...users, [email]: 'Instructor' };
+            updateUsers(newUsersList);
+            
+            // 3. Create blank Firestore profile matching the specialization
+            await saveProfile(email, {
+              fullname: selectedName,
+              nickname: selectedName,
+              email: email,
+              specialization: selectedType,
+              trainingProgress: {
+                kinderFoundation: 0, kinderCore: 0,
+                juniorFoundation: 0, juniorCore: 0,
+                coderBasic: 0, coderIntermediate: 0, coderAdvance: 0
+              }
+            });
+            // 4. Refresh profiles so it instantly shows up in the Instructor Profiles page
+            if (refreshProfiles) refreshProfiles();
+          } catch (syncError) {
+            console.error("Failed to sync profile:", syncError);
+            alert(`Could not create profile in Firestore for ${selectedName}. Error: ${syncError.message}`);
+          }
+        })();
+        
+        newList = [...trialPriorityList, entry];
+      }
+      
+      updateTrialPriorityList(newList);
+      setSelectedName(''); setSelectedType(''); setSelectedStatus('fulltime'); setWorkingDays([]);
+    } finally {
+      setIsAdding(false);
     }
-    updateTrialPriorityList(newList);
-    setSelectedName(''); setSelectedType(''); setSelectedStatus('fulltime'); setWorkingDays([]);
   };
 
   const handleRemove = (index) => {
@@ -68,7 +124,7 @@ export default function TrialPriorityPage() {
 
   // Trial Overview Table
   const trialOverview = useMemo(() => {
-    if (trialPriorityList.length === 0 || allClasses.length === 0) return [];
+    if (trialPriorityList.length === 0 || overallClasses.length === 0) return [];
 
     const FIXED_TRIAL_SLOTS = [
       "1.00 - 2.00 pm",
@@ -100,12 +156,13 @@ export default function TrialPriorityPage() {
             isAvailable = false;
             reason = 'On Leave';
           } else {
-            const busyClass = allClasses.find(
+            const busyClass = overallClasses.find(
               (c) => c.teacher === p.name && c.day === day && doTimeSlotsOverlap(c.time, timeSlot)
             );
             if (busyClass) {
               isAvailable = false;
-              reason = `Teaching ${busyClass.type || 'class'} (${busyClass.time})`;
+              const badge = busyClass.branchName ? `[${busyClass.branchName}] ` : '';
+              reason = `Teaching ${badge}${busyClass.type || 'class'} (${busyClass.time})`;
             }
           }
 
@@ -119,7 +176,7 @@ export default function TrialPriorityPage() {
       });
       return row;
     });
-  }, [trialPriorityList, allClasses, leaveList, disabledInstructors]);
+  }, [trialPriorityList, overallClasses, leaveList, disabledInstructors]);
 
   return (
     <section className="dashboard-view active">
@@ -156,8 +213,8 @@ export default function TrialPriorityPage() {
                   <option value="parttime">Part Time (Select Days)</option>
                 </select>
               </div>
-              <button className="btn btn-primary trial-add-btn" disabled={!canAdd} onClick={handleAdd}>
-                + {editIndex >= 0 ? 'Update' : 'Add'}
+              <button className="btn btn-primary trial-add-btn" disabled={!canAdd || isAdding} onClick={handleAdd}>
+                {isAdding ? 'Adding...' : (editIndex >= 0 ? '+ Update' : '+ Add')}
               </button>
             </div>
             {selectedStatus === 'parttime' && (
@@ -252,8 +309,10 @@ export default function TrialPriorityPage() {
                 </tr>
               </thead>
               <tbody>
-                {trialOverview.length === 0 ? (
-                  <tr><td colSpan="8" className="empty-state-table" style={{ padding: '2rem' }}>Sync the schedule to generate trial overview.</td></tr>
+                {overallClasses.length === 0 ? (
+                  <tr><td colSpan="8" className="empty-state-table" style={{ padding: '2rem' }}>Click "Sync All Branches" to generate trial overview.</td></tr>
+                ) : trialOverview.length === 0 ? (
+                  <tr><td colSpan="8" className="empty-state-table" style={{ padding: '2rem' }}>No trial slots available.</td></tr>
                 ) : (
                   trialOverview.map((row, i) => (
                     <tr key={i} style={{ borderBottom: '1px solid var(--border-color)' }}>

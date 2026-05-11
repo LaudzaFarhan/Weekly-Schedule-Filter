@@ -8,7 +8,7 @@ import { DAY_NAMES } from '../utils/constants';
 import { parseTimeSlot, doTimeSlotsOverlap } from '../utils/timeUtils';
 
 export default function TrialInputPage() {
-  const { uniqueTimes, uniqueBaseTeachers, allClasses, leaveList, disabledInstructors } = useSchedule();
+  const { uniqueTimes, uniqueBaseTeachers, allClasses, leaveList, disabledInstructors, instructorProfiles } = useSchedule();
   const [form, setForm] = useState({
     program: '', student: '', instructor: '', day: '', time: '', date: '', remarks: '',
   });
@@ -116,6 +116,31 @@ export default function TrialInputPage() {
 
     return available;
   }, [form.day, form.time, uniqueBaseTeachers, allClasses, leaveList, disabledInstructors]);
+
+  // Determine ready instructors based on profile specialization
+  const readyInstructors = useMemo(() => {
+    if (!form.program || !instructorProfiles) return [];
+    
+    return instructorProfiles.filter(profile => {
+      // Must be available for the selected slot if day/time are picked
+      // If no day/time picked, we just show who has the specialization
+      if (form.day && form.time && !availableInstructors.includes(profile.fullname) && !availableInstructors.includes(profile.nickname)) {
+        // We match by fullname or nickname. If they aren't in availableInstructors, they aren't available.
+        // For simplicity, let's just check availability by checking if they are not busy
+        const nameMatches = availableInstructors.includes(profile.fullname) || availableInstructors.includes(profile.nickname) || availableInstructors.includes(profile.id);
+        if (!nameMatches && availableInstructors.length > 0) return false;
+      }
+
+      if (form.program.includes('Kinder')) {
+        return profile.specialization === 'kinder-junior' || profile.specialization === 'all';
+      } else if (form.program.includes('Junior')) {
+        return profile.specialization === 'kinder-junior' || profile.specialization === 'junior-coder' || profile.specialization === 'all';
+      } else if (form.program.includes('Coder')) {
+        return profile.specialization === 'junior-coder' || profile.specialization === 'all';
+      }
+      return false;
+    });
+  }, [form.program, form.day, form.time, instructorProfiles, availableInstructors]);
 
   const handleChange = (field) => (e) => {
     setForm((prev) => ({ ...prev, [field]: e.target.value }));
@@ -323,6 +348,70 @@ export default function TrialInputPage() {
 
   return (
     <section className="dashboard-view active">
+      
+      {/* Top Pane - Ready Instructors */}
+      <div className="trial-ready-instructors panel animation-fade-in" style={{ marginBottom: '1.5rem' }}>
+        <div className="panel-header" style={{ padding: '1rem 1.25rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div>
+            <h3 style={{ margin: 0, fontSize: '1.1rem', color: 'var(--primary-blue)' }}>Ready Instructors</h3>
+            <span className="subtext" style={{ fontSize: '0.8rem' }}>Based on Specialization</span>
+          </div>
+        </div>
+        <div className="panel-content" style={{ padding: '0' }}>
+          {!form.program ? (
+            <div style={{ padding: '1.5rem', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+              Select a program below to see qualified instructors.
+            </div>
+          ) : readyInstructors.length === 0 ? (
+            <div style={{ padding: '1.5rem', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+              No instructors have profiles matching this program specialization.
+            </div>
+          ) : (
+            <ul style={{ listStyle: 'none', padding: '0.5rem 1.25rem', margin: 0, display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))', gap: '1rem' }}>
+              {readyInstructors.map(profile => {
+                let trainingLevel = '—';
+                if (form.program.includes('Kinder')) {
+                  const level = Math.max(profile.trainingProgress?.kinderFoundation || 0, profile.trainingProgress?.kinderCore || 0);
+                  trainingLevel = level > 0 ? `Lvl ${level}` : '—';
+                } else if (form.program.includes('Junior')) {
+                  const level = Math.max(profile.trainingProgress?.juniorFoundation || 0, profile.trainingProgress?.juniorCore || 0);
+                  trainingLevel = level > 0 ? `Lvl ${level}` : '—';
+                } else if (form.program.includes('Coder')) {
+                  const level = Math.max(profile.trainingProgress?.coderBasic || 0, profile.trainingProgress?.coderIntermediate || 0, profile.trainingProgress?.coderAdvance || 0);
+                  trainingLevel = level > 0 ? `Lvl ${level}` : '—';
+                }
+
+                const isAvailableNow = availableInstructors.includes(profile.fullname) || availableInstructors.includes(profile.nickname) || availableInstructors.includes(profile.id);
+
+                return (
+                  <li key={profile.id} style={{ padding: '1rem', border: '1px solid var(--border-color)', borderRadius: '8px', display: 'flex', flexDirection: 'column', gap: '0.5rem', background: '#f8fafc' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <strong style={{ fontSize: '0.95rem' }}>{profile.fullname || profile.nickname || profile.id}</strong>
+                      {form.time && (
+                        <span style={{ fontSize: '0.7rem', padding: '0.15rem 0.4rem', borderRadius: '4px', background: isAvailableNow ? 'var(--success-color)' : 'var(--danger-color)', color: 'white' }}>
+                          {isAvailableNow ? 'Free' : 'Busy'}
+                        </span>
+                      )}
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', color: 'var(--text-secondary)', alignItems: 'center' }}>
+                      <span>Training: <strong style={{color: 'var(--text-color)'}}>{trainingLevel}</strong></span>
+                      <button 
+                        type="button"
+                        className="btn btn-primary btn-sm"
+                        style={{ padding: '0.2rem 0.6rem', fontSize: '0.75rem' }}
+                        onClick={() => setForm(p => ({ ...p, instructor: profile.fullname || profile.nickname || profile.id }))}
+                      >
+                        Select
+                      </button>
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </div>
+      </div>
+
       <div className="trial-input-split">
         
         {/* Left Pane - Selection */}
@@ -525,7 +614,7 @@ export default function TrialInputPage() {
               </div>
             </form>
           </div>
-        </div>
+          </div>
 
       </div>
     </section>
