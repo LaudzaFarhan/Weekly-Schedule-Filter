@@ -25,7 +25,7 @@ const SPECIALIZATIONS = [
 
 export default function ProfilePage() {
   const { user } = useAuth();
-  const { users, instructorProfiles, refreshProfiles, trialPriorityList } = useSchedule();
+  const { users, instructorProfiles, refreshProfiles, trialPriorityList, branches, activeBranchId } = useSchedule();
   
   const [editingProfile, setEditingProfile] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -34,6 +34,10 @@ export default function ProfilePage() {
 
   const userRole = users?.[user?.email] || 'Instructor';
   const isSupervisor = userRole === 'Supervisor' || userRole === 'SPA' || userRole === 'Admin';
+
+  // Get active branch name for location tagging
+  const activeBranch = branches?.find(b => b.id === activeBranchId);
+  const branchName = activeBranch?.name || 'Default Branch';
 
   useEffect(() => {
     // If not a supervisor, automatically open their own profile
@@ -49,6 +53,7 @@ export default function ProfilePage() {
           nickname: '',
           specialization: '',
           phoneNumber: '',
+          location: '',
           trainingProgress: {}
         });
       }
@@ -66,6 +71,7 @@ export default function ProfilePage() {
       nickname: '',
       specialization: '',
       phoneNumber: '',
+      location: '',
       trainingProgress: {}
     });
   };
@@ -143,6 +149,7 @@ export default function ProfilePage() {
             nickname: item.name,
             email: item.email,
             specialization: item.type,
+            location: branchName,
             trainingProgress: {
               kinderFoundation: 0, kinderCore: 0,
               juniorFoundation: 0, juniorCore: 0,
@@ -156,10 +163,10 @@ export default function ProfilePage() {
       setSyncResult({ created: toCreate.length, total: trialPriorityList.length });
     } catch (error) {
       console.error('Sync error:', error);
-      alert('Failed to sync profiles: ' + error.message);
-    } finally {
-      setSyncing(false);
+      setSyncResult({ created: 0, total: 0, error: error.message });
     }
+    // Always stop syncing — outside try/catch to guarantee execution
+    setSyncing(false);
   };
 
   if (!isSupervisor && !editingProfile) {
@@ -193,18 +200,20 @@ export default function ProfilePage() {
           {syncResult && (
             <div style={{
               padding: '0.75rem 1.5rem',
-              background: syncResult.created > 0 ? 'var(--success-bg)' : 'var(--primary-blue-light)',
+              background: syncResult.error ? 'var(--danger-bg)' : syncResult.created > 0 ? 'var(--success-bg)' : 'var(--primary-blue-light)',
               borderBottom: '1px solid var(--border-color)',
               fontSize: '0.85rem',
               display: 'flex', alignItems: 'center', gap: '0.5rem'
             }}>
-              {syncResult.created > 0 ? (
+              {syncResult.error ? (
+                <span style={{ color: 'var(--danger)' }}>✕ Sync failed: {syncResult.error}</span>
+              ) : syncResult.created > 0 ? (
                 <span style={{ color: 'var(--success)' }}>
-                  ✓ Created <strong>{syncResult.created}</strong> new profile(s) from {syncResult.total} trial priority instructor(s).
+                  ✓ Created <strong>{syncResult.created}</strong> new profile(s) at <strong>{branchName}</strong>.
                 </span>
               ) : (
                 <span style={{ color: 'var(--primary-blue)' }}>
-                  All {syncResult.total} trial priority instructor(s) already have profiles. No new profiles created.
+                  All {syncResult.total} trial priority instructor(s) already have profiles.
                 </span>
               )}
               <button 
@@ -222,12 +231,13 @@ export default function ProfilePage() {
                   <tr>
                     <th>Nickname</th>
                     <th>Specialization</th>
+                    <th>Location</th>
                     <th style={{ textAlign: 'center' }}>Action</th>
                   </tr>
                 </thead>
                 <tbody>
                   {instructorProfiles.length === 0 ? (
-                    <tr><td colSpan="3" className="empty-state-table">
+                    <tr><td colSpan="4" className="empty-state-table">
                       No profiles found. Click <strong>"Sync from Trial Priority"</strong> to create profiles from your trial priority list.
                     </td></tr>
                   ) : (
@@ -239,6 +249,11 @@ export default function ProfilePage() {
                             <span className={`trial-type-badge type-${p.specialization}`}>
                               {SPECIALIZATIONS.find(s => s.value === p.specialization)?.label || p.specialization}
                             </span>
+                          ) : <span style={{ color: 'var(--text-muted)' }}>—</span>}
+                        </td>
+                        <td>
+                          {p.location ? (
+                            <Badge variant="blue">{p.location}</Badge>
                           ) : <span style={{ color: 'var(--text-muted)' }}>—</span>}
                         </td>
                         <td style={{ textAlign: 'center' }}>
@@ -322,7 +337,20 @@ export default function ProfilePage() {
                 />
               </div>
 
-              <div className="input-group" style={{ gridColumn: '1 / -1' }}>
+              <div className="input-group">
+                <label>Location (Branch)</label>
+                <select 
+                  value={editingProfile.location || ''} 
+                  onChange={e => handleChange('location', e.target.value)}
+                >
+                  <option value="">Select location...</option>
+                  {branches?.map(b => (
+                    <option key={b.id} value={b.name}>{b.name}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="input-group">
                 <label>Specialization</label>
                 <select 
                   value={editingProfile.specialization} 
