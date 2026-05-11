@@ -26,6 +26,7 @@ export default function TrialPriorityPage() {
   const [editIndex, setEditIndex] = useState(-1);
   const [page, setPage] = useState(1);
   const [selectedSlotData, setSelectedSlotData] = useState(null);
+  const [selectedRows, setSelectedRows] = useState(new Set());
 
   const sortedTeachers = [...uniqueBaseTeachers].filter((t) => !disabledInstructors.has(t)).sort();
   const totalPages = Math.ceil(trialPriorityList.length / PAGE_SIZE);
@@ -108,6 +109,33 @@ export default function TrialPriorityPage() {
   const handleRemove = (index) => {
     const actualIndex = (page - 1) * PAGE_SIZE + index;
     updateTrialPriorityList(trialPriorityList.filter((_, i) => i !== actualIndex));
+    setSelectedRows(prev => { const next = new Set(prev); next.delete(actualIndex); return next; });
+  };
+
+  const handleBulkRemove = () => {
+    if (selectedRows.size === 0) return;
+    const names = [...selectedRows].map(i => trialPriorityList[i]?.name).filter(Boolean).join(', ');
+    if (!confirm(`Remove ${selectedRows.size} instructor(s)?\n\n${names}`)) return;
+    updateTrialPriorityList(trialPriorityList.filter((_, i) => !selectedRows.has(i)));
+    setSelectedRows(new Set());
+  };
+
+  const toggleRow = (actualIndex) => {
+    setSelectedRows(prev => {
+      const next = new Set(prev);
+      if (next.has(actualIndex)) next.delete(actualIndex); else next.add(actualIndex);
+      return next;
+    });
+  };
+
+  const toggleAllOnPage = () => {
+    const pageIndices = paged.map((_, i) => (page - 1) * PAGE_SIZE + i);
+    const allSelected = pageIndices.every(i => selectedRows.has(i));
+    setSelectedRows(prev => {
+      const next = new Set(prev);
+      pageIndices.forEach(i => allSelected ? next.delete(i) : next.add(i));
+      return next;
+    });
   };
 
   const handleDayToggle = (day) => {
@@ -186,7 +214,15 @@ export default function TrialPriorityPage() {
             <h2>Trial Priority Instructors</h2>
             <span className="subtext">Assign instructors to trial categories</span>
           </div>
-          <Badge variant="orange">{trialPriorityList.length} Assigned</Badge>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+            {selectedRows.size > 0 && (
+              <button className="btn btn-sm" onClick={handleBulkRemove} style={{ background: 'var(--danger)', color: 'white', borderColor: 'var(--danger)', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                <Trash2 size={14} />
+                Remove {selectedRows.size} Selected
+              </button>
+            )}
+            <Badge variant="orange">{trialPriorityList.length} Assigned</Badge>
+          </div>
         </div>
         <div className="panel-body trial-body">
           <div className="trial-form">
@@ -251,6 +287,15 @@ export default function TrialPriorityPage() {
             <table className="trial-table">
               <thead>
                 <tr>
+                  <th style={{ width: 40, textAlign: 'center' }}>
+                    <input
+                      type="checkbox"
+                      checked={paged.length > 0 && paged.every((_, i) => selectedRows.has((page - 1) * PAGE_SIZE + i))}
+                      onChange={toggleAllOnPage}
+                      title="Select all on this page"
+                      style={{ cursor: 'pointer', width: '16px', height: '16px' }}
+                    />
+                  </th>
                   <th>Instructor</th>
                   <th>Specialization</th>
                   <th>Trial Capabilities</th>
@@ -260,21 +305,32 @@ export default function TrialPriorityPage() {
               </thead>
               <tbody>
                 {trialPriorityList.length === 0 ? (
-                  <tr><td colSpan="5" className="empty-state-table">No priority instructors assigned yet.</td></tr>
+                  <tr><td colSpan="6" className="empty-state-table">No priority instructors assigned yet.</td></tr>
                 ) : (
-                  paged.map((p, i) => (
-                    <tr key={i}>
-                      <td>{p.name}</td>
-                      <td><span className={`trial-type-badge type-${p.type}`}>{p.type === 'kinder-junior' ? 'Kinder & Junior' : 'Junior & Coder'}</span></td>
-                      <td>{getCapabilities(p.type)}</td>
-                      <td>{p.status === 'fulltime' ? 'All Days' : (p.workingDays || []).join(', ')}</td>
-                      <td style={{ textAlign: 'center' }}>
-                        <button className="btn-icon btn-icon-danger" onClick={() => handleRemove(i)} title="Remove">
-                          <Trash2 size={16} />
-                        </button>
-                      </td>
-                    </tr>
-                  ))
+                  paged.map((p, i) => {
+                    const actualIndex = (page - 1) * PAGE_SIZE + i;
+                    return (
+                      <tr key={i} style={{ background: selectedRows.has(actualIndex) ? 'var(--danger-bg)' : undefined }}>
+                        <td style={{ textAlign: 'center' }}>
+                          <input
+                            type="checkbox"
+                            checked={selectedRows.has(actualIndex)}
+                            onChange={() => toggleRow(actualIndex)}
+                            style={{ cursor: 'pointer', width: '16px', height: '16px' }}
+                          />
+                        </td>
+                        <td>{p.name}</td>
+                        <td><span className={`trial-type-badge type-${p.type}`}>{p.type === 'kinder-junior' ? 'Kinder & Junior' : 'Junior & Coder'}</span></td>
+                        <td>{getCapabilities(p.type)}</td>
+                        <td>{p.status === 'fulltime' ? 'All Days' : (p.workingDays || []).join(', ')}</td>
+                        <td style={{ textAlign: 'center' }}>
+                          <button className="btn-icon btn-icon-danger" onClick={() => handleRemove(i)} title="Remove">
+                            <Trash2 size={16} />
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })
                 )}
               </tbody>
             </table>

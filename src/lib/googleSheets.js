@@ -11,7 +11,7 @@
 import { google } from 'googleapis';
 
 const CONFIG_SHEET_NAME = '_AppConfig';
-const CONFIG_KEYS = ['leaveList', 'trialPriority', 'disabledInstructors', 'featureToggles', 'branches'];
+const CONFIG_KEYS = ['leaveList', 'trialPriority', 'disabledInstructors', 'featureToggles', 'branches', 'users', 'roleToggles'];
 
 let _sheets = null;
 let _configured = null;
