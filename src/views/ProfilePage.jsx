@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useSchedule } from '@/contexts/ScheduleContext';
 import { saveProfile, deleteProfile } from '@/services/profileService';
-import { User, Save, Trash2, ChevronLeft } from 'lucide-react';
+import { User, Save, Trash2, ChevronLeft, RefreshCw, Pencil } from 'lucide-react';
 import Badge from '@/components/ui/Badge';
 
 const TRAINING_MODULES = [
@@ -25,10 +25,12 @@ const SPECIALIZATIONS = [
 
 export default function ProfilePage() {
   const { user } = useAuth();
-  const { users, instructorProfiles, refreshProfiles } = useSchedule();
+  const { users, instructorProfiles, refreshProfiles, trialPriorityList } = useSchedule();
   
   const [editingProfile, setEditingProfile] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+  const [syncResult, setSyncResult] = useState(null);
 
   const userRole = users?.[user?.email] || 'Instructor';
   const isSupervisor = userRole === 'Supervisor' || userRole === 'SPA' || userRole === 'Admin';
@@ -113,6 +115,49 @@ export default function ProfilePage() {
     }
   };
 
+  /**
+   * Sync from Trial Priority → Firestore
+   * Creates profiles for any instructors in the trial priority list
+   * that don't already have a Firestore profile.
+   */
+  const handleSyncFromTrialPriority = async () => {
+    if (syncing) return;
+    setSyncing(true);
+    setSyncResult(null);
+
+    try {
+      const existingEmails = new Set(instructorProfiles.map(p => p.id));
+      let created = 0;
+
+      for (const entry of trialPriorityList) {
+        const email = `${entry.name.replace(/\s+/g, '')}@schedule.local`;
+        
+        if (!existingEmails.has(email)) {
+          await saveProfile(email, {
+            fullname: entry.name,
+            nickname: entry.name,
+            email: email,
+            specialization: entry.type || '',
+            trainingProgress: {
+              kinderFoundation: 0, kinderCore: 0,
+              juniorFoundation: 0, juniorCore: 0,
+              coderBasic: 0, coderIntermediate: 0, coderAdvance: 0
+            }
+          });
+          created++;
+        }
+      }
+
+      await refreshProfiles();
+      setSyncResult({ created, total: trialPriorityList.length });
+    } catch (error) {
+      console.error('Sync error:', error);
+      alert('Failed to sync profiles: ' + error.message);
+    } finally {
+      setSyncing(false);
+    }
+  };
+
   if (!isSupervisor && !editingProfile) {
     return <div className="loading-screen"><div className="loading-spinner" /></div>;
   }
@@ -127,10 +172,45 @@ export default function ProfilePage() {
               <h2>Instructor Profiles</h2>
               <span className="subtext">Manage profiles and training progress</span>
             </div>
-            <button className="btn btn-primary" onClick={handleCreateNew}>
-              + New Profile
-            </button>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+              <button
+                className="btn btn-primary"
+                onClick={handleSyncFromTrialPriority}
+                disabled={syncing || trialPriorityList.length === 0}
+                style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}
+              >
+                <RefreshCw size={16} className={syncing ? 'spin' : ''} />
+                {syncing ? 'Syncing...' : 'Sync from Trial Priority'}
+              </button>
+              <Badge variant="orange">{instructorProfiles.length} Profiles</Badge>
+            </div>
           </div>
+
+          {syncResult && (
+            <div style={{
+              padding: '0.75rem 1.5rem',
+              background: syncResult.created > 0 ? 'var(--success-bg)' : 'var(--primary-blue-light)',
+              borderBottom: '1px solid var(--border-color)',
+              fontSize: '0.85rem',
+              display: 'flex', alignItems: 'center', gap: '0.5rem'
+            }}>
+              {syncResult.created > 0 ? (
+                <span style={{ color: 'var(--success)' }}>
+                  ✓ Created <strong>{syncResult.created}</strong> new profile(s) from {syncResult.total} trial priority instructor(s).
+                </span>
+              ) : (
+                <span style={{ color: 'var(--primary-blue)' }}>
+                  All {syncResult.total} trial priority instructor(s) already have profiles. No new profiles created.
+                </span>
+              )}
+              <button 
+                className="btn-icon" 
+                onClick={() => setSyncResult(null)}
+                style={{ marginLeft: 'auto' }}
+              >✕</button>
+            </div>
+          )}
+
           <div className="panel-body">
             <div className="trial-table-wrapper">
               <table className="trial-table">
@@ -143,21 +223,23 @@ export default function ProfilePage() {
                 </thead>
                 <tbody>
                   {instructorProfiles.length === 0 ? (
-                    <tr><td colSpan="3" className="empty-state-table">No profiles found.</td></tr>
+                    <tr><td colSpan="3" className="empty-state-table">
+                      No profiles found. Click <strong>"Sync from Trial Priority"</strong> to create profiles from your trial priority list.
+                    </td></tr>
                   ) : (
                     instructorProfiles.map((p) => (
                       <tr key={p.id}>
-                        <td>{p.nickname || p.fullname || p.id.split('@')[0]}</td>
+                        <td style={{ fontWeight: 500 }}>{p.nickname || p.fullname || p.id.split('@')[0]}</td>
                         <td>
                           {p.specialization ? (
-                            <Badge variant="blue">
+                            <span className={`trial-type-badge type-${p.specialization}`}>
                               {SPECIALIZATIONS.find(s => s.value === p.specialization)?.label || p.specialization}
-                            </Badge>
-                          ) : '—'}
+                            </span>
+                          ) : <span style={{ color: 'var(--text-muted)' }}>—</span>}
                         </td>
                         <td style={{ textAlign: 'center' }}>
-                          <button className="btn-icon" onClick={() => handleEdit(p)} title="Edit">
-                            <User size={16} />
+                          <button className="btn-icon" onClick={() => handleEdit(p)} title="Edit" style={{ color: 'var(--primary-blue)' }}>
+                            <Pencil size={16} />
                           </button>
                           <button className="btn-icon btn-icon-danger" onClick={() => handleDelete(p.id)} title="Delete">
                             <Trash2 size={16} />
