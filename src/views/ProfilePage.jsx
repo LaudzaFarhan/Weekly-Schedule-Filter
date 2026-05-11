@@ -95,7 +95,9 @@ export default function ProfilePage() {
     setLoading(true);
     try {
       const email = editingProfile.id || user.email;
-      await saveProfile(email, editingProfile);
+      // Strip 'id' from the payload — it's the document key, not a field
+      const { id, ...profileData } = editingProfile;
+      await saveProfile(email, profileData);
       await refreshProfiles();
       alert('Profile saved successfully!');
       
@@ -103,11 +105,10 @@ export default function ProfilePage() {
         setEditingProfile(null);
       }
     } catch (error) {
-      console.error(error);
-      alert('Failed to save profile.');
-    } finally {
-      setLoading(false);
+      console.error('Save error:', error);
+      alert('Failed to save profile: ' + error.message);
     }
+    setLoading(false);
   };
 
   const handleDelete = async (email) => {
@@ -288,7 +289,9 @@ export default function ProfilePage() {
               )}
               <div>
                 <h2>{editingProfile.id ? 'Edit Profile' : 'New Profile'}</h2>
-                <span className="subtext">{editingProfile.id || 'Create a new instructor profile'}</span>
+                <span className="subtext">
+                  {editingProfile.nickname || editingProfile.fullname || editingProfile.id || 'Create a new instructor profile'}
+                </span>
               </div>
             </div>
           </div>
@@ -300,14 +303,63 @@ export default function ProfilePage() {
                 <h3 style={{ borderBottom: '1px solid var(--border-color)', paddingBottom: '0.5rem', marginBottom: '1rem' }}>Basic Information</h3>
               </div>
 
+              {/* Supervisor-only fields */}
+              {isSupervisor && (
+                <>
+                  <div className="input-group">
+                    <label>Email (Primary Key)</label>
+                    <input 
+                      type="email" 
+                      value={editingProfile.id} 
+                      onChange={e => handleChange('id', e.target.value)}
+                      disabled={editingProfile.id !== '' && editingProfile.id === user.email}
+                    />
+                  </div>
+
+                  <div className="input-group">
+                    <label>Nickname</label>
+                    <input 
+                      type="text" 
+                      value={editingProfile.nickname || ''} 
+                      onChange={e => handleChange('nickname', e.target.value)} 
+                    />
+                  </div>
+
+                  <div className="input-group">
+                    <label>Location (Branch)</label>
+                    <select 
+                      value={editingProfile.location || ''} 
+                      onChange={e => handleChange('location', e.target.value)}
+                    >
+                      <option value="">Select location...</option>
+                      {branches?.map(b => (
+                        <option key={b.id} value={b.name}>{b.name}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="input-group">
+                    <label>Specialization</label>
+                    <select 
+                      value={editingProfile.specialization || ''} 
+                      onChange={e => handleChange('specialization', e.target.value)}
+                    >
+                      <option value="" disabled>Select specialization...</option>
+                      {SPECIALIZATIONS.map(s => (
+                        <option key={s.value} value={s.value}>{s.label}</option>
+                      ))}
+                    </select>
+                  </div>
+                </>
+              )}
+
+              {/* Fields editable by everyone */}
               <div className="input-group">
-                <label>Email (Primary Key)</label>
+                <label>Fullname</label>
                 <input 
-                  type="email" 
-                  value={editingProfile.id} 
-                  onChange={e => handleChange('id', e.target.value)}
-                  disabled={!isSupervisor || (editingProfile.id !== '' && editingProfile.id === user.email)}
-                  required 
+                  type="text" 
+                  value={editingProfile.fullname || ''} 
+                  onChange={e => handleChange('fullname', e.target.value)} 
                 />
               </div>
 
@@ -315,54 +367,9 @@ export default function ProfilePage() {
                 <label>Phone Number</label>
                 <input 
                   type="text" 
-                  value={editingProfile.phoneNumber} 
+                  value={editingProfile.phoneNumber || ''} 
                   onChange={e => handleChange('phoneNumber', e.target.value)} 
                 />
-              </div>
-
-              <div className="input-group">
-                <label>Fullname</label>
-                <input 
-                  type="text" 
-                  value={editingProfile.fullname} 
-                  onChange={e => handleChange('fullname', e.target.value)} 
-                  required 
-                />
-              </div>
-
-              <div className="input-group">
-                <label>Nickname</label>
-                <input 
-                  type="text" 
-                  value={editingProfile.nickname} 
-                  onChange={e => handleChange('nickname', e.target.value)} 
-                />
-              </div>
-
-              <div className="input-group">
-                <label>Location (Branch)</label>
-                <select 
-                  value={editingProfile.location || ''} 
-                  onChange={e => handleChange('location', e.target.value)}
-                >
-                  <option value="">Select location...</option>
-                  {branches?.map(b => (
-                    <option key={b.id} value={b.name}>{b.name}</option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="input-group">
-                <label>Specialization</label>
-                <select 
-                  value={editingProfile.specialization} 
-                  onChange={e => handleChange('specialization', e.target.value)}
-                >
-                  <option value="" disabled>Select specialization...</option>
-                  {SPECIALIZATIONS.map(s => (
-                    <option key={s.value} value={s.value}>{s.label}</option>
-                  ))}
-                </select>
               </div>
 
               {/* Training Progress */}
