@@ -116,9 +116,7 @@ export default function ProfilePage() {
   };
 
   /**
-   * Sync from Trial Priority → Firestore
-   * Creates profiles for any instructors in the trial priority list
-   * that don't already have a Firestore profile.
+   * Sync from Trial Priority → Firestore (parallel writes for speed)
    */
   const handleSyncFromTrialPriority = async () => {
     if (syncing) return;
@@ -127,29 +125,35 @@ export default function ProfilePage() {
 
     try {
       const existingEmails = new Set(instructorProfiles.map(p => p.id));
-      let created = 0;
 
-      for (const entry of trialPriorityList) {
-        const email = `${entry.name.replace(/\s+/g, '')}@schedule.local`;
-        
-        if (!existingEmails.has(email)) {
-          await saveProfile(email, {
-            fullname: entry.name,
-            nickname: entry.name,
-            email: email,
-            specialization: entry.type || '',
+      // Build list of profiles to create
+      const toCreate = trialPriorityList
+        .map(entry => ({
+          email: `${entry.name.replace(/\s+/g, '')}@schedule.local`,
+          name: entry.name,
+          type: entry.type || '',
+        }))
+        .filter(item => !existingEmails.has(item.email));
+
+      // Write all in parallel
+      if (toCreate.length > 0) {
+        await Promise.all(toCreate.map(item =>
+          saveProfile(item.email, {
+            fullname: item.name,
+            nickname: item.name,
+            email: item.email,
+            specialization: item.type,
             trainingProgress: {
               kinderFoundation: 0, kinderCore: 0,
               juniorFoundation: 0, juniorCore: 0,
               coderBasic: 0, coderIntermediate: 0, coderAdvance: 0
             }
-          });
-          created++;
-        }
+          })
+        ));
       }
 
       await refreshProfiles();
-      setSyncResult({ created, total: trialPriorityList.length });
+      setSyncResult({ created: toCreate.length, total: trialPriorityList.length });
     } catch (error) {
       console.error('Sync error:', error);
       alert('Failed to sync profiles: ' + error.message);
