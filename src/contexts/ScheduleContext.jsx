@@ -250,6 +250,8 @@ export function ScheduleProvider({ children }) {
       }
 
       setAllClasses(data.classes);
+      // Also populate overallClasses so Trial Availability Overview works after Quick Sync
+      setOverallClasses(prev => prev.length === 0 ? data.classes : prev);
       setUniqueTeachers(newTeachers);
       setUniqueBaseTeachers(newBaseTeachers);
       setUniqueTimes(newTimes);
