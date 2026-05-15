@@ -28,7 +28,7 @@ export default function TrialPriorityPage() {
   const [selectedSlotData, setSelectedSlotData] = useState(null);
   const [selectedRows, setSelectedRows] = useState(new Set());
 
-  const sortedTeachers = [...uniqueBaseTeachers].filter((t) => !disabledInstructors.has(t)).sort();
+  const sortedTeachers = [...uniqueBaseTeachers].filter((t) => !disabledInstructors.has(t) && !trialPriorityList.some(p => p.name === t)).sort();
   const totalPages = Math.ceil(trialPriorityList.length / PAGE_SIZE);
   const paged = trialPriorityList.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
