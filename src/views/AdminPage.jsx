@@ -54,7 +54,7 @@ export default function AdminPage() {
   const [userPage, setUserPage] = useState(1);
   const USER_PAGE_SIZE = 5;
 
-  // Bug tracker state
+  // Bug tracker state — load from localStorage (synced from API on app mount)
   const [bugList, setBugList] = useState(() => {
     try {
       const saved = localStorage.getItem('bugTracker');
@@ -68,6 +68,12 @@ export default function AdminPage() {
   const saveBugs = (list) => {
     setBugList(list);
     try { localStorage.setItem('bugTracker', JSON.stringify(list)); } catch {}
+    // Sync to Google Sheets config API
+    fetch('/api/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key: 'bugTracker', value: list }),
+    }).catch(() => {});
   };
 
   const handleAddBug = () => {

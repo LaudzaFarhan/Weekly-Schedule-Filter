@@ -189,6 +189,9 @@ export function ScheduleProvider({ children }) {
           setRoleToggles(merged);
           localStorage.setItem('roleToggles', JSON.stringify(merged));
         }
+        if (data.bugTracker) {
+          localStorage.setItem('bugTracker', JSON.stringify(data.bugTracker));
+        }
       })
       .catch(() => {
         console.log('Config API: unreachable — using localStorage only');
