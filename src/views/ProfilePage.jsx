@@ -31,6 +31,7 @@ export default function ProfilePage() {
   const [loading, setLoading] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [syncResult, setSyncResult] = useState(null);
+  const [selectedProfiles, setSelectedProfiles] = useState(new Set());
 
   const userRole = users?.[user?.email] || 'Instructor';
   const isSupervisor = userRole === 'Supervisor' || userRole === 'SPA' || userRole === 'Admin';
@@ -142,9 +143,56 @@ export default function ProfilePage() {
     try {
       await deleteProfile(email);
       await refreshProfiles();
+      setSelectedProfiles(prev => { const next = new Set(prev); next.delete(email); return next; });
     } catch (error) {
       console.error(error);
       alert('Failed to delete profile.');
+    }
+  };
+
+  const handleBulkDelete = async () => {
+    if (selectedProfiles.size === 0) return;
+    const names = [...selectedProfiles].map(id => {
+      const p = instructorProfiles.find(pr => pr.id === id);
+      return p?.nickname || p?.fullname || id;
+    });
+    if (!confirm(`Delete ${selectedProfiles.size} profile(s)?\n\n${names.join(', ')}`)) return;
+    try {
+      await Promise.all([...selectedProfiles].map(id => deleteProfile(id)));
+      await refreshProfiles();
+      setSelectedProfiles(new Set());
+    } catch (error) {
+      console.error(error);
+      alert('Failed to delete some profiles.');
+    }
+  };
+
+  const toggleProfile = (id) => {
+    setSelectedProfiles(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleAllProfiles = () => {
+    if (selectedProfiles.size === instructorProfiles.length) {
+      setSelectedProfiles(new Set());
+    } else {
+      setSelectedProfiles(new Set(instructorProfiles.map(p => p.id)));
+    }
+  };
+
+  const handleQuickLocationChange = async (profile, newLocation) => {
+    try {
+      const docId = profile.id;
+      const { id, ...profileData } = profile;
+      profileData.location = newLocation;
+      await saveProfile(docId, profileData);
+      await refreshProfiles();
+    } catch (error) {
+      console.error('Quick update error:', error);
+      alert('Failed to update location: ' + error.message);
     }
   };
 
@@ -166,7 +214,8 @@ export default function ProfilePage() {
           name: entry.name,
           type: entry.type || '',
         }))
-        .filter(item => !existingEmails.has(item.email));
+        .filter(item => !existingEmails.has(item.email))
+        .filter((item, index, self) => self.findIndex(i => i.email === item.email) === index);
 
       // Write all in parallel
       if (toCreate.length > 0) {
@@ -227,6 +276,16 @@ export default function ProfilePage() {
               <span className="subtext">Manage profiles and training progress</span>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+              {selectedProfiles.size > 0 && (
+                <button
+                  className="btn btn-sm"
+                  onClick={handleBulkDelete}
+                  style={{ background: 'var(--danger)', color: 'white', borderColor: 'var(--danger)', display: 'flex', alignItems: 'center', gap: '0.4rem' }}
+                >
+                  <Trash2 size={14} />
+                  Remove {selectedProfiles.size} Selected
+                </button>
+              )}
               <button
                 className="btn btn-primary"
                 onClick={handleSyncFromTrialPriority}
@@ -272,6 +331,14 @@ export default function ProfilePage() {
               <table className="trial-table">
                 <thead>
                   <tr>
+                    <th style={{ width: 40, textAlign: 'center' }}>
+                      <input
+                        type="checkbox"
+                        checked={instructorProfiles.length > 0 && selectedProfiles.size === instructorProfiles.length}
+                        onChange={toggleAllProfiles}
+                        style={{ cursor: 'pointer', width: '16px', height: '16px' }}
+                      />
+                    </th>
                     <th>Nickname</th>
                     <th>Specialization</th>
                     <th>Location</th>
@@ -280,12 +347,20 @@ export default function ProfilePage() {
                 </thead>
                 <tbody>
                   {instructorProfiles.length === 0 ? (
-                    <tr><td colSpan="4" className="empty-state-table">
+                    <tr><td colSpan="5" className="empty-state-table">
                       No profiles found. Click <strong>"Sync from Trial Priority"</strong> to create profiles from your trial priority list.
                     </td></tr>
                   ) : (
                     instructorProfiles.map((p) => (
-                      <tr key={p.id}>
+                      <tr key={p.id} style={{ background: selectedProfiles.has(p.id) ? 'var(--danger-bg)' : undefined }}>
+                        <td style={{ textAlign: 'center' }}>
+                          <input
+                            type="checkbox"
+                            checked={selectedProfiles.has(p.id)}
+                            onChange={() => toggleProfile(p.id)}
+                            style={{ cursor: 'pointer', width: '16px', height: '16px' }}
+                          />
+                        </td>
                         <td style={{ fontWeight: 500 }}>{p.nickname || p.fullname || p.id.split('@')[0]}</td>
                         <td>
                           {p.specialization ? (
@@ -295,9 +370,25 @@ export default function ProfilePage() {
                           ) : <span style={{ color: 'var(--text-muted)' }}>—</span>}
                         </td>
                         <td>
-                          {p.location ? (
-                            <Badge variant="blue">{p.location}</Badge>
-                          ) : <span style={{ color: 'var(--text-muted)' }}>—</span>}
+                          <select 
+                            value={p.location || ''} 
+                            onChange={(e) => handleQuickLocationChange(p, e.target.value)}
+                            className="inline-select"
+                            style={{ 
+                              padding: '0.25rem 0.5rem', 
+                              borderRadius: '4px', 
+                              border: '1px solid var(--border-color)', 
+                              fontSize: '0.85rem',
+                              background: 'var(--surface-color)',
+                              cursor: 'pointer'
+                            }}
+                          >
+                            <option value="">Select location...</option>
+                            {branches?.map(b => (
+                              <option key={b.id} value={b.name}>{b.name}</option>
+                            ))}
+                            <option value="All Branches">All Branches</option>
+                          </select>
                         </td>
                         <td style={{ textAlign: 'center' }}>
                           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem' }}>

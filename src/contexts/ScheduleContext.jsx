@@ -111,6 +111,7 @@ export function ScheduleProvider({ children }) {
     const cached = loadLocal('cachedSchedule_lastSync', null);
     return cached ? new Date(cached) : null;
   });
+  const [failedBranches, setFailedBranches] = useState([]);
 
   // Config data — initialised from localStorage (instant), then overwritten by API
   const [branches, setBranches] = useState(() => loadLocal('branches', DEFAULT_BRANCHES));
@@ -210,6 +211,26 @@ export function ScheduleProvider({ children }) {
 
     return () => unsubscribe();
   }, []);
+
+  // ─── Auto-sync if cache is stale (older than 2 hours) ────────────
+  const autoSyncTriggered = useRef(false);
+  useEffect(() => {
+    if (autoSyncTriggered.current) return;
+    const cachedSync = loadLocal('cachedSchedule_lastSync', null);
+    if (!cachedSync) return; // Never synced — user must do first sync manually
+    
+    const lastSync = new Date(cachedSync);
+    const hoursSinceSync = (Date.now() - lastSync.getTime()) / (1000 * 60 * 60);
+    
+    if (hoursSinceSync >= 2 && branches.length > 0) {
+      autoSyncTriggered.current = true;
+      console.log(`Auto-sync: cache is ${Math.round(hoursSinceSync)}h old, refreshing...`);
+      // Delay slightly to not block initial render
+      setTimeout(() => {
+        syncAllBranches();
+      }, 2000);
+    }
+  }, [branches, syncAllBranches]);
 
   // ─── Update functions (dual storage) ─────────────────────────────
 
@@ -359,6 +380,7 @@ export function ScheduleProvider({ children }) {
 
       let successCount = 0;
       let failCount = 0;
+      const failed = [];
 
       for (const result of results) {
         if (result.status === 'fulfilled' && result.value.success) {
@@ -379,8 +401,12 @@ export function ScheduleProvider({ children }) {
           successCount++;
         } else {
           failCount++;
+          const branch = result.status === 'fulfilled' ? result.value?.branch : null;
+          if (branch) failed.push(branch.name);
         }
       }
+
+      setFailedBranches(failed);
 
       setOverallClasses(allCombinedClasses);
       setUniqueTeachers(allTeachers);
@@ -455,7 +481,7 @@ export function ScheduleProvider({ children }) {
     instructorMap,
     
     // Sync state
-    isSyncing, syncStatus, syncProgress, lastSyncTime,
+    isSyncing, syncStatus, syncProgress, lastSyncTime, failedBranches,
     syncSchedule, syncActiveBranch, syncAllBranches,
     
     conflicts,

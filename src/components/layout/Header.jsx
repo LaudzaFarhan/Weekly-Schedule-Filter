@@ -9,7 +9,7 @@ export default function Header() {
     branches, updateBranches,
     activeBranchId, changeActiveBranch,
     syncActiveBranch, syncAllBranches,
-    isSyncing, syncStatus, syncProgress, lastSyncTime,
+    isSyncing, syncStatus, syncProgress, lastSyncTime, failedBranches,
   } = useSchedule();
 
   const [isAdding, setIsAdding] = useState(false);
@@ -38,7 +38,7 @@ export default function Header() {
     }
   };
 
-  const activeBranch = branches.find(b => b.id === activeBranchId);
+  const activeBranch = branches.find(b => b.id === activeBranchId) || branches[0];
 
   return (
     <header className="app-header" style={{ paddingBottom: '0.5rem' }}>
@@ -89,7 +89,14 @@ export default function Header() {
       <div className="header-actions" style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', alignItems: 'flex-end' }}>
         <div className="sync-controls">
           <div className="sync-status">
-            {lastSyncTime ? `Last synced: ${lastSyncTime.toLocaleTimeString()}` : 'Not synced yet'}
+            {lastSyncTime ? (() => {
+              const mins = Math.round((Date.now() - lastSyncTime.getTime()) / 60000);
+              if (mins < 1) return 'Last synced: just now';
+              if (mins < 60) return `Last synced: ${mins}m ago`;
+              const hrs = Math.round(mins / 60);
+              if (hrs < 24) return `Last synced: ${hrs}h ago`;
+              return `Last synced: ${lastSyncTime.toLocaleDateString()}`;
+            })() : 'Not synced yet'}
           </div>
           <button
             className="btn btn-primary"
@@ -98,7 +105,7 @@ export default function Header() {
             style={{ minWidth: '160px' }}
           >
             <RefreshCw size={18} className={isSyncing && syncProgress === 0 ? 'spin' : ''} />
-            {isSyncing && syncProgress === 0 ? `Syncing ${activeBranch?.name}...` : `Sync ${activeBranch?.name}`}
+            {isSyncing && syncProgress === 0 ? `Syncing ${activeBranch?.name || 'Branch'}...` : `Sync ${activeBranch?.name || 'Branch'}`}
           </button>
           
           <button
@@ -122,6 +129,17 @@ export default function Header() {
           <span className={`status-dot ${isSyncing ? 'syncing' : lastSyncTime ? 'synced' : ''}`} />
           <span>{syncStatus}</span>
         </div>
+        {failedBranches && failedBranches.length > 0 && !isSyncing && (
+          <div style={{ fontSize: '0.8rem', color: 'var(--danger)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <span>Failed: {failedBranches.join(', ')}</span>
+            <button
+              onClick={syncAllBranches}
+              style={{ background: 'none', border: 'none', color: 'var(--primary, #3b82f6)', cursor: 'pointer', fontSize: '0.8rem', textDecoration: 'underline' }}
+            >
+              Retry
+            </button>
+          </div>
+        )}
       </div>
     </header>
   );
