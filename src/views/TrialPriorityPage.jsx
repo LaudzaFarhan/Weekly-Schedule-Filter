@@ -1,9 +1,10 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useSchedule } from '../contexts/ScheduleContext';
 import { doTimeSlotsOverlap, parseTimeSlot } from '../utils/timeUtils';
 import { DAY_NAMES } from '../utils/constants';
+import { getInstructorBranch } from '../utils/instructorUtils';
 import Badge from '../components/ui/Badge';
 import Pagination from '../components/ui/Pagination';
 import { Trash2 } from 'lucide-react';
@@ -17,22 +18,63 @@ export default function TrialPriorityPage() {
   const {
     uniqueBaseTeachers, trialPriorityList, updateTrialPriorityList,
     overallClasses, uniqueTimes, allTimeSlots, leaveList,
-    disabledInstructors, users, updateUsers, refreshProfiles
+    disabledInstructors, users, updateUsers, refreshProfiles, branches,
+    instructorProfiles, activeBranchName, allClasses
   } = useSchedule();
   const [selectedName, setSelectedName] = useState('');
   const [selectedType, setSelectedType] = useState('');
   const [selectedStatus, setSelectedStatus] = useState('fulltime');
+  const [selectedLocation, setSelectedLocation] = useState(activeBranchName || '');
   const [workingDays, setWorkingDays] = useState([]);
   const [editIndex, setEditIndex] = useState(-1);
   const [page, setPage] = useState(1);
   const [selectedSlotData, setSelectedSlotData] = useState(null);
   const [selectedRows, setSelectedRows] = useState(new Set());
+  const [overviewBranch, setOverviewBranch] = useState('all');
 
-  const sortedTeachers = [...uniqueBaseTeachers].filter((t) => !disabledInstructors.has(t) && !trialPriorityList.some(p => p.name === t)).sort();
-  const totalPages = Math.ceil(trialPriorityList.length / PAGE_SIZE);
-  const paged = trialPriorityList.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  // Filter the list for the management table — show all entries, not just active branch
+  // This allows managing instructors from any branch in one place
+  const filteredTrialPriorityList = useMemo(() => {
+    return trialPriorityList;
+  }, [trialPriorityList]);
 
-  const canAdd = selectedName && selectedType;
+  // Auto-update location dropdown when branch tab changes
+  useEffect(() => {
+    setSelectedLocation(activeBranchName);
+  }, [activeBranchName]);
+
+  // Auto-detect instructor's branch when selected from dropdown
+  const handleInstructorSelect = (name) => {
+    setSelectedName(name);
+    const branch = getInstructorBranch(name, instructorProfiles, overallClasses);
+    setSelectedLocation(branch === 'Unknown' ? activeBranchName : branch);
+  };
+
+  // Combine teachers from active branch classes + profiles matching this branch
+  const allBranchTeachers = useMemo(() => {
+    const names = new Set();
+    // Teachers from ALL synced branches — Trial Priority should allow adding any instructor
+    overallClasses.forEach(c => {
+      if (c.teacher && c.teacher !== '-') names.add(c.teacher);
+    });
+    return names;
+  }, [overallClasses]);
+
+  const profileNames = (instructorProfiles || []).map(p => p.fullname || p.nickname || p.id.split('@')[0]);
+  const allPossibleTeachers = new Set([...allBranchTeachers, ...profileNames]);
+
+  // Show all instructors in dropdown — the Location field handles branch assignment
+  // Only filter out disabled instructors and those already in the priority list (any branch)
+  const sortedTeachers = [...allPossibleTeachers]
+    .filter((t) => {
+      if (disabledInstructors.has(t)) return false;
+      // Check against FULL list (all branches) to prevent duplicates
+      if (trialPriorityList.some(p => p.name === t)) return false;
+      return true;
+    })
+    .sort();
+
+  const canAdd = selectedName && selectedType && selectedLocation;
   const [isAdding, setIsAdding] = useState(false);
 
   const handleAdd = async () => {
@@ -41,7 +83,7 @@ export default function TrialPriorityPage() {
 
     try {
       const days = selectedStatus === 'fulltime' ? DAY_NAMES : workingDays;
-      const entry = { name: selectedName, type: selectedType, status: selectedStatus, workingDays: days };
+      const entry = { name: selectedName, type: selectedType, status: selectedStatus, workingDays: days, location: selectedLocation };
 
       let newList;
       if (editIndex >= 0) {
@@ -49,8 +91,8 @@ export default function TrialPriorityPage() {
         newList[editIndex] = entry;
         setEditIndex(-1);
       } else {
-        const exists = trialPriorityList.some((p) => p.name === selectedName);
-        if (exists) { alert(`${selectedName} is already in the priority list.`); return; }
+        const exists = filteredTrialPriorityList.some((p) => p.name === selectedName);
+        if (exists) { alert(`${selectedName} is already in the priority list for this branch.`); return; }
         
         // Auto-create Firebase account and profile for new additions in the background
         // so it never blocks the UI or causes the button to hang
@@ -82,6 +124,7 @@ export default function TrialPriorityPage() {
               nickname: selectedName,
               email: email,
               specialization: selectedType,
+              location: selectedLocation,
               trainingProgress: {
                 kinderFoundation: 0, kinderCore: 0,
                 juniorFoundation: 0, juniorCore: 0,
@@ -100,7 +143,7 @@ export default function TrialPriorityPage() {
       }
       
       updateTrialPriorityList(newList);
-      setSelectedName(''); setSelectedType(''); setSelectedStatus('fulltime'); setWorkingDays([]);
+      setSelectedName(''); setSelectedType(''); setSelectedStatus('fulltime'); setSelectedLocation(activeBranchName); setWorkingDays([]);
     } finally {
       setIsAdding(false);
     }
@@ -108,15 +151,18 @@ export default function TrialPriorityPage() {
 
   const handleRemove = (index) => {
     const actualIndex = (page - 1) * PAGE_SIZE + index;
-    updateTrialPriorityList(trialPriorityList.filter((_, i) => i !== actualIndex));
+    const instructorToRemove = filteredTrialPriorityList[actualIndex];
+    if (!instructorToRemove) return;
+    updateTrialPriorityList(trialPriorityList.filter((p) => !(p.name === instructorToRemove.name && p.location === instructorToRemove.location)));
     setSelectedRows(prev => { const next = new Set(prev); next.delete(actualIndex); return next; });
   };
 
   const handleBulkRemove = () => {
     if (selectedRows.size === 0) return;
-    const names = [...selectedRows].map(i => trialPriorityList[i]?.name).filter(Boolean).join(', ');
-    if (!confirm(`Remove ${selectedRows.size} instructor(s)?\n\n${names}`)) return;
-    updateTrialPriorityList(trialPriorityList.filter((_, i) => !selectedRows.has(i)));
+    const toRemove = [...selectedRows].map(i => filteredTrialPriorityList[i]).filter(Boolean);
+    const names = toRemove.map(p => p.name);
+    if (!confirm(`Remove ${selectedRows.size} instructor(s)?\n\n${names.join(', ')}`)) return;
+    updateTrialPriorityList(trialPriorityList.filter((p) => !toRemove.some(r => r.name === p.name && r.location === p.location)));
     setSelectedRows(new Set());
   };
 
@@ -167,6 +213,11 @@ export default function TrialPriorityPage() {
       "5.30 - 6.30 pm"
     ];
 
+    // Filter classes by selected overview branch
+    const classesForOverview = overviewBranch === 'all'
+      ? overallClasses
+      : overallClasses.filter(c => c.branchName === overviewBranch);
+
     return FIXED_TRIAL_SLOTS.map((timeSlot) => {
       const row = { time: timeSlot };
       DAY_NAMES.forEach((day) => {
@@ -174,6 +225,11 @@ export default function TrialPriorityPage() {
         trialPriorityList.forEach((p) => {
           // Skip disabled instructors
           if (disabledInstructors.has(p.name)) return;
+          // Filter by selected overview branch
+          if (overviewBranch !== 'all') {
+            if (p.location !== 'All Branches' && p.location !== overviewBranch) return;
+          }
+          
           let reason = '';
           let isAvailable = true;
           
@@ -184,7 +240,7 @@ export default function TrialPriorityPage() {
             isAvailable = false;
             reason = 'On Leave';
           } else {
-            const busyClass = overallClasses.find(
+            const busyClass = classesForOverview.find(
               (c) => c.teacher === p.name && c.day === day && doTimeSlotsOverlap(c.time, timeSlot)
             );
             if (busyClass) {
@@ -204,7 +260,10 @@ export default function TrialPriorityPage() {
       });
       return row;
     });
-  }, [trialPriorityList, overallClasses, leaveList, disabledInstructors]);
+  }, [trialPriorityList, overallClasses, leaveList, disabledInstructors, overviewBranch]);
+
+  const totalPages = Math.ceil(filteredTrialPriorityList.length / PAGE_SIZE);
+  const paged = filteredTrialPriorityList.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
   return (
     <section className="dashboard-view active">
@@ -221,7 +280,7 @@ export default function TrialPriorityPage() {
                 Remove {selectedRows.size} Selected
               </button>
             )}
-            <Badge variant="orange">{trialPriorityList.length} Assigned</Badge>
+            <Badge variant="orange">{filteredTrialPriorityList.length} Assigned</Badge>
           </div>
         </div>
         <div className="panel-body trial-body">
@@ -229,7 +288,7 @@ export default function TrialPriorityPage() {
             <div className="trial-form-row">
               <div className="input-group trial-input-name">
                 <label>Instructor Name</label>
-                <select value={selectedName} onChange={(e) => setSelectedName(e.target.value)}>
+                <select value={selectedName} onChange={(e) => handleInstructorSelect(e.target.value)}>
                   <option value="" disabled>Select instructor...</option>
                   {sortedTeachers.map((t) => <option key={t} value={t}>{t}</option>)}
                 </select>
@@ -240,6 +299,16 @@ export default function TrialPriorityPage() {
                   <option value="" disabled>Select type...</option>
                   <option value="kinder-junior">Kinder &amp; Junior</option>
                   <option value="junior-coder">Junior &amp; Coder</option>
+                </select>
+              </div>
+              <div className="input-group trial-input-location">
+                <label>Location</label>
+                <select value={selectedLocation} onChange={(e) => setSelectedLocation(e.target.value)}>
+                  <option value="" disabled>Select branch...</option>
+                  {branches?.map(b => (
+                    <option key={b.id} value={b.name}>{b.name}</option>
+                  ))}
+                  <option value="All Branches">All Branches</option>
                 </select>
               </div>
               <div className="input-group trial-input-status">
@@ -298,14 +367,15 @@ export default function TrialPriorityPage() {
                   </th>
                   <th>Instructor</th>
                   <th>Specialization</th>
+                  <th>Location</th>
                   <th>Trial Capabilities</th>
                   <th>Working Days</th>
                   <th style={{ width: 60, textAlign: 'center' }}>Action</th>
                 </tr>
               </thead>
               <tbody>
-                {trialPriorityList.length === 0 ? (
-                  <tr><td colSpan="6" className="empty-state-table">No priority instructors assigned yet.</td></tr>
+                {filteredTrialPriorityList.length === 0 ? (
+                  <tr><td colSpan="7" className="empty-state-table">No priority instructors assigned yet.</td></tr>
                 ) : (
                   paged.map((p, i) => {
                     const actualIndex = (page - 1) * PAGE_SIZE + i;
@@ -321,6 +391,7 @@ export default function TrialPriorityPage() {
                         </td>
                         <td>{p.name}</td>
                         <td><span className={`trial-type-badge type-${p.type}`}>{p.type === 'kinder-junior' ? 'Kinder & Junior' : 'Junior & Coder'}</span></td>
+                        <td>{p.location ? <Badge variant="blue">{p.location}</Badge> : <span style={{ color: 'var(--text-muted)' }}>—</span>}</td>
                         <td>{getCapabilities(p.type)}</td>
                         <td>{p.status === 'fulltime' ? 'All Days' : (p.workingDays || []).join(', ')}</td>
                         <td style={{ textAlign: 'center' }}>
@@ -346,13 +417,44 @@ export default function TrialPriorityPage() {
             <h2>Trial Availability Overview</h2>
             <span className="subtext">Weekly overview of available trial slots</span>
           </div>
-          <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
-            <span className="trial-avail-chip chip-kinder" style={{ fontSize: '0.7rem', gap: '3px' }}>K</span>
-            <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Kinder</span>
-            <span className="trial-avail-chip chip-junior" style={{ fontSize: '0.7rem', gap: '3px' }}>J</span>
-            <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Junior</span>
-            <span className="trial-avail-chip chip-coder" style={{ fontSize: '0.7rem', gap: '3px' }}>C</span>
-            <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Coder</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', background: 'var(--bg-secondary, #f1f5f9)', borderRadius: '8px', padding: '0.35rem 0.6rem' }}>
+              <button
+                onClick={() => {
+                  const branchOptions = ['all', ...(branches || []).map(b => b.name)];
+                  const currentIdx = branchOptions.indexOf(overviewBranch);
+                  const prevIdx = currentIdx <= 0 ? branchOptions.length - 1 : currentIdx - 1;
+                  setOverviewBranch(branchOptions[prevIdx]);
+                }}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1.1rem', padding: '0.1rem 0.4rem', color: 'var(--primary, #3b82f6)', fontWeight: 600 }}
+                title="Previous branch"
+              >
+                ‹
+              </button>
+              <span style={{ fontSize: '0.85rem', fontWeight: 600, minWidth: '110px', textAlign: 'center', color: 'var(--text-primary)' }}>
+                {overviewBranch === 'all' ? 'All Branches' : overviewBranch}
+              </span>
+              <button
+                onClick={() => {
+                  const branchOptions = ['all', ...(branches || []).map(b => b.name)];
+                  const currentIdx = branchOptions.indexOf(overviewBranch);
+                  const nextIdx = currentIdx >= branchOptions.length - 1 ? 0 : currentIdx + 1;
+                  setOverviewBranch(branchOptions[nextIdx]);
+                }}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1.1rem', padding: '0.1rem 0.4rem', color: 'var(--primary, #3b82f6)', fontWeight: 600 }}
+                title="Next branch"
+              >
+                ›
+              </button>
+            </div>
+            <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
+              <span className="trial-avail-chip chip-kinder" style={{ fontSize: '0.7rem', gap: '3px' }}>K</span>
+              <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Kinder</span>
+              <span className="trial-avail-chip chip-junior" style={{ fontSize: '0.7rem', gap: '3px' }}>J</span>
+              <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Junior</span>
+              <span className="trial-avail-chip chip-coder" style={{ fontSize: '0.7rem', gap: '3px' }}>C</span>
+              <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Coder</span>
+            </div>
           </div>
         </div>
         <div className="panel-body">
@@ -433,7 +535,10 @@ export default function TrialPriorityPage() {
               <ul style={{ listStyle: 'none', padding: 0, margin: '0 0 2rem 0' }}>
                 {selectedSlotData.available.map((p, i) => (
                   <li key={i} style={{ padding: '0.75rem 0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #f1f5f9' }}>
-                    <span style={{ fontWeight: 500 }}>{p.name}</span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      <span style={{ fontWeight: 500 }}>{p.name}</span>
+                      {p.location && <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>({p.location})</span>}
+                    </div>
                     <Badge variant={p.type === 'kinder-junior' ? 'blue' : 'purple'}>
                       {p.type === 'kinder-junior' ? 'Kinder & Junior' : 'Junior & Coder'}
                     </Badge>
@@ -450,7 +555,10 @@ export default function TrialPriorityPage() {
                 {selectedSlotData.unavailable.map((p, i) => (
                   <li key={i} style={{ padding: '0.75rem 0', borderBottom: '1px solid #f1f5f9' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <span style={{ fontWeight: 500 }}>{p.name}</span>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        <span style={{ fontWeight: 500 }}>{p.name}</span>
+                        {p.location && <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>({p.location})</span>}
+                      </div>
                       <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', textAlign: 'right', maxWidth: '60%' }}>{p.reason}</span>
                     </div>
                   </li>

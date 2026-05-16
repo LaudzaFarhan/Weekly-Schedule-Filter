@@ -26,7 +26,7 @@ const SIDEBAR_FEATURES = {
   admin: 'Admin Settings'
 };
 
-const ROLES = ['SPA', 'EC', 'Instructor', 'Supervisor'];
+const ROLES = ['Admin', 'SPA', 'EC', 'Instructor', 'Supervisor'];
 
 export default function AdminPage() {
   const {
@@ -49,6 +49,22 @@ export default function AdminPage() {
   const [userLoading, setUserLoading] = useState(false);
   const [createdUser, setCreatedUser] = useState(null);
   const [resetStatus, setResetStatus] = useState('');
+  const [userSearch, setUserSearch] = useState('');
+  const [userRoleFilter, setUserRoleFilter] = useState('all');
+  const [userPage, setUserPage] = useState(1);
+  const USER_PAGE_SIZE = 5;
+
+  // Filtered and paginated users
+  const filteredUsers = useMemo(() => {
+    return Object.entries(users).filter(([email, role]) => {
+      if (userRoleFilter !== 'all' && role !== userRoleFilter) return false;
+      if (userSearch && !email.toLowerCase().includes(userSearch.toLowerCase())) return false;
+      return true;
+    });
+  }, [users, userRoleFilter, userSearch]);
+
+  const totalUserPages = Math.ceil(filteredUsers.length / USER_PAGE_SIZE);
+  const pagedUsers = filteredUsers.slice((userPage - 1) * USER_PAGE_SIZE, userPage * USER_PAGE_SIZE);
 
   // --- Handlers for Settings Tab ---
   const handleToggle = (key) => {
@@ -330,6 +346,37 @@ export default function AdminPage() {
               <h2>Registered Users</h2>
             </div>
             <div className="panel-body">
+              {/* Filters */}
+              <div style={{ display: 'flex', gap: '0.75rem', marginBottom: '1rem', flexWrap: 'wrap', alignItems: 'center' }}>
+                <div style={{ position: 'relative', flex: '1', minWidth: '200px', maxWidth: '300px' }}>
+                  <Search size={16} style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+                  <input
+                    type="text"
+                    placeholder="Search by email..."
+                    value={userSearch}
+                    onChange={(e) => { setUserSearch(e.target.value); setUserPage(1); }}
+                    style={{ width: '100%', padding: '0.5rem 0.8rem 0.5rem 2rem', border: '1px solid var(--border-color)', borderRadius: '8px', fontSize: '0.85rem' }}
+                  />
+                </div>
+                <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
+                  {['all', ...ROLES].map(role => (
+                    <button
+                      key={role}
+                      onClick={() => { setUserRoleFilter(role); setUserPage(1); }}
+                      style={{
+                        padding: '0.3rem 0.7rem', borderRadius: '6px', fontSize: '0.8rem', cursor: 'pointer',
+                        border: userRoleFilter === role ? '1.5px solid var(--primary, #3b82f6)' : '1px solid var(--border-color)',
+                        background: userRoleFilter === role ? 'rgba(37, 99, 235, 0.1)' : 'transparent',
+                        fontWeight: userRoleFilter === role ? 600 : 400,
+                        color: userRoleFilter === role ? 'var(--primary, #3b82f6)' : 'var(--text-secondary)'
+                      }}
+                    >
+                      {role === 'all' ? 'All Roles' : role}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.9rem' }}>
                 <thead>
                   <tr style={{ borderBottom: '2px solid var(--border-color)', textAlign: 'left', color: 'var(--text-muted)' }}>
@@ -339,7 +386,7 @@ export default function AdminPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {Object.entries(users).map(([email, role]) => (
+                  {pagedUsers.length > 0 ? pagedUsers.map(([email, role]) => (
                     <tr key={email} style={{ borderBottom: '1px solid var(--border-color)' }}>
                       <td style={{ padding: '0.75rem 0.5rem', fontWeight: '500' }}>{email}</td>
                       <td style={{ padding: '0.75rem 0.5rem' }}>
@@ -362,12 +409,33 @@ export default function AdminPage() {
                         </button>
                       </td>
                     </tr>
-                  ))}
-                  {Object.keys(users).length === 0 && (
-                    <tr><td colSpan="3" style={{ padding: '1rem', textAlign: 'center', color: 'var(--text-muted)' }}>No users found in config.</td></tr>
+                  )) : (
+                    <tr><td colSpan="3" style={{ padding: '1rem', textAlign: 'center', color: 'var(--text-muted)' }}>No users match your filter.</td></tr>
                   )}
                 </tbody>
               </table>
+
+              {/* Pagination */}
+              {totalUserPages > 1 && (
+                <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '0.75rem', marginTop: '1rem', fontSize: '0.85rem' }}>
+                  <button
+                    onClick={() => setUserPage(p => Math.max(1, p - 1))}
+                    disabled={userPage <= 1}
+                    style={{ background: 'none', border: 'none', cursor: userPage <= 1 ? 'default' : 'pointer', color: userPage <= 1 ? 'var(--text-muted)' : 'var(--primary, #3b82f6)' }}
+                  >
+                    ← Prev
+                  </button>
+                  <span style={{ color: 'var(--text-secondary)' }}>Page {userPage} of {totalUserPages}</span>
+                  <button
+                    onClick={() => setUserPage(p => Math.min(totalUserPages, p + 1))}
+                    disabled={userPage >= totalUserPages}
+                    style={{ background: 'none', border: 'none', cursor: userPage >= totalUserPages ? 'default' : 'pointer', color: userPage >= totalUserPages ? 'var(--text-muted)' : 'var(--primary, #3b82f6)' }}
+                  >
+                    Next →
+                  </button>
+                </div>
+              )}
+
               {resetStatus && (
                 <div style={{ marginTop: '1rem', padding: '0.75rem', borderRadius: '6px', background: '#dbeafe', color: '#1e40af', fontSize: '0.85rem' }}>
                   {resetStatus}

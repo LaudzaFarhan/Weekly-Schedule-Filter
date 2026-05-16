@@ -10,13 +10,13 @@ import { Trash2 } from 'lucide-react';
 const PAGE_SIZE = 8;
 
 export default function LeavePage() {
-  const { uniqueBaseTeachers, leaveList, updateLeaveList } = useSchedule();
+  const { uniqueBaseTeachers, leaveList, updateLeaveList, disabledInstructors } = useSchedule();
   const [selectedInstructor, setSelectedInstructor] = useState('');
   const [selectedDay, setSelectedDay] = useState('');
   const [reason, setReason] = useState('');
   const [page, setPage] = useState(1);
 
-  const sortedTeachers = [...uniqueBaseTeachers].sort();
+  const sortedTeachers = [...uniqueBaseTeachers].filter(t => !disabledInstructors.has(t)).sort();
   const totalPages = Math.ceil(leaveList.length / PAGE_SIZE);
   const paged = leaveList.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 

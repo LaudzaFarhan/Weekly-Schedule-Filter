@@ -1,8 +1,9 @@
 'use client';
 
-import { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react';
+import { createContext, useContext, useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import { doTimeSlotsOverlap, parseTimeSlot } from '../utils/timeUtils';
 import { DAY_NAMES } from '../utils/constants';
+import { buildInstructorMap } from '../utils/instructorUtils';
 import { getAllProfiles } from '../services/profileService';
 import { auth } from '../services/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
@@ -41,6 +42,25 @@ function persistConfig(key, value) {
   }).catch(() => { /* API not configured or offline — localStorage is the fallback */ });
 }
 
+/** Cache schedule data to localStorage so it persists across page refreshes */
+function cacheScheduleData(classes, teachers, baseTeachers, times, allTimeSlots) {
+  try {
+    localStorage.setItem('cachedSchedule_classes', JSON.stringify(classes));
+    localStorage.setItem('cachedSchedule_teachers', JSON.stringify([...teachers]));
+    localStorage.setItem('cachedSchedule_baseTeachers', JSON.stringify([...baseTeachers]));
+    // Convert Set values to arrays for JSON serialization
+    const timesObj = {};
+    for (const [day, dayTimes] of Object.entries(times)) {
+      timesObj[day] = dayTimes instanceof Set ? [...dayTimes] : dayTimes;
+    }
+    localStorage.setItem('cachedSchedule_times', JSON.stringify(timesObj));
+    localStorage.setItem('cachedSchedule_allTimeSlots', JSON.stringify([...allTimeSlots]));
+    localStorage.setItem('cachedSchedule_lastSync', JSON.stringify(new Date().toISOString()));
+  } catch (e) {
+    console.warn('Failed to cache schedule data:', e.message);
+  }
+}
+
 /* ─── default values ─────────────────────────────────────────────── */
 
 const DEFAULT_TOGGLES = {
@@ -51,6 +71,7 @@ const DEFAULT_TOGGLES = {
 };
 
 const DEFAULT_ROLE_TOGGLES = {
+  Admin: { ...DEFAULT_TOGGLES },
   SPA: { ...DEFAULT_TOGGLES },
   EC: { ...DEFAULT_TOGGLES, api_docs: false, admin: false },
   Instructor: { ...DEFAULT_TOGGLES, api_docs: false, admin: false, trial_input: false },
@@ -67,16 +88,29 @@ const DEFAULT_BRANCHES = [
 /* ─── provider ───────────────────────────────────────────────────── */
 
 export function ScheduleProvider({ children }) {
-  const [allClasses, setAllClasses] = useState([]); // Active branch classes
-  const [overallClasses, setOverallClasses] = useState([]); // All branches classes (from full sync)
-  const [uniqueTeachers, setUniqueTeachers] = useState(new Set());
-  const [uniqueBaseTeachers, setUniqueBaseTeachers] = useState(new Set());
-  const [uniqueTimes, setUniqueTimes] = useState({});
-  const [allTimeSlots, setAllTimeSlots] = useState(new Set());
+  // Restore cached schedule data from localStorage on mount
+  const [overallClasses, setOverallClasses] = useState(() => loadLocal('cachedSchedule_classes', []));
+  const [uniqueTeachers, setUniqueTeachers] = useState(() => new Set(loadLocal('cachedSchedule_teachers', [])));
+  const [uniqueBaseTeachers, setUniqueBaseTeachers] = useState(() => new Set(loadLocal('cachedSchedule_baseTeachers', [])));
+  const [uniqueTimes, setUniqueTimes] = useState(() => {
+    const cached = loadLocal('cachedSchedule_times', {});
+    const restored = {};
+    for (const [day, times] of Object.entries(cached)) {
+      restored[day] = new Set(times);
+    }
+    return restored;
+  });
+  const [allTimeSlots, setAllTimeSlots] = useState(() => new Set(loadLocal('cachedSchedule_allTimeSlots', [])));
   const [isSyncing, setIsSyncing] = useState(false);
-  const [syncStatus, setSyncStatus] = useState('Ready to Sync');
-  const [syncProgress, setSyncProgress] = useState(0); // 0-100%
-  const [lastSyncTime, setLastSyncTime] = useState(null);
+  const [syncStatus, setSyncStatus] = useState(() => {
+    const cached = loadLocal('cachedSchedule_classes', []);
+    return cached.length > 0 ? 'Loaded from cache' : 'Ready to Sync';
+  });
+  const [syncProgress, setSyncProgress] = useState(0);
+  const [lastSyncTime, setLastSyncTime] = useState(() => {
+    const cached = loadLocal('cachedSchedule_lastSync', null);
+    return cached ? new Date(cached) : null;
+  });
 
   // Config data — initialised from localStorage (instant), then overwritten by API
   const [branches, setBranches] = useState(() => loadLocal('branches', DEFAULT_BRANCHES));
@@ -87,11 +121,24 @@ export function ScheduleProvider({ children }) {
   const [disabledInstructors, setDisabledInstructors] = useState(() => new Set(loadLocal('disabledInstructors', [])));
   
   // RBAC Config
-  const [users, setUsers] = useState(() => loadLocal('users', { 'admin@schedule.local': 'SPA' }));
+  const [users, setUsers] = useState(() => loadLocal('users', { 'admin@schedule.local': 'Admin' }));
   const [roleToggles, setRoleToggles] = useState(() => loadLocal('roleToggles', DEFAULT_ROLE_TOGGLES));
 
   // Instructor Profiles
   const [instructorProfiles, setInstructorProfiles] = useState([]);
+
+  // Compute active branch name and its specific classes
+  const activeBranchName = branches.find(b => b.id === activeBranchId)?.name || 'Default Branch';
+  
+  const allClasses = useMemo(() => {
+    if (!activeBranchName) return overallClasses;
+    return overallClasses.filter(c => c.branchName === activeBranchName);
+  }, [overallClasses, activeBranchName]);
+
+  // Build instructor identity map — profiles are source of truth
+  const instructorMap = useMemo(() => {
+    return buildInstructorMap(instructorProfiles, overallClasses);
+  }, [instructorProfiles, overallClasses]);
 
   // Track whether we already loaded from API to avoid overwriting user edits
   const apiLoaded = useRef(false);
@@ -249,9 +296,14 @@ export function ScheduleProvider({ children }) {
         dayTimes.forEach((t) => newAllTimeSlots.add(t));
       }
 
-      setAllClasses(data.classes);
-      // Also populate overallClasses so Trial Availability Overview works after Quick Sync
-      setOverallClasses(prev => prev.length === 0 ? data.classes : prev);
+      // Update overallClasses: replace this branch's classes, keep other branches
+      setOverallClasses(prev => {
+        const otherBranchClasses = prev.filter(c => c.branchName !== activeBranch.name);
+        const updated = [...otherBranchClasses, ...data.classes];
+        // Cache the updated schedule
+        cacheScheduleData(updated, newTeachers, newBaseTeachers, newTimes, newAllTimeSlots);
+        return updated;
+      });
       setUniqueTeachers(newTeachers);
       setUniqueBaseTeachers(newBaseTeachers);
       setUniqueTimes(newTimes);
@@ -283,6 +335,10 @@ export function ScheduleProvider({ children }) {
     try {
       let completed = 0;
       let allCombinedClasses = [];
+      const allTeachers = new Set();
+      const allBaseTeachers = new Set();
+      const allNewTimes = {};
+      const newAllTimeSlots = new Set();
       
       // Parallel fetch all branches
       const results = await Promise.allSettled(
@@ -306,7 +362,20 @@ export function ScheduleProvider({ children }) {
 
       for (const result of results) {
         if (result.status === 'fulfilled' && result.value.success) {
-          allCombinedClasses.push(...result.value.data.classes);
+          const { data } = result.value;
+          allCombinedClasses.push(...data.classes);
+          
+          data.teachers.forEach(t => allTeachers.add(t));
+          data.baseTeachers.forEach(t => allBaseTeachers.add(t));
+          
+          for (const [day, dayTimes] of Object.entries(data.times)) {
+            if (!allNewTimes[day]) allNewTimes[day] = new Set();
+            dayTimes.forEach(t => {
+              allNewTimes[day].add(t);
+              newAllTimeSlots.add(t);
+            });
+          }
+          
           successCount++;
         } else {
           failCount++;
@@ -314,8 +383,15 @@ export function ScheduleProvider({ children }) {
       }
 
       setOverallClasses(allCombinedClasses);
+      setUniqueTeachers(allTeachers);
+      setUniqueBaseTeachers(allBaseTeachers);
+      setUniqueTimes(allNewTimes);
+      setAllTimeSlots(newAllTimeSlots);
       setLastSyncTime(new Date());
       setSyncStatus(`Full Sync: ${successCount} successful, ${failCount} failed.`);
+
+      // Cache the synced data
+      cacheScheduleData(allCombinedClasses, allTeachers, allBaseTeachers, allNewTimes, newAllTimeSlots);
     } catch (error) {
       console.error('Full Sync error:', error);
       setSyncStatus('Full Sync Failed');
@@ -328,19 +404,19 @@ export function ScheduleProvider({ children }) {
   // Legacy syncSchedule points to Quick Sync to not break existing calls
   const syncSchedule = syncActiveBranch;
 
-  // ─── Conflict engine ─────────────────────────────────────────────
+  // ─── Conflict engine (all branches) ────────────────────────────────
 
-  const conflicts = (() => {
+  const conflicts = useMemo(() => {
     const result = [];
     const teacherSchedule = {};
-    allClasses.forEach((cls) => {
+    overallClasses.forEach((cls) => {
       if (!cls.teacher || cls.teacher === '-') return;
       const key = `${cls.day}|${cls.teacher}`;
       if (!teacherSchedule[key]) teacherSchedule[key] = [];
       const existing = teacherSchedule[key].find(
-        (c) => c.time === cls.time && c.program === cls.program
+        (c) => c.time === cls.time && c.program === cls.program && c.branchName === cls.branchName
       );
-      if (!existing) teacherSchedule[key].push({ time: cls.time, program: cls.program });
+      if (!existing) teacherSchedule[key].push({ time: cls.time, program: cls.program, branchName: cls.branchName || '' });
     });
 
     for (const [key, classes] of Object.entries(teacherSchedule)) {
@@ -348,17 +424,22 @@ export function ScheduleProvider({ children }) {
       for (let i = 0; i < classes.length; i++) {
         for (let j = i + 1; j < classes.length; j++) {
           if (classes[i].time !== classes[j].time && doTimeSlotsOverlap(classes[i].time, classes[j].time)) {
+            // Collect branch names involved in this conflict
+            const branchesInvolved = new Set([classes[i].branchName, classes[j].branchName].filter(Boolean));
             result.push({
               teacher, day,
               slot1: `${classes[i].time} (${classes[i].program})`,
               slot2: `${classes[j].time} (${classes[j].program})`,
+              branch1: classes[i].branchName || '',
+              branch2: classes[j].branchName || '',
+              branches: [...branchesInvolved],
             });
           }
         }
       }
     }
     return result;
-  })();
+  }, [overallClasses]);
 
   // ─── Context value ────────────────────────────────────────────────
 
@@ -366,10 +447,12 @@ export function ScheduleProvider({ children }) {
     // Branch state
     branches, updateBranches,
     activeBranchId, changeActiveBranch,
+    activeBranchName,
     
     // Data state
     allClasses, overallClasses,
     uniqueTeachers, uniqueBaseTeachers, uniqueTimes, allTimeSlots,
+    instructorMap,
     
     // Sync state
     isSyncing, syncStatus, syncProgress, lastSyncTime,

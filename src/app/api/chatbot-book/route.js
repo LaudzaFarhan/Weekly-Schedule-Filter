@@ -56,31 +56,58 @@ export async function POST(request) {
       return NextResponse.json({ error: 'Could not determine program. Please provide age or program.' }, { status: 400 });
     }
 
-    // 5. Find an Available Instructor
-    const sheetUrl = process.env.NEXT_PUBLIC_DEFAULT_SHEET_URL;
-    const mockRequest = new Request(`http://localhost/api/schedule?sheetUrl=${encodeURIComponent(sheetUrl)}`);
-    const scheduleRes = await getSchedule(mockRequest);
-    const scheduleData = await scheduleRes.json();
+    // 5. Find an Available Instructor — fetch all branch schedules
+    const config = await getAllConfig();
+    const branchList = config.branches || [{ id: 'default', name: 'Default', url: process.env.NEXT_PUBLIC_DEFAULT_SHEET_URL }];
+    
+    let allClasses = [];
+    let allBaseTeachers = new Set();
+
+    // Fetch schedules from all configured branches
+    for (const branch of branchList) {
+      if (!branch.url) continue;
+      try {
+        const branchRequest = new Request(`http://localhost/api/schedule?sheetUrl=${encodeURIComponent(branch.url)}&branchId=${encodeURIComponent(branch.id)}&branchName=${encodeURIComponent(branch.name)}`);
+        const branchRes = await getSchedule(branchRequest);
+        const branchData = await branchRes.json();
+        if (branchData.success) {
+          allClasses.push(...branchData.classes);
+          branchData.baseTeachers.forEach(t => allBaseTeachers.add(t));
+        }
+      } catch (e) {
+        console.warn(`Failed to fetch schedule for branch ${branch.name}:`, e.message);
+      }
+    }
 
     let assignedInstructor = 'Pending Allocation';
 
-    if (scheduleData.success) {
-      const { classes, baseTeachers } = scheduleData;
-      const config = await getAllConfig();
+    if (allClasses.length > 0) {
       const leaveList = config.leaveList || [];
       const disabledInstructors = new Set(config.disabledInstructors || []);
-      const prioritizedTeachers = (config.trialPriority || {})[program] || [];
+      
+      // trialPriority is stored as an array of objects: [{name, type, location, ...}]
+      // Filter by program type to get prioritized teachers for this program
+      const trialPriorityArray = config.trialPriority || [];
+      const programTypeMap = {
+        'Trial Kinder': ['kinder-junior', 'junior-coder'],
+        'Trial Junior': ['kinder-junior', 'junior-coder'],
+        'Trial Coder': ['junior-coder'],
+      };
+      const allowedTypes = programTypeMap[program] || [];
+      const prioritizedTeachers = trialPriorityArray
+        .filter(p => allowedTypes.includes(p.type))
+        .map(p => p.name);
 
       const onLeave = new Set();
       leaveList.forEach((l) => { if (l.day === day) onLeave.add(l.name); });
 
       const availableInstructors = [];
 
-      for (const teacher of baseTeachers) {
+      for (const teacher of allBaseTeachers) {
         if (disabledInstructors.has(teacher) || onLeave.has(teacher)) continue;
         if (prioritizedTeachers.length > 0 && !prioritizedTeachers.includes(teacher)) continue;
 
-        const isBusy = classes.some(
+        const isBusy = allClasses.some(
           (c) => c.teacher === teacher && c.day === day && doTimeSlotsOverlap(c.time, time)
         );
 

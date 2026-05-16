@@ -4,6 +4,7 @@ import { useState, useMemo } from 'react';
 import { useSchedule } from '../contexts/ScheduleContext';
 import { doTimeSlotsOverlap, parseTimeSlot } from '../utils/timeUtils';
 import { DAY_NAMES } from '../utils/constants';
+import { instructorBelongsToBranch } from '../utils/instructorUtils';
 import Badge from '../components/ui/Badge';
 
 const LIST_PAGE_SIZE = 8;
@@ -39,9 +40,19 @@ function PaginatedList({ items, emptyText }) {
 }
 
 export default function AvailabilityPage() {
-  const { uniqueBaseTeachers, uniqueTimes, overallClasses, leaveList } = useSchedule();
+  const { uniqueBaseTeachers, uniqueTimes, overallClasses, leaveList, activeBranchName, disabledInstructors, instructorProfiles, allClasses, branches } = useSchedule();
   const [selectedDay, setSelectedDay] = useState('');
   const [selectedTime, setSelectedTime] = useState('');
+  const [filterBranch, setFilterBranch] = useState('all');
+
+  const filteredTeachers = useMemo(() => {
+    return [...uniqueBaseTeachers].filter((t) => {
+      if (disabledInstructors?.has(t)) return false;
+      if (filterBranch === 'all') return true;
+      const branchClasses = overallClasses.filter(c => c.branchName === filterBranch);
+      return instructorBelongsToBranch(t, filterBranch, instructorProfiles, branchClasses);
+    });
+  }, [uniqueBaseTeachers, overallClasses, disabledInstructors, instructorProfiles, filterBranch]);
 
   const availableDays = DAY_NAMES.filter(
     (day) => uniqueTimes[day] && uniqueTimes[day].size > 0
@@ -75,7 +86,7 @@ export default function AvailabilityPage() {
     const availableItems = [];
     const busyItems = [];
 
-    uniqueBaseTeachers.forEach((teacher) => {
+    filteredTeachers.forEach((teacher) => {
       if (onLeaveSet.has(teacher)) return;
       const busyClass = overallClasses.find(
         (c) =>
@@ -92,7 +103,7 @@ export default function AvailabilityPage() {
     });
 
     return { available: availableItems, busy: busyItems, onLeave: onLeaveItems };
-  }, [selectedDay, selectedTime, uniqueBaseTeachers, overallClasses, leaveList]);
+  }, [selectedDay, selectedTime, filteredTeachers, overallClasses, leaveList]);
 
   return (
     <section className="dashboard-view active">
@@ -102,6 +113,13 @@ export default function AvailabilityPage() {
         </div>
         <div className="panel-body">
           <div className="search-controls">
+            <div className="input-group">
+              <label htmlFor="avail-branch">Branch</label>
+              <select id="avail-branch" value={filterBranch} onChange={(e) => setFilterBranch(e.target.value)}>
+                <option value="all">All Branches</option>
+                {branches?.map(b => <option key={b.id} value={b.name}>{b.name}</option>)}
+              </select>
+            </div>
             <div className="input-group">
               <label htmlFor="avail-day">Day</label>
               <select id="avail-day" value={selectedDay} onChange={(e) => { setSelectedDay(e.target.value); setSelectedTime(''); }} disabled={availableDays.length === 0}>

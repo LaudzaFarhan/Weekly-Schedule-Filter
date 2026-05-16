@@ -4,15 +4,41 @@ import { useState, useMemo } from 'react';
 import { useSchedule } from '../contexts/ScheduleContext';
 import { doTimeSlotsOverlap, parseTimeSlot } from '../utils/timeUtils';
 import { DAY_NAMES, CARDS_PER_PAGE } from '../utils/constants';
+import { instructorBelongsToBranch } from '../utils/instructorUtils';
 import { Search, ChevronLeft, ChevronRight } from 'lucide-react';
 
 export default function FinderPage() {
-  const { uniqueBaseTeachers, uniqueTimes, overallClasses, leaveList, disabledInstructors } = useSchedule();
+  const { uniqueBaseTeachers, uniqueTimes, overallClasses, leaveList, disabledInstructors, instructorProfiles, activeBranchName, allClasses, branches } = useSchedule();
   const [selectedInstructor, setSelectedInstructor] = useState('all');
+  const [filterBranch, setFilterBranch] = useState('all');
   const [activeDay, setActiveDay] = useState(null);
   const [cardPage, setCardPage] = useState(0);
 
-  const sortedTeachers = [...uniqueBaseTeachers].filter((t) => !disabledInstructors.has(t)).sort();
+  const branchTeachers = useMemo(() => {
+    const teachers = new Set();
+    const classesToCheck = filterBranch === 'all' ? overallClasses : overallClasses.filter(c => c.branchName === filterBranch);
+    classesToCheck.forEach(c => {
+      if (c.teacher && c.teacher !== '-') teachers.add(c.teacher);
+    });
+    return teachers;
+  }, [overallClasses, filterBranch]);
+
+  const activeBranchForFilter = filterBranch === 'all' ? activeBranchName : filterBranch;
+
+  const sortedTeachers = [...uniqueBaseTeachers].filter((t) => {
+    if (disabledInstructors.has(t)) return false;
+    if (filterBranch === 'all') return true;
+    return instructorBelongsToBranch(t, filterBranch, instructorProfiles, overallClasses.filter(c => c.branchName === filterBranch));
+  }).sort();
+
+  // Use branch-filtered teachers for availability checks
+  const teachersForAvailability = useMemo(() => {
+    return [...uniqueBaseTeachers].filter((t) => {
+      if (disabledInstructors.has(t)) return false;
+      if (filterBranch === 'all') return true;
+      return instructorBelongsToBranch(t, filterBranch, instructorProfiles, overallClasses.filter(c => c.branchName === filterBranch));
+    });
+  }, [uniqueBaseTeachers, disabledInstructors, instructorProfiles, filterBranch, overallClasses]);
   const availableDays = DAY_NAMES.filter(
     (day) => uniqueTimes[day] && uniqueTimes[day].size > 0
   );
@@ -34,7 +60,7 @@ export default function FinderPage() {
       const busyTeachers = [];
 
       const teachersToCheck = selectedInstructor === 'all'
-        ? [...uniqueBaseTeachers].filter((t) => !disabledInstructors.has(t))
+        ? teachersForAvailability
         : [selectedInstructor];
 
       teachersToCheck.forEach((teacher) => {
@@ -57,7 +83,7 @@ export default function FinderPage() {
 
       return { timeSlot, freeTeachers, busyTeachers };
     });
-  }, [currentDay, selectedInstructor, uniqueBaseTeachers, uniqueTimes, overallClasses, leaveList, disabledInstructors]);
+  }, [currentDay, selectedInstructor, teachersForAvailability, uniqueTimes, overallClasses, leaveList, disabledInstructors]);
 
   const totalCardPages = Math.ceil(cards.length / CARDS_PER_PAGE);
   const visibleCards = cards.slice(cardPage * CARDS_PER_PAGE, (cardPage + 1) * CARDS_PER_PAGE);
@@ -73,6 +99,13 @@ export default function FinderPage() {
             <span className="subtext">Who is free to be assigned another class?</span>
           </div>
           <div className="finder-controls">
+            <div className="input-group-inline">
+              <label>Branch</label>
+              <select value={filterBranch} onChange={(e) => { setFilterBranch(e.target.value); setCardPage(0); }}>
+                <option value="all">All Branches</option>
+                {branches?.map(b => <option key={b.id} value={b.name}>{b.name}</option>)}
+              </select>
+            </div>
             <div className="input-group-inline">
               <label>Instructor</label>
               <select value={selectedInstructor} onChange={(e) => setSelectedInstructor(e.target.value)} disabled={sortedTeachers.length === 0}>
