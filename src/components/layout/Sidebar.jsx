@@ -51,7 +51,8 @@ export default function Sidebar({ currentPage, onNavigate }) {
   return (
     <aside className="sidebar">
       <div className="sidebar-header">
-        <h2>Schedule<br />Intelligence</h2>
+        <h2>SchedIntel</h2>
+        <div className="version">ENTERPRISE V2.6</div>
       </div>
       <nav className="sidebar-nav">
         {navItems.map(({ id, icon: Icon, label }) => {

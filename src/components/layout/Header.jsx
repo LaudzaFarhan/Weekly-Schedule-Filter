@@ -2,7 +2,8 @@
 
 import { useState } from 'react';
 import { useSchedule } from '../../contexts/ScheduleContext';
-import { RefreshCw, Plus, Trash2 } from 'lucide-react';
+import { useAuth } from '../../contexts/AuthContext';
+import { RefreshCw, Plus, Trash2, Bell } from 'lucide-react';
 
 export default function Header() {
   const {
@@ -11,10 +12,12 @@ export default function Header() {
     syncActiveBranch, syncAllBranches,
     isSyncing, syncStatus, syncProgress, lastSyncTime, failedBranches,
   } = useSchedule();
+  const { user } = useAuth();
 
   const [isAdding, setIsAdding] = useState(false);
   const [newName, setNewName] = useState('');
   const [newUrl, setNewUrl] = useState('');
+  const [showNotifications, setShowNotifications] = useState(false);
 
   const handleAddBranch = () => {
     if (!newName || !newUrl) return;
@@ -28,7 +31,7 @@ export default function Header() {
   };
 
   const handleRemoveBranch = (e, id) => {
-    e.stopPropagation(); // prevent clicking tab
+    e.stopPropagation();
     if (confirm('Remove this branch?')) {
       const filtered = branches.filter(b => b.id !== id);
       updateBranches(filtered);
@@ -40,107 +43,135 @@ export default function Header() {
 
   const activeBranch = branches.find(b => b.id === activeBranchId) || branches[0];
 
+  const getRelativeTime = () => {
+    if (!lastSyncTime) return null;
+    const mins = Math.round((Date.now() - lastSyncTime.getTime()) / 60000);
+    if (mins < 1) return 'just now';
+    if (mins < 60) return `${mins}m ago`;
+    const hrs = Math.round(mins / 60);
+    if (hrs < 24) return `${hrs}h ago`;
+    return lastSyncTime.toLocaleDateString();
+  };
+
+  const userName = user?.email?.split('@')[0] || 'User';
+  const initials = userName.slice(0, 2).toUpperCase();
+
   return (
-    <header className="app-header" style={{ paddingBottom: '0.5rem' }}>
-      <div className="header-content">
-        <h1>Schedule Intelligence</h1>
-        <p>Automated Conflict Detection &amp; Instructor Availability</p>
-        
-        {/* Branch Button Tabs */}
-        <div style={{ marginTop: '1rem', display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
+    <>
+      {/* Header Bar: Title + Sync Status + User */}
+      <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '1rem 1.5rem', background: 'var(--panel-bg)', borderBottom: '1px solid var(--border-color)' }}>
+        <div>
+          <h1 style={{ fontFamily: "'Outfit', sans-serif", fontSize: '1.3rem', color: 'var(--text-main)', margin: 0 }}>Schedule Intelligence</h1>
+          <p style={{ color: 'var(--text-muted)', fontSize: '0.75rem', margin: 0 }}>Automated Conflict Detection & Instructor Availability</p>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem' }}>
+          {lastSyncTime && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+              <span className={`status-dot ${isSyncing ? 'syncing' : 'synced'}`} />
+              Synced {getRelativeTime()}
+            </div>
+          )}
+          <div style={{ position: 'relative' }}>
+            <button onClick={() => setShowNotifications(!showNotifications)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '4px', display: 'flex' }}>
+              <Bell size={20} style={{ color: '#cbd5e1' }} />
+            </button>
+            {showNotifications && (
+              <div style={{ position: 'absolute', top: '100%', right: 0, marginTop: '0.5rem', width: '260px', background: 'var(--panel-bg)', border: '1px solid var(--border-color)', borderRadius: '10px', boxShadow: '0 8px 24px rgba(0,0,0,0.1)', zIndex: 100, overflow: 'hidden' }}>
+                <div style={{ padding: '0.75rem 1rem', borderBottom: '1px solid var(--border-color)', fontWeight: 600, fontSize: '0.85rem' }}>Notifications</div>
+                <div style={{ padding: '1.5rem 1rem', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.8rem' }}>
+                  No notifications yet
+                </div>
+              </div>
+            )}
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+            <div style={{ textAlign: 'right' }}>
+              <div style={{ fontSize: '0.8rem', fontWeight: 500, color: 'var(--text-main)' }}>{userName}</div>
+              <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>Administrator</div>
+            </div>
+            <div style={{ width: '34px', height: '34px', borderRadius: '50%', background: 'var(--sidebar-bg, #1e1b4b)', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.7rem', fontWeight: 600 }}>
+              {initials}
+            </div>
+          </div>
+        </div>
+      </header>
+
+      {/* Sub Bar: Branch Tabs (left) + Sync Buttons (right) — outside header */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.75rem 1.5rem' }}>
+        {/* Branch tabs */}
+        <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
           {branches.map(branch => (
             <button
               key={branch.id}
               onClick={() => changeActiveBranch(branch.id)}
               style={{
-                padding: '0.4rem 0.8rem',
-                borderRadius: '8px',
-                border: activeBranchId === branch.id ? '2px solid var(--primary-blue)' : '1px solid var(--border-color)',
-                background: activeBranchId === branch.id ? 'rgba(37, 99, 235, 0.1)' : 'transparent',
-                fontWeight: activeBranchId === branch.id ? 'bold' : 'normal',
-                color: activeBranchId === branch.id ? 'var(--primary-blue)' : 'var(--text-main)',
+                padding: '0.4rem 0.85rem',
+                borderRadius: '20px',
+                border: '1px solid var(--border-color)',
+                background: 'transparent',
+                color: 'var(--text-secondary)',
                 cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '0.5rem'
+                display: 'flex', alignItems: 'center', gap: '0.4rem',
+                fontSize: '0.8rem',
               }}
             >
               {branch.name}
               {branches.length > 1 && (
-                <Trash2 size={14} style={{ opacity: 0.6 }} onClick={(e) => handleRemoveBranch(e, branch.id)} />
+                <Trash2 size={11} style={{ opacity: 0.4 }} onClick={(e) => handleRemoveBranch(e, branch.id)} />
               )}
             </button>
           ))}
           {!isAdding ? (
-            <button onClick={() => setIsAdding(true)} style={{ padding: '0.4rem 0.8rem', borderRadius: '8px', border: '1px dashed var(--text-muted)', background: 'transparent', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
-              <Plus size={14} /> Add Branch
+            <button onClick={() => setIsAdding(true)} style={{ padding: '0.4rem 0.85rem', borderRadius: '20px', border: 'none', background: 'transparent', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+              <Plus size={13} /> ADD BRANCH
             </button>
           ) : (
-            <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-              <input type="text" placeholder="Branch Name" value={newName} onChange={e => setNewName(e.target.value)} style={{ padding: '0.4rem', borderRadius: '4px', border: '1px solid var(--border-color)', width: '120px' }} />
-              <input type="text" placeholder="Publish URL" value={newUrl} onChange={e => setNewUrl(e.target.value)} style={{ padding: '0.4rem', borderRadius: '4px', border: '1px solid var(--border-color)', width: '200px' }} />
+            <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center' }}>
+              <input type="text" placeholder="Branch Name" value={newName} onChange={e => setNewName(e.target.value)} style={{ padding: '0.35rem 0.5rem', borderRadius: '6px', border: '1px solid var(--border-color)', width: '110px', fontSize: '0.75rem' }} />
+              <input type="text" placeholder="Publish URL" value={newUrl} onChange={e => setNewUrl(e.target.value)} style={{ padding: '0.35rem 0.5rem', borderRadius: '6px', border: '1px solid var(--border-color)', width: '180px', fontSize: '0.75rem' }} />
               <button onClick={handleAddBranch} className="btn btn-primary btn-sm">Save</button>
-              <button onClick={() => setIsAdding(false)} className="btn btn-sm" style={{ background: 'transparent' }}>Cancel</button>
+              <button onClick={() => setIsAdding(false)} className="btn btn-sm" style={{ background: 'transparent' }}>✕</button>
             </div>
           )}
         </div>
-      </div>
 
-      <div className="header-actions" style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', alignItems: 'flex-end' }}>
-        <div className="sync-controls">
-          <div className="sync-status">
-            {lastSyncTime ? (() => {
-              const mins = Math.round((Date.now() - lastSyncTime.getTime()) / 60000);
-              if (mins < 1) return 'Last synced: just now';
-              if (mins < 60) return `Last synced: ${mins}m ago`;
-              const hrs = Math.round(mins / 60);
-              if (hrs < 24) return `Last synced: ${hrs}h ago`;
-              return `Last synced: ${lastSyncTime.toLocaleDateString()}`;
-            })() : 'Not synced yet'}
-          </div>
+        {/* Sync buttons */}
+        <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
           <button
-            className="btn btn-primary"
+            className="btn btn-sm"
             onClick={syncActiveBranch}
             disabled={isSyncing}
-            style={{ minWidth: '160px' }}
+            style={{ background: '#4f46e5', borderColor: '#4f46e5', color: 'white', borderRadius: '10px', padding: '0.5rem 1.2rem', fontSize: '0.85rem', fontWeight: 500 }}
           >
-            <RefreshCw size={18} className={isSyncing && syncProgress === 0 ? 'spin' : ''} />
-            {isSyncing && syncProgress === 0 ? `Syncing ${activeBranch?.name || 'Branch'}...` : `Sync ${activeBranch?.name || 'Branch'}`}
+            <RefreshCw size={14} className={isSyncing && syncProgress === 0 ? 'spin' : ''} />
+            Sync {activeBranch?.name || 'Default'}
           </button>
-          
           <button
-            className="btn btn-primary"
+            className="btn btn-sm"
             onClick={syncAllBranches}
             disabled={isSyncing || branches.length === 0}
-            style={{ background: '#0f172a', borderColor: '#0f172a', minWidth: '160px' }}
+            style={{ background: '#0f172a', borderColor: '#0f172a', color: 'white', borderRadius: '10px', padding: '0.5rem 1.2rem', fontSize: '0.85rem', fontWeight: 500 }}
           >
-            <RefreshCw size={18} className={isSyncing && syncProgress > 0 ? 'spin' : ''} />
-            {isSyncing && syncProgress > 0 ? `Syncing All (${syncProgress}%)` : 'Sync All Branches'}
+            <RefreshCw size={14} className={isSyncing && syncProgress > 0 ? 'spin' : ''} />
+            Sync All Branches
           </button>
         </div>
-        
-        {isSyncing && syncProgress > 0 && (
-          <div style={{ width: '100%', maxWidth: '330px', height: '6px', background: 'var(--border-color)', borderRadius: '3px', overflow: 'hidden', alignSelf: 'flex-end', marginTop: '0.2rem' }}>
-            <div style={{ width: `${syncProgress}%`, height: '100%', background: 'var(--primary-blue)', transition: 'width 0.3s' }}></div>
-          </div>
-        )}
-        
-        <div className="status-indicator">
-          <span className={`status-dot ${isSyncing ? 'syncing' : lastSyncTime ? 'synced' : ''}`} />
-          <span>{syncStatus}</span>
-        </div>
-        {failedBranches && failedBranches.length > 0 && !isSyncing && (
-          <div style={{ fontSize: '0.8rem', color: 'var(--danger)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-            <span>Failed: {failedBranches.join(', ')}</span>
-            <button
-              onClick={syncAllBranches}
-              style={{ background: 'none', border: 'none', color: 'var(--primary, #3b82f6)', cursor: 'pointer', fontSize: '0.8rem', textDecoration: 'underline' }}
-            >
-              Retry
-            </button>
-          </div>
-        )}
       </div>
-    </header>
+
+      {/* Progress bar */}
+      {isSyncing && syncProgress > 0 && (
+        <div style={{ width: '100%', height: '3px', background: 'var(--border-color)' }}>
+          <div style={{ width: `${syncProgress}%`, height: '100%', background: 'var(--primary-blue)', transition: 'width 0.3s' }} />
+        </div>
+      )}
+
+      {/* Failed branches */}
+      {failedBranches && failedBranches.length > 0 && !isSyncing && (
+        <div style={{ padding: '0.4rem 1.5rem', fontSize: '0.75rem', color: 'var(--danger)', background: 'var(--danger-bg)', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+          <span>Failed: {failedBranches.join(', ')}</span>
+          <button onClick={syncAllBranches} style={{ background: 'none', border: 'none', color: 'var(--primary-blue)', cursor: 'pointer', fontSize: '0.75rem', textDecoration: 'underline' }}>Retry</button>
+        </div>
+      )}
+    </>
   );
 }

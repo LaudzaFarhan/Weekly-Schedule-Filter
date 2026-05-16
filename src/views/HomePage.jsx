@@ -6,13 +6,13 @@ import { doTimeSlotsOverlap, parseTimeSlot } from '../utils/timeUtils';
 import { DAY_NAMES } from '../utils/constants';
 import { instructorBelongsToBranch } from '../utils/instructorUtils';
 import KpiCard from '../components/ui/KpiCard';
-import { Users, CheckCircle, CalendarX, Star, BookOpen, GraduationCap } from 'lucide-react';
+import { Users, CheckCircle, CalendarX, BookOpen, GraduationCap } from 'lucide-react';
 
-export default function HomePage() {
+export default function HomePage({ onNavigate }) {
   const {
-    uniqueBaseTeachers, uniqueTimes, overallClasses, allClasses,
-    leaveList, instructorProfiles, activeBranchName,
-    disabledInstructors, trialPriorityList, branches
+    uniqueBaseTeachers, uniqueTimes, overallClasses,
+    leaveList, instructorProfiles,
+    disabledInstructors, trialPriorityList, branches, lastSyncTime
   } = useSchedule();
 
   const [selectedDay, setSelectedDay] = useState(() => {
@@ -21,6 +21,16 @@ export default function HomePage() {
   });
   const [selectedTime, setSelectedTime] = useState('');
   const [overviewBranch, setOverviewBranch] = useState('all');
+
+  const getRelativeTime = () => {
+    if (!lastSyncTime) return null;
+    const mins = Math.round((Date.now() - lastSyncTime.getTime()) / 60000);
+    if (mins < 1) return 'just now';
+    if (mins < 60) return `${mins}m ago`;
+    const hrs = Math.round(mins / 60);
+    if (hrs < 24) return `${hrs}h ago`;
+    return lastSyncTime.toLocaleDateString();
+  };
 
   const branchOptions = ['all', ...(branches || []).map(b => b.name)];
 
@@ -137,41 +147,51 @@ export default function HomePage() {
         <div className="panel-header">
           <div className="panel-header-left">
             <h2>Dashboard Overview</h2>
-            <span className="subtext">Branch instructor summary</span>
+            <span className="subtext">Branch instructor distribution and availability</span>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
             {/* Branch switcher */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', background: 'var(--bg-secondary, #f1f5f9)', borderRadius: '8px', padding: '0.35rem 0.6rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', background: 'var(--bg-color)', borderRadius: '20px', padding: '0.3rem 0.5rem' }}>
               <button
                 onClick={handlePrev}
-                style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1.1rem', padding: '0.1rem 0.4rem', color: 'var(--primary, #3b82f6)', fontWeight: 600 }}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1rem', padding: '0.1rem 0.3rem', color: 'var(--primary-blue)', fontWeight: 600 }}
               >
                 ‹
               </button>
-              <span style={{ fontSize: '0.85rem', fontWeight: 600, minWidth: '120px', textAlign: 'center' }}>
-                {overviewBranch === 'all' ? 'All Branches' : overviewBranch}
+              <span style={{ fontSize: '0.8rem', fontWeight: 600, minWidth: '100px', textAlign: 'center', color: 'var(--text-main)' }}>
+                {overviewBranch === 'all' ? 'ALL BRANCHES' : overviewBranch.toUpperCase()}
               </span>
               <button
                 onClick={handleNext}
-                style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1.1rem', padding: '0.1rem 0.4rem', color: 'var(--primary, #3b82f6)', fontWeight: 600 }}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1rem', padding: '0.1rem 0.3rem', color: 'var(--primary-blue)', fontWeight: 600 }}
               >
                 ›
               </button>
             </div>
-            {/* Day/Time selectors */}
-            <div className="home-controls">
-              <div className="input-group">
-                <select value={selectedDay} onChange={(e) => { setSelectedDay(e.target.value); setSelectedTime(''); }} disabled={availableDays.length === 0}>
-                  <option value="" disabled>Select a Day...</option>
-                  {availableDays.map((day) => <option key={day} value={day}>{day}</option>)}
-                </select>
-              </div>
-              <div className="input-group">
-                <select value={selectedTime} onChange={(e) => setSelectedTime(e.target.value)} disabled={sortedTimes.length === 0}>
-                  <option value="" disabled>Select a Time...</option>
-                  {sortedTimes.map((time) => <option key={time} value={time}>{time}</option>)}
-                </select>
-              </div>
+            {/* Day pill */}
+            <button
+              onClick={() => {
+                const currentIdx = availableDays.indexOf(selectedDay);
+                const nextIdx = currentIdx >= availableDays.length - 1 ? 0 : currentIdx + 1;
+                setSelectedDay(availableDays[nextIdx] || '');
+                setSelectedTime('');
+              }}
+              style={{ background: 'var(--bg-color)', borderRadius: '20px', padding: '0.4rem 0.9rem', fontSize: '0.8rem', fontWeight: 500, color: 'var(--text-main)', border: 'none', cursor: 'pointer' }}
+            >
+              {selectedDay || 'Monday'}
+            </button>
+            {/* Time selector */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', background: 'var(--bg-color)', borderRadius: '20px', padding: '0.3rem 0.8rem' }}>
+              <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>🕐</span>
+              <select
+                value={selectedTime}
+                onChange={(e) => setSelectedTime(e.target.value)}
+                disabled={sortedTimes.length === 0}
+                style={{ background: 'none', border: 'none', fontSize: '0.8rem', fontWeight: 500, color: 'var(--text-main)', cursor: 'pointer', outline: 'none' }}
+              >
+                <option value="">Select Time...</option>
+                {sortedTimes.map((time) => <option key={time} value={time}>{time}</option>)}
+              </select>
             </div>
           </div>
         </div>
@@ -225,6 +245,104 @@ export default function HomePage() {
               </div>
             </div>
           )}
+        </div>
+      </div>
+
+      {/* Bottom Grid: Weekly Trend + Quick Actions + Activity Feed */}
+      <div style={{ display: 'grid', gridTemplateColumns: '3fr 1fr 1fr', gap: '1.5rem', marginTop: '1.5rem' }}>
+        {/* Weekly Schedule Trend */}
+        <div className="panel">
+          <div className="panel-header">
+            <h2>Weekly Schedule Trend</h2>
+            <a href="#" onClick={(e) => { e.preventDefault(); }} style={{ fontSize: '0.8rem', color: 'var(--primary-blue)', textDecoration: 'none' }}>View Full Master</a>
+          </div>
+          <div className="panel-body">
+            {overallClasses.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-muted)' }}>
+                Sync schedule to see weekly trend
+              </div>
+            ) : (
+              <div style={{ display: 'flex', alignItems: 'flex-end', gap: '0.5rem', height: '120px', padding: '0.5rem 0' }}>
+                {DAY_NAMES.map(day => {
+                  const dayClasses = overallClasses.filter(c => c.day === day);
+                  const maxClasses = Math.max(...DAY_NAMES.map(d => overallClasses.filter(c => c.day === d).length), 1);
+                  const height = Math.max((dayClasses.length / maxClasses) * 100, 4);
+                  return (
+                    <div key={day} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.3rem' }}>
+                      <div style={{ width: '100%', maxWidth: '32px', height: `${height}%`, background: day === selectedDay ? 'var(--primary-blue)' : 'var(--primary-blue-light)', borderRadius: '4px 4px 0 0', transition: 'height 0.3s' }} />
+                      <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>{day.slice(0, 3)}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Quick Actions */}
+        <div className="panel">
+          <div className="panel-header">
+            <h2>Quick Actions</h2>
+          </div>
+          <div className="panel-body" style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+            <button
+              onClick={() => onNavigate && onNavigate('availability')}
+              style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.75rem 1rem', borderRadius: '8px', border: '1px solid var(--border-color)', background: 'white', cursor: 'pointer', width: '100%', textAlign: 'left', transition: 'transform 0.15s, box-shadow 0.15s' }}
+              onMouseEnter={e => { e.currentTarget.style.transform = 'translateX(4px)'; e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.06)'; }}
+              onMouseLeave={e => { e.currentTarget.style.transform = 'none'; e.currentTarget.style.boxShadow = 'none'; }}
+            >
+              <div style={{ width: '32px', height: '32px', borderRadius: '8px', background: 'rgba(79, 70, 229, 0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <CheckCircle size={16} style={{ color: 'var(--primary-blue)' }} />
+              </div>
+              <span style={{ flex: 1, fontSize: '0.85rem', fontWeight: 500 }}>Check Instructor Slot</span>
+              <span style={{ color: 'var(--text-muted)' }}>›</span>
+            </button>
+            <button
+              onClick={() => onNavigate && onNavigate('leave')}
+              style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.75rem 1rem', borderRadius: '8px', border: '1px solid var(--border-color)', background: 'white', cursor: 'pointer', width: '100%', textAlign: 'left', transition: 'transform 0.15s, box-shadow 0.15s' }}
+              onMouseEnter={e => { e.currentTarget.style.transform = 'translateX(4px)'; e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.06)'; }}
+              onMouseLeave={e => { e.currentTarget.style.transform = 'none'; e.currentTarget.style.boxShadow = 'none'; }}
+            >
+              <div style={{ width: '32px', height: '32px', borderRadius: '8px', background: 'rgba(249, 115, 22, 0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <CalendarX size={16} style={{ color: 'var(--primary-orange)' }} />
+              </div>
+              <span style={{ flex: 1, fontSize: '0.85rem', fontWeight: 500 }}>Request Leave Approval</span>
+              <span style={{ color: 'var(--text-muted)' }}>›</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Activity Feed */}
+        <div className="panel">
+          <div className="panel-header">
+            <h2>Activity Feed</h2>
+          </div>
+          <div className="panel-body" style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem', maxHeight: '200px', overflowY: 'auto' }}>
+            <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.6rem', fontSize: '0.8rem' }}>
+              <div style={{ width: '6px', height: '6px', borderRadius: '50%', background: 'var(--success)', marginTop: '0.4rem', flexShrink: 0 }} />
+              <div>
+                <span style={{ fontWeight: 500 }}>Admin</span>
+                <span style={{ color: 'var(--text-muted)' }}> logged in</span>
+                <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.1rem' }}>Just now</div>
+              </div>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.6rem', fontSize: '0.8rem' }}>
+              <div style={{ width: '6px', height: '6px', borderRadius: '50%', background: 'var(--primary-blue)', marginTop: '0.4rem', flexShrink: 0 }} />
+              <div>
+                <span style={{ fontWeight: 500 }}>Admin</span>
+                <span style={{ color: 'var(--text-muted)' }}> synced all branches</span>
+                <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.1rem' }}>{lastSyncTime ? `${getRelativeTime()}` : '—'}</div>
+              </div>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.6rem', fontSize: '0.8rem' }}>
+              <div style={{ width: '6px', height: '6px', borderRadius: '50%', background: 'var(--warning)', marginTop: '0.4rem', flexShrink: 0 }} />
+              <div>
+                <span style={{ fontWeight: 500 }}>System</span>
+                <span style={{ color: 'var(--text-muted)' }}> loaded schedule from cache</span>
+                <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.1rem' }}>On page load</div>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </section>

@@ -51,14 +51,21 @@ export default function AppShell() {
 
   const PageComponent = PAGE_MAP[currentPage] || HomePage;
 
+  const handleNavigate = (page) => {
+    setCurrentPage(page);
+    // Smooth scroll to top of dashboard
+    const container = document.querySelector('.dashboard-container');
+    if (container) container.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
   return (
     <ScheduleProvider>
       <div className="app-layout">
-        <Sidebar currentPage={currentPage} onNavigate={setCurrentPage} />
+        <Sidebar currentPage={currentPage} onNavigate={handleNavigate} />
         <main className="dashboard-container">
           <Header />
           <div className="dashboard-views">
-            <PageComponent />
+            <PageComponent onNavigate={handleNavigate} />
           </div>
         </main>
       </div>

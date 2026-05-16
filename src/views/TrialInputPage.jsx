@@ -8,10 +8,26 @@ import { DAY_NAMES } from '../utils/constants';
 import { parseTimeSlot, doTimeSlotsOverlap } from '../utils/timeUtils';
 
 export default function TrialInputPage() {
-  const { uniqueTimes, uniqueBaseTeachers, allClasses, leaveList, disabledInstructors, instructorProfiles } = useSchedule();
+  const { uniqueTimes, uniqueBaseTeachers, allClasses, leaveList, disabledInstructors, instructorProfiles, activeBranchName } = useSchedule();
   const [form, setForm] = useState({
     program: '', student: '', instructor: '', day: '', time: '', date: '', remarks: '',
   });
+
+  const filteredTeachers = useMemo(() => {
+    const branchTeachers = new Set();
+    allClasses?.forEach(c => {
+      if (c.teacher && c.teacher !== '-') branchTeachers.add(c.teacher);
+    });
+
+    return [...uniqueBaseTeachers].filter((t) => {
+      if (disabledInstructors?.has(t)) return false;
+      const profile = instructorProfiles?.find(p => p.fullname === t);
+      if (profile) {
+        return profile.location === 'All Branches' || profile.location === activeBranchName;
+      }
+      return branchTeachers.has(t);
+    });
+  }, [uniqueBaseTeachers, allClasses, disabledInstructors, instructorProfiles, activeBranchName]);
   const [status, setStatus] = useState({ message: '', type: '' });
   const [submitting, setSubmitting] = useState(false);
   const [datePage, setDatePage] = useState(0);
@@ -91,8 +107,8 @@ export default function TrialInputPage() {
   const totalDatePages = Math.ceil(currentMonthDates.length / DATES_PER_PAGE);
 
   const availableInstructors = useMemo(() => {
-    if (!uniqueBaseTeachers) return [];
-    if (!form.day || !form.time) return Array.from(uniqueBaseTeachers);
+    if (!filteredTeachers) return [];
+    if (!form.day || !form.time) return Array.from(filteredTeachers);
 
     const onLeave = new Set();
     if (leaveList) {
@@ -102,7 +118,7 @@ export default function TrialInputPage() {
     }
 
     const available = [];
-    uniqueBaseTeachers.forEach((teacher) => {
+    filteredTeachers.forEach((teacher) => {
       if (disabledInstructors.has(teacher)) return;
       if (onLeave.has(teacher)) return;
       const isBusy = allClasses?.some(
@@ -115,13 +131,16 @@ export default function TrialInputPage() {
     });
 
     return available;
-  }, [form.day, form.time, uniqueBaseTeachers, allClasses, leaveList, disabledInstructors]);
+  }, [form.day, form.time, filteredTeachers, allClasses, leaveList, disabledInstructors]);
 
   // Determine ready instructors based on profile specialization
   const readyInstructors = useMemo(() => {
     if (!form.program || !instructorProfiles) return [];
     
     return instructorProfiles.filter(profile => {
+      // Must be in active branch
+      if (profile.location !== 'All Branches' && profile.location !== activeBranchName) return false;
+
       // Must be available for the selected slot if day/time are picked
       // If no day/time picked, we just show who has the specialization
       if (form.day && form.time && !availableInstructors.includes(profile.fullname) && !availableInstructors.includes(profile.nickname)) {
@@ -140,7 +159,7 @@ export default function TrialInputPage() {
       }
       return false;
     });
-  }, [form.program, form.day, form.time, instructorProfiles, availableInstructors]);
+  }, [form.program, form.day, form.time, instructorProfiles, availableInstructors, activeBranchName]);
 
   const handleChange = (field) => (e) => {
     setForm((prev) => ({ ...prev, [field]: e.target.value }));
@@ -225,8 +244,8 @@ export default function TrialInputPage() {
       }
     });
 
-    if (uniqueBaseTeachers && uniqueBaseTeachers.size > 0) {
-      const teachersArr = Array.from(uniqueBaseTeachers);
+    if (filteredTeachers && filteredTeachers.length > 0) {
+      const teachersArr = Array.from(filteredTeachers);
       instructor = teachersArr[Math.floor(Math.random() * teachersArr.length)];
     }
 
@@ -317,8 +336,8 @@ export default function TrialInputPage() {
     TRIAL_SLOTS.forEach(slot => {
       let hasFreeInstructor = false;
       
-      if (uniqueBaseTeachers) {
-        for (const teacher of uniqueBaseTeachers) {
+      if (filteredTeachers) {
+        for (const teacher of filteredTeachers) {
           if (disabledInstructors.has(teacher)) continue;
           if (onLeave.has(teacher)) continue;
           const isBusy = allClasses?.some(
@@ -344,7 +363,7 @@ export default function TrialInputPage() {
     }
 
     return schedules;
-  }, [form.day, uniqueBaseTeachers, allClasses, leaveList, TRIAL_SLOTS, disabledInstructors]);
+  }, [form.day, filteredTeachers, allClasses, leaveList, TRIAL_SLOTS, disabledInstructors]);
 
   return (
     <section className="dashboard-view active">
