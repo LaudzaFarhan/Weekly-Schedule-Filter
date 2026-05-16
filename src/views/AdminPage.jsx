@@ -85,6 +85,8 @@ export default function AdminPage() {
       description: newBugDescription,
       status: 'not-started',
       createdAt: new Date().toISOString(),
+      startedAt: null,
+      solvedAt: null,
     };
     saveBugs([bug, ...bugList]);
     setNewBugTitle('');
@@ -93,8 +95,21 @@ export default function AdminPage() {
   };
 
   const handleBugStatusChange = (id, newStatus) => {
-    saveBugs(bugList.map(b => b.id === id ? { ...b, status: newStatus } : b));
+    saveBugs(bugList.map(b => {
+      if (b.id !== id) return b;
+      const updated = { ...b, status: newStatus };
+      if (newStatus === 'in-progress' && !b.startedAt) updated.startedAt = new Date().toISOString();
+      if (newStatus === 'solved' && !b.solvedAt) updated.solvedAt = new Date().toISOString();
+      if (newStatus === 'not-started') { updated.startedAt = null; updated.solvedAt = null; }
+      return updated;
+    }));
   };
+
+  const handleEditBug = (id, field, value) => {
+    saveBugs(bugList.map(b => b.id === id ? { ...b, [field]: value } : b));
+  };
+
+  const [editingBugId, setEditingBugId] = useState(null);
 
   const handleRemoveBug = (id) => {
     saveBugs(bugList.filter(b => b.id !== id));
@@ -624,55 +639,101 @@ export default function AdminPage() {
                   <div
                     key={bug.id}
                     style={{
-                      display: 'flex', alignItems: 'center', gap: '0.75rem',
                       padding: '0.75rem 1rem', borderRadius: '8px',
                       border: '1px solid var(--border-color)',
                       background: bug.status === 'solved' ? '#f0fdf4' : bug.status === 'in-progress' ? '#fffbeb' : 'white',
-                      opacity: bug.status === 'solved' ? 0.7 : 1,
+                      opacity: bug.status === 'solved' ? 0.75 : 1,
                     }}
                   >
-                    {/* Status selector */}
-                    <select
-                      value={bug.status}
-                      onChange={e => handleBugStatusChange(bug.id, e.target.value)}
-                      style={{
-                        padding: '0.3rem 0.4rem', borderRadius: '4px', fontSize: '0.75rem', fontWeight: 600,
-                        border: '1px solid var(--border-color)', cursor: 'pointer', minWidth: '100px',
-                        background: bug.status === 'solved' ? '#d1fae5' : bug.status === 'in-progress' ? '#fef3c7' : '#fee2e2',
-                        color: bug.status === 'solved' ? '#065f46' : bug.status === 'in-progress' ? '#92400e' : '#991b1b',
-                      }}
-                    >
-                      <option value="not-started">Not Started</option>
-                      <option value="in-progress">In Progress</option>
-                      <option value="solved">Solved</option>
-                    </select>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                      {/* Status selector */}
+                      <select
+                        value={bug.status}
+                        onChange={e => handleBugStatusChange(bug.id, e.target.value)}
+                        style={{
+                          padding: '0.3rem 0.4rem', borderRadius: '4px', fontSize: '0.75rem', fontWeight: 600,
+                          border: '1px solid var(--border-color)', cursor: 'pointer', minWidth: '100px',
+                          background: bug.status === 'solved' ? '#d1fae5' : bug.status === 'in-progress' ? '#fef3c7' : '#fee2e2',
+                          color: bug.status === 'solved' ? '#065f46' : bug.status === 'in-progress' ? '#92400e' : '#991b1b',
+                        }}
+                      >
+                        <option value="not-started">Not Started</option>
+                        <option value="in-progress">In Progress</option>
+                        <option value="solved">Solved</option>
+                      </select>
 
-                    {/* Bug info */}
-                    <div style={{ flex: 1 }}>
-                      <div style={{ fontWeight: 500, textDecoration: bug.status === 'solved' ? 'line-through' : 'none' }}>
-                        {bug.title}
+                      {/* Bug info — editable on click */}
+                      <div style={{ flex: 1 }}>
+                        {editingBugId === bug.id ? (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                            <input
+                              type="text"
+                              value={bug.title}
+                              onChange={e => handleEditBug(bug.id, 'title', e.target.value)}
+                              style={{ padding: '0.3rem 0.5rem', borderRadius: '4px', border: '1px solid var(--border-color)', fontWeight: 500 }}
+                            />
+                            <input
+                              type="text"
+                              value={bug.description || ''}
+                              onChange={e => handleEditBug(bug.id, 'description', e.target.value)}
+                              placeholder="Description..."
+                              style={{ padding: '0.3rem 0.5rem', borderRadius: '4px', border: '1px solid var(--border-color)', fontSize: '0.85rem' }}
+                            />
+                            <input
+                              type="text"
+                              value={bug.feature || ''}
+                              onChange={e => handleEditBug(bug.id, 'feature', e.target.value)}
+                              placeholder="Feature / Page"
+                              style={{ padding: '0.3rem 0.5rem', borderRadius: '4px', border: '1px solid var(--border-color)', fontSize: '0.85rem' }}
+                            />
+                          </div>
+                        ) : (
+                          <div onClick={() => setEditingBugId(bug.id)} style={{ cursor: 'pointer' }}>
+                            <div style={{ fontWeight: 500, textDecoration: bug.status === 'solved' ? 'line-through' : 'none' }}>
+                              {bug.title}
+                            </div>
+                            {bug.description && (
+                              <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '0.2rem' }}>
+                                {bug.description}
+                              </div>
+                            )}
+                          </div>
+                        )}
                       </div>
-                      {bug.description && (
-                        <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '0.2rem' }}>
-                          {bug.description}
-                        </div>
-                      )}
+
+                      {/* Feature badge */}
+                      <span style={{ fontSize: '0.75rem', padding: '0.2rem 0.5rem', borderRadius: '4px', background: 'var(--bg-secondary, #f1f5f9)', color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>
+                        {bug.feature}
+                      </span>
+
+                      {/* Edit/Done toggle */}
+                      {editingBugId === bug.id ? (
+                        <button
+                          onClick={() => setEditingBugId(null)}
+                          className="btn btn-sm"
+                          style={{ fontSize: '0.75rem', padding: '0.25rem 0.5rem' }}
+                        >
+                          Done
+                        </button>
+                      ) : null}
+
+                      {/* Delete */}
+                      <button
+                        onClick={() => handleRemoveBug(bug.id)}
+                        className="btn-icon btn-icon-danger"
+                        title="Remove"
+                        style={{ flexShrink: 0 }}
+                      >
+                        <Trash2 size={14} />
+                      </button>
                     </div>
 
-                    {/* Feature badge */}
-                    <span style={{ fontSize: '0.75rem', padding: '0.2rem 0.5rem', borderRadius: '4px', background: 'var(--bg-secondary, #f1f5f9)', color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>
-                      {bug.feature}
-                    </span>
-
-                    {/* Delete */}
-                    <button
-                      onClick={() => handleRemoveBug(bug.id)}
-                      className="btn-icon btn-icon-danger"
-                      title="Remove"
-                      style={{ flexShrink: 0 }}
-                    >
-                      <Trash2 size={14} />
-                    </button>
+                    {/* Timestamps */}
+                    <div style={{ display: 'flex', gap: '1rem', marginTop: '0.5rem', fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+                      <span>Created: {new Date(bug.createdAt).toLocaleDateString()}</span>
+                      {bug.startedAt && <span>Started: {new Date(bug.startedAt).toLocaleDateString()}</span>}
+                      {bug.solvedAt && <span>Solved: {new Date(bug.solvedAt).toLocaleDateString()}</span>}
+                    </div>
                   </div>
                 ))}
               </div>
