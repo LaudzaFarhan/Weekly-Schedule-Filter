@@ -2,7 +2,7 @@
 
 import { useState, useMemo } from 'react';
 import { useSchedule } from '../contexts/ScheduleContext';
-import { Search, UserPlus, Settings, Users, Shield, Lock, Copy, Mail } from 'lucide-react';
+import { Search, UserPlus, Settings, Users, Shield, Lock, Copy, Mail, Bug, Plus, Trash2 } from 'lucide-react';
 import { createUserWithEmailAndPassword, signOut, sendPasswordResetEmail } from 'firebase/auth';
 import { auth, secondaryAuth } from '../services/firebase';
 import { saveProfile } from '../services/profileService';
@@ -53,6 +53,46 @@ export default function AdminPage() {
   const [userRoleFilter, setUserRoleFilter] = useState('all');
   const [userPage, setUserPage] = useState(1);
   const USER_PAGE_SIZE = 5;
+
+  // Bug tracker state
+  const [bugList, setBugList] = useState(() => {
+    try {
+      const saved = localStorage.getItem('bugTracker');
+      return saved ? JSON.parse(saved) : [];
+    } catch { return []; }
+  });
+  const [newBugTitle, setNewBugTitle] = useState('');
+  const [newBugFeature, setNewBugFeature] = useState('');
+  const [newBugDescription, setNewBugDescription] = useState('');
+
+  const saveBugs = (list) => {
+    setBugList(list);
+    try { localStorage.setItem('bugTracker', JSON.stringify(list)); } catch {}
+  };
+
+  const handleAddBug = () => {
+    if (!newBugTitle) return;
+    const bug = {
+      id: Date.now(),
+      title: newBugTitle,
+      feature: newBugFeature || 'General',
+      description: newBugDescription,
+      status: 'not-started',
+      createdAt: new Date().toISOString(),
+    };
+    saveBugs([bug, ...bugList]);
+    setNewBugTitle('');
+    setNewBugFeature('');
+    setNewBugDescription('');
+  };
+
+  const handleBugStatusChange = (id, newStatus) => {
+    saveBugs(bugList.map(b => b.id === id ? { ...b, status: newStatus } : b));
+  };
+
+  const handleRemoveBug = (id) => {
+    saveBugs(bugList.filter(b => b.id !== id));
+  };
 
   // Filtered and paginated users
   const filteredUsers = useMemo(() => {
@@ -213,6 +253,18 @@ export default function AdminPage() {
           style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', background: activeTab === 'roles' ? '' : 'transparent', color: activeTab === 'roles' ? '' : 'var(--text-muted)' }}
         >
           <Shield size={16} /> Role Permissions
+        </button>
+        <button 
+          className={`btn btn-sm ${activeTab === 'bugs' ? 'btn-primary' : ''}`}
+          onClick={() => setActiveTab('bugs')}
+          style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', background: activeTab === 'bugs' ? '' : 'transparent', color: activeTab === 'bugs' ? '' : 'var(--text-muted)' }}
+        >
+          <Bug size={16} /> Bug Tracker
+          {bugList.filter(b => b.status !== 'solved').length > 0 && (
+            <span style={{ background: 'var(--danger)', color: 'white', borderRadius: '50%', width: '18px', height: '18px', fontSize: '0.7rem', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              {bugList.filter(b => b.status !== 'solved').length}
+            </span>
+          )}
         </button>
       </div>
 
@@ -488,6 +540,137 @@ export default function AdminPage() {
                 </div>
               ))}
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* --- BUG TRACKER TAB --- */}
+      {activeTab === 'bugs' && (
+        <div className="panel animation-fade-in">
+          <div className="panel-header">
+            <div className="panel-header-left">
+              <h2 style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}><Bug size={18} /> Bug Tracker</h2>
+              <span className="subtext">Track bugs and feature issues</span>
+            </div>
+            <div style={{ display: 'flex', gap: '0.5rem', fontSize: '0.8rem' }}>
+              <span style={{ padding: '0.2rem 0.5rem', borderRadius: '4px', background: '#fee2e2', color: '#991b1b' }}>
+                {bugList.filter(b => b.status === 'not-started').length} Not Started
+              </span>
+              <span style={{ padding: '0.2rem 0.5rem', borderRadius: '4px', background: '#fef3c7', color: '#92400e' }}>
+                {bugList.filter(b => b.status === 'in-progress').length} In Progress
+              </span>
+              <span style={{ padding: '0.2rem 0.5rem', borderRadius: '4px', background: '#d1fae5', color: '#065f46' }}>
+                {bugList.filter(b => b.status === 'solved').length} Solved
+              </span>
+            </div>
+          </div>
+          <div className="panel-body">
+            {/* Add Bug Form */}
+            <div style={{ display: 'flex', gap: '0.75rem', marginBottom: '1.5rem', flexWrap: 'wrap', alignItems: 'flex-end' }}>
+              <div style={{ flex: '2', minWidth: '200px' }}>
+                <label style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '0.3rem' }}>Bug Title</label>
+                <input
+                  type="text"
+                  value={newBugTitle}
+                  onChange={e => setNewBugTitle(e.target.value)}
+                  placeholder="Describe the bug..."
+                  style={{ width: '100%', padding: '0.5rem', borderRadius: '6px', border: '1px solid var(--border-color)' }}
+                />
+              </div>
+              <div style={{ flex: '1', minWidth: '150px' }}>
+                <label style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '0.3rem' }}>Feature / Page</label>
+                <input
+                  type="text"
+                  value={newBugFeature}
+                  onChange={e => setNewBugFeature(e.target.value)}
+                  placeholder="e.g. Trial Priority"
+                  style={{ width: '100%', padding: '0.5rem', borderRadius: '6px', border: '1px solid var(--border-color)' }}
+                />
+              </div>
+              <div style={{ flex: '2', minWidth: '200px' }}>
+                <label style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '0.3rem' }}>Description (optional)</label>
+                <input
+                  type="text"
+                  value={newBugDescription}
+                  onChange={e => setNewBugDescription(e.target.value)}
+                  placeholder="Steps to reproduce or details..."
+                  style={{ width: '100%', padding: '0.5rem', borderRadius: '6px', border: '1px solid var(--border-color)' }}
+                />
+              </div>
+              <button
+                className="btn btn-primary"
+                onClick={handleAddBug}
+                disabled={!newBugTitle}
+                style={{ height: '38px', display: 'flex', alignItems: 'center', gap: '0.3rem' }}
+              >
+                <Plus size={16} /> Add Bug
+              </button>
+            </div>
+
+            {/* Bug List */}
+            {bugList.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-muted)' }}>
+                No bugs tracked yet. Add one above.
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                {bugList.map(bug => (
+                  <div
+                    key={bug.id}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: '0.75rem',
+                      padding: '0.75rem 1rem', borderRadius: '8px',
+                      border: '1px solid var(--border-color)',
+                      background: bug.status === 'solved' ? '#f0fdf4' : bug.status === 'in-progress' ? '#fffbeb' : 'white',
+                      opacity: bug.status === 'solved' ? 0.7 : 1,
+                    }}
+                  >
+                    {/* Status selector */}
+                    <select
+                      value={bug.status}
+                      onChange={e => handleBugStatusChange(bug.id, e.target.value)}
+                      style={{
+                        padding: '0.3rem 0.4rem', borderRadius: '4px', fontSize: '0.75rem', fontWeight: 600,
+                        border: '1px solid var(--border-color)', cursor: 'pointer', minWidth: '100px',
+                        background: bug.status === 'solved' ? '#d1fae5' : bug.status === 'in-progress' ? '#fef3c7' : '#fee2e2',
+                        color: bug.status === 'solved' ? '#065f46' : bug.status === 'in-progress' ? '#92400e' : '#991b1b',
+                      }}
+                    >
+                      <option value="not-started">Not Started</option>
+                      <option value="in-progress">In Progress</option>
+                      <option value="solved">Solved</option>
+                    </select>
+
+                    {/* Bug info */}
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontWeight: 500, textDecoration: bug.status === 'solved' ? 'line-through' : 'none' }}>
+                        {bug.title}
+                      </div>
+                      {bug.description && (
+                        <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '0.2rem' }}>
+                          {bug.description}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Feature badge */}
+                    <span style={{ fontSize: '0.75rem', padding: '0.2rem 0.5rem', borderRadius: '4px', background: 'var(--bg-secondary, #f1f5f9)', color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>
+                      {bug.feature}
+                    </span>
+
+                    {/* Delete */}
+                    <button
+                      onClick={() => handleRemoveBug(bug.id)}
+                      className="btn-icon btn-icon-danger"
+                      title="Remove"
+                      style={{ flexShrink: 0 }}
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       )}
