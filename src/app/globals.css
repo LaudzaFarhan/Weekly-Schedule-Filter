@@ -665,3 +665,96 @@ body {
   .trial-form-row { flex-direction: column; }
   .filter-controls { flex-direction: column; }
 }
+
+
+/* ── Toasts ───────────────────────────────────────────── */
+.toast-container {
+  position: fixed;
+  top: 1.25rem;
+  right: 1.25rem;
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  max-width: min(420px, calc(100vw - 2rem));
+  pointer-events: none;
+}
+.toast-item {
+  pointer-events: auto;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.7rem;
+  padding: 0.85rem 0.95rem;
+  background: var(--panel-bg);
+  border: 1px solid var(--border-color);
+  border-left: 3px solid var(--primary-blue);
+  border-radius: 10px;
+  box-shadow: 0 12px 32px rgba(15, 23, 42, 0.12), 0 2px 6px rgba(15, 23, 42, 0.06);
+  animation: toastSlideIn 0.25s cubic-bezier(0.22, 1, 0.36, 1);
+  min-width: 280px;
+}
+@keyframes toastSlideIn {
+  from { opacity: 0; transform: translateX(20px) scale(0.97); }
+  to   { opacity: 1; transform: translateX(0) scale(1); }
+}
+.toast-icon {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  margin-top: 1px;
+}
+.toast-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+.toast-title {
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--text-main);
+  line-height: 1.3;
+}
+.toast-message {
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+  line-height: 1.4;
+}
+.toast-details {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-top: 0.2rem;
+}
+.toast-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.18rem 0.55rem;
+  border-radius: 99px;
+  font-size: 0.72rem;
+  font-weight: 500;
+  background: var(--bg-color);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-color);
+}
+.toast-chip strong { font-weight: 700; }
+.toast-chip-add     { background: var(--success-bg); color: var(--success); border-color: var(--success-border); }
+.toast-chip-remove  { background: var(--danger-bg);  color: var(--danger);  border-color: var(--danger-border); }
+.toast-chip-warning { background: var(--warning-bg); color: var(--warning); border-color: var(--warning-border); }
+.toast-chip-info    { background: var(--primary-blue-light); color: var(--primary-blue); border-color: var(--primary-blue-light); }
+.toast-chip-neutral { background: var(--bg-color); color: var(--text-secondary); border-color: var(--border-color); }
+.toast-dismiss {
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--text-muted);
+  padding: 2px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s, color 0.15s;
+}
+.toast-dismiss:hover { background: var(--bg-color); color: var(--text-main); }

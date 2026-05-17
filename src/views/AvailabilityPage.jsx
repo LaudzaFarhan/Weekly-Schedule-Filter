@@ -40,7 +40,7 @@ function PaginatedList({ items, emptyText }) {
 }
 
 export default function AvailabilityPage() {
-  const { uniqueBaseTeachers, uniqueTimes, overallClasses, leaveList, activeBranchName, disabledInstructors, instructorProfiles, allClasses, branches } = useSchedule();
+  const { uniqueBaseTeachers, uniqueTimes, overallClasses, leaveList, activeBranchName, disabledInstructors, instructorProfiles, allClasses, enabledBranches } = useSchedule();
   const [selectedDay, setSelectedDay] = useState('');
   const [selectedTime, setSelectedTime] = useState('');
   const [filterBranch, setFilterBranch] = useState('all');
@@ -117,7 +117,7 @@ export default function AvailabilityPage() {
               <label htmlFor="avail-branch">Branch</label>
               <select id="avail-branch" value={filterBranch} onChange={(e) => setFilterBranch(e.target.value)}>
                 <option value="all">All Branches</option>
-                {branches?.map(b => <option key={b.id} value={b.name}>{b.name}</option>)}
+                {enabledBranches?.map(b => <option key={b.id} value={b.name}>{b.name}</option>)}
               </select>
             </div>
             <div className="input-group">

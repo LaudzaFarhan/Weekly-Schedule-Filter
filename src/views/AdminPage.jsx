@@ -35,6 +35,7 @@ export default function AdminPage() {
     users, updateUsers,
     uniqueBaseTeachers,
     disabledInstructors, updateDisabledInstructors,
+    branches, disabledBranches, toggleBranchEnabled,
     refreshProfiles
   } = useSchedule();
 
@@ -315,6 +316,69 @@ export default function AdminPage() {
                   </div>
                 ))}
               </div>
+            </div>
+          </div>
+
+          <div className="panel animation-fade-in">
+            <div className="panel-header">
+              <div className="panel-header-left">
+                <h2>Branch Management</h2>
+                <span className="subtext">
+                  Disable branches to hide their data across the dashboard. Sync skips disabled branches.
+                  Instructors that also exist in an enabled branch stay visible.
+                </span>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                {disabledBranches?.size > 0 && (
+                  <span className="badge badge-danger">{disabledBranches.size} Disabled</span>
+                )}
+                <span className="badge badge-success">
+                  {(branches?.length || 0) - (disabledBranches?.size || 0)} Active
+                </span>
+              </div>
+            </div>
+            <div className="panel-body">
+              {(!branches || branches.length === 0) ? (
+                <div className="empty-state"><p>No branches configured yet.</p></div>
+              ) : (
+                <div className="admin-toggles" style={{ maxWidth: '100%' }}>
+                  {branches.map((b) => {
+                    const isDisabled = disabledBranches?.has(b.name);
+                    return (
+                      <div
+                        key={b.id}
+                        className="admin-toggle-row"
+                        style={{
+                          opacity: isDisabled ? 0.6 : 1,
+                          background: isDisabled ? 'var(--danger-bg)' : undefined,
+                        }}
+                      >
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.15rem' }}>
+                          <span className="admin-toggle-label">
+                            {b.name}
+                            {isDisabled && (
+                              <span style={{ marginLeft: '0.5rem', fontSize: '0.7rem', color: 'var(--danger)', fontWeight: 600 }}>
+                                DISABLED
+                              </span>
+                            )}
+                          </span>
+                          <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', wordBreak: 'break-all' }}>
+                            {b.url ? b.url.slice(0, 80) + (b.url.length > 80 ? '…' : '') : 'No URL'}
+                          </span>
+                        </div>
+                        <label className="toggle-switch" title={isDisabled ? 'Enable branch' : 'Disable branch'}>
+                          <input
+                            type="checkbox"
+                            checked={!isDisabled}
+                            onChange={() => toggleBranchEnabled(b.name)}
+                          />
+                          <span className="toggle-slider" />
+                        </label>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           </div>
 

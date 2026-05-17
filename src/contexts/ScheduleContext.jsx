@@ -1,12 +1,12 @@
 'use client';
 
 import { createContext, useContext, useState, useCallback, useEffect, useRef, useMemo } from 'react';
-import { doTimeSlotsOverlap, parseTimeSlot } from '../utils/timeUtils';
-import { DAY_NAMES } from '../utils/constants';
 import { buildInstructorMap } from '../utils/instructorUtils';
+import { computeConflicts, diffSchedule, diffConflicts, buildSyncDiffSummary } from '../utils/scheduleDiff';
 import { getAllProfiles } from '../services/profileService';
 import { auth } from '../services/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
+import { useToast } from '../components/ui/Toast';
 
 const ScheduleContext = createContext(null);
 
@@ -19,12 +19,12 @@ function loadLocal(key, fallback) {
     const raw = localStorage.getItem(key);
     if (!raw) return fallback;
     const parsed = JSON.parse(raw);
-    
+
     // If it's the toggles object, merge with defaults to prevent missing new keys
     if (key === 'featureToggles' && typeof parsed === 'object') {
       return { ...fallback, ...parsed };
     }
-    
+
     return parsed;
   } catch { return fallback; }
 }
@@ -42,23 +42,27 @@ function persistConfig(key, value) {
   }).catch(() => { /* API not configured or offline — localStorage is the fallback */ });
 }
 
-/** Cache schedule data to localStorage so it persists across page refreshes */
-function cacheScheduleData(classes, teachers, baseTeachers, times, allTimeSlots) {
+/** Cache raw schedule data (all branches) so it persists across page refreshes */
+function cacheScheduleData(rawClasses) {
   try {
-    localStorage.setItem('cachedSchedule_classes', JSON.stringify(classes));
-    localStorage.setItem('cachedSchedule_teachers', JSON.stringify([...teachers]));
-    localStorage.setItem('cachedSchedule_baseTeachers', JSON.stringify([...baseTeachers]));
-    // Convert Set values to arrays for JSON serialization
-    const timesObj = {};
-    for (const [day, dayTimes] of Object.entries(times)) {
-      timesObj[day] = dayTimes instanceof Set ? [...dayTimes] : dayTimes;
-    }
-    localStorage.setItem('cachedSchedule_times', JSON.stringify(timesObj));
-    localStorage.setItem('cachedSchedule_allTimeSlots', JSON.stringify([...allTimeSlots]));
+    localStorage.setItem('cachedSchedule_classes', JSON.stringify(rawClasses));
     localStorage.setItem('cachedSchedule_lastSync', JSON.stringify(new Date().toISOString()));
   } catch (e) {
     console.warn('Failed to cache schedule data:', e.message);
   }
+}
+
+/** Derive the per-day → Set(times) shape and a flat allTimeSlots Set */
+function deriveTimes(classes) {
+  const byDay = {};
+  const all = new Set();
+  classes.forEach((c) => {
+    if (!c.day || !c.time) return;
+    if (!byDay[c.day]) byDay[c.day] = new Set();
+    byDay[c.day].add(c.time);
+    all.add(c.time);
+  });
+  return { byDay, all };
 }
 
 /* ─── default values ─────────────────────────────────────────────── */
@@ -88,19 +92,11 @@ const DEFAULT_BRANCHES = [
 /* ─── provider ───────────────────────────────────────────────────── */
 
 export function ScheduleProvider({ children }) {
-  // Restore cached schedule data from localStorage on mount
-  const [overallClasses, setOverallClasses] = useState(() => loadLocal('cachedSchedule_classes', []));
-  const [uniqueTeachers, setUniqueTeachers] = useState(() => new Set(loadLocal('cachedSchedule_teachers', [])));
-  const [uniqueBaseTeachers, setUniqueBaseTeachers] = useState(() => new Set(loadLocal('cachedSchedule_baseTeachers', [])));
-  const [uniqueTimes, setUniqueTimes] = useState(() => {
-    const cached = loadLocal('cachedSchedule_times', {});
-    const restored = {};
-    for (const [day, times] of Object.entries(cached)) {
-      restored[day] = new Set(times);
-    }
-    return restored;
-  });
-  const [allTimeSlots, setAllTimeSlots] = useState(() => new Set(loadLocal('cachedSchedule_allTimeSlots', [])));
+  const { showToast } = useToast();
+
+  // Raw classes from sync — full data for ALL branches (incl. disabled)
+  const [rawClasses, setRawClasses] = useState(() => loadLocal('cachedSchedule_classes', []));
+
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncStatus, setSyncStatus] = useState(() => {
     const cached = loadLocal('cachedSchedule_classes', []);
@@ -120,7 +116,8 @@ export function ScheduleProvider({ children }) {
   const [trialPriorityList, setTrialPriorityList] = useState(() => loadLocal('trialPriority', []));
   const [featureToggles, setFeatureToggles] = useState(() => loadLocal('featureToggles', DEFAULT_TOGGLES));
   const [disabledInstructors, setDisabledInstructors] = useState(() => new Set(loadLocal('disabledInstructors', [])));
-  
+  const [disabledBranches, setDisabledBranches] = useState(() => new Set(loadLocal('disabledBranches', [])));
+
   // RBAC Config
   const [users, setUsers] = useState(() => loadLocal('users', { 'admin@schedule.local': 'Admin' }));
   const [roleToggles, setRoleToggles] = useState(() => loadLocal('roleToggles', DEFAULT_ROLE_TOGGLES));
@@ -128,13 +125,53 @@ export function ScheduleProvider({ children }) {
   // Instructor Profiles
   const [instructorProfiles, setInstructorProfiles] = useState([]);
 
-  // Compute active branch name and its specific classes
-  const activeBranchName = branches.find(b => b.id === activeBranchId)?.name || 'Default Branch';
-  
+  // ─── Derived data — automatically reflects disabled branches ─────
+
+  /** Schedule classes excluding any disabled-branch entries. */
+  const overallClasses = useMemo(() => {
+    if (!disabledBranches || disabledBranches.size === 0) return rawClasses;
+    return rawClasses.filter(c => !disabledBranches.has(c.branchName));
+  }, [rawClasses, disabledBranches]);
+
+  /** Branches the user actually wants to consider (the one we expose to filters). */
+  const enabledBranches = useMemo(
+    () => branches.filter(b => !disabledBranches.has(b.name)),
+    [branches, disabledBranches]
+  );
+
+  // Compute active branch — fall back to first enabled if active branch is disabled
+  const activeBranchName = useMemo(() => {
+    const active = branches.find(b => b.id === activeBranchId);
+    if (active && !disabledBranches.has(active.name)) return active.name;
+    const firstEnabled = enabledBranches[0];
+    return firstEnabled?.name || active?.name || 'Default Branch';
+  }, [branches, activeBranchId, disabledBranches, enabledBranches]);
+
   const allClasses = useMemo(() => {
     if (!activeBranchName) return overallClasses;
     return overallClasses.filter(c => c.branchName === activeBranchName);
   }, [overallClasses, activeBranchName]);
+
+  const uniqueTeachers = useMemo(() => {
+    const set = new Set();
+    overallClasses.forEach((c) => {
+      if (c.teacher && c.teacher !== '-') set.add(c.teacher);
+    });
+    return set;
+  }, [overallClasses]);
+
+  /**
+   * Base teachers = the pool that drives availability views, "free finder" etc.
+   * We treat any teacher present in classes as a base teacher for filtering UX.
+   * If an instructor exists in BOTH a disabled and an enabled branch, they
+   * remain visible because the enabled-branch class keeps them in the set.
+   */
+  const uniqueBaseTeachers = uniqueTeachers;
+
+  const { uniqueTimes, allTimeSlots } = useMemo(() => {
+    const { byDay, all } = deriveTimes(overallClasses);
+    return { uniqueTimes: byDay, allTimeSlots: all };
+  }, [overallClasses]);
 
   // Build instructor identity map — profiles are source of truth
   const instructorMap = useMemo(() => {
@@ -175,6 +212,10 @@ export function ScheduleProvider({ children }) {
         if (data.disabledInstructors) {
           setDisabledInstructors(new Set(data.disabledInstructors));
           localStorage.setItem('disabledInstructors', JSON.stringify(data.disabledInstructors));
+        }
+        if (data.disabledBranches) {
+          setDisabledBranches(new Set(data.disabledBranches));
+          localStorage.setItem('disabledBranches', JSON.stringify(data.disabledBranches));
         }
         if (data.branches) {
           setBranches(data.branches);
@@ -247,6 +288,22 @@ export function ScheduleProvider({ children }) {
     persistConfig('disabledInstructors', [...newSet]);
   }, []);
 
+  const updateDisabledBranches = useCallback((newSet) => {
+    setDisabledBranches(newSet);
+    persistConfig('disabledBranches', [...newSet]);
+  }, []);
+
+  /** Toggle a single branch on/off by name. Convenience wrapper. */
+  const toggleBranchEnabled = useCallback((branchName) => {
+    setDisabledBranches((prev) => {
+      const next = new Set(prev);
+      if (next.has(branchName)) next.delete(branchName);
+      else next.add(branchName);
+      persistConfig('disabledBranches', [...next]);
+      return next;
+    });
+  }, []);
+
   const updateUsers = useCallback((newUsers) => {
     setUsers(newUsers);
     persistConfig('users', newUsers);
@@ -266,6 +323,18 @@ export function ScheduleProvider({ children }) {
     }
   }, []);
 
+  // If the user disables the active branch, jump to the first enabled one
+  useEffect(() => {
+    const active = branches.find(b => b.id === activeBranchId);
+    if (active && disabledBranches.has(active.name)) {
+      const firstEnabled = branches.find(b => !disabledBranches.has(b.name));
+      if (firstEnabled && firstEnabled.id !== activeBranchId) {
+        setActiveBranchId(firstEnabled.id);
+        try { localStorage.setItem('activeBranchId', JSON.stringify(firstEnabled.id)); } catch {}
+      }
+    }
+  }, [branches, activeBranchId, disabledBranches]);
+
   // ─── Quick Sync (Single Branch) ───────────────────────────────
 
   const syncActiveBranch = useCallback(async () => {
@@ -274,6 +343,20 @@ export function ScheduleProvider({ children }) {
       alert('Active branch does not have a valid Google Sheets Publish link.');
       return;
     }
+    if (disabledBranches.has(activeBranch.name)) {
+      showToast({
+        title: `${activeBranch.name} is disabled`,
+        message: 'Re-enable the branch in Admin Settings to sync it.',
+        variant: 'warning',
+        duration: 6000,
+      });
+      return;
+    }
+
+    // Snapshot pre-sync state for diffing (use visible scope)
+    const prevClasses = overallClasses;
+    const prevConflicts = computeConflicts(prevClasses);
+    const isInitialSync = !lastSyncTime;
 
     setIsSyncing(true);
     setSyncStatus(`Syncing ${activeBranch.name}...`);
@@ -290,47 +373,72 @@ export function ScheduleProvider({ children }) {
         throw new Error(data.error || 'Sync failed');
       }
 
-      const newTeachers = new Set(data.teachers);
-      const newBaseTeachers = new Set(data.baseTeachers);
-      const newTimes = {};
-      const newAllTimeSlots = new Set();
-
-      for (const [day, dayTimes] of Object.entries(data.times)) {
-        newTimes[day] = new Set(dayTimes);
-        dayTimes.forEach((t) => newAllTimeSlots.add(t));
-      }
-
-      // Update overallClasses: replace this branch's classes, keep other branches
-      setOverallClasses(prev => {
-        const otherBranchClasses = prev.filter(c => c.branchName !== activeBranch.name);
-        const updated = [...otherBranchClasses, ...data.classes];
-        // Cache the updated schedule
-        cacheScheduleData(updated, newTeachers, newBaseTeachers, newTimes, newAllTimeSlots);
-        return updated;
-      });
-      setUniqueTeachers(newTeachers);
-      setUniqueBaseTeachers(newBaseTeachers);
-      setUniqueTimes(newTimes);
-      setAllTimeSlots(newAllTimeSlots);
+      // Update raw classes: replace this branch's classes, keep other branches
+      const updatedRaw = [
+        ...rawClasses.filter(c => c.branchName !== activeBranch.name),
+        ...data.classes,
+      ];
+      setRawClasses(updatedRaw);
+      cacheScheduleData(updatedRaw);
       setLastSyncTime(new Date());
 
       let statusMsg = `Synced ${activeBranch.name}: ${data.syncedTabs}/${data.totalTabs} day(s)`;
       if (data.failedTabs.length > 0) statusMsg += ` (${data.failedTabs.length} failed)`;
       setSyncStatus(statusMsg);
+
+      // Compute and show diff toast — diff using visible (post-filter) classes
+      const updatedVisible = updatedRaw.filter(c => !disabledBranches.has(c.branchName));
+      const scheduleDiff = diffSchedule(prevClasses, updatedVisible, { branchName: activeBranch.name });
+      const newConflicts = computeConflicts(updatedVisible);
+      const conflictDiff = diffConflicts(prevConflicts, newConflicts);
+      const summary = buildSyncDiffSummary({ scheduleDiff, conflictDiff, isInitial: isInitialSync });
+
+      showToast({
+        title: `${activeBranch.name} synced`,
+        message: data.failedTabs.length > 0
+          ? `${data.syncedTabs} of ${data.totalTabs} days loaded · ${data.failedTabs.length} failed`
+          : `${data.syncedTabs} of ${data.totalTabs} days loaded`,
+        details: summary.chips,
+        variant: data.failedTabs.length > 0 ? 'warning' : 'success',
+        duration: 7000,
+      });
     } catch (error) {
       console.error('Quick Sync error:', error);
       setSyncStatus('Quick Sync Failed');
-      alert(`Sync Failed for ${activeBranch.name}!\n\nError: ${error.message}`);
+      showToast({
+        title: `${activeBranch.name} sync failed`,
+        message: error.message || 'Unable to fetch schedule',
+        variant: 'error',
+        duration: 8000,
+      });
     } finally {
       setIsSyncing(false);
       setTimeout(() => setSyncProgress(0), 1000); // clear progress bar after a sec
     }
-  }, [branches, activeBranchId]);
+  }, [branches, activeBranchId, rawClasses, overallClasses, disabledBranches, lastSyncTime, showToast]);
 
-  // ─── Full Sync (All Branches) ───────────────────────────────────
+  // ─── Full Sync (All Enabled Branches) ───────────────────────────
 
   const syncAllBranches = useCallback(async () => {
     if (!branches || branches.length === 0) return;
+
+    const branchesToSync = branches.filter(b => !disabledBranches.has(b.name));
+    const skipped = branches.filter(b => disabledBranches.has(b.name)).map(b => b.name);
+
+    if (branchesToSync.length === 0) {
+      showToast({
+        title: 'Nothing to sync',
+        message: 'All branches are currently disabled.',
+        variant: 'warning',
+        duration: 6000,
+      });
+      return;
+    }
+
+    // Snapshot pre-sync state for diffing
+    const prevClasses = overallClasses;
+    const prevConflicts = computeConflicts(prevClasses);
+    const isInitialSync = !lastSyncTime;
 
     setIsSyncing(true);
     setSyncStatus('Syncing All Branches...');
@@ -339,24 +447,19 @@ export function ScheduleProvider({ children }) {
     try {
       let completed = 0;
       let allCombinedClasses = [];
-      const allTeachers = new Set();
-      const allBaseTeachers = new Set();
-      const allNewTimes = {};
-      const newAllTimeSlots = new Set();
-      
-      // Parallel fetch all branches
+
+      // Parallel fetch all enabled branches
       const results = await Promise.allSettled(
-        branches.map(async (branch) => {
+        branchesToSync.map(async (branch) => {
           if (!branch.url) return { success: false, error: 'No URL', branch };
           const qs = `sheetUrl=${encodeURIComponent(branch.url)}&branchId=${encodeURIComponent(branch.id)}&branchName=${encodeURIComponent(branch.name)}`;
           const res = await fetch(`/api/schedule?${qs}`);
           const data = await res.json();
           if (!res.ok || !data.success) throw new Error(data.error || 'Failed');
-          
-          // Update progress
+
           completed++;
-          setSyncProgress(Math.round((completed / branches.length) * 100));
-          
+          setSyncProgress(Math.round((completed / branchesToSync.length) * 100));
+
           return { success: true, data, branch };
         })
       );
@@ -369,18 +472,6 @@ export function ScheduleProvider({ children }) {
         if (result.status === 'fulfilled' && result.value.success) {
           const { data } = result.value;
           allCombinedClasses.push(...data.classes);
-          
-          data.teachers.forEach(t => allTeachers.add(t));
-          data.baseTeachers.forEach(t => allBaseTeachers.add(t));
-          
-          for (const [day, dayTimes] of Object.entries(data.times)) {
-            if (!allNewTimes[day]) allNewTimes[day] = new Set();
-            dayTimes.forEach(t => {
-              allNewTimes[day].add(t);
-              newAllTimeSlots.add(t);
-            });
-          }
-          
           successCount++;
         } else {
           failCount++;
@@ -391,24 +482,57 @@ export function ScheduleProvider({ children }) {
 
       setFailedBranches(failed);
 
-      setOverallClasses(allCombinedClasses);
-      setUniqueTeachers(allTeachers);
-      setUniqueBaseTeachers(allBaseTeachers);
-      setUniqueTimes(allNewTimes);
-      setAllTimeSlots(newAllTimeSlots);
+      // Preserve any existing classes from disabled branches (we didn't refetch them)
+      const preservedDisabled = rawClasses.filter(c => disabledBranches.has(c.branchName));
+      const newRaw = [...preservedDisabled, ...allCombinedClasses];
+      setRawClasses(newRaw);
+      cacheScheduleData(newRaw);
+
       setLastSyncTime(new Date());
       setSyncStatus(`Full Sync: ${successCount} successful, ${failCount} failed.`);
 
-      // Cache the synced data
-      cacheScheduleData(allCombinedClasses, allTeachers, allBaseTeachers, allNewTimes, newAllTimeSlots);
+      // Compute and show diff toast (visible scope)
+      const newVisible = newRaw.filter(c => !disabledBranches.has(c.branchName));
+      const scheduleDiff = diffSchedule(prevClasses, newVisible);
+      const newConflicts = computeConflicts(newVisible);
+      const conflictDiff = diffConflicts(prevConflicts, newConflicts);
+      const summary = buildSyncDiffSummary({ scheduleDiff, conflictDiff, isInitial: isInitialSync });
+
+      let toastVariant = 'success';
+      let toastTitle = 'All branches synced';
+      if (failCount > 0 && successCount > 0) {
+        toastVariant = 'warning';
+        toastTitle = 'Sync completed with warnings';
+      } else if (failCount > 0 && successCount === 0) {
+        toastVariant = 'error';
+        toastTitle = 'Sync failed';
+      }
+
+      const messageParts = [`${successCount} of ${branchesToSync.length} branches`];
+      if (failCount > 0) messageParts.push(`${failed.join(', ')} failed`);
+      if (skipped.length > 0) messageParts.push(`${skipped.length} disabled, skipped`);
+
+      showToast({
+        title: toastTitle,
+        message: messageParts.join(' · '),
+        details: summary.chips,
+        variant: toastVariant,
+        duration: 8000,
+      });
     } catch (error) {
       console.error('Full Sync error:', error);
       setSyncStatus('Full Sync Failed');
+      showToast({
+        title: 'Sync failed',
+        message: error.message || 'Unable to sync branches',
+        variant: 'error',
+        duration: 8000,
+      });
     } finally {
       setIsSyncing(false);
       setTimeout(() => setSyncProgress(0), 1000);
     }
-  }, [branches]);
+  }, [branches, disabledBranches, rawClasses, overallClasses, lastSyncTime, showToast]);
 
   // Legacy syncSchedule points to Quick Sync to not break existing calls
   const syncSchedule = syncActiveBranch;
@@ -419,10 +543,10 @@ export function ScheduleProvider({ children }) {
     if (autoSyncTriggered.current) return;
     const cachedSync = loadLocal('cachedSchedule_lastSync', null);
     if (!cachedSync) return; // Never synced — user must do first sync manually
-    
+
     const lastSync = new Date(cachedSync);
     const hoursSinceSync = (Date.now() - lastSync.getTime()) / (1000 * 60 * 60);
-    
+
     if (hoursSinceSync >= 2 && branches.length > 0) {
       autoSyncTriggered.current = true;
       console.log(`Auto-sync: cache is ${Math.round(hoursSinceSync)}h old, refreshing...`);
@@ -432,60 +556,29 @@ export function ScheduleProvider({ children }) {
     }
   }, [branches, syncAllBranches]);
 
-  // ─── Conflict engine (all branches) ────────────────────────────────
+  // ─── Conflict engine (visible scope) ──────────────────────────────
 
-  const conflicts = useMemo(() => {
-    const result = [];
-    const teacherSchedule = {};
-    overallClasses.forEach((cls) => {
-      if (!cls.teacher || cls.teacher === '-') return;
-      const key = `${cls.day}|${cls.teacher}`;
-      if (!teacherSchedule[key]) teacherSchedule[key] = [];
-      const existing = teacherSchedule[key].find(
-        (c) => c.time === cls.time && c.program === cls.program && c.branchName === cls.branchName
-      );
-      if (!existing) teacherSchedule[key].push({ time: cls.time, program: cls.program, branchName: cls.branchName || '' });
-    });
-
-    for (const [key, classes] of Object.entries(teacherSchedule)) {
-      const [day, teacher] = key.split('|');
-      for (let i = 0; i < classes.length; i++) {
-        for (let j = i + 1; j < classes.length; j++) {
-          if (classes[i].time !== classes[j].time && doTimeSlotsOverlap(classes[i].time, classes[j].time)) {
-            // Collect branch names involved in this conflict
-            const branchesInvolved = new Set([classes[i].branchName, classes[j].branchName].filter(Boolean));
-            result.push({
-              teacher, day,
-              slot1: `${classes[i].time} (${classes[i].program})`,
-              slot2: `${classes[j].time} (${classes[j].program})`,
-              branch1: classes[i].branchName || '',
-              branch2: classes[j].branchName || '',
-              branches: [...branchesInvolved],
-            });
-          }
-        }
-      }
-    }
-    return result;
-  }, [overallClasses]);
+  const conflicts = useMemo(() => computeConflicts(overallClasses), [overallClasses]);
 
   // ─── Context value ────────────────────────────────────────────────
 
   const value = {
     // Branch state
     branches, updateBranches,
+    enabledBranches,
+    disabledBranches, updateDisabledBranches, toggleBranchEnabled,
     activeBranchId, changeActiveBranch,
     activeBranchName,
-    
-    // Data state
+
+    // Data state (filtered to enabled branches)
     allClasses, overallClasses,
     uniqueTeachers, uniqueBaseTeachers, uniqueTimes, allTimeSlots,
     instructorMap,
-    
+
     // Sync state
     isSyncing, syncStatus, syncProgress, lastSyncTime, failedBranches,
     syncSchedule, syncActiveBranch, syncAllBranches,
-    
+
     conflicts,
     leaveList, updateLeaveList,
     trialPriorityList, updateTrialPriorityList,

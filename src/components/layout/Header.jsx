@@ -3,14 +3,15 @@
 import { useState } from 'react';
 import { useSchedule } from '../../contexts/ScheduleContext';
 import { useAuth } from '../../contexts/AuthContext';
-import { RefreshCw, Plus, Trash2, Bell } from 'lucide-react';
+import { RefreshCw, Plus, Trash2, Bell, EyeOff } from 'lucide-react';
 
 export default function Header() {
   const {
     branches, updateBranches,
     activeBranchId, changeActiveBranch,
     syncActiveBranch, syncAllBranches,
-    isSyncing, syncStatus, syncProgress, lastSyncTime, failedBranches,
+    isSyncing, syncProgress, lastSyncTime, failedBranches,
+    disabledBranches,
   } = useSchedule();
   const { user } = useAuth();
 
@@ -100,27 +101,40 @@ export default function Header() {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.75rem 1.5rem' }}>
         {/* Branch tabs */}
         <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-          {branches.map(branch => (
-            <button
-              key={branch.id}
-              onClick={() => changeActiveBranch(branch.id)}
-              style={{
-                padding: '0.4rem 0.85rem',
-                borderRadius: '20px',
-                border: '1px solid var(--border-color)',
-                background: 'transparent',
-                color: 'var(--text-secondary)',
-                cursor: 'pointer',
-                display: 'flex', alignItems: 'center', gap: '0.4rem',
-                fontSize: '0.8rem',
-              }}
-            >
-              {branch.name}
-              {branches.length > 1 && (
-                <Trash2 size={11} style={{ opacity: 0.4 }} onClick={(e) => handleRemoveBranch(e, branch.id)} />
-              )}
-            </button>
-          ))}
+          {branches.map(branch => {
+            const isDisabled = disabledBranches?.has(branch.name);
+            const isActive = activeBranchId === branch.id;
+            return (
+              <button
+                key={branch.id}
+                onClick={() => changeActiveBranch(branch.id)}
+                title={isDisabled ? `${branch.name} is disabled — re-enable in Admin Settings` : branch.name}
+                style={{
+                  padding: '0.4rem 0.85rem',
+                  borderRadius: '20px',
+                  border: isActive ? '1px solid var(--primary-blue)' : '1px solid var(--border-color)',
+                  background: isActive
+                    ? 'var(--primary-blue-light)'
+                    : isDisabled ? 'var(--bg-color)' : 'transparent',
+                  color: isDisabled ? 'var(--text-muted)' : isActive ? 'var(--primary-blue)' : 'var(--text-secondary)',
+                  cursor: 'pointer',
+                  display: 'flex', alignItems: 'center', gap: '0.4rem',
+                  fontSize: '0.8rem',
+                  fontWeight: isActive ? 600 : 400,
+                  textDecoration: isDisabled ? 'line-through' : 'none',
+                  opacity: isDisabled ? 0.65 : 1,
+                }}
+              >
+                {isDisabled && (
+                  <EyeOff size={11} style={{ flexShrink: 0 }} aria-label="Branch disabled" />
+                )}
+                {branch.name}
+                {branches.length > 1 && (
+                  <Trash2 size={11} style={{ opacity: 0.4 }} onClick={(e) => handleRemoveBranch(e, branch.id)} />
+                )}
+              </button>
+            );
+          })}
           {!isAdding ? (
             <button onClick={() => setIsAdding(true)} style={{ padding: '0.4rem 0.85rem', borderRadius: '20px', border: 'none', background: 'transparent', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
               <Plus size={13} /> ADD BRANCH

@@ -8,7 +8,7 @@ import { instructorBelongsToBranch } from '../utils/instructorUtils';
 import { Search, ChevronLeft, ChevronRight } from 'lucide-react';
 
 export default function FinderPage() {
-  const { uniqueBaseTeachers, uniqueTimes, overallClasses, leaveList, disabledInstructors, instructorProfiles, activeBranchName, allClasses, branches } = useSchedule();
+  const { uniqueBaseTeachers, uniqueTimes, overallClasses, leaveList, disabledInstructors, instructorProfiles, activeBranchName, allClasses, enabledBranches } = useSchedule();
   const [selectedInstructor, setSelectedInstructor] = useState('all');
   const [filterBranch, setFilterBranch] = useState('all');
   const [activeDay, setActiveDay] = useState(null);
@@ -103,7 +103,7 @@ export default function FinderPage() {
               <label>Branch</label>
               <select value={filterBranch} onChange={(e) => { setFilterBranch(e.target.value); setCardPage(0); }}>
                 <option value="all">All Branches</option>
-                {branches?.map(b => <option key={b.id} value={b.name}>{b.name}</option>)}
+                {enabledBranches?.map(b => <option key={b.id} value={b.name}>{b.name}</option>)}
               </select>
             </div>
             <div className="input-group-inline">

@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { ScheduleProvider } from '@/contexts/ScheduleContext';
+import { ToastProvider } from '@/components/ui/Toast';
 import LoginOverlay from '@/components/auth/LoginOverlay';
 import Sidebar from '@/components/layout/Sidebar';
 import Header from '@/components/layout/Header';
@@ -59,16 +60,18 @@ export default function AppShell() {
   };
 
   return (
-    <ScheduleProvider>
-      <div className="app-layout">
-        <Sidebar currentPage={currentPage} onNavigate={handleNavigate} />
-        <main className="dashboard-container">
-          <Header />
-          <div className="dashboard-views">
-            <PageComponent onNavigate={handleNavigate} />
-          </div>
-        </main>
-      </div>
-    </ScheduleProvider>
+    <ToastProvider>
+      <ScheduleProvider>
+        <div className="app-layout">
+          <Sidebar currentPage={currentPage} onNavigate={handleNavigate} />
+          <main className="dashboard-container">
+            <Header />
+            <div className="dashboard-views">
+              <PageComponent onNavigate={handleNavigate} />
+            </div>
+          </main>
+        </div>
+      </ScheduleProvider>
+    </ToastProvider>
   );
 }

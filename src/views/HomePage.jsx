@@ -12,7 +12,7 @@ export default function HomePage({ onNavigate }) {
   const {
     uniqueBaseTeachers, uniqueTimes, overallClasses,
     leaveList, instructorProfiles,
-    disabledInstructors, trialPriorityList, branches, lastSyncTime
+    disabledInstructors, trialPriorityList, enabledBranches, lastSyncTime
   } = useSchedule();
 
   const [selectedDay, setSelectedDay] = useState(() => {
@@ -32,7 +32,7 @@ export default function HomePage({ onNavigate }) {
     return lastSyncTime.toLocaleDateString();
   };
 
-  const branchOptions = ['all', ...(branches || []).map(b => b.name)];
+  const branchOptions = ['all', ...(enabledBranches || []).map(b => b.name)];
 
   const handlePrev = () => {
     const idx = branchOptions.indexOf(overviewBranch);
@@ -87,7 +87,7 @@ export default function HomePage({ onNavigate }) {
       coder: coderInstructors.length,
       onLeave: onLeaveCount,
     };
-  }, [overviewBranch, overallClasses, uniqueBaseTeachers, disabledInstructors, instructorProfiles, trialPriorityList, leaveList, branches]);
+  }, [overviewBranch, overallClasses, uniqueBaseTeachers, disabledInstructors, instructorProfiles, trialPriorityList, leaveList, enabledBranches]);
 
   // Availability stats (day/time based)
   const filteredTeachers = useMemo(() => {

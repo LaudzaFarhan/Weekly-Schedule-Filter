@@ -6,7 +6,7 @@ import { DAY_NAMES, SCHEDULE_PAGE_SIZE } from '../utils/constants';
 import Pagination from '../components/ui/Pagination';
 
 export default function SchedulePage() {
-  const { overallClasses, uniqueTeachers, branches } = useSchedule();
+  const { overallClasses, uniqueTeachers, enabledBranches } = useSchedule();
   const [search, setSearch] = useState('');
   const [filterInstructor, setFilterInstructor] = useState('all');
   const [filterDay, setFilterDay] = useState('all');
@@ -60,7 +60,7 @@ export default function SchedulePage() {
                 disabled={overallClasses.length === 0}
               >
                 <option value="all">All Branches</option>
-                {branches?.map(b => <option key={b.id} value={b.name}>{b.name}</option>)}
+                {enabledBranches?.map(b => <option key={b.id} value={b.name}>{b.name}</option>)}
               </select>
             </div>
             <div className="input-group">

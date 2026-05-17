@@ -10,7 +10,7 @@ import { CheckCircle } from 'lucide-react';
 const PAGE_SIZE = 5;
 
 export default function ConflictsPage() {
-  const { conflicts, branches } = useSchedule();
+  const { conflicts, enabledBranches } = useSchedule();
   const [page, setPage] = useState(1);
   const [filterBranch, setFilterBranch] = useState('all');
   const [filterDay, setFilterDay] = useState('all');
@@ -29,7 +29,7 @@ export default function ConflictsPage() {
   const totalPages = Math.ceil(filteredConflicts.length / PAGE_SIZE);
   const paged = filteredConflicts.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
-  const branchOptions = ['all', ...(branches || []).map(b => b.name)];
+  const branchOptions = ['all', ...(enabledBranches || []).map(b => b.name)];
 
   const handlePrev = () => {
     const idx = branchOptions.indexOf(filterBranch);
