@@ -18,6 +18,7 @@ import TrialInputPage from '@/views/TrialInputPage';
 import ApiDocsPage from '@/views/ApiDocsPage';
 import AdminPage from '@/views/AdminPage';
 import ProfilePage from '@/views/ProfilePage';
+import WorkloadPage from '@/views/WorkloadPage';
 
 const PAGE_MAP = {
   home: HomePage,
@@ -29,6 +30,7 @@ const PAGE_MAP = {
   schedule: SchedulePage,
   'trial-input': TrialInputPage,
   profiles: ProfilePage,
+  workload: WorkloadPage,
   'api-docs': ApiDocsPage,
   admin: AdminPage,
 };

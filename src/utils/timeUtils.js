@@ -1,5 +1,12 @@
 /**
- * Parse a time string like "10.00 - 11.00 am" into start/end minutes from midnight.
+ * Parse a time string like "10.00 - 11.00 am" or "11.30 - 12.30 pm" into
+ * start/end minutes from midnight.
+ *
+ * Handles the common ambiguity where the start has no AM/PM marker but the
+ * end does. We try the end's AM/PM on the start first; if that produces an
+ * invalid (end <= start) or absurdly long interval, we fall back to the
+ * opposite meridiem so morning-into-noon classes parse correctly
+ * (e.g. "11.00 - 12.00 pm" → 11am→12pm, not 11pm→12pm).
  */
 export function parseTimeSlot(slotStr) {
   if (!slotStr || typeof slotStr !== 'string') return null;
@@ -9,20 +16,42 @@ export function parseTimeSlot(slotStr) {
   if (dashIndex === -1) return null;
 
   const startStr = cleaned.substring(0, dashIndex).trim();
-  let endStr = cleaned.substring(dashIndex + 1).trim();
+  const endStr = cleaned.substring(dashIndex + 1).trim();
 
-  const endHasAMPM = /am|pm/i.test(endStr);
   const startHasAMPM = /am|pm/i.test(startStr);
+  const endHasAMPM = /am|pm/i.test(endStr);
+  const endAmpm = endHasAMPM ? (endStr.match(/am|pm/i)?.[0] || '').toLowerCase() : '';
 
-  let ampm = '';
-  if (endHasAMPM) {
-    ampm = endStr.match(/am|pm/i)?.[0]?.toLowerCase() || '';
+  const endMinutes = parseTimeToMinutes(endStr);
+  if (isNaN(endMinutes)) return null;
+
+  let startMinutes;
+  if (startHasAMPM) {
+    startMinutes = parseTimeToMinutes(startStr);
+  } else if (endHasAMPM) {
+    // Try the same meridiem as the end first
+    const sameAttempt = parseTimeToMinutes(`${startStr} ${endAmpm}`);
+    // If that produces a valid forward interval shorter than 6h, accept it.
+    if (sameAttempt < endMinutes && (endMinutes - sameAttempt) <= 6 * 60) {
+      startMinutes = sameAttempt;
+    } else {
+      // Flip meridiem — most often this is the morning-into-noon case
+      // (e.g. "11.00 - 12.00 pm" where start is actually AM).
+      const flipped = endAmpm === 'pm' ? 'am' : 'pm';
+      const flippedAttempt = parseTimeToMinutes(`${startStr} ${flipped}`);
+      if (flippedAttempt < endMinutes && (endMinutes - flippedAttempt) <= 6 * 60) {
+        startMinutes = flippedAttempt;
+      } else {
+        // Last resort: keep the original same-meridiem attempt
+        startMinutes = sameAttempt;
+      }
+    }
+  } else {
+    // Neither side has AM/PM — treat as 24h
+    startMinutes = parseTimeToMinutes(startStr);
   }
 
-  const startMinutes = parseTimeToMinutes(startHasAMPM ? startStr : startStr + ' ' + ampm);
-  const endMinutes = parseTimeToMinutes(endStr);
-
-  if (isNaN(startMinutes) || isNaN(endMinutes)) return null;
+  if (isNaN(startMinutes)) return null;
 
   return { start: startMinutes, end: endMinutes, original: slotStr };
 }

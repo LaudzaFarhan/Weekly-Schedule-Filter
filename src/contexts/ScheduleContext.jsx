@@ -68,10 +68,16 @@ function deriveTimes(classes) {
 /* ─── default values ─────────────────────────────────────────────── */
 
 const DEFAULT_TOGGLES = {
+  // Global "internal feature" toggles (some pages also expose role-level controls)
   conflicts: true, availability: true, avail_available: true,
   avail_busy: true, avail_leave: true, leave: true,
   trial: true, trial_overview: true, finder: true, schedule: true, trial_input: true,
+  workload: true,
   api_docs: true, admin: true,
+  // Sidebar role-permission keys for every sidebar entry
+  home: true,
+  trial_priority: true,
+  profiles: true,
 };
 
 const DEFAULT_ROLE_TOGGLES = {
@@ -88,6 +94,25 @@ const DEFAULT_SHEET_URL = process.env.NEXT_PUBLIC_DEFAULT_SHEET_URL ||
 const DEFAULT_BRANCHES = [
   { id: 'default', name: 'Default Branch', url: DEFAULT_SHEET_URL }
 ];
+
+/**
+ * Deep-merge stored role toggles with defaults so newly added sidebar keys
+ * (e.g. when we add a new feature) automatically appear as enabled for every
+ * role rather than missing from the UI.
+ */
+function mergeRoleToggles(stored) {
+  const merged = {};
+  for (const role of Object.keys(DEFAULT_ROLE_TOGGLES)) {
+    merged[role] = { ...DEFAULT_ROLE_TOGGLES[role], ...(stored?.[role] || {}) };
+  }
+  // Preserve any custom roles the admin may have created
+  for (const role of Object.keys(stored || {})) {
+    if (!merged[role]) {
+      merged[role] = { ...DEFAULT_TOGGLES, ...stored[role] };
+    }
+  }
+  return merged;
+}
 
 /* ─── provider ───────────────────────────────────────────────────── */
 
@@ -120,17 +145,23 @@ export function ScheduleProvider({ children }) {
 
   // RBAC Config
   const [users, setUsers] = useState(() => loadLocal('users', { 'admin@schedule.local': 'Admin' }));
-  const [roleToggles, setRoleToggles] = useState(() => loadLocal('roleToggles', DEFAULT_ROLE_TOGGLES));
+  const [roleToggles, setRoleToggles] = useState(() => mergeRoleToggles(loadLocal('roleToggles', DEFAULT_ROLE_TOGGLES)));
 
   // Instructor Profiles
   const [instructorProfiles, setInstructorProfiles] = useState([]);
 
   // ─── Derived data — automatically reflects disabled branches ─────
 
-  /** Schedule classes excluding any disabled-branch entries. */
+  /**
+   * Schedule classes excluding any disabled-branch entries.
+   * Also filters out Sunday rows since the program operates Mon–Sat only.
+   */
   const overallClasses = useMemo(() => {
-    if (!disabledBranches || disabledBranches.size === 0) return rawClasses;
-    return rawClasses.filter(c => !disabledBranches.has(c.branchName));
+    return rawClasses.filter((c) => {
+      if (c.day === 'Sunday') return false;
+      if (disabledBranches?.has(c.branchName)) return false;
+      return true;
+    });
   }, [rawClasses, disabledBranches]);
 
   /** Branches the user actually wants to consider (the one we expose to filters). */
@@ -226,7 +257,7 @@ export function ScheduleProvider({ children }) {
           localStorage.setItem('users', JSON.stringify(data.users));
         }
         if (data.roleToggles) {
-          const merged = { ...DEFAULT_ROLE_TOGGLES, ...data.roleToggles };
+          const merged = mergeRoleToggles(data.roleToggles);
           setRoleToggles(merged);
           localStorage.setItem('roleToggles', JSON.stringify(merged));
         }

@@ -5,12 +5,69 @@ import { useSchedule } from '../contexts/ScheduleContext';
 import { DAY_NAMES } from '../utils/constants';
 import Badge from '../components/ui/Badge';
 import Pagination from '../components/ui/Pagination';
-import { CheckCircle } from 'lucide-react';
+import { CheckCircle, AlertTriangle, Users, BookOpen, ChevronDown, ChevronUp } from 'lucide-react';
 
 const PAGE_SIZE = 5;
+const LESSON_PAGE_SIZE = 8;
+
+/* ─── Helpers ────────────────────────────────────────────── */
+
+/** Check if a program code is a Coder lesson (exempt from overload) */
+function isCoderLesson(program) {
+  if (!program) return false;
+  const p = program.toLowerCase().trim();
+  return p.startsWith('coder') || p === 'c' || /^cb?\d/i.test(program);
+}
+
+/** Check if a program code is a Trial lesson */
+function isTrialLesson(program) {
+  if (!program) return false;
+  return program.toLowerCase().includes('trial');
+}
+
+/** Parse lesson number from a lesson detail string like "K1.10" → 10, "JF2.5" → 5 */
+function parseLessonNumber(detail) {
+  if (!detail) return null;
+  const m = detail.match(/\.(\d+)$/);
+  return m ? parseInt(m[1], 10) : null;
+}
+
+/** Check if a lesson detail is exempt (lesson 9 = Project, lesson 10 = Quiz) */
+function isProjectOrQuiz(detail) {
+  const num = parseLessonNumber(detail);
+  return num === 9 || num === 10;
+}
+
+/** Get a human-readable category for a lesson code */
+function getLessonCategory(program) {
+  if (!program) return 'Unknown';
+  const p = program.trim();
+  if (isTrialLesson(p)) return 'Trial';
+  if (isCoderLesson(p)) return 'Coder';
+  if (/^KF/i.test(p)) return 'Kinder Foundation';
+  if (/^K\d/i.test(p)) return 'Kinder Core';
+  if (/^JF/i.test(p)) return 'Junior Foundation';
+  if (/^J\d/i.test(p)) return 'Junior Core';
+  return 'Other';
+}
+
+/** Color for lesson category badges */
+function getCategoryColor(category) {
+  switch (category) {
+    case 'Kinder Foundation': return { bg: '#fef3c7', color: '#d97706' };
+    case 'Kinder Core': return { bg: '#ffedd5', color: '#ea580c' };
+    case 'Junior Foundation': return { bg: '#dbeafe', color: '#2563eb' };
+    case 'Junior Core': return { bg: '#c7d2fe', color: '#4f46e5' };
+    case 'Coder': return { bg: '#d1fae5', color: '#059669' };
+    case 'Trial': return { bg: '#fce7f3', color: '#db2777' };
+    default: return { bg: '#f1f5f9', color: '#64748b' };
+  }
+}
+
+/* ─── Main Page ──────────────────────────────────────────── */
 
 export default function ConflictsPage() {
-  const { conflicts, enabledBranches } = useSchedule();
+  const { conflicts, enabledBranches, overallClasses } = useSchedule();
   const [page, setPage] = useState(1);
   const [filterBranch, setFilterBranch] = useState('all');
   const [filterDay, setFilterDay] = useState('all');
@@ -47,6 +104,7 @@ export default function ConflictsPage() {
 
   return (
     <section className="dashboard-view active">
+      {/* Existing Conflict Report */}
       <div className="panel conflicts-panel">
         <div className="panel-header">
           <h2>Conflict Report</h2>
@@ -142,6 +200,301 @@ export default function ConflictsPage() {
           <Pagination currentPage={page} totalPages={totalPages} onPageChange={setPage} />
         </div>
       </div>
+
+      {/* Lesson Load Analysis */}
+      <LessonLoadPanel
+        overallClasses={overallClasses}
+        enabledBranches={enabledBranches}
+      />
     </section>
+  );
+}
+
+/* ─── Lesson Load Panel ──────────────────────────────────── */
+
+function LessonLoadPanel({ overallClasses, enabledBranches }) {
+  const [filterBranch, setFilterBranch] = useState('all');
+  const [filterDay, setFilterDay] = useState('all');
+  const [page, setPage] = useState(1);
+  const [expandedCards, setExpandedCards] = useState(new Set());
+  const [showOnlyOverloads, setShowOnlyOverloads] = useState(false);
+
+  const branchOptions = ['all', ...(enabledBranches || []).map(b => b.name)];
+
+  const handlePrev = () => {
+    const idx = branchOptions.indexOf(filterBranch);
+    setFilterBranch(branchOptions[idx <= 0 ? branchOptions.length - 1 : idx - 1]);
+    setPage(1);
+  };
+  const handleNext = () => {
+    const idx = branchOptions.indexOf(filterBranch);
+    setFilterBranch(branchOptions[idx >= branchOptions.length - 1 ? 0 : idx + 1]);
+    setPage(1);
+  };
+
+  const lessonLoadData = useMemo(() => {
+    let classes = overallClasses || [];
+    if (filterBranch !== 'all') classes = classes.filter(c => c.branchName === filterBranch);
+    if (filterDay !== 'all') classes = classes.filter(c => c.day === filterDay);
+
+    // Group by instructor + day + time
+    const groups = {};
+    classes.forEach(c => {
+      if (!c.teacher || c.teacher === '-') return;
+      const key = `${c.teacher}|${c.day}|${c.time}`;
+      if (!groups[key]) {
+        groups[key] = { teacher: c.teacher, day: c.day, time: c.time, branchName: c.branchName, students: [] };
+      }
+      groups[key].students.push({ name: c.student, program: c.program, fullProgram: c.fullProgram, lessonDetail: c.lessonDetail || '', remarks: c.remarks || '' });
+    });
+
+    return Object.values(groups).map(g => {
+      // Group by lessonDetail (e.g. K1.10) or fall back to program (e.g. K1)
+      const lessonMap = {};
+      g.students.forEach(s => {
+        const code = s.lessonDetail || s.program || 'Unknown';
+        if (!lessonMap[code]) {
+          const baseProgram = s.program || code;
+          lessonMap[code] = {
+            code,
+            baseProgram,
+            category: getLessonCategory(baseProgram),
+            fullProgram: s.fullProgram || '',
+            students: [],
+            isCoder: isCoderLesson(baseProgram),
+            isTrial: isTrialLesson(baseProgram),
+            isProjectQuiz: isProjectOrQuiz(code),
+            lessonNumber: parseLessonNumber(code),
+          };
+        }
+        lessonMap[code].students.push({ name: s.name, remarks: s.remarks });
+      });
+
+      const lessons = Object.values(lessonMap).sort((a, b) => b.students.length - a.students.length);
+      // Non-exempt: not Coder, not Trial, and not lesson 9/10 (Project/Quiz)
+      const nonExempt = lessons.filter(l => !l.isCoder && !l.isTrial && !l.isProjectQuiz);
+      const distinctNonExempt = nonExempt.length;
+      const totalStudents = g.students.length;
+      const isOverloaded = distinctNonExempt >= 3;
+
+      return { ...g, lessons, distinctNonExempt, totalStudents, isOverloaded };
+    })
+    .filter(g => !showOnlyOverloads || g.isOverloaded)
+    .sort((a, b) => {
+      if (a.isOverloaded !== b.isOverloaded) return b.isOverloaded ? 1 : -1;
+      if (a.distinctNonExempt !== b.distinctNonExempt) return b.distinctNonExempt - a.distinctNonExempt;
+      return a.teacher.localeCompare(b.teacher);
+    });
+  }, [overallClasses, filterBranch, filterDay, showOnlyOverloads]);
+
+  const overloadCount = useMemo(() => lessonLoadData.filter(g => g.isOverloaded).length, [lessonLoadData]);
+  const totalPages = Math.ceil(lessonLoadData.length / LESSON_PAGE_SIZE);
+  const paged = lessonLoadData.slice((page - 1) * LESSON_PAGE_SIZE, page * LESSON_PAGE_SIZE);
+
+  const toggleCard = (idx) => {
+    setExpandedCards(prev => {
+      const next = new Set(prev);
+      next.has(idx) ? next.delete(idx) : next.add(idx);
+      return next;
+    });
+  };
+
+  return (
+    <div className="panel" style={{ marginTop: '1.5rem' }}>
+      <div className="panel-header">
+        <div className="panel-header-left">
+          <h2 style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <BookOpen size={18} /> Lesson Load Analysis
+          </h2>
+          <span className="subtext">Instructor lesson assignments per time slot</span>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+          {/* Branch carousel */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', background: 'var(--bg-secondary, #f1f5f9)', borderRadius: '8px', padding: '0.35rem 0.6rem' }}>
+            <button onClick={handlePrev} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1.1rem', padding: '0.1rem 0.4rem', color: 'var(--primary, #3b82f6)', fontWeight: 600 }}>‹</button>
+            <span style={{ fontSize: '0.85rem', fontWeight: 600, minWidth: '110px', textAlign: 'center' }}>
+              {filterBranch === 'all' ? 'All Branches' : filterBranch}
+            </span>
+            <button onClick={handleNext} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1.1rem', padding: '0.1rem 0.4rem', color: 'var(--primary, #3b82f6)', fontWeight: 600 }}>›</button>
+          </div>
+          {overloadCount > 0 && <Badge variant="warning">{overloadCount} Overloaded</Badge>}
+          <Badge variant="neutral">{lessonLoadData.length} Slots</Badge>
+        </div>
+      </div>
+      <div className="panel-body">
+        {/* Filters row */}
+        <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap', marginBottom: '1rem', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
+            {['all', ...DAY_NAMES].map(day => (
+              <button
+                key={day}
+                onClick={() => { setFilterDay(day); setPage(1); }}
+                style={{
+                  padding: '0.3rem 0.7rem', borderRadius: '6px', fontSize: '0.8rem', cursor: 'pointer',
+                  border: filterDay === day ? '1.5px solid var(--primary, #3b82f6)' : '1px solid var(--border-color)',
+                  background: filterDay === day ? 'rgba(37, 99, 235, 0.1)' : 'transparent',
+                  fontWeight: filterDay === day ? 600 : 400,
+                  color: filterDay === day ? 'var(--primary, #3b82f6)' : 'var(--text-secondary)'
+                }}
+              >
+                {day === 'all' ? 'All Days' : day}
+              </button>
+            ))}
+          </div>
+          <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.8rem', color: 'var(--text-secondary)', cursor: 'pointer' }}>
+            <input
+              type="checkbox"
+              checked={showOnlyOverloads}
+              onChange={(e) => { setShowOnlyOverloads(e.target.checked); setPage(1); }}
+              style={{ cursor: 'pointer' }}
+            />
+            Show overloads only
+          </label>
+        </div>
+
+        {/* Legend */}
+        <div style={{ display: 'flex', gap: '1.5rem', flexWrap: 'wrap', marginBottom: '1.25rem', padding: '0.65rem 1rem', background: 'var(--bg-color)', borderRadius: '8px', fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
+          <span><strong style={{ color: 'var(--success)' }}>●</strong> 1–2 lessons = OK</span>
+          <span><strong style={{ color: 'var(--danger)' }}>●</strong> 3+ lessons = Lesson Overload</span>
+          <span style={{ opacity: 0.7 }}>Coder & Trial = exempt</span>
+          <span style={{ marginLeft: 'auto', opacity: 0.7 }}>Lesson 9 (Project) & 10 (Quiz) = exempt</span>
+        </div>
+
+        {/* Cards */}
+        <div className="list-container">
+          {(overallClasses || []).length === 0 ? (
+            <div className="empty-state">
+              <BookOpen size={40} />
+              <p>Sync the schedule to analyze lesson loads.</p>
+            </div>
+          ) : lessonLoadData.length === 0 ? (
+            <div className="empty-state">
+              <CheckCircle size={40} />
+              <p>No lesson slots found{filterBranch !== 'all' ? ` for ${filterBranch}` : ''}.</p>
+            </div>
+          ) : (
+            paged.map((slot, i) => {
+              const actualIdx = (page - 1) * LESSON_PAGE_SIZE + i;
+              const isExpanded = expandedCards.has(actualIdx);
+              return (
+                <div
+                  key={actualIdx}
+                  className="lesson-load-card"
+                  style={{
+                    padding: '1rem 1.25rem',
+                    borderRadius: '10px',
+                    border: `1px solid ${slot.isOverloaded ? 'var(--danger-border)' : 'var(--border-color)'}`,
+                    background: slot.isOverloaded ? 'var(--danger-bg)' : 'var(--panel-bg)',
+                    transition: 'transform 0.2s',
+                  }}
+                >
+                  {/* Header */}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.6rem' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                      <strong style={{ fontSize: '0.95rem' }}>{slot.teacher}</strong>
+                      {slot.branchName && (
+                        <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', background: 'var(--bg-color)', padding: '0.15rem 0.5rem', borderRadius: '4px' }}>
+                          {slot.branchName}
+                        </span>
+                      )}
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      <Badge variant={slot.isOverloaded ? 'danger' : 'success'}>
+                        {slot.isOverloaded ? (
+                          <span style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                            <AlertTriangle size={12} /> Lesson Overload
+                          </span>
+                        ) : 'OK'}
+                      </Badge>
+                      <Badge variant="neutral">{slot.day}</Badge>
+                    </div>
+                  </div>
+
+                  {/* Time + student summary */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: '0.6rem', fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
+                    <span>🕐 {slot.time}</span>
+                    <span style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                      <Users size={13} /> {slot.totalStudents} student{slot.totalStudents !== 1 ? 's' : ''}
+                    </span>
+                    <span>{slot.distinctNonExempt} distinct lesson{slot.distinctNonExempt !== 1 ? 's' : ''} (non-exempt)</span>
+                  </div>
+
+                  {/* Lesson chips */}
+                  <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
+                    {slot.lessons.map((lesson, li) => {
+                      const cat = getCategoryColor(lesson.category);
+                      const isExempt = lesson.isCoder || lesson.isTrial || lesson.isProjectQuiz;
+                      return (
+                        <span
+                          key={li}
+                          title={lesson.fullProgram ? `${lesson.category} — ${lesson.fullProgram}` : lesson.category}
+                          style={{
+                            display: 'inline-flex', alignItems: 'center', gap: '0.35rem',
+                            padding: '0.25rem 0.65rem', borderRadius: '6px', fontSize: '0.78rem', fontWeight: 600,
+                            background: cat.bg, color: cat.color,
+                            border: isExempt ? '1px dashed' : 'none',
+                            opacity: isExempt ? 0.75 : 1,
+                          }}
+                        >
+                          {lesson.code}
+                          {lesson.fullProgram && (
+                            <span style={{ fontWeight: 400, fontSize: '0.7rem', opacity: 0.7 }}>
+                              {lesson.fullProgram}
+                            </span>
+                          )}
+                          <span style={{ fontWeight: 400, opacity: 0.8 }}>
+                            ({lesson.students.length} student{lesson.students.length !== 1 ? 's' : ''})
+                          </span>
+                        </span>
+                      );
+                    })}
+                  </div>
+
+                  {/* Expandable student details */}
+                  <button
+                    onClick={() => toggleCard(actualIdx)}
+                    style={{
+                      background: 'none', border: 'none', cursor: 'pointer', fontSize: '0.75rem',
+                      color: 'var(--primary, #3b82f6)', fontWeight: 500, marginTop: '0.5rem',
+                      display: 'flex', alignItems: 'center', gap: '0.3rem', padding: 0,
+                    }}
+                  >
+                    {isExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                    {isExpanded ? 'Hide' : 'Show'} student details
+                  </button>
+
+                  {isExpanded && (
+                    <div style={{ marginTop: '0.6rem', padding: '0.75rem', background: 'white', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
+                      {slot.lessons.map((lesson, li) => (
+                        <div key={li} style={{ marginBottom: li < slot.lessons.length - 1 ? '0.6rem' : 0 }}>
+                          <div style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--text-main)', marginBottom: '0.25rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                            <span>{lesson.code}</span>
+                            {lesson.fullProgram && <span style={{ fontWeight: 400, fontSize: '0.72rem', color: 'var(--text-secondary)' }}>({lesson.fullProgram})</span>}
+                            <span style={{ fontWeight: 400, fontSize: '0.72rem', color: 'var(--text-muted)' }}>— {lesson.category}</span>
+                            {(lesson.isCoder || lesson.isTrial || lesson.isProjectQuiz) && (
+                              <span style={{ fontSize: '0.68rem', color: 'var(--warning)', fontWeight: 500, background: 'var(--warning-bg)', padding: '0.1rem 0.4rem', borderRadius: '4px' }}>
+                                {lesson.isProjectQuiz ? (lesson.lessonNumber === 9 ? 'Project' : 'Quiz') : 'exempt'}
+                              </span>
+                            )}
+                          </div>
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.3rem' }}>
+                            {lesson.students.map((s, si) => (
+                              <span key={si} style={{ fontSize: '0.75rem', padding: '0.15rem 0.5rem', background: 'var(--bg-color)', borderRadius: '4px', color: 'var(--text-secondary)' }}>
+                                {s.name}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })
+          )}
+        </div>
+        <Pagination currentPage={page} totalPages={totalPages} onPageChange={setPage} />
+      </div>
+    </div>
   );
 }

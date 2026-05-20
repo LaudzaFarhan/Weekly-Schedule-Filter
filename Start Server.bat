@@ -1,6 +1,6 @@
 @echo off
 echo ============================================
-echo   Schedule Intelligence - React Dashboard
+echo   Pulse — School Operations, Live
 echo ============================================
 echo.
 echo Starting CORS proxy server + Vite dev server...

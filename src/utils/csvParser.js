@@ -33,11 +33,17 @@ export function parseCSVData(csvText, dayName) {
         if (baseTeacher && baseTeacher !== '-') baseTeachers.add(baseTeacher);
 
         const lessonArrange = row['Lesson Arrange Date'];
+        let lessonDetail = '';
         if (lessonArrange && lessonArrange.includes(',')) {
           const parts = lessonArrange.split(',');
           const assignedInstructor = parts[parts.length - 1].trim();
           if (assignedInstructor && assignedInstructor !== '-') {
             teacher = assignedInstructor;
+          }
+          // Extract lesson detail (e.g. "K1.10" from "K1.10, Vivi")
+          const rawDetail = parts[0].trim();
+          if (/^[A-Z]+\d.*\.\d+$/i.test(rawDetail)) {
+            lessonDetail = rawDetail;
           }
         } else if (!lessonArrange || lessonArrange.trim() === '') {
           if (!rawColumnC) {
@@ -62,6 +68,7 @@ export function parseCSVData(csvText, dayName) {
             student,
             remarks: row['Remarks'] || '',
             fullProgram: row['Program'] || '',
+            lessonDetail,
           });
 
           if (teacher !== '-') teachers.add(teacher);

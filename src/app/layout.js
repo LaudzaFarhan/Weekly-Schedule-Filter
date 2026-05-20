@@ -1,8 +1,8 @@
 import '@/app/globals.css';
 
 export const metadata = {
-  title: 'Schedule Intelligence Dashboard',
-  description: 'Automated Conflict Detection & Instructor Availability',
+  title: 'Pulse — School Operations, Live',
+  description: 'Live school operations: schedule sync, conflict detection, workload analytics, trial intake, and instructor training.',
 };
 
 export default function RootLayout({ children }) {

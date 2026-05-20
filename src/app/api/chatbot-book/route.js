@@ -12,7 +12,6 @@ const dayFormatMap = {
   'Thursday': '4. Thursday',
   'Friday': '5. Friday',
   'Saturday': '6. Saturday',
-  'Sunday': '7. Sunday'
 };
 
 /**

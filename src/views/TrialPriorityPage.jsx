@@ -43,6 +43,32 @@ export default function TrialPriorityPage() {
     setSelectedLocation(activeBranchName);
   }, [activeBranchName]);
 
+  // Auto-sync trial priority locations from instructor profiles
+  // When a profile's location is updated (e.g. "Default Branch" → "Puri Indah"),
+  // automatically update matching entries in the trial priority list
+  useEffect(() => {
+    if (!instructorProfiles || instructorProfiles.length === 0 || trialPriorityList.length === 0) return;
+
+    let hasChanges = false;
+    const updatedList = trialPriorityList.map(entry => {
+      // Don't override "All Branches" — it's intentionally cross-branch
+      if (entry.location === 'All Branches') return entry;
+
+      const profile = instructorProfiles.find(p =>
+        p.fullname === entry.name || p.nickname === entry.name
+      );
+      if (profile && profile.location && profile.location !== entry.location) {
+        hasChanges = true;
+        return { ...entry, location: profile.location };
+      }
+      return entry;
+    });
+
+    if (hasChanges) {
+      updateTrialPriorityList(updatedList);
+    }
+  }, [instructorProfiles, trialPriorityList, updateTrialPriorityList]);
+
   // Auto-detect instructor's branch when selected from dropdown
   const handleInstructorSelect = (name) => {
     setSelectedName(name);
@@ -468,9 +494,9 @@ export default function TrialPriorityPage() {
               </thead>
               <tbody>
                 {overallClasses.length === 0 ? (
-                  <tr><td colSpan="8" className="empty-state-table" style={{ padding: '2rem' }}>Click "Sync All Branches" to generate trial overview.</td></tr>
+                  <tr><td colSpan={DAY_NAMES.length + 1} className="empty-state-table" style={{ padding: '2rem' }}>Click "Sync All Branches" to generate trial overview.</td></tr>
                 ) : trialOverview.length === 0 ? (
-                  <tr><td colSpan="8" className="empty-state-table" style={{ padding: '2rem' }}>No trial slots available.</td></tr>
+                  <tr><td colSpan={DAY_NAMES.length + 1} className="empty-state-table" style={{ padding: '2rem' }}>No trial slots available.</td></tr>
                 ) : (
                   trialOverview.map((row, i) => (
                     <tr key={i} style={{ borderBottom: '1px solid var(--border-color)' }}>

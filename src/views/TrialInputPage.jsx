@@ -82,19 +82,22 @@ export default function TrialInputPage() {
     const daysInMonth = new Date(year, month + 1, 0).getDate();
     const dates = [];
     
-    // JS getDay() is 0 for Sunday, 1 for Monday
+    // JS getDay(): 0=Sun, 1=Mon … 6=Sat. We support Mon–Sat only.
     const getDayName = (d) => {
-      const dayIndex = d.getDay() === 0 ? 6 : d.getDay() - 1;
-      return DAY_NAMES[dayIndex];
+      const dow = d.getDay();
+      if (dow === 0) return null; // Sunday — excluded
+      return DAY_NAMES[dow - 1];
     };
 
     for (let i = 1; i <= daysInMonth; i++) {
       const d = new Date(year, month, i);
+      const dayName = getDayName(d);
+      if (!dayName) continue; // skip Sundays from the picker
       dates.push({
         dateObj: d,
         dateStr: `${year}-${String(month + 1).padStart(2, '0')}-${String(i).padStart(2, '0')}`,
         dayNum: i,
-        dayName: getDayName(d)
+        dayName,
       });
     }
     return dates;
@@ -194,8 +197,13 @@ export default function TrialInputPage() {
             const day = String(d.getDate()).padStart(2, '0');
             dateStr = `${year}-${month}-${day}`;
             
-            const dayIndex = d.getDay() === 0 ? 6 : d.getDay() - 1;
-            dayName = DAY_NAMES[dayIndex];
+            const dow = d.getDay();
+            if (dow === 0) {
+              // Sunday in pasted input — leave dayName as-is so user fixes the date.
+              dayName = '';
+            } else {
+              dayName = DAY_NAMES[dow - 1];
+            }
             newBaseMonth = `${year}-${month}`;
           }
         } else if (key.includes('age')) {
@@ -293,7 +301,6 @@ export default function TrialInputPage() {
       'Thursday': '4. Thursday',
       'Friday': '5. Friday',
       'Saturday': '6. Saturday',
-      'Sunday': '7. Sunday'
     };
 
     const rowData = {

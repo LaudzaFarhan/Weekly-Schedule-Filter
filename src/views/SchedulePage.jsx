@@ -26,6 +26,7 @@ export default function SchedulePage() {
           (c.teacher && c.teacher.toLowerCase().includes(s)) ||
           (c.student && c.student.toLowerCase().includes(s)) ||
           (c.program && c.program.toLowerCase().includes(s)) ||
+          (c.lessonDetail && c.lessonDetail.toLowerCase().includes(s)) ||
           (c.remarks && c.remarks.toLowerCase().includes(s));
         if (!match) return false;
       }
@@ -131,7 +132,7 @@ export default function SchedulePage() {
                   <tr key={i}>
                     <td>{c.day}</td>
                     <td>{c.time}</td>
-                    <td>{c.program}</td>
+                    <td>{c.lessonDetail || c.program}</td>
                     <td>{c.teacher}</td>
                     <td>{c.student}</td>
                     <td style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{c.branchName || '—'}</td>
