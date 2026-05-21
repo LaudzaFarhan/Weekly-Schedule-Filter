@@ -191,7 +191,11 @@ function parseCSVData(csvText, dayName, branchId, branchName) {
     if (term) lastTerm = term;
     if (teacher) lastTeacher = teacher;
 
-    const student = row['Student Name'] ? row['Student Name'].trim() : '';
+    let student = row['Student Name'] ? row['Student Name'].trim() : '';
+
+    if (lessonArrange && lessonArrange.trim() === '-') {
+      student = '';
+    }
 
     if (student && teacher && time) {
       classes.push({
