@@ -142,10 +142,44 @@ export default function WorkloadPage() {
   }, [overallClasses, branchFilter]);
 
   // Build the full report once per data change
-  const report = useMemo(
+  const rawReport = useMemo(
     () => buildWorkloadReport(sourceClasses, { disabledInstructors }),
     [sourceClasses, disabledInstructors]
   );
+
+  // Lookup for profile-declared locations — used to filter the workload list
+  // by an instructor's HOME BRANCH (per Instructor Profiles), not just the
+  // branch a class row happens to belong to.
+  const profileLocationByName = useMemo(() => {
+    const map = new Map();
+    for (const p of instructorProfiles) {
+      const candidates = [p.fullname, p.nickname].filter(Boolean);
+      if (!p.location || candidates.length === 0) continue;
+      for (const name of candidates) {
+        if (!map.has(name)) map.set(name, p.location);
+      }
+    }
+    return map;
+  }, [instructorProfiles]);
+
+  // When a single branch is selected, drop instructors whose profile assigns
+  // them to a different branch — even if they happen to show up in this
+  // branch's schedule (e.g., a stray class row or stale data). This keeps the
+  // workload list aligned with the Instructor Profiles page.
+  const report = useMemo(() => {
+    if (branchFilter === 'all') return rawReport;
+    return rawReport.filter((r) => {
+      const profileLoc = profileLocationByName.get(r.teacher);
+      if (profileLoc) {
+        // Profile is the source of truth: match the selected branch
+        // or instructors flagged "All Branches".
+        return profileLoc === branchFilter || profileLoc === 'All Branches';
+      }
+      // Unprofiled instructors fall through — they still appear if they
+      // have classes in the selected branch (legacy behaviour).
+      return true;
+    });
+  }, [rawReport, branchFilter, profileLocationByName]);
 
   // Resolve a profile-based "home branch" tag for each instructor in the report.
   // Falls back to the schedule-derived branch when no profile location exists.
@@ -242,11 +276,20 @@ export default function WorkloadPage() {
   /**
    * Build a workload report scoped to a single branch (for snapshot saves
    * when the user has "All Branches" selected we want one doc per branch).
+   * Applies the same profile-location filter as the live view so a snapshot
+   * for "Branch X" only contains instructors whose profile lives there.
    */
   const buildReportForBranch = useCallback((branchName) => {
     const scoped = overallClasses.filter((c) => c.branchName === branchName);
-    return buildWorkloadReport(scoped, { disabledInstructors });
-  }, [overallClasses, disabledInstructors]);
+    const built = buildWorkloadReport(scoped, { disabledInstructors });
+    return built.filter((r) => {
+      const profileLoc = profileLocationByName.get(r.teacher);
+      if (profileLoc) {
+        return profileLoc === branchName || profileLoc === 'All Branches';
+      }
+      return true;
+    });
+  }, [overallClasses, disabledInstructors, profileLocationByName]);
 
   /** Save today's snapshot for ALL enabled branches (one doc per branch). */
   const handleSaveSnapshot = useCallback(async () => {
