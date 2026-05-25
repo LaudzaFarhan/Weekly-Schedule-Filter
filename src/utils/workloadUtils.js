@@ -236,11 +236,32 @@ function computeForInstructor(rows) {
         if (b.program) byDay[day].programs.add(b.program);
       });
       const durationMin = parsed.end - parsed.start;
+      // Capture per-student detail so the heatmap modal can show
+      // "what is being taught at this slot".
+      const studentDetails = bucket.map((b) => ({
+        student: b.student || '',
+        program: b.program || '',
+        lessonDetail: b.lessonDetail || '',
+        fullProgram: b.fullProgram || '',
+        branchName: b.branchName || '',
+        remarks: b.remarks || '',
+        notArranged: !!b.notArranged,
+      }));
+      const programs = Array.from(
+        new Set(bucket.map((b) => b.lessonDetail || b.program).filter(Boolean))
+      );
+      const branches = Array.from(
+        new Set(bucket.map((b) => b.branchName).filter(Boolean))
+      );
       byDay[day].sessionList.push({
         time: timeStr,
         start: parsed.start,
         end: parsed.end,
         students: studentsInSlot.size || bucket.length,
+        studentList: Array.from(studentsInSlot),
+        studentDetails,
+        programs,
+        branches,
         durationMin,
       });
       intervals.push([parsed.start, parsed.end]);

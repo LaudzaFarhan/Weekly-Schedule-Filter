@@ -26,7 +26,7 @@ import Pagination from '../components/ui/Pagination';
 import {
   Activity, Users, Clock, AlertOctagon, Minus,
   Search, ChevronDown, ChevronRight, BarChart3, MapPin,
-  Save, History, Calendar as CalendarIcon, TrendingUp,
+  Save, History, Calendar as CalendarIcon, TrendingUp, X,
 } from 'lucide-react';
 
 const PAGE_SIZE = 8;
@@ -120,6 +120,10 @@ export default function WorkloadPage() {
   const [sortDir, setSortDir] = useState('desc');
   const [page, setPage] = useState(1);
   const [expanded, setExpanded] = useState(new Set());
+
+  // Heatmap drill-down: clicking a filled cell opens a session-level modal
+  // showing exactly what the instructor teaches that day.
+  const [heatmapDetail, setHeatmapDetail] = useState(null); // { teacher, day, dayData }
 
   // History state
   const [isSaving, setIsSaving] = useState(false);
@@ -884,7 +888,12 @@ export default function WorkloadPage() {
             <Legend thresholds={thresholds} />
           </div>
           <div className="panel-body" style={{ overflowX: 'auto' }}>
-            <Heatmap report={sorted.slice(0, 25)} max={heatmapMax} thresholds={thresholds} />
+            <Heatmap
+              report={sorted.slice(0, 25)}
+              max={heatmapMax}
+              thresholds={thresholds}
+              onCellClick={(teacher, day, dayData) => setHeatmapDetail({ teacher, day, dayData })}
+            />
             {sorted.length > 25 && (
               <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.5rem' }}>
                 Showing top 25 by current sort. Refine the filter above to see more.
@@ -892,6 +901,15 @@ export default function WorkloadPage() {
             )}
           </div>
         </div>
+      )}
+
+      {heatmapDetail && (
+        <HeatmapDetailModal
+          teacher={heatmapDetail.teacher}
+          day={heatmapDetail.day}
+          dayData={heatmapDetail.dayData}
+          onClose={() => setHeatmapDetail(null)}
+        />
       )}
 
       {/* History card */}
@@ -1050,7 +1068,7 @@ function PerDayPanel({ row, thresholds, onLeave, max }) {
   );
 }
 
-function Heatmap({ report, max, thresholds }) {
+function Heatmap({ report, max, thresholds, onCellClick }) {
   const rowHeight = 28;
   const labelWidth = 160;
 
@@ -1102,11 +1120,21 @@ function Heatmap({ report, max, thresholds }) {
             {r.teacher}
           </div>
           {DAY_NAMES.map((d) => {
-            const hrs = r.byDay[d].hours;
+            const dayData = r.byDay[d];
+            const hrs = dayData.hours;
+            const hasData = hrs > 0;
+            const handleClick = hasData && onCellClick
+              ? () => onCellClick(r.teacher, d, dayData)
+              : undefined;
             return (
-              <div
+              <button
                 key={d}
-                title={`${r.teacher} · ${d}: ${formatHoursMinutes(hrs)} (${r.byDay[d].sessions} sessions)`}
+                type="button"
+                onClick={handleClick}
+                disabled={!hasData}
+                title={hasData
+                  ? `${r.teacher} · ${d}: ${formatHoursMinutes(hrs)} (${dayData.sessions} sessions) — click for details`
+                  : `${r.teacher} · ${d}: no class`}
                 style={{
                   height: rowHeight,
                   borderRadius: '4px',
@@ -1117,10 +1145,24 @@ function Heatmap({ report, max, thresholds }) {
                   fontSize: '0.7rem',
                   fontWeight: 600,
                   color: hrs > thresholds.dailyAmber ? 'white' : (hrs > 0 ? 'white' : 'var(--text-muted)'),
+                  border: 'none',
+                  padding: 0,
+                  cursor: hasData ? 'pointer' : 'default',
+                  transition: 'transform 0.12s ease, box-shadow 0.12s ease',
+                }}
+                onMouseEnter={(e) => {
+                  if (!hasData) return;
+                  e.currentTarget.style.transform = 'scale(1.04)';
+                  e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.18)';
+                }}
+                onMouseLeave={(e) => {
+                  if (!hasData) return;
+                  e.currentTarget.style.transform = 'none';
+                  e.currentTarget.style.boxShadow = 'none';
                 }}
               >
                 {hrs > 0 ? formatHoursMinutes(hrs) : '·'}
-              </div>
+              </button>
             );
           })}
         </div>
@@ -1144,6 +1186,209 @@ function Legend({ thresholds }) {
           {i.label}
         </div>
       ))}
+    </div>
+  );
+}
+
+/**
+ * Heatmap drill-down modal — opened by clicking a filled cell.
+ * Shows every session that instructor teaches on that day, including time
+ * slot, program / lesson code, branch, and the student list. Lets the user
+ * answer "what did Sugi do at 4h on Tuesday?" without leaving the page.
+ */
+function HeatmapDetailModal({ teacher, day, dayData, onClose }) {
+  const sessions = (dayData?.sessionList || []).slice().sort((a, b) => a.start - b.start);
+
+  // Close on ESC for keyboard users
+  useEffect(() => {
+    const handler = (e) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [onClose]);
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label={`${teacher} schedule on ${day}`}
+      onClick={onClose}
+      style={{
+        position: 'fixed',
+        inset: 0,
+        background: 'rgba(15, 23, 42, 0.55)',
+        zIndex: 1000,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: '1.5rem',
+        animation: 'fadeIn 0.15s ease',
+      }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          background: 'var(--panel-bg, white)',
+          borderRadius: '12px',
+          maxWidth: '720px',
+          width: '100%',
+          maxHeight: '85vh',
+          overflowY: 'auto',
+          boxShadow: '0 25px 50px -12px rgba(0,0,0,0.35)',
+          border: '1px solid var(--border-color)',
+        }}
+      >
+        {/* Header */}
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'flex-start',
+            padding: '1.25rem 1.5rem',
+            borderBottom: '1px solid var(--border-color)',
+            position: 'sticky',
+            top: 0,
+            background: 'var(--panel-bg, white)',
+            zIndex: 1,
+          }}
+        >
+          <div>
+            <h3 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 700, color: 'var(--text-main)' }}>
+              {teacher} <span style={{ color: 'var(--text-muted)', fontWeight: 500 }}>· {day}</span>
+            </h3>
+            <div style={{ marginTop: '0.3rem', display: 'flex', gap: '1rem', flexWrap: 'wrap', fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
+              <span><strong>{formatHoursMinutes(dayData.hours)}</strong> teaching</span>
+              <span><strong>{dayData.sessions}</strong> session{dayData.sessions === 1 ? '' : 's'}</span>
+              <span><strong>{dayData.students}</strong> student{dayData.students === 1 ? '' : 's'}</span>
+              {dayData.busiestStartMin !== null && (
+                <span>
+                  Window: {formatMinutesToClock(dayData.busiestStartMin)} – {formatMinutesToClock(dayData.busiestEndMin)}
+                </span>
+              )}
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close"
+            style={{
+              background: 'transparent',
+              border: 'none',
+              cursor: 'pointer',
+              color: 'var(--text-muted)',
+              padding: '0.25rem',
+              borderRadius: '6px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+            onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-color)'; }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
+          >
+            <X size={18} />
+          </button>
+        </div>
+
+        {/* Body */}
+        <div style={{ padding: '1rem 1.5rem 1.25rem 1.5rem' }}>
+          {sessions.length === 0 ? (
+            <div style={{ padding: '1.5rem 0', textAlign: 'center', color: 'var(--text-muted)' }}>
+              No sessions recorded for this day.
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.7rem' }}>
+              {sessions.map((s, i) => (
+                <SessionRow key={`${s.time}-${i}`} session={s} />
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** A single time-slot row inside the heatmap detail modal. */
+function SessionRow({ session }) {
+  const programLabel = session.programs?.length > 0
+    ? session.programs.join(', ')
+    : '—';
+  const branchLabel = session.branches?.length > 0
+    ? session.branches.join(' · ')
+    : null;
+
+  return (
+    <div
+      style={{
+        border: '1px solid var(--border-color)',
+        borderRadius: '10px',
+        padding: '0.75rem 0.9rem',
+        background: 'var(--panel-bg, white)',
+      }}
+    >
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '0.75rem', flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+          <span style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--text-main)' }}>
+            {session.time}
+          </span>
+          <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+            {Math.round(session.durationMin)}m · {session.students} student{session.students === 1 ? '' : 's'}
+          </span>
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', alignItems: 'flex-end' }}>
+          <span
+            style={{
+              fontSize: '0.75rem',
+              fontWeight: 600,
+              color: 'var(--primary-blue)',
+              background: 'var(--primary-blue-light)',
+              padding: '0.2rem 0.55rem',
+              borderRadius: '99px',
+            }}
+          >
+            {programLabel}
+          </span>
+          {branchLabel && (
+            <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', display: 'inline-flex', alignItems: 'center', gap: '0.2rem' }}>
+              <MapPin size={10} /> {branchLabel}
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* Student detail rows */}
+      {(session.studentDetails?.length || 0) > 0 && (
+        <div style={{ marginTop: '0.6rem', display: 'flex', flexWrap: 'wrap', gap: '0.4rem' }}>
+          {session.studentDetails.map((sd, idx) => (
+            <span
+              key={`${sd.student}-${idx}`}
+              title={[sd.fullProgram, sd.remarks].filter(Boolean).join(' · ') || undefined}
+              style={{
+                fontSize: '0.74rem',
+                padding: '0.18rem 0.55rem',
+                borderRadius: '6px',
+                background: sd.notArranged ? '#fef3c7' : 'var(--bg-color)',
+                color: sd.notArranged ? '#92400e' : 'var(--text-secondary)',
+                border: sd.notArranged ? '1px dashed #f59e0b' : '1px solid var(--border-color)',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '0.3rem',
+              }}
+            >
+              {sd.student || '—'}
+              {sd.lessonDetail && sd.lessonDetail !== programLabel && (
+                <span style={{ fontWeight: 600, fontSize: '0.68rem', color: 'var(--text-muted)' }}>
+                  {sd.lessonDetail}
+                </span>
+              )}
+              {sd.notArranged && (
+                <span style={{ fontSize: '0.62rem', fontWeight: 600, color: '#d97706', background: '#fde68a', padding: '0.05rem 0.3rem', borderRadius: '3px' }}>
+                  izin
+                </span>
+              )}
+            </span>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
