@@ -2,32 +2,52 @@
 
 import { useState, useMemo } from 'react';
 import { submitTrialLead } from '../services/trialSubmit';
-import { Send, Clock, Calendar } from 'lucide-react';
+import { Send, Clock, Calendar, MapPin } from 'lucide-react';
 import { useSchedule } from '../contexts/ScheduleContext';
 import { DAY_NAMES } from '../utils/constants';
 import { parseTimeSlot, doTimeSlotsOverlap } from '../utils/timeUtils';
+import { parseQuickFill } from '../utils/quickFillParser';
+import { useToast } from '../components/ui/Toast';
 
 export default function TrialInputPage() {
-  const { uniqueTimes, uniqueBaseTeachers, allClasses, leaveList, disabledInstructors, instructorProfiles, activeBranchName } = useSchedule();
+  const {
+    uniqueTimes, uniqueBaseTeachers, overallClasses, leaveList,
+    disabledInstructors, instructorProfiles, activeBranchName,
+    enabledBranches, branches, changeActiveBranch,
+  } = useSchedule();
+  const { showToast } = useToast();
   const [form, setForm] = useState({
     program: '', student: '', instructor: '', day: '', time: '', date: '', remarks: '',
+    branchName: '',
   });
+
+  // The form's branch is what scopes everything (instructor list, available
+  // times, leaves). Defaults to the global active branch but Quick Fill or
+  // the manual picker can switch it.
+  const targetBranchName = form.branchName || activeBranchName;
+
+  // Classes scoped to the target branch — replaces the previous `allClasses`
+  // which was tied to the global active branch only.
+  const branchClasses = useMemo(
+    () => overallClasses.filter((c) => c.branchName === targetBranchName),
+    [overallClasses, targetBranchName]
+  );
 
   const filteredTeachers = useMemo(() => {
     const branchTeachers = new Set();
-    allClasses?.forEach(c => {
+    branchClasses.forEach(c => {
       if (c.teacher && c.teacher !== '-') branchTeachers.add(c.teacher);
     });
 
     return [...uniqueBaseTeachers].filter((t) => {
       if (disabledInstructors?.has(t)) return false;
-      const profile = instructorProfiles?.find(p => p.fullname === t);
+      const profile = instructorProfiles?.find(p => p.fullname === t || p.nickname === t);
       if (profile) {
-        return profile.location === 'All Branches' || profile.location === activeBranchName;
+        return profile.location === 'All Branches' || profile.location === targetBranchName;
       }
       return branchTeachers.has(t);
     });
-  }, [uniqueBaseTeachers, allClasses, disabledInstructors, instructorProfiles, activeBranchName]);
+  }, [uniqueBaseTeachers, branchClasses, disabledInstructors, instructorProfiles, targetBranchName]);
   const [status, setStatus] = useState({ message: '', type: '' });
   const [submitting, setSubmitting] = useState(false);
   const [datePage, setDatePage] = useState(0);
@@ -124,7 +144,7 @@ export default function TrialInputPage() {
     filteredTeachers.forEach((teacher) => {
       if (disabledInstructors.has(teacher)) return;
       if (onLeave.has(teacher)) return;
-      const isBusy = allClasses?.some(
+      const isBusy = branchClasses?.some(
         (c) =>
           c.teacher === teacher &&
           c.day === form.day &&
@@ -134,15 +154,15 @@ export default function TrialInputPage() {
     });
 
     return available;
-  }, [form.day, form.time, filteredTeachers, allClasses, leaveList, disabledInstructors]);
+  }, [form.day, form.time, filteredTeachers, branchClasses, leaveList, disabledInstructors]);
 
   // Determine ready instructors based on profile specialization
   const readyInstructors = useMemo(() => {
     if (!form.program || !instructorProfiles) return [];
     
     return instructorProfiles.filter(profile => {
-      // Must be in active branch
-      if (profile.location !== 'All Branches' && profile.location !== activeBranchName) return false;
+      // Must be in the target branch
+      if (profile.location !== 'All Branches' && profile.location !== targetBranchName) return false;
 
       // Must be available for the selected slot if day/time are picked
       // If no day/time picked, we just show who has the specialization
@@ -162,117 +182,87 @@ export default function TrialInputPage() {
       }
       return false;
     });
-  }, [form.program, form.day, form.time, instructorProfiles, availableInstructors, activeBranchName]);
+  }, [form.program, form.day, form.time, instructorProfiles, availableInstructors, targetBranchName]);
 
   const handleChange = (field) => (e) => {
     setForm((prev) => ({ ...prev, [field]: e.target.value }));
   };
 
+  /**
+   * Quick Fill: parses a chatbot transcript using the shared parser, then
+   * pre-fills the form. The parser is data-driven so adding branches in
+   * Admin → Branches automatically extends what we can detect.
+   */
   const handleQuickFill = () => {
     if (!quickFillText) return;
-    
-    const lines = quickFillText.split('\n');
-    let student = form.student;
-    let dateStr = form.date;
-    let dayName = form.day;
-    let newBaseMonth = baseMonth;
-    let program = form.program;
-    let instructor = form.instructor;
-    let timeSlotStr = form.time;
-    let remarksArr = [];
 
-    lines.forEach(line => {
-      const parts = line.split(':');
-      if (parts.length >= 2) {
-        const key = parts[0].trim().toLowerCase();
-        const value = parts.slice(1).join(':').trim();
+    const parsed = parseQuickFill(quickFillText, { branches: enabledBranches });
 
-        if (key.includes('student')) {
-          student = value;
-        } else if (key.includes('date trial')) {
-          const d = new Date(value);
-          if (!isNaN(d.getTime())) {
-            const year = d.getFullYear();
-            const month = String(d.getMonth() + 1).padStart(2, '0');
-            const day = String(d.getDate()).padStart(2, '0');
-            dateStr = `${year}-${month}-${day}`;
-            
-            const dow = d.getDay();
-            if (dow === 0) {
-              // Sunday in pasted input — leave dayName as-is so user fixes the date.
-              dayName = '';
-            } else {
-              dayName = DAY_NAMES[dow - 1];
-            }
-            newBaseMonth = `${year}-${month}`;
-          }
-        } else if (key.includes('age')) {
-          const age = parseInt(value, 10);
-          if (!isNaN(age)) {
-            if (age >= 4 && age <= 7) program = 'Trial Kinder';
-            else if (age >= 8 && age <= 10) program = 'Trial Junior';
-            else if (age >= 11) program = 'Trial Coder';
-          }
-        } else if (key.includes('experience')) {
-          remarksArr.push(line);
-        } else if (key.includes('time')) {
-          const cleaned = value.toLowerCase().replace(/\s+/g, '');
-          let isPM = cleaned.includes('pm');
-          const isAM = cleaned.includes('am');
-          
-          const match = cleaned.match(/(\d{1,2})[:.]?(\d{2})?/);
-          if (match) {
-            let hour = parseInt(match[1], 10);
-            let min = match[2] ? parseInt(match[2], 10) : 0;
-            
-            if (isPM && hour < 12) hour += 12;
-            if (isAM && hour === 12) hour = 0;
-            // Map unambiguous afternoon hours (1-6) without AM/PM to PM automatically
-            if (hour >= 1 && hour <= 6 && !isAM && !isPM) hour += 12;
-            
-            const formatTime = (h, m) => {
-              const isPostMeridian = h >= 12;
-              const displayH = h > 12 ? h - 12 : h;
-              const ampm = isPostMeridian ? 'pm' : 'am';
-              return `${displayH}.${m === 0 ? '00' : '30'} ${ampm}`;
-            };
-            
-            const startStr = formatTime(hour, min);
-            const endStr = formatTime(hour + 1, min);
-            const startIsPM = hour >= 12;
-            const endIsPM = (hour + 1) >= 12;
-            
-            if (startIsPM === endIsPM) {
-              timeSlotStr = `${startStr.replace(/ am| pm/g, '')} - ${endStr}`;
-            } else {
-              timeSlotStr = `${startStr} - ${endStr}`;
-            }
-          }
-        }
+    // Build the next form state. We only overwrite fields the parser found
+    // values for, so any manual edits the user already made are preserved.
+    setForm((prev) => {
+      const next = { ...prev };
+      if (parsed.student) next.student = parsed.student;
+      if (parsed.program) next.program = parsed.program;
+      if (parsed.date) next.date = parsed.date;
+      if (parsed.day) next.day = parsed.day;
+      if (parsed.time) next.time = parsed.time;
+      if (parsed.branchName) next.branchName = parsed.branchName;
+      if (parsed.remarks) {
+        next.remarks = next.remarks
+          ? `${next.remarks}\n${parsed.remarks}`
+          : parsed.remarks;
       }
+      return next;
     });
 
-    if (filteredTeachers && filteredTeachers.length > 0) {
-      const teachersArr = Array.from(filteredTeachers);
-      instructor = teachersArr[Math.floor(Math.random() * teachersArr.length)];
+    // If the parser detected a branch and the global active branch is
+    // different, switch the global view too — this is what makes the trial
+    // land in the right branch's schedule. We only switch when the branch
+    // is enabled and known.
+    if (parsed.branchId) {
+      const target = (branches || []).find((b) => b.id === parsed.branchId);
+      if (target && changeActiveBranch) changeActiveBranch(target.id);
     }
 
-    setForm(prev => ({
-      ...prev,
-      program,
-      student,
-      date: dateStr,
-      day: dayName,
-      time: timeSlotStr,
-      instructor,
-      remarks: remarksArr.join('\n')
-    }));
-    
-    if (newBaseMonth !== baseMonth) {
-      setBaseMonth(newBaseMonth);
+    // Surface anything the parser couldn't resolve. We don't auto-pick an
+    // instructor anymore — the user picks from "Ready Instructors" so the
+    // assignment is intentional.
+    const messageParts = [];
+    if (parsed.branchName) messageParts.push(`Branch: ${parsed.branchName}`);
+    if (parsed.program) messageParts.push(parsed.program);
+    if (parsed.day && parsed.time) messageParts.push(`${parsed.day} ${parsed.time}`);
+
+    if (parsed.warnings.length > 0) {
+      showToast({
+        title: 'Quick Fill — review needed',
+        message: parsed.warnings.join(' '),
+        details: messageParts,
+        variant: 'warning',
+        duration: 7000,
+      });
+    } else if (messageParts.length > 0) {
+      showToast({
+        title: 'Quick Fill applied',
+        message: 'Review the form and pick an instructor.',
+        details: messageParts,
+        variant: 'success',
+        duration: 5000,
+      });
+    } else {
+      showToast({
+        title: 'Quick Fill — nothing detected',
+        message: 'No recognised fields in the pasted text.',
+        variant: 'warning',
+        duration: 5000,
+      });
+    }
+
+    if (parsed.date && parsed.date.slice(0, 7) !== baseMonth) {
+      setBaseMonth(parsed.date.slice(0, 7));
       setDatePage(0);
     }
-    
+
     setQuickFillText('');
   };
 
@@ -290,6 +280,10 @@ export default function TrialInputPage() {
       alert('Please select a program, day, and time from the left panel.');
       return;
     }
+    if (!targetBranchName) {
+      alert('Pick a branch before submitting so the trial lands in the right schedule.');
+      return;
+    }
 
     setSubmitting(true);
     setStatus({ message: '', type: '' });
@@ -303,6 +297,10 @@ export default function TrialInputPage() {
       'Saturday': '6. Saturday',
     };
 
+    // Pass branch info to the server so the row is appended to the correct
+    // branch's "Trial Leads" tab. The Apps Script / native API can read
+    // branchName / branchId and route accordingly. Old single-branch setups
+    // still work because colA…colH stay backward compatible.
     const rowData = {
       colA: 'Trial Leads',
       colB: form.program,
@@ -312,16 +310,28 @@ export default function TrialInputPage() {
       colF: form.time,
       colG: form.date,
       colH: form.remarks,
+      branchName: targetBranchName,
+      branchId: (branches || []).find((b) => b.name === targetBranchName)?.id || null,
     };
 
     try {
       await submitTrialLead(rowData);
-      setStatus({ message: 'Success! Trial Lead added to spreadsheet.', type: 'success' });
-      alert('✅ Success! Trial Lead added to spreadsheet.');
-      setForm({ program: '', student: '', instructor: '', day: '', time: '', date: '', remarks: '' });
+      setStatus({ message: `Success! Trial Lead added to ${targetBranchName}.`, type: 'success' });
+      showToast({
+        title: 'Trial submitted',
+        message: `${form.student || 'Lead'} → ${targetBranchName} · ${form.day} ${form.time}`,
+        variant: 'success',
+        duration: 5000,
+      });
+      setForm({ program: '', student: '', instructor: '', day: '', time: '', date: '', remarks: '', branchName: '' });
     } catch (error) {
       setStatus({ message: `Error: ${error.message}`, type: 'error' });
-      alert(`❌ Error: ${error.message}`);
+      showToast({
+        title: 'Trial submission failed',
+        message: error.message || 'Unknown error',
+        variant: 'error',
+        duration: 7000,
+      });
     } finally {
       setSubmitting(false);
     }
@@ -347,7 +357,7 @@ export default function TrialInputPage() {
         for (const teacher of filteredTeachers) {
           if (disabledInstructors.has(teacher)) continue;
           if (onLeave.has(teacher)) continue;
-          const isBusy = allClasses?.some(
+          const isBusy = branchClasses?.some(
             (c) =>
               c.teacher === teacher &&
               c.day === form.day &&
@@ -370,7 +380,7 @@ export default function TrialInputPage() {
     }
 
     return schedules;
-  }, [form.day, filteredTeachers, allClasses, leaveList, TRIAL_SLOTS, disabledInstructors]);
+  }, [form.day, filteredTeachers, branchClasses, leaveList, TRIAL_SLOTS, disabledInstructors]);
 
   return (
     <section className="dashboard-view active">
@@ -560,6 +570,32 @@ export default function TrialInputPage() {
               <h2>Input Trial Leads</h2>
               <span className="subtext">Fill in student details</span>
             </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+              <MapPin size={14} style={{ color: 'var(--text-muted)' }} />
+              <select
+                value={form.branchName || ''}
+                onChange={(e) => {
+                  const name = e.target.value;
+                  setForm((p) => ({ ...p, branchName: name, instructor: '' }));
+                  const target = (branches || []).find((b) => b.name === name);
+                  if (target && changeActiveBranch) changeActiveBranch(target.id);
+                }}
+                style={{
+                  padding: '0.4rem 0.6rem',
+                  border: '1px solid var(--border-color)',
+                  borderRadius: '8px',
+                  fontSize: '0.85rem',
+                  background: 'white',
+                  cursor: 'pointer',
+                }}
+                title="Branch the trial will be booked into"
+              >
+                <option value="">Select Branch…</option>
+                {(enabledBranches || []).map((b) => (
+                  <option key={b.id} value={b.name}>{b.name}</option>
+                ))}
+              </select>
+            </div>
           </div>
           <div className="panel-content">
             
@@ -569,11 +605,19 @@ export default function TrialInputPage() {
                   Chatbot Quick Fill
                   <button type="button" className="btn btn-primary btn-sm" onClick={handleQuickFill}>Auto-Fill</button>
                 </label>
-                <textarea 
-                  placeholder="Parent Name : Dewi Harsono&#10;Student : Sky Rianto&#10;Age : 8&#10;..." 
+                <textarea
+                  placeholder={`Paste the chatbot transcript. Recognised lines (any order, EN/ID):
+  Parent / Orang tua : Dewi Harsono
+  Student / Anak    : Sky Rianto
+  Phone / WA        : 08123456789
+  Age / Umur        : 8
+  Branch / Cabang   : Gading Serpong
+  Date / Tanggal    : 21/12/2025
+  Time / Jam        : 1pm  (or 13.00, 1.30 sore)
+  Notes / Catatan   : ...`}
                   value={quickFillText}
                   onChange={(e) => setQuickFillText(e.target.value)}
-                  style={{ minHeight: '120px', fontSize: '0.8rem' }}
+                  style={{ minHeight: '140px', fontSize: '0.8rem', fontFamily: 'inherit' }}
                 />
               </div>
             </div>

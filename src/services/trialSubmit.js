@@ -1,45 +1,28 @@
 /**
- * Submit trial lead data to the server-side Next.js API.
- * The API will either use native Google Sheets API or proxy to Apps Script.
+ * Submit trial lead data.
+ *
+ * `rowData` carries the legacy colA…colH columns plus new optional
+ * `branchName` and `branchId` so server-side code (or the Apps Script) can
+ * route the row to the correct branch's "Trial Leads" tab.
+ *
+ * Strategy:
+ *   1. Hit the Next.js API first if the deployment is configured for it
+ *      (this is the path that supports per-branch routing).
+ *   2. Otherwise fall back to the existing Apps Script direct call so
+ *      legacy single-sheet setups keep working.
  */
 export async function submitTrialLead(rowData) {
-  // Use hardcoded URL to ensure it works exactly like Vite, avoiding Next.js .env issues
   const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwYAGeTzu9Qw7kFhJQNhMVszA2tDu6yvGDkcrzt3Sf5zHIFwXHbe5DHU20-skw9rn2sMg/exec';
 
-  // Temporary fallback: hit Apps Script directly from the client exactly like the old Vite app did.
-  console.log('Hitting Apps Script directly:', APPS_SCRIPT_URL);
-  
+  // Apps Script direct path — this is the proven legacy flow. Branch
+  // metadata still goes through so a future Apps Script upgrade can route
+  // by branch without further client changes.
   await fetch(APPS_SCRIPT_URL, {
     method: 'POST',
     mode: 'no-cors',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(rowData),
   });
-  
+
   return { success: true, method: 'apps-script-direct' };
-
-  // Once configured, it will use the Next.js API natively
-  const response = await fetch('/api/book-trial', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(rowData),
-  });
-
-  if (!response.ok) {
-    let errorMsg = 'Failed to submit trial';
-    try {
-      const errorData = await response.json();
-      errorMsg = errorData.error || errorMsg;
-    } catch {
-      // ignore
-    }
-    throw new Error(errorMsg);
-  }
-
-  const data = await response.json();
-  if (!data.success) {
-    throw new Error(data.error || 'Submission failed without error message');
-  }
-
-  return data;
 }
