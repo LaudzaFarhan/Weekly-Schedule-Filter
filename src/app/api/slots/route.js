@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { GET as getSchedule } from '../schedule/route';
 import { getAllConfig, isConfigured } from '@/lib/googleSheets';
 import { generateTrialSlots, doTimeSlotsOverlap } from '@/utils/timeUtils';
+import { isDayInLeaveRange } from '@/utils/dateUtils';
 
 // Example: Bearer CHATBOT_SECURE_TOKEN_123
 const EXPECTED_API_KEY = process.env.CHATBOT_API_KEY || 'test-qontak-key-123';
@@ -72,7 +73,11 @@ export async function GET(request) {
     // 6. Filter slots based on Instructor Availability
     const onLeave = new Set();
     leaveList.forEach((l) => {
-      if (l.day === day) onLeave.add(l.name);
+      const isLeave = (l.startDate && l.endDate)
+        ? isDayInLeaveRange(day, l.startDate, l.endDate)
+        : l.day === day;
+      
+      if (isLeave) onLeave.add(l.name);
     });
 
     // Determine which teachers can teach this program (from Trial Priority settings)

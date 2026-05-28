@@ -12,7 +12,8 @@ const PAGE_SIZE = 8;
 export default function LeavePage() {
   const { uniqueBaseTeachers, leaveList, updateLeaveList, disabledInstructors } = useSchedule();
   const [selectedInstructor, setSelectedInstructor] = useState('');
-  const [selectedDay, setSelectedDay] = useState('');
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
   const [reason, setReason] = useState('');
   const [page, setPage] = useState(1);
 
@@ -20,21 +21,22 @@ export default function LeavePage() {
   const totalPages = Math.ceil(leaveList.length / PAGE_SIZE);
   const paged = leaveList.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
-  const canAdd = selectedInstructor && selectedDay;
+  const canAdd = selectedInstructor && startDate && endDate && startDate <= endDate;
 
   const handleAdd = () => {
     if (!canAdd) return;
     const exists = leaveList.some(
-      (l) => l.name === selectedInstructor && l.day === selectedDay
+      (l) => l.name === selectedInstructor && l.startDate === startDate && l.endDate === endDate
     );
     if (exists) {
-      alert(`${selectedInstructor} is already marked on leave for ${selectedDay}.`);
+      alert(`${selectedInstructor} already has this leave recorded.`);
       return;
     }
-    const newList = [...leaveList, { name: selectedInstructor, day: selectedDay, reason }];
+    const newList = [...leaveList, { name: selectedInstructor, startDate, endDate, reason }];
     updateLeaveList(newList);
     setSelectedInstructor('');
-    setSelectedDay('');
+    setStartDate('');
+    setEndDate('');
     setReason('');
   };
 
@@ -51,7 +53,7 @@ export default function LeavePage() {
         <div className="panel-header">
           <div className="panel-header-left">
             <h2>Leave Management</h2>
-            <span className="subtext">Mark instructors as on leave for specific days</span>
+            <span className="subtext">Mark instructors as on leave for specific date ranges</span>
           </div>
           <Badge variant="warning">{leaveList.length} On Leave</Badge>
         </div>
@@ -66,11 +68,12 @@ export default function LeavePage() {
                 </select>
               </div>
               <div className="input-group leave-input-day">
-                <label>Day</label>
-                <select value={selectedDay} onChange={(e) => setSelectedDay(e.target.value)}>
-                  <option value="" disabled>Select day...</option>
-                  {DAY_NAMES.map((d) => <option key={d} value={d}>{d}</option>)}
-                </select>
+                <label>Start Date</label>
+                <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
+              </div>
+              <div className="input-group leave-input-day">
+                <label>End Date</label>
+                <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
               </div>
               <div className="input-group leave-input-reason">
                 <label>Reason (optional)</label>
@@ -87,7 +90,7 @@ export default function LeavePage() {
               <thead>
                 <tr>
                   <th>Instructor</th>
-                  <th>Day</th>
+                  <th>Dates</th>
                   <th>Reason</th>
                   <th style={{ width: 60, textAlign: 'center' }}>Action</th>
                 </tr>
@@ -99,7 +102,7 @@ export default function LeavePage() {
                   paged.map((l, i) => (
                     <tr key={i}>
                       <td>{l.name}</td>
-                      <td>{l.day}</td>
+                      <td>{l.startDate} to {l.endDate}</td>
                       <td>{l.reason || '—'}</td>
                       <td style={{ textAlign: 'center' }}>
                         <button className="btn-icon btn-icon-danger" onClick={() => handleRemove(i)} title="Remove">
