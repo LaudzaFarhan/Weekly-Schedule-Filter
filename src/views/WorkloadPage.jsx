@@ -8,6 +8,7 @@ import { DAY_NAMES } from '../utils/constants';
 import { getInstructorBranch } from '../utils/instructorUtils';
 import {
   buildWorkloadReport,
+  buildIdleWorkloadRow,
   summarizeWorkload,
   classifyWeekly,
   classifyDaily,
@@ -154,25 +155,128 @@ export default function WorkloadPage() {
   // Lookup for profile-declared locations — used to filter the workload list
   // by an instructor's HOME BRANCH (per Instructor Profiles), not just the
   // branch a class row happens to belong to.
+  // Keys are normalised (lowercased + trimmed) so a sheet typo like
+  // "Christian " or "christian" still resolves to the right profile.
   const profileLocationByName = useMemo(() => {
     const map = new Map();
+    const norm = (s) => String(s || '').trim().toLowerCase();
     for (const p of instructorProfiles) {
-      const candidates = [p.fullname, p.nickname].filter(Boolean);
-      if (!p.location || candidates.length === 0) continue;
+      if (!p.location) continue;
+      const candidates = [
+        p.nickname,
+        p.fullname,
+        p.id ? p.id.split('@')[0] : null,
+      ].filter(Boolean);
       for (const name of candidates) {
-        if (!map.has(name)) map.set(name, p.location);
+        const key = norm(name);
+        if (key && !map.has(key)) map.set(key, p.location);
       }
     }
-    return map;
+    // Wrap in a function-style API so callers don't have to know about the
+    // normalisation — they just call get(rawName).
+    return {
+      get: (rawName) => map.get(norm(rawName)) || null,
+      has: (rawName) => map.has(norm(rawName)),
+    };
   }, [instructorProfiles]);
+
+  // Merge profile-only instructors (those with a profile but no class rows
+  // yet) into the report as zero-hour "Idle" rows. Without this, anyone who
+  // has been added to Instructor Profiles but hasn't been put on the
+  // schedule yet is silently invisible — exactly what was happening when a
+  // newly added profile didn't show up in the workload.
+  //
+  // Display-name precedence is **nickname → fullname → email-prefix** so it
+  // matches what you see in the Instructor Profiles table. Dedup considers
+  // both nickname and fullname AND a normalised (case/space-insensitive)
+  // form, so a sheet typo like "christian " still ties back to the profile.
+  const reportWithIdle = useMemo(() => {
+    const norm = (s) => String(s || '').trim().toLowerCase();
+    const existingByExact = new Set(rawReport.map((r) => r.teacher));
+    const existingByNorm = new Set(rawReport.map((r) => norm(r.teacher)));
+    const extras = [];
+    for (const profile of instructorProfiles) {
+      const candidates = [
+        profile.nickname,
+        profile.fullname,
+        profile.id ? profile.id.split('@')[0] : null,
+      ].filter(Boolean);
+      if (candidates.length === 0) continue;
+
+      // Skip if any candidate name is already represented in the schedule,
+      // either exactly or under a forgiving normalisation.
+      const alreadyKnown = candidates.some((c) =>
+        existingByExact.has(c) || existingByNorm.has(norm(c))
+      );
+      if (alreadyKnown) continue;
+
+      const displayName = candidates[0];
+      if (disabledInstructors && disabledInstructors.has(displayName)) continue;
+
+      extras.push(buildIdleWorkloadRow(displayName));
+      candidates.forEach((c) => {
+        existingByExact.add(c);
+        existingByNorm.add(norm(c));
+      });
+    }
+
+    if (process.env.NODE_ENV !== 'production') {
+      // Dev-only diagnostic: lists every profile and shows whether we
+      // already see them on the schedule, and (when we do) which schedule
+      // row they map to. Open the browser console after the page renders.
+      const finalNames = rawReport.concat(extras).map((r) => r.teacher);
+      const finalNormToReal = new Map();
+      [...rawReport, ...extras].forEach((r) => finalNormToReal.set(norm(r.teacher), r.teacher));
+      const profileSummary = instructorProfiles.map((p) => {
+        const cands = [p.nickname, p.fullname, p.id ? p.id.split('@')[0] : null].filter(Boolean);
+        let matched = null;
+        for (const c of cands) {
+          if (finalNames.includes(c)) { matched = c; break; }
+          const m = finalNormToReal.get(norm(c));
+          if (m) { matched = m; break; }
+        }
+        const row = matched ? rawReport.concat(extras).find((r) => r.teacher === matched) : null;
+        return {
+          fullname: p.fullname || '',
+          nickname: p.nickname || '',
+          location: p.location || '',
+          matchedName: matched,
+          hours: row ? Number(row.weekly.hours.toFixed(2)) : null,
+          sessions: row ? row.weekly.sessions : null,
+          status: matched ? (row && row.weekly.hours > 0 ? 'visible' : 'visible-but-idle') : 'MISSING',
+        };
+      });
+      // eslint-disable-next-line no-console
+      console.log('[Workload] Injected idle profile rows:', extras.map((e) => e.teacher));
+      // eslint-disable-next-line no-console
+      console.log(`[Workload] rawReport teachers (${rawReport.length}):`, rawReport.map((r) => r.teacher).sort());
+      // eslint-disable-next-line no-console
+      console.table(profileSummary);
+
+      // Surface every parsed class row that appears tied to a specific
+      // instructor. Helpful for figuring out why someone has 0 hours even
+      // though the sheet shows them assigned.
+      const target = 'christian';
+      const matches = sourceClasses.filter((c) =>
+        norm(c.teacher) === target ||
+        norm(c.student) === target ||
+        norm(c.lessonDetail).includes(target) ||
+        norm(c.fullProgram).includes(target)
+      );
+      // eslint-disable-next-line no-console
+      console.log(`[Workload] Parsed rows mentioning "${target}" (${matches.length}):`, matches);
+    }
+
+    return rawReport.concat(extras);
+  }, [rawReport, instructorProfiles, disabledInstructors, sourceClasses]);
 
   // When a single branch is selected, drop instructors whose profile assigns
   // them to a different branch — even if they happen to show up in this
   // branch's schedule (e.g., a stray class row or stale data). This keeps the
   // workload list aligned with the Instructor Profiles page.
   const report = useMemo(() => {
-    if (branchFilter === 'all') return rawReport;
-    return rawReport.filter((r) => {
+    if (branchFilter === 'all') return reportWithIdle;
+    return reportWithIdle.filter((r) => {
       const profileLoc = profileLocationByName.get(r.teacher);
       if (profileLoc) {
         // Profile is the source of truth: match the selected branch
@@ -183,7 +287,7 @@ export default function WorkloadPage() {
       // have classes in the selected branch (legacy behaviour).
       return true;
     });
-  }, [rawReport, branchFilter, profileLocationByName]);
+  }, [reportWithIdle, branchFilter, profileLocationByName]);
 
   // Resolve a profile-based "home branch" tag for each instructor in the report.
   // Falls back to the schedule-derived branch when no profile location exists.
@@ -281,11 +385,38 @@ export default function WorkloadPage() {
    * Build a workload report scoped to a single branch (for snapshot saves
    * when the user has "All Branches" selected we want one doc per branch).
    * Applies the same profile-location filter as the live view so a snapshot
-   * for "Branch X" only contains instructors whose profile lives there.
+   * for "Branch X" only contains instructors whose profile lives there,
+   * and includes profile-only instructors as zero-hour "Idle" rows.
+   *
+   * Display-name precedence matches the live view: nickname → fullname →
+   * email-prefix.
    */
   const buildReportForBranch = useCallback((branchName) => {
     const scoped = overallClasses.filter((c) => c.branchName === branchName);
     const built = buildWorkloadReport(scoped, { disabledInstructors });
+
+    // Inject idle rows for profile-only instructors who belong to this branch.
+    const existing = new Set(built.map((r) => r.teacher));
+    for (const profile of instructorProfiles) {
+      const candidates = [
+        profile.nickname,
+        profile.fullname,
+        profile.id ? profile.id.split('@')[0] : null,
+      ].filter(Boolean);
+      if (candidates.length === 0) continue;
+      const alreadyKnown = candidates.some((c) => existing.has(c));
+      if (alreadyKnown) continue;
+
+      const displayName = candidates[0];
+      if (disabledInstructors && disabledInstructors.has(displayName)) continue;
+
+      const loc = profile.location;
+      if (loc !== branchName && loc !== 'All Branches') continue;
+
+      built.push(buildIdleWorkloadRow(displayName));
+      candidates.forEach((c) => existing.add(c));
+    }
+
     return built.filter((r) => {
       const profileLoc = profileLocationByName.get(r.teacher);
       if (profileLoc) {
@@ -293,7 +424,7 @@ export default function WorkloadPage() {
       }
       return true;
     });
-  }, [overallClasses, disabledInstructors, profileLocationByName]);
+  }, [overallClasses, disabledInstructors, profileLocationByName, instructorProfiles]);
 
   /** Save today's snapshot for ALL enabled branches (one doc per branch). */
   const handleSaveSnapshot = useCallback(async () => {

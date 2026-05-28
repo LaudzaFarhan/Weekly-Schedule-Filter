@@ -385,6 +385,17 @@ export function buildWorkloadReport(classes, { disabledInstructors } = {}) {
 }
 
 /**
+ * Build an empty (zero-hours) workload row for an instructor who has no
+ * class rows yet. Used to surface profile-based instructors that haven't
+ * been assigned any classes — they show up as "Idle" instead of being
+ * silently invisible.
+ */
+export function buildIdleWorkloadRow(teacher) {
+  const stats = computeForInstructor([]);
+  return { teacher, ...stats };
+}
+
+/**
  * Aggregate report-level summary: averages, max, count over threshold.
  * Useful for the "distribution" KPI strip at the top of the workload page.
  */

@@ -45,6 +45,24 @@ export function parseCSVData(csvText, dayName) {
           if (/^[A-Z]+\d.*\.\d+$/i.test(rawDetail)) {
             lessonDetail = rawDetail;
           }
+        } else if (lessonArrange && lessonArrange.trim() && lessonArrange.trim() !== '-') {
+          // Bare value in column F with no comma. Two shapes are possible:
+          //   1. A lesson code (e.g. "K1.10", "JF2.5", "Coder") — we keep
+          //      the inherited instructor and just record the lesson detail.
+          //   2. An instructor name (used for Coder rows where the column
+          //      simply credits a different instructor — "Christian", etc.)
+          //      — we override the inherited instructor.
+          const v = lessonArrange.trim();
+          const looksLikeLessonCode =
+            /^[A-Z]+\d.*\.\d+$/i.test(v) ||  // KF1.5, J2.10
+            /^(coder|trial|reg|k\d|kf\d|j\d|jf\d|cb\d|cd\d)/i.test(v);
+          if (looksLikeLessonCode) {
+            if (/^[A-Z]+\d.*\.\d+$/i.test(v)) lessonDetail = v;
+            // teacher stays as inherited baseTeacher — that's the rule
+          } else {
+            // Treat as instructor name override.
+            teacher = v;
+          }
         } else if (!lessonArrange || lessonArrange.trim() === '') {
           if (!rawColumnC) {
             teacher = '';
@@ -59,9 +77,10 @@ export function parseCSVData(csvText, dayName) {
 
         let student = row['Student Name'] ? row['Student Name'].trim() : '';
 
-        if (lessonArrange && lessonArrange.trim() === '-') {
-          student = '';
-        }
+        // A lone '-' in Lesson Arrange Date means the student is on leave /
+        // izin / not yet scheduled — keep them in the data so the UI can
+        // display their status instead of silently dropping them.
+        const notArranged = !!(lessonArrange && lessonArrange.trim() === '-');
 
         if (student && teacher && time) {
           classes.push({
@@ -73,6 +92,7 @@ export function parseCSVData(csvText, dayName) {
             remarks: row['Remarks'] || '',
             fullProgram: row['Program'] || '',
             lessonDetail,
+            notArranged,
           });
 
           if (teacher !== '-') teachers.add(teacher);
