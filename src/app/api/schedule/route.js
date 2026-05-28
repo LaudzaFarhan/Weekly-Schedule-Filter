@@ -193,9 +193,10 @@ function parseCSVData(csvText, dayName, branchId, branchName) {
 
     let student = row['Student Name'] ? row['Student Name'].trim() : '';
 
-    if (lessonArrange && lessonArrange.trim() === '-') {
-      student = '';
-    }
+    // A lone '-' in Lesson Arrange Date means the student is on leave /
+    // izin / not yet scheduled — keep them in the data so the UI can
+    // display their status instead of silently dropping them.
+    const notArranged = !!(lessonArrange && lessonArrange.trim() === '-');
 
     if (student && teacher && time) {
       classes.push({
@@ -209,6 +210,7 @@ function parseCSVData(csvText, dayName, branchId, branchName) {
         remarks: row['Remarks'] || '',
         fullProgram: row['Program'] || '',
         lessonDetail,
+        notArranged,
       });
 
       if (teacher !== '-') teachers.add(teacher);

@@ -245,7 +245,7 @@ function LessonLoadPanel({ overallClasses, enabledBranches }) {
       if (!groups[key]) {
         groups[key] = { teacher: c.teacher, day: c.day, time: c.time, branchName: c.branchName, students: [] };
       }
-      groups[key].students.push({ name: c.student, program: c.program, fullProgram: c.fullProgram, lessonDetail: c.lessonDetail || '', remarks: c.remarks || '' });
+      groups[key].students.push({ name: c.student, program: c.program, fullProgram: c.fullProgram, lessonDetail: c.lessonDetail || '', remarks: c.remarks || '', notArranged: !!c.notArranged });
     });
 
     return Object.values(groups).map(g => {
@@ -267,7 +267,7 @@ function LessonLoadPanel({ overallClasses, enabledBranches }) {
             lessonNumber: parseLessonNumber(code),
           };
         }
-        lessonMap[code].students.push({ name: s.name, remarks: s.remarks });
+        lessonMap[code].students.push({ name: s.name, remarks: s.remarks, notArranged: s.notArranged });
       });
 
       const lessons = Object.values(lessonMap).sort((a, b) => b.students.length - a.students.length);
@@ -479,8 +479,11 @@ function LessonLoadPanel({ overallClasses, enabledBranches }) {
                           </div>
                           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.3rem' }}>
                             {lesson.students.map((s, si) => (
-                              <span key={si} style={{ fontSize: '0.75rem', padding: '0.15rem 0.5rem', background: 'var(--bg-color)', borderRadius: '4px', color: 'var(--text-secondary)' }}>
+                              <span key={si} style={{ fontSize: '0.75rem', padding: '0.15rem 0.5rem', background: s.notArranged ? '#fef3c7' : 'var(--bg-color)', borderRadius: '4px', color: s.notArranged ? '#92400e' : 'var(--text-secondary)', border: s.notArranged ? '1px dashed #f59e0b' : 'none', display: 'inline-flex', alignItems: 'center', gap: '0.3rem' }}>
                                 {s.name}
+                                {s.notArranged && (
+                                  <span style={{ fontSize: '0.65rem', fontWeight: 600, color: '#d97706', background: '#fde68a', padding: '0.05rem 0.3rem', borderRadius: '3px' }}>izin</span>
+                                )}
                               </span>
                             ))}
                           </div>
