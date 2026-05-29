@@ -64,6 +64,81 @@ function getCategoryColor(category) {
   }
 }
 
+/**
+ * Split a text into plain segments and clickable links. Detects:
+ *   • Full URLs:        https://meet.google.com/abc-defg-hij
+ *   • Schemeless URLs:  meet.google.com/abc-defg-hij, www.example.com
+ *
+ * Returns an array of { type: 'text' | 'link', value, href }.
+ *
+ * Used so chip text like "Puri, GS meet.google.com/eqi-nvfn-grj" renders
+ * the meet link as a clickable anchor without losing the rest of the text.
+ */
+function linkifyText(text) {
+  if (!text) return [];
+  // Allow: optional scheme, then host with at least one dot, then path.
+  // Stops at whitespace and common trailing punctuation.
+  const URL_RE = /(https?:\/\/[^\s<>")]+|(?:www\.|meet\.|docs\.|drive\.|zoom\.us\/|forms\.gle\/)[^\s<>")]+)/gi;
+  const parts = [];
+  let lastIndex = 0;
+  let m;
+  while ((m = URL_RE.exec(text)) !== null) {
+    if (m.index > lastIndex) {
+      parts.push({ type: 'text', value: text.slice(lastIndex, m.index) });
+    }
+    let raw = m[0];
+    // Strip common trailing punctuation that's almost certainly not part of the URL.
+    let trailing = '';
+    while (/[),.;:!?]$/.test(raw)) {
+      trailing = raw.slice(-1) + trailing;
+      raw = raw.slice(0, -1);
+    }
+    const href = /^https?:\/\//i.test(raw) ? raw : `https://${raw}`;
+    parts.push({ type: 'link', value: raw, href });
+    if (trailing) parts.push({ type: 'text', value: trailing });
+    lastIndex = m.index + m[0].length;
+  }
+  if (lastIndex < text.length) {
+    parts.push({ type: 'text', value: text.slice(lastIndex) });
+  }
+  return parts;
+}
+
+/**
+ * Render text with embedded URLs converted to clickable anchors. Stops the
+ * click from bubbling so the surrounding "expand card" toggle doesn't fire
+ * when the user just wants to open the meet link.
+ */
+function LinkifiedText({ text, color }) {
+  const segments = linkifyText(text);
+  if (segments.length === 0) return null;
+  return (
+    <>
+      {segments.map((seg, i) =>
+        seg.type === 'link' ? (
+          <a
+            key={i}
+            href={seg.href}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              color: color || 'var(--primary-blue)',
+              textDecoration: 'underline',
+              textUnderlineOffset: '2px',
+              wordBreak: 'break-all',
+            }}
+          >
+            {seg.value}
+          </a>
+        ) : (
+          <span key={i}>{seg.value}</span>
+        )
+      )}
+    </>
+  );
+}
+
 /* ─── Main Page ──────────────────────────────────────────── */
 
 export default function ConflictsPage() {
@@ -281,8 +356,22 @@ function LessonLoadPanel({ overallClasses, enabledBranches }) {
     })
     .filter(g => !showOnlyOverloads || g.isOverloaded)
     .sort((a, b) => {
-      if (a.isOverloaded !== b.isOverloaded) return b.isOverloaded ? 1 : -1;
-      if (a.distinctNonExempt !== b.distinctNonExempt) return b.distinctNonExempt - a.distinctNonExempt;
+      // Primary: chronological time (parse "10.00-11.30am" → minutes since midnight)
+      const parseTime = (t) => {
+        if (!t) return 0;
+        const start = t.split('-')[0].trim().toLowerCase();
+        const m = start.match(/^(\d{1,2})[.:](\d{2})\s*(am|pm)?$/);
+        if (!m) return 0;
+        let h = parseInt(m[1], 10);
+        const min = parseInt(m[2], 10);
+        const ampm = m[3] || (t.toLowerCase().includes('pm') ? 'pm' : 'am');
+        if (ampm === 'pm' && h < 12) h += 12;
+        if (ampm === 'am' && h === 12) h = 0;
+        return h * 60 + min;
+      };
+      const timeCmp = parseTime(a.time) - parseTime(b.time);
+      if (timeCmp !== 0) return timeCmp;
+      // Secondary: instructor name alphabetically
       return a.teacher.localeCompare(b.teacher);
     });
   }, [overallClasses, filterBranch, filterDay, showOnlyOverloads]);
@@ -439,7 +528,7 @@ function LessonLoadPanel({ overallClasses, enabledBranches }) {
                           {lesson.code}
                           {lesson.fullProgram && (
                             <span style={{ fontWeight: 400, fontSize: '0.7rem', opacity: 0.7 }}>
-                              {lesson.fullProgram}
+                              <LinkifiedText text={lesson.fullProgram} color={cat.color} />
                             </span>
                           )}
                           <span style={{ fontWeight: 400, opacity: 0.8 }}>
@@ -469,7 +558,11 @@ function LessonLoadPanel({ overallClasses, enabledBranches }) {
                         <div key={li} style={{ marginBottom: li < slot.lessons.length - 1 ? '0.6rem' : 0 }}>
                           <div style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--text-main)', marginBottom: '0.25rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                             <span>{lesson.code}</span>
-                            {lesson.fullProgram && <span style={{ fontWeight: 400, fontSize: '0.72rem', color: 'var(--text-secondary)' }}>({lesson.fullProgram})</span>}
+                            {lesson.fullProgram && (
+                              <span style={{ fontWeight: 400, fontSize: '0.72rem', color: 'var(--text-secondary)' }}>
+                                (<LinkifiedText text={lesson.fullProgram} />)
+                              </span>
+                            )}
                             <span style={{ fontWeight: 400, fontSize: '0.72rem', color: 'var(--text-muted)' }}>— {lesson.category}</span>
                             {(lesson.isCoder || lesson.isTrial || lesson.isProjectQuiz) && (
                               <span style={{ fontSize: '0.68rem', color: 'var(--warning)', fontWeight: 500, background: 'var(--warning-bg)', padding: '0.1rem 0.4rem', borderRadius: '4px' }}>
