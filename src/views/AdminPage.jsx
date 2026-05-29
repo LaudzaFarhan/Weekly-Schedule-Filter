@@ -86,6 +86,7 @@ export default function AdminPage() {
     uniqueBaseTeachers,
     disabledInstructors, updateDisabledInstructors,
     branches, disabledBranches, toggleBranchEnabled,
+    updateBranches,
     refreshProfiles
   } = useSchedule();
   const { user: currentUser } = useAuth();
@@ -518,29 +519,63 @@ export default function AdminPage() {
                         style={{
                           opacity: isDisabled ? 0.6 : 1,
                           background: isDisabled ? 'var(--danger-bg)' : undefined,
+                          flexDirection: 'column',
+                          alignItems: 'stretch',
+                          gap: '0.5rem',
                         }}
                       >
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.15rem' }}>
-                          <span className="admin-toggle-label">
-                            {b.name}
-                            {isDisabled && (
-                              <span style={{ marginLeft: '0.5rem', fontSize: '0.7rem', color: 'var(--danger)', fontWeight: 600 }}>
-                                DISABLED
-                              </span>
-                            )}
-                          </span>
-                          <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', wordBreak: 'break-all' }}>
-                            {b.url ? b.url.slice(0, 80) + (b.url.length > 80 ? '…' : '') : 'No URL'}
-                          </span>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.5rem' }}>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.15rem', flex: 1, minWidth: 0 }}>
+                            <span className="admin-toggle-label">
+                              {b.name}
+                              {isDisabled && (
+                                <span style={{ marginLeft: '0.5rem', fontSize: '0.7rem', color: 'var(--danger)', fontWeight: 600 }}>
+                                  DISABLED
+                                </span>
+                              )}
+                            </span>
+                            <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', wordBreak: 'break-all' }}>
+                              {b.url ? b.url.slice(0, 80) + (b.url.length > 80 ? '…' : '') : 'No URL'}
+                            </span>
+                          </div>
+                          <label className="toggle-switch" title={isDisabled ? 'Enable branch' : 'Disable branch'}>
+                            <input
+                              type="checkbox"
+                              checked={!isDisabled}
+                              onChange={() => toggleBranchEnabled(b.name)}
+                            />
+                            <span className="toggle-slider" />
+                          </label>
                         </div>
-                        <label className="toggle-switch" title={isDisabled ? 'Enable branch' : 'Disable branch'}>
+                        {/* Trial submit URL editor — empty value falls back to the legacy default,
+                            so existing branches still work without configuration. */}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                          <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
+                            Trial Submit URL
+                          </span>
                           <input
-                            type="checkbox"
-                            checked={!isDisabled}
-                            onChange={() => toggleBranchEnabled(b.name)}
+                            type="text"
+                            placeholder="Apps Script Web App URL for this branch's spreadsheet"
+                            defaultValue={b.trialUrl || ''}
+                            onBlur={(e) => {
+                              const next = e.target.value.trim();
+                              if ((b.trialUrl || '') === next) return;
+                              const updated = branches.map((br) =>
+                                br.id === b.id ? { ...br, trialUrl: next || undefined } : br
+                              );
+                              updateBranches(updated);
+                            }}
+                            style={{
+                              flex: 1,
+                              padding: '0.35rem 0.55rem',
+                              fontSize: '0.75rem',
+                              border: '1px solid var(--border-color)',
+                              borderRadius: '6px',
+                              background: 'white',
+                            }}
+                            title="POST endpoint that appends a row to this branch's Trial Leads tab. Apps Script Web App URLs end in /exec."
                           />
-                          <span className="toggle-slider" />
-                        </label>
+                        </div>
                       </div>
                     );
                   })}

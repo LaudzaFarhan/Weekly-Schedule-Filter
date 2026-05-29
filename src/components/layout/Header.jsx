@@ -18,15 +18,20 @@ export default function Header() {
   const [isAdding, setIsAdding] = useState(false);
   const [newName, setNewName] = useState('');
   const [newUrl, setNewUrl] = useState('');
+  const [newTrialUrl, setNewTrialUrl] = useState('');
   const [showNotifications, setShowNotifications] = useState(false);
 
   const handleAddBranch = () => {
     if (!newName || !newUrl) return;
     const newId = newName.toLowerCase().replace(/\s+/g, '-');
+    // trialUrl is optional — without it, submitTrialLead falls back to the
+    // legacy default URL so existing single-branch deployments keep working.
     const newBranch = { id: newId, name: newName, url: newUrl };
+    if (newTrialUrl) newBranch.trialUrl = newTrialUrl;
     updateBranches([...branches, newBranch]);
     setNewName('');
     setNewUrl('');
+    setNewTrialUrl('');
     setIsAdding(false);
     changeActiveBranch(newId);
   };
@@ -140,9 +145,10 @@ export default function Header() {
               <Plus size={13} /> ADD BRANCH
             </button>
           ) : (
-            <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center' }}>
+            <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center', flexWrap: 'wrap' }}>
               <input type="text" placeholder="Branch Name" value={newName} onChange={e => setNewName(e.target.value)} style={{ padding: '0.35rem 0.5rem', borderRadius: '6px', border: '1px solid var(--border-color)', width: '110px', fontSize: '0.75rem' }} />
-              <input type="text" placeholder="Publish URL" value={newUrl} onChange={e => setNewUrl(e.target.value)} style={{ padding: '0.35rem 0.5rem', borderRadius: '6px', border: '1px solid var(--border-color)', width: '180px', fontSize: '0.75rem' }} />
+              <input type="text" placeholder="Schedule Publish URL" value={newUrl} onChange={e => setNewUrl(e.target.value)} style={{ padding: '0.35rem 0.5rem', borderRadius: '6px', border: '1px solid var(--border-color)', width: '180px', fontSize: '0.75rem' }} />
+              <input type="text" placeholder="Trial Submit URL (Apps Script)" title="Apps Script Web App URL that appends Trial Leads for this branch's spreadsheet" value={newTrialUrl} onChange={e => setNewTrialUrl(e.target.value)} style={{ padding: '0.35rem 0.5rem', borderRadius: '6px', border: '1px solid var(--border-color)', width: '180px', fontSize: '0.75rem' }} />
               <button onClick={handleAddBranch} className="btn btn-primary btn-sm">Save</button>
               <button onClick={() => setIsAdding(false)} className="btn btn-sm" style={{ background: 'transparent' }}>✕</button>
             </div>

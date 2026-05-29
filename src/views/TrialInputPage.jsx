@@ -315,7 +315,7 @@ export default function TrialInputPage() {
     };
 
     try {
-      await submitTrialLead(rowData);
+      await submitTrialLead(rowData, { branches });
       setStatus({ message: `Success! Trial Lead added to ${targetBranchName}.`, type: 'success' });
       showToast({
         title: 'Trial submitted',
