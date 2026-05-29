@@ -222,7 +222,12 @@ export function parseQuickFill(text, { branches = [] } = {}) {
   if (!text || !text.trim()) return result;
 
   const lines = text.split(/\r?\n/);
-  const remarkBuckets = []; // [{ key, value }] preserving order for the remarks textarea
+  // Only the values from explicit Notes / Catatan / Experience lines end up
+  // in the form's Remarks textarea. Parent name, phone number, unmatched
+  // branch text, and unknown free-form lines are kept on the parsed result
+  // object (so callers can use them) but they no longer pollute Remarks —
+  // chatbot transcripts shouldn't dump every line into the schedule note.
+  const remarkValues = [];
 
   for (const rawLine of lines) {
     const line = rawLine.trim();
@@ -242,12 +247,13 @@ export function parseQuickFill(text, { branches = [] } = {}) {
           if (!result.student) result.student = value;
           break;
         case 'parent':
+          // Parent name is captured on the result object but intentionally
+          // NOT pushed into remarks — it's not what the staff want to see
+          // in the trial sheet's notes column.
           if (!result.parent) result.parent = value;
-          remarkBuckets.push({ key: 'Parent', value });
           break;
         case 'phone':
           if (!result.phone) result.phone = value;
-          remarkBuckets.push({ key: 'Phone', value });
           break;
         case 'age': {
           const num = parseInt(value, 10);
@@ -299,15 +305,15 @@ export function parseQuickFill(text, { branches = [] } = {}) {
             result.branchName = branch.name;
             result.branchId = branch.id;
           } else {
+            // Surface a warning but don't pollute remarks with the raw text.
             result.warnings.push(`Branch "${value}" did not match any configured branch.`);
-            // Still preserve raw text in remarks
-            remarkBuckets.push({ key: 'Branch', value });
           }
           break;
         }
         case 'experience':
         case 'notes':
-          remarkBuckets.push({ key: key, value });
+          // These ARE the remarks. Just the value, no key prefix.
+          if (value) remarkValues.push(value);
           break;
         default:
           break;
@@ -316,9 +322,9 @@ export function parseQuickFill(text, { branches = [] } = {}) {
     }
 
     if (!matched) {
+      // Keep for inspection by callers but do NOT add to remarks — random
+      // chatbot small-talk shouldn't end up in the schedule notes.
       result.unknownLines.push(line);
-      // Keep unknown free text in remarks too — don't lose context.
-      remarkBuckets.push({ key: '', value: line });
     }
   }
 
@@ -333,12 +339,9 @@ export function parseQuickFill(text, { branches = [] } = {}) {
     }
   }
 
-  // Compose remarks: structured key-value pairs first, then any leftover
-  // free text. Skip empty values so the textarea stays tidy.
-  result.remarks = remarkBuckets
-    .filter((b) => b.value)
-    .map((b) => (b.key ? `${b.key}: ${b.value}` : b.value))
-    .join('\n');
+  // Final remarks = just the explicit notes/catatan/experience lines, in
+  // the order they appeared.
+  result.remarks = remarkValues.join('\n');
 
   return result;
 }
