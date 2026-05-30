@@ -345,14 +345,43 @@ function LessonLoadPanel({ overallClasses, enabledBranches }) {
         lessonMap[code].students.push({ name: s.name, remarks: s.remarks, notArranged: s.notArranged });
       });
 
-      const lessons = Object.values(lessonMap).sort((a, b) => b.students.length - a.students.length);
-      // Non-exempt: not Coder, not Trial, and not lesson 9/10 (Project/Quiz)
-      const nonExempt = lessons.filter(l => !l.isCoder && !l.isTrial && !l.isProjectQuiz);
+      // Annotate every lesson with attendance stats. A lesson with ALL
+      // students marked izin (notArranged) doesn't actually need to be
+      // taught, so it shouldn't count toward the overload threshold even
+      // though the row exists in the schedule.
+      Object.values(lessonMap).forEach((lesson) => {
+        lesson.attendingStudents = lesson.students.filter((s) => !s.notArranged).length;
+        lesson.izinStudents = lesson.students.filter((s) => s.notArranged).length;
+        lesson.isAllIzin = lesson.students.length > 0 && lesson.attendingStudents === 0;
+      });
+
+      // Sort: lessons with attending students first (most students first),
+      // then izin-only lessons at the bottom.
+      const lessons = Object.values(lessonMap).sort((a, b) => {
+        if (a.isAllIzin !== b.isAllIzin) return a.isAllIzin ? 1 : -1;
+        return b.students.length - a.students.length;
+      });
+
+      // Non-exempt counts only lessons that:
+      //   - aren't Coder / Trial / Project / Quiz, AND
+      //   - have at least one student actually attending (non-izin).
+      const nonExempt = lessons.filter(
+        (l) => !l.isCoder && !l.isTrial && !l.isProjectQuiz && !l.isAllIzin
+      );
       const distinctNonExempt = nonExempt.length;
-      const totalStudents = g.students.length;
+      const attendingStudents = g.students.filter((s) => !s.notArranged).length;
+      const izinStudents = g.students.filter((s) => s.notArranged).length;
       const isOverloaded = distinctNonExempt >= 3;
 
-      return { ...g, lessons, distinctNonExempt, totalStudents, isOverloaded };
+      return {
+        ...g,
+        lessons,
+        distinctNonExempt,
+        totalStudents: g.students.length,
+        attendingStudents,
+        izinStudents,
+        isOverloaded,
+      };
     })
     .filter(g => !showOnlyOverloads || g.isOverloaded)
     .sort((a, b) => {
@@ -446,7 +475,8 @@ function LessonLoadPanel({ overallClasses, enabledBranches }) {
           <span><strong style={{ color: 'var(--success)' }}>●</strong> 1–2 lessons = OK</span>
           <span><strong style={{ color: 'var(--danger)' }}>●</strong> 3+ lessons = Lesson Overload</span>
           <span style={{ opacity: 0.7 }}>Coder & Trial = exempt</span>
-          <span style={{ marginLeft: 'auto', opacity: 0.7 }}>Lesson 9 (Project) & 10 (Quiz) = exempt</span>
+          <span style={{ opacity: 0.7 }}>Lesson 9 (Project) & 10 (Quiz) = exempt</span>
+          <span style={{ marginLeft: 'auto', opacity: 0.7 }}>All-izin lessons = exempt</span>
         </div>
 
         {/* Cards */}
@@ -502,8 +532,13 @@ function LessonLoadPanel({ overallClasses, enabledBranches }) {
                   {/* Time + student summary */}
                   <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: '0.6rem', fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
                     <span>🕐 {slot.time}</span>
-                    <span style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
-                      <Users size={13} /> {slot.totalStudents} student{slot.totalStudents !== 1 ? 's' : ''}
+                    <span style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }} title={slot.izinStudents > 0 ? `${slot.izinStudents} student${slot.izinStudents === 1 ? '' : 's'} izin (not attending)` : undefined}>
+                      <Users size={13} /> {slot.attendingStudents} attending
+                      {slot.izinStudents > 0 && (
+                        <span style={{ color: 'var(--text-muted)' }}>
+                          {' '}/ {slot.totalStudents} total · {slot.izinStudents} izin
+                        </span>
+                      )}
                     </span>
                     <span>{slot.distinctNonExempt} distinct lesson{slot.distinctNonExempt !== 1 ? 's' : ''} (non-exempt)</span>
                   </div>
@@ -512,17 +547,21 @@ function LessonLoadPanel({ overallClasses, enabledBranches }) {
                   <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
                     {slot.lessons.map((lesson, li) => {
                       const cat = getCategoryColor(lesson.category);
-                      const isExempt = lesson.isCoder || lesson.isTrial || lesson.isProjectQuiz;
+                      const isExempt = lesson.isCoder || lesson.isTrial || lesson.isProjectQuiz || lesson.isAllIzin;
+                      const chipTitle = lesson.isAllIzin
+                        ? `All ${lesson.students.length} student${lesson.students.length === 1 ? '' : 's'} izin — does not count toward overload.`
+                        : (lesson.fullProgram ? `${lesson.category} — ${lesson.fullProgram}` : lesson.category);
                       return (
                         <span
                           key={li}
-                          title={lesson.fullProgram ? `${lesson.category} — ${lesson.fullProgram}` : lesson.category}
+                          title={chipTitle}
                           style={{
                             display: 'inline-flex', alignItems: 'center', gap: '0.35rem',
                             padding: '0.25rem 0.65rem', borderRadius: '6px', fontSize: '0.78rem', fontWeight: 600,
                             background: cat.bg, color: cat.color,
                             border: isExempt ? '1px dashed' : 'none',
-                            opacity: isExempt ? 0.75 : 1,
+                            opacity: isExempt ? 0.65 : 1,
+                            textDecoration: lesson.isAllIzin ? 'line-through' : 'none',
                           }}
                         >
                           {lesson.code}
@@ -532,7 +571,10 @@ function LessonLoadPanel({ overallClasses, enabledBranches }) {
                             </span>
                           )}
                           <span style={{ fontWeight: 400, opacity: 0.8 }}>
-                            ({lesson.students.length} student{lesson.students.length !== 1 ? 's' : ''})
+                            (
+                            {lesson.attendingStudents} attending
+                            {lesson.izinStudents > 0 && `, ${lesson.izinStudents} izin`}
+                            )
                           </span>
                         </span>
                       );
@@ -564,9 +606,13 @@ function LessonLoadPanel({ overallClasses, enabledBranches }) {
                               </span>
                             )}
                             <span style={{ fontWeight: 400, fontSize: '0.72rem', color: 'var(--text-muted)' }}>— {lesson.category}</span>
-                            {(lesson.isCoder || lesson.isTrial || lesson.isProjectQuiz) && (
+                            {(lesson.isCoder || lesson.isTrial || lesson.isProjectQuiz || lesson.isAllIzin) && (
                               <span style={{ fontSize: '0.68rem', color: 'var(--warning)', fontWeight: 500, background: 'var(--warning-bg)', padding: '0.1rem 0.4rem', borderRadius: '4px' }}>
-                                {lesson.isProjectQuiz ? (lesson.lessonNumber === 9 ? 'Project' : 'Quiz') : 'exempt'}
+                                {lesson.isProjectQuiz
+                                  ? (lesson.lessonNumber === 9 ? 'Project' : 'Quiz')
+                                  : lesson.isAllIzin
+                                    ? 'all izin'
+                                    : 'exempt'}
                               </span>
                             )}
                           </div>
