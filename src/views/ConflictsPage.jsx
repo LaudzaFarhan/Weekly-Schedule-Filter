@@ -3,9 +3,12 @@
 import { useState, useMemo } from 'react';
 import { useSchedule } from '../contexts/ScheduleContext';
 import { DAY_NAMES } from '../utils/constants';
+import { doTimeSlotsOverlap } from '../utils/timeUtils';
+import { leaveAppliesToDay } from '../utils/dateUtils';
+import { instructorBelongsToBranch } from '../utils/instructorUtils';
 import Badge from '../components/ui/Badge';
 import Pagination from '../components/ui/Pagination';
-import { CheckCircle, AlertTriangle, Users, BookOpen, ChevronDown, ChevronUp } from 'lucide-react';
+import { CheckCircle, AlertTriangle, Users, BookOpen, ChevronDown, ChevronUp, Wand2, MapPin } from 'lucide-react';
 
 const PAGE_SIZE = 5;
 const LESSON_PAGE_SIZE = 8;
@@ -141,11 +144,80 @@ function LinkifiedText({ text, color }) {
 
 /* ─── Main Page ──────────────────────────────────────────── */
 
+/**
+ * Find instructors who are free at BOTH overlapping times of a conflict,
+ * so they could take over one of the clashing classes.
+ *
+ * "Free" means: enabled, belongs to the relevant branch (profile-aware),
+ * not on leave that day, and not already teaching anything that overlaps
+ * either conflicting slot.
+ *
+ * @returns {Array<{ name: string, branch: string }>}
+ */
+function findFreeInstructorsForConflict(conflict, {
+  uniqueBaseTeachers,
+  overallClasses,
+  leaveList,
+  disabledInstructors,
+  instructorProfiles,
+}) {
+  const { day, time1, time2, teacher, branch1, branch2 } = conflict;
+  const targetBranch = branch1 || branch2 || null;
+
+  const onLeave = new Set();
+  (leaveList || []).forEach((l) => {
+    if (leaveAppliesToDay(l, day)) onLeave.add(l.name);
+  });
+
+  const branchClasses = targetBranch
+    ? overallClasses.filter((c) => c.branchName === targetBranch)
+    : overallClasses;
+
+  const candidates = [];
+  for (const t of (uniqueBaseTeachers || [])) {
+    if (t === teacher) continue;                       // the conflicted teacher can't cover themselves
+    if (disabledInstructors?.has(t)) continue;
+    if (onLeave.has(t)) continue;
+
+    // Respect profile/branch ownership when we know the target branch.
+    if (targetBranch && !instructorBelongsToBranch(t, targetBranch, instructorProfiles, branchClasses)) {
+      continue;
+    }
+
+    // Busy if they teach anything overlapping either conflicting slot that day.
+    const busy = overallClasses.some(
+      (c) =>
+        c.teacher === t &&
+        c.day === day &&
+        ((time1 && doTimeSlotsOverlap(c.time, time1)) ||
+         (time2 && doTimeSlotsOverlap(c.time, time2)))
+    );
+    if (busy) continue;
+
+    candidates.push({
+      name: t,
+      branch: getInstructorBranchTag(t, instructorProfiles),
+    });
+  }
+
+  candidates.sort((a, b) => a.name.localeCompare(b.name));
+  return candidates;
+}
+
+/** Lightweight profile-location lookup for the suggestion list. */
+function getInstructorBranchTag(name, instructorProfiles = []) {
+  const p = (instructorProfiles || []).find(
+    (pr) => pr.nickname === name || pr.fullname === name
+  );
+  return p?.location || '';
+}
+
 export default function ConflictsPage() {
-  const { conflicts, enabledBranches, overallClasses } = useSchedule();
+  const { conflicts, enabledBranches, overallClasses, uniqueBaseTeachers, leaveList, disabledInstructors, instructorProfiles } = useSchedule();
   const [page, setPage] = useState(1);
   const [filterBranch, setFilterBranch] = useState('all');
   const [filterDay, setFilterDay] = useState('all');
+  const [suggestKey, setSuggestKey] = useState(null); // which conflict's suggestion panel is open
 
   const filteredConflicts = useMemo(() => {
     let result = conflicts;
@@ -244,32 +316,108 @@ export default function ConflictsPage() {
                 <span className="subtext">Sync the schedule to run analysis.</span>
               </div>
             ) : (
-              paged.map((c, i) => (
-                <div key={i} className="conflict-card">
-                  <div className="conflict-header">
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                      <strong>{c.teacher}</strong>
-                      {c.branches.length > 0 && (
-                        <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                          ({c.branches.join(', ')})
-                        </span>
+              paged.map((c, i) => {
+                const cardKey = `${c.day}|${c.teacher}|${c.time1}|${c.time2}|${c.program1}|${c.program2}|${(page - 1) * PAGE_SIZE + i}`;
+                const isSuggestOpen = suggestKey === cardKey;
+                const freeInstructors = isSuggestOpen
+                  ? findFreeInstructorsForConflict(c, {
+                      uniqueBaseTeachers,
+                      overallClasses,
+                      leaveList,
+                      disabledInstructors,
+                      instructorProfiles,
+                    })
+                  : [];
+                return (
+                  <div key={cardKey} className="conflict-card">
+                    <div className="conflict-header">
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        <strong>{c.teacher}</strong>
+                        {c.branches.length > 0 && (
+                          <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                            ({c.branches.join(', ')})
+                          </span>
+                        )}
+                      </div>
+                      <Badge variant="danger">{c.day}</Badge>
+                    </div>
+                    <div className="conflict-detail">
+                      <span className="conflict-slot">
+                        {c.slot1}
+                        {c.branch1 && <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginLeft: '4px' }}>[{c.branch1}]</span>}
+                      </span>
+                      <span className="conflict-vs">⚡ overlaps with</span>
+                      <span className="conflict-slot">
+                        {c.slot2}
+                        {c.branch2 && <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginLeft: '4px' }}>[{c.branch2}]</span>}
+                      </span>
+                    </div>
+
+                    {/* Suggest Fix */}
+                    <div style={{ marginTop: '0.6rem' }}>
+                      <button
+                        type="button"
+                        onClick={() => setSuggestKey(isSuggestOpen ? null : cardKey)}
+                        style={{
+                          display: 'inline-flex', alignItems: 'center', gap: '0.35rem',
+                          background: isSuggestOpen ? 'var(--primary-blue-light)' : 'transparent',
+                          color: 'var(--primary-blue)',
+                          border: '1px solid var(--primary-blue)',
+                          borderRadius: '6px',
+                          padding: '0.3rem 0.7rem',
+                          fontSize: '0.78rem',
+                          fontWeight: 500,
+                          cursor: 'pointer',
+                        }}
+                      >
+                        <Wand2 size={13} />
+                        {isSuggestOpen ? 'Hide suggestions' : 'Suggest a fix'}
+                      </button>
+
+                      {isSuggestOpen && (
+                        <div style={{ marginTop: '0.6rem', padding: '0.75rem', background: 'var(--bg-color)', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
+                          <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginBottom: '0.5rem' }}>
+                            Instructors free during <strong>both</strong> overlapping slots on {c.day}
+                            {(c.branch1 || c.branch2) && <> at <strong>{c.branch1 || c.branch2}</strong></>}:
+                          </div>
+                          {freeInstructors.length === 0 ? (
+                            <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', fontStyle: 'italic' }}>
+                              No free instructors found for this slot. Try moving one class to a different time.
+                            </div>
+                          ) : (
+                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem' }}>
+                              {freeInstructors.map((f) => (
+                                <span
+                                  key={f.name}
+                                  style={{
+                                    display: 'inline-flex', alignItems: 'center', gap: '0.3rem',
+                                    fontSize: '0.78rem', fontWeight: 500,
+                                    padding: '0.25rem 0.6rem', borderRadius: '99px',
+                                    background: 'var(--success-bg)', color: 'var(--success)',
+                                    border: '1px solid var(--success)',
+                                  }}
+                                  title={f.branch ? `Home branch: ${f.branch}` : undefined}
+                                >
+                                  <CheckCircle size={12} />
+                                  {f.name}
+                                  {f.branch && (
+                                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.15rem', opacity: 0.7, fontWeight: 400 }}>
+                                      <MapPin size={9} /> {f.branch}
+                                    </span>
+                                  )}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                          <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.5rem' }}>
+                            Reassign one of the clashing classes to a free instructor in the source sheet, then re-sync.
+                          </div>
+                        </div>
                       )}
                     </div>
-                    <Badge variant="danger">{c.day}</Badge>
                   </div>
-                  <div className="conflict-detail">
-                    <span className="conflict-slot">
-                      {c.slot1}
-                      {c.branch1 && <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginLeft: '4px' }}>[{c.branch1}]</span>}
-                    </span>
-                    <span className="conflict-vs">⚡ overlaps with</span>
-                    <span className="conflict-slot">
-                      {c.slot2}
-                      {c.branch2 && <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginLeft: '4px' }}>[{c.branch2}]</span>}
-                    </span>
-                  </div>
-                </div>
-              ))
+                );
+              })
             )}
           </div>
           <Pagination currentPage={page} totalPages={totalPages} onPageChange={setPage} />
