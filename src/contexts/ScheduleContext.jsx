@@ -176,24 +176,6 @@ export function ScheduleProvider({ children }) {
       return true;
     });
 
-    // Dev-only diagnostic: surface every distinct branchName / branchId
-    // tuple we currently have in the cache, plus how many rows would be
-    // hidden if we matched on each. Helpful for spotting "the cache has
-    // 'Default' but the config has 'Default Branch'" mismatches.
-    if (process.env.NODE_ENV !== 'production' && rawClasses.length > 0) {
-      const tagCounts = new Map();
-      for (const c of rawClasses) {
-        const key = `${c.branchId || '∅'} | ${c.branchName || '∅'}`;
-        tagCounts.set(key, (tagCounts.get(key) || 0) + 1);
-      }
-      // eslint-disable-next-line no-console
-      console.log('[ScheduleContext] Cache tags (branchId | branchName → rows):', Object.fromEntries(tagCounts));
-      // eslint-disable-next-line no-console
-      console.log('[ScheduleContext] Disabled branches:', [...(disabledBranches || [])]);
-      // eslint-disable-next-line no-console
-      console.log('[ScheduleContext] After filter:', result.length, '/', rawClasses.length);
-    }
-
     return result;
   }, [rawClasses, disabledBranches, branches]);
 

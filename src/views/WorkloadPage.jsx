@@ -220,55 +220,8 @@ export default function WorkloadPage() {
       });
     }
 
-    if (process.env.NODE_ENV !== 'production') {
-      // Dev-only diagnostic: lists every profile and shows whether we
-      // already see them on the schedule, and (when we do) which schedule
-      // row they map to. Open the browser console after the page renders.
-      const finalNames = rawReport.concat(extras).map((r) => r.teacher);
-      const finalNormToReal = new Map();
-      [...rawReport, ...extras].forEach((r) => finalNormToReal.set(norm(r.teacher), r.teacher));
-      const profileSummary = instructorProfiles.map((p) => {
-        const cands = [p.nickname, p.fullname, p.id ? p.id.split('@')[0] : null].filter(Boolean);
-        let matched = null;
-        for (const c of cands) {
-          if (finalNames.includes(c)) { matched = c; break; }
-          const m = finalNormToReal.get(norm(c));
-          if (m) { matched = m; break; }
-        }
-        const row = matched ? rawReport.concat(extras).find((r) => r.teacher === matched) : null;
-        return {
-          fullname: p.fullname || '',
-          nickname: p.nickname || '',
-          location: p.location || '',
-          matchedName: matched,
-          hours: row ? Number(row.weekly.hours.toFixed(2)) : null,
-          sessions: row ? row.weekly.sessions : null,
-          status: matched ? (row && row.weekly.hours > 0 ? 'visible' : 'visible-but-idle') : 'MISSING',
-        };
-      });
-      // eslint-disable-next-line no-console
-      console.log('[Workload] Injected idle profile rows:', extras.map((e) => e.teacher));
-      // eslint-disable-next-line no-console
-      console.log(`[Workload] rawReport teachers (${rawReport.length}):`, rawReport.map((r) => r.teacher).sort());
-      // eslint-disable-next-line no-console
-      console.table(profileSummary);
-
-      // Surface every parsed class row that appears tied to a specific
-      // instructor. Helpful for figuring out why someone has 0 hours even
-      // though the sheet shows them assigned.
-      const target = 'christian';
-      const matches = sourceClasses.filter((c) =>
-        norm(c.teacher) === target ||
-        norm(c.student) === target ||
-        norm(c.lessonDetail).includes(target) ||
-        norm(c.fullProgram).includes(target)
-      );
-      // eslint-disable-next-line no-console
-      console.log(`[Workload] Parsed rows mentioning "${target}" (${matches.length}):`, matches);
-    }
-
     return rawReport.concat(extras);
-  }, [rawReport, instructorProfiles, disabledInstructors, sourceClasses]);
+  }, [rawReport, instructorProfiles, disabledInstructors]);
 
   // When a single branch is selected, drop instructors whose profile assigns
   // them to a different branch — even if they happen to show up in this
