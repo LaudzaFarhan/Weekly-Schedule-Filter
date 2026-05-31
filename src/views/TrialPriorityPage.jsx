@@ -5,6 +5,7 @@ import { useSchedule } from '../contexts/ScheduleContext';
 import { doTimeSlotsOverlap, parseTimeSlot } from '../utils/timeUtils';
 import { DAY_NAMES } from '../utils/constants';
 import { getInstructorBranch } from '../utils/instructorUtils';
+import { leaveAppliesToDay } from '../utils/dateUtils';
 import Badge from '../components/ui/Badge';
 import Pagination from '../components/ui/Pagination';
 import { Trash2 } from 'lucide-react';
@@ -262,7 +263,7 @@ export default function TrialPriorityPage() {
           if (!p.workingDays.includes(day)) {
             isAvailable = false;
             reason = 'Not working on this day';
-          } else if (leaveList.some((l) => l.name === p.name && l.day === day)) {
+          } else if (leaveList.some((l) => l.name === p.name && leaveAppliesToDay(l, day))) {
             isAvailable = false;
             reason = 'On Leave';
           } else {

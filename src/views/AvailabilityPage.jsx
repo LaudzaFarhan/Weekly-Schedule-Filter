@@ -5,7 +5,7 @@ import { useSchedule } from '../contexts/ScheduleContext';
 import { doTimeSlotsOverlap, parseTimeSlot } from '../utils/timeUtils';
 import { DAY_NAMES } from '../utils/constants';
 import { instructorBelongsToBranch } from '../utils/instructorUtils';
-import { isDayInLeaveRange } from '../utils/dateUtils';
+import { leaveAppliesToDay } from '../utils/dateUtils';
 import Badge from '../components/ui/Badge';
 
 const LIST_PAGE_SIZE = 8;
@@ -78,13 +78,7 @@ export default function AvailabilityPage() {
     const onLeaveSet = new Set();
     const onLeaveItems = [];
     leaveList.forEach((l) => {
-      // If no start/endDate, fallback to checking if l.day === selectedDay (for legacy leaves)
-      // Otherwise use the new date range logic
-      const isLeaveToday = (l.startDate && l.endDate)
-        ? isDayInLeaveRange(selectedDay, l.startDate, l.endDate)
-        : l.day === selectedDay;
-
-      if (isLeaveToday) {
+      if (leaveAppliesToDay(l, selectedDay)) {
         onLeaveSet.add(l.name);
         onLeaveItems.push({ 
           name: l.name, 

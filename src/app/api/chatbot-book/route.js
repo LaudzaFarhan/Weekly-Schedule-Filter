@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { GET as getSchedule } from '../schedule/route';
 import { getAllConfig, isConfigured, appendRow } from '@/lib/googleSheets';
 import { doTimeSlotsOverlap } from '@/utils/timeUtils';
+import { leaveAppliesToDay } from '@/utils/dateUtils';
 
 const EXPECTED_API_KEY = process.env.CHATBOT_API_KEY || 'qontak-secure-key-12345';
 
@@ -98,7 +99,7 @@ export async function POST(request) {
         .map(p => p.name);
 
       const onLeave = new Set();
-      leaveList.forEach((l) => { if (l.day === day) onLeave.add(l.name); });
+      leaveList.forEach((l) => { if (leaveAppliesToDay(l, day)) onLeave.add(l.name); });
 
       const availableInstructors = [];
 

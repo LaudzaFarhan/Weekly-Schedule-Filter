@@ -50,3 +50,41 @@ export function isDayInLeaveRange(dayName, startDateStr, endDateStr) {
 
   return targetTime >= start.getTime() && targetTime <= end.getTime();
 }
+
+/**
+ * Determine whether a single leave record applies to a given weekday.
+ *
+ * Handles both leave shapes:
+ *   - New:    { startDate, endDate }  → checked via isDayInLeaveRange
+ *   - Legacy: { day }                 → simple equality
+ *
+ * Centralising this prevents the bug where features that only checked the
+ * old `day` field treated date-range leaves as "not on leave".
+ *
+ * @param {{ day?: string, startDate?: string, endDate?: string }} leave
+ * @param {string} dayName - e.g. 'Monday'
+ * @returns {boolean}
+ */
+export function leaveAppliesToDay(leave, dayName) {
+  if (!leave) return false;
+  if (leave.startDate && leave.endDate) {
+    return isDayInLeaveRange(dayName, leave.startDate, leave.endDate);
+  }
+  return leave.day === dayName;
+}
+
+/**
+ * Build a Set of instructor names who are on leave for a given weekday,
+ * across both leave shapes. Convenience wrapper around leaveAppliesToDay.
+ *
+ * @param {Array} leaveList
+ * @param {string} dayName
+ * @returns {Set<string>}
+ */
+export function instructorsOnLeaveForDay(leaveList = [], dayName) {
+  const set = new Set();
+  for (const l of leaveList) {
+    if (leaveAppliesToDay(l, dayName)) set.add(l.name);
+  }
+  return set;
+}

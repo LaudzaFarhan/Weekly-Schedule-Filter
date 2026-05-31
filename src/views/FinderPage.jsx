@@ -4,7 +4,7 @@ import { useState, useMemo } from 'react';
 import { useSchedule } from '../contexts/ScheduleContext';
 import { doTimeSlotsOverlap, parseTimeSlot } from '../utils/timeUtils';
 import { DAY_NAMES, CARDS_PER_PAGE } from '../utils/constants';
-import { isDayInLeaveRange } from '../utils/dateUtils';
+import { leaveAppliesToDay } from '../utils/dateUtils';
 import { instructorBelongsToBranch } from '../utils/instructorUtils';
 import { Search, ChevronLeft, ChevronRight } from 'lucide-react';
 
@@ -66,13 +66,7 @@ export default function FinderPage() {
 
       teachersToCheck.forEach((teacher) => {
         // Check leave (supporting both legacy 'day' and new start/endDate)
-        const onLeave = leaveList.some((l) => {
-          if (l.name !== teacher) return false;
-          if (l.startDate && l.endDate) {
-            return isDayInLeaveRange(currentDay, l.startDate, l.endDate);
-          }
-          return l.day === currentDay;
-        });
+        const onLeave = leaveList.some((l) => l.name === teacher && leaveAppliesToDay(l, currentDay));
         if (onLeave) return;
 
         const isBusy = overallClasses.some(

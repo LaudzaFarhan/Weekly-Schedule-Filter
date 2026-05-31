@@ -6,6 +6,7 @@ import { Send, Clock, Calendar, MapPin } from 'lucide-react';
 import { useSchedule } from '../contexts/ScheduleContext';
 import { DAY_NAMES } from '../utils/constants';
 import { parseTimeSlot, doTimeSlotsOverlap } from '../utils/timeUtils';
+import { leaveAppliesToDay } from '../utils/dateUtils';
 import { parseQuickFill } from '../utils/quickFillParser';
 import { useToast } from '../components/ui/Toast';
 
@@ -136,7 +137,7 @@ export default function TrialInputPage() {
     const onLeave = new Set();
     if (leaveList) {
       leaveList.forEach((l) => {
-        if (l.day === form.day) onLeave.add(l.name);
+        if (leaveAppliesToDay(l, form.day)) onLeave.add(l.name);
       });
     }
 
@@ -346,7 +347,7 @@ export default function TrialInputPage() {
     const onLeave = new Set();
     if (leaveList) {
       leaveList.forEach((l) => {
-        if (l.day === form.day) onLeave.add(l.name);
+        if (leaveAppliesToDay(l, form.day)) onLeave.add(l.name);
       });
     }
 

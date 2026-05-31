@@ -5,6 +5,7 @@ import { useSchedule } from '../contexts/ScheduleContext';
 import { doTimeSlotsOverlap, parseTimeSlot } from '../utils/timeUtils';
 import { DAY_NAMES } from '../utils/constants';
 import { instructorBelongsToBranch } from '../utils/instructorUtils';
+import { leaveAppliesToDay } from '../utils/dateUtils';
 import { computeWeeklyByDay, formatHoursMinutes } from '../utils/workloadUtils';
 import KpiCard from '../components/ui/KpiCard';
 import { Users, CheckCircle, CalendarX, BookOpen, GraduationCap, TrendingUp, ChevronRight, MapPin } from 'lucide-react';
@@ -131,7 +132,7 @@ export default function HomePage({ onNavigate }) {
 
     const onLeave = new Set();
     leaveList.forEach((l) => {
-      if (l.day === selectedDay) onLeave.add(l.name);
+      if (leaveAppliesToDay(l, selectedDay)) onLeave.add(l.name);
     });
 
     let available = 0;
