@@ -24,6 +24,7 @@ import {
 } from '../services/workloadHistoryService';
 import KpiCard from '../components/ui/KpiCard';
 import Pagination from '../components/ui/Pagination';
+import Badge from '../components/ui/Badge';
 import {
   Activity, Users, Clock, AlertOctagon, Minus,
   Search, ChevronDown, ChevronRight, BarChart3, MapPin,
@@ -146,6 +147,43 @@ export default function WorkloadPage() {
     if (branchFilter === 'all') return overallClasses;
     return overallClasses.filter((c) => c.branchName === branchFilter);
   }, [overallClasses, branchFilter]);
+
+  // Compute nearest trials per teacher
+  const upcomingTrials = useMemo(() => {
+    const trials = sourceClasses.filter(c => 
+      c.program?.toLowerCase().includes('trial') || 
+      c.lessonDetail?.toLowerCase().includes('trial') || 
+      c.fullProgram?.toLowerCase().includes('trial')
+    );
+
+    const byTeacher = {};
+    trials.forEach(c => {
+      if (!byTeacher[c.teacher]) byTeacher[c.teacher] = [];
+      byTeacher[c.teacher].push(c);
+    });
+
+    const dayIndex = (d) => DAY_NAMES.indexOf(d);
+
+    const list = Object.keys(byTeacher).map(t => {
+      const cls = byTeacher[t];
+      cls.sort((a, b) => {
+        if (dayIndex(a.day) !== dayIndex(b.day)) return dayIndex(a.day) - dayIndex(b.day);
+        return a.time.localeCompare(b.time);
+      });
+      return {
+        teacher: t,
+        count: cls.length,
+        nearest: cls[0]
+      };
+    });
+
+    list.sort((a, b) => {
+      if (dayIndex(a.nearest.day) !== dayIndex(b.nearest.day)) return dayIndex(a.nearest.day) - dayIndex(b.nearest.day);
+      return a.nearest.time.localeCompare(b.nearest.time);
+    });
+
+    return list;
+  }, [sourceClasses]);
 
   // Build the full report once per data change
   const rawReport = useMemo(
@@ -974,30 +1012,72 @@ export default function WorkloadPage() {
         </div>
       </div>
 
-      {/* Heatmap */}
+      {/* Heatmap & Upcoming Trials Side-by-Side */}
       {report.length > 0 && (
-        <div className="panel">
-          <div className="panel-header">
-            <div className="panel-header-left">
-              <h2>Daily Workload Heatmap</h2>
-              <span className="subtext">Hours per day, per instructor. Red cells exceed {thresholds.dailyRed}h.</span>
+        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 300px', gap: '1.5rem', alignItems: 'start' }}>
+          
+          {/* Heatmap Panel */}
+          <div className="panel" style={{ margin: 0 }}>
+            <div className="panel-header">
+              <div className="panel-header-left">
+                <h2>Daily Workload Heatmap</h2>
+                <span className="subtext">Hours per day, per instructor. Red cells exceed {thresholds.dailyRed}h.</span>
+              </div>
+              <Legend thresholds={thresholds} />
             </div>
-            <Legend thresholds={thresholds} />
+            <div className="panel-body" style={{ overflowX: 'auto' }}>
+              <Heatmap
+                report={sorted.slice(0, 25)}
+                max={heatmapMax}
+                thresholds={thresholds}
+                trialPriorityList={trialPriorityList}
+                onCellClick={(teacher, day, data) => setHeatmapDetail({ teacher, day, dayData: data })}
+              />
+              {sorted.length > 25 && (
+                <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.5rem' }}>
+                  Showing top 25 by current sort. Refine the filter above to see more.
+                </p>
+              )}
+            </div>
           </div>
-          <div className="panel-body" style={{ overflowX: 'auto' }}>
-            <Heatmap
-              report={sorted.slice(0, 25)}
-              max={heatmapMax}
-              thresholds={thresholds}
-              trialPriorityList={trialPriorityList}
-              onCellClick={(teacher, day, data) => setHeatmapDetail({ teacher, day, dayData: data })}
-            />
-            {sorted.length > 25 && (
-              <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.5rem' }}>
-                Showing top 25 by current sort. Refine the filter above to see more.
-              </p>
-            )}
+
+          {/* Upcoming Trials Panel */}
+          <div className="panel" style={{ margin: 0 }}>
+            <div className="panel-header" style={{ padding: '1rem 1.25rem' }}>
+              <div className="panel-header-left">
+                <h2 style={{ fontSize: '1rem' }}>Upcoming Trials</h2>
+                <span className="subtext" style={{ fontSize: '0.75rem' }}>Nearest assigned trial class</span>
+              </div>
+            </div>
+            <div className="panel-body" style={{ padding: 0, maxHeight: '400px', overflowY: 'auto' }}>
+              {upcomingTrials.length === 0 ? (
+                <div style={{ padding: '1.5rem', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+                  No upcoming trial classes.
+                </div>
+              ) : (
+                <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
+                  {upcomingTrials.map((ut, i) => (
+                    <li key={i} style={{ padding: '1rem 1.25rem', borderBottom: '1px solid var(--border-color)' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '0.5rem' }}>
+                        <strong style={{ fontSize: '0.9rem', color: 'var(--text-main)' }}>{ut.teacher}</strong>
+                        <Badge variant="neutral">{ut.count} trial{ut.count > 1 ? 's' : ''}</Badge>
+                      </div>
+                      <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                          <span style={{ fontWeight: 600, color: 'var(--primary-blue)' }}>
+                            {ut.nearest.day.slice(0,3)}, {ut.nearest.time}
+                          </span>
+                        </div>
+                        <span style={{ color: 'var(--text-main)' }}>{ut.nearest.student}</span>
+                        <span>{ut.nearest.program} {ut.nearest.branchName ? `(${ut.nearest.branchName})` : ''}</span>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
           </div>
+
         </div>
       )}
 
