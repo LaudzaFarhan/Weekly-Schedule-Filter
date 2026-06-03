@@ -1,7 +1,7 @@
 'use client';
 
 import { createContext, useContext, useState, useCallback, useEffect, useRef, useMemo } from 'react';
-import { buildInstructorMap } from '../utils/instructorUtils';
+import { buildInstructorMap, isValidTeacherName } from '../utils/instructorUtils';
 import { computeConflicts, diffSchedule, diffConflicts, buildSyncDiffSummary } from '../utils/scheduleDiff';
 import { getAllProfiles } from '../services/profileService';
 import { auth } from '../services/firebase';
@@ -202,7 +202,7 @@ export function ScheduleProvider({ children }) {
   const uniqueTeachers = useMemo(() => {
     const set = new Set();
     overallClasses.forEach((c) => {
-      if (c.teacher && c.teacher !== '-') set.add(c.teacher);
+      if (isValidTeacherName(c.teacher)) set.add(c.teacher);
     });
     return set;
   }, [overallClasses]);

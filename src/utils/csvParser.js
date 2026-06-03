@@ -27,6 +27,16 @@ function extractLevel(raw) {
   return '';
 }
 
+function isValidTeacherName(name) {
+  if (!name || name === '-') return false;
+  const lower = name.toLowerCase();
+  if (lower.startsWith('http')) return false;
+  if (lower.includes('not assigned')) return false;
+  const days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+  if (days.includes(lower)) return false;
+  return true;
+}
+
 /**
  * Parse CSV text from a Google Sheets tab into class records.
  */
@@ -64,7 +74,7 @@ export function parseCSVData(csvText, dayName) {
         if (lessonArrange && lessonArrange.includes(',')) {
           const parts = lessonArrange.split(',');
           const assignedInstructor = parts[parts.length - 1].trim();
-          if (assignedInstructor && assignedInstructor !== '-') {
+          if (isValidTeacherName(assignedInstructor)) {
             teacher = assignedInstructor;
           }
           // Extract lesson detail (e.g. "K1.10" from "K1.10, Vivi")
@@ -86,7 +96,7 @@ export function parseCSVData(csvText, dayName) {
           if (looksLikeLessonCode) {
             if (/^[A-Z]+\d.*\.\d+$/i.test(v)) lessonDetail = v;
             // teacher stays as inherited baseTeacher — that's the rule
-          } else {
+          } else if (isValidTeacherName(v)) {
             // Treat as instructor name override.
             teacher = v;
           }
@@ -122,7 +132,7 @@ export function parseCSVData(csvText, dayName) {
             notArranged,
           });
 
-          if (teacher !== '-') teachers.add(teacher);
+          if (isValidTeacherName(teacher)) teachers.add(teacher);
           times.add(time);
         }
       });

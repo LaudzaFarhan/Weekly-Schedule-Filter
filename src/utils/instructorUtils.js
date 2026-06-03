@@ -6,6 +6,20 @@
  */
 
 /**
+ * Validates whether a string looks like a legitimate teacher name,
+ * filtering out URLs, days of the week, and common placeholders.
+ */
+export function isValidTeacherName(name) {
+  if (!name || name === '-') return false;
+  const lower = name.toLowerCase();
+  if (lower.startsWith('http')) return false;
+  if (lower.includes('not assigned')) return false;
+  const days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+  if (days.includes(lower)) return false;
+  return true;
+}
+
+/**
  * Build a lookup map of instructor identities from profiles and schedule data.
  * Each instructor gets a unique key based on their profile email (if available)
  * or a generated key from name + branch.
