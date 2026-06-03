@@ -428,24 +428,53 @@ export default function HomePage({ onNavigate }) {
       {listModal && (
         <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.4)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(2px)' }} onClick={() => setListModal(null)}>
           <div style={{ backgroundColor: '#fff', borderRadius: '12px', width: '400px', maxWidth: '90%', maxHeight: '80vh', display: 'flex', flexDirection: 'column', boxShadow: '0 10px 25px rgba(0,0,0,0.1)' }} onClick={e => e.stopPropagation()}>
-            <div style={{ padding: '1.25rem 1.5rem', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <h2 style={{ fontSize: '1.1rem', margin: 0, color: 'var(--text-main)' }}>{listModal.title}</h2>
-              <button onClick={() => setListModal(null)} style={{ background: 'none', border: 'none', fontSize: '1.5rem', cursor: 'pointer', color: 'var(--text-muted)' }}>&times;</button>
-            </div>
-            <div style={{ padding: '1.5rem', overflowY: 'auto', flex: 1 }}>
-              {listModal.list.length === 0 ? (
-                <div style={{ color: 'var(--text-muted)', textAlign: 'center' }}>No instructors found.</div>
-              ) : (
-                <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                  {listModal.list.sort().map((name, i) => (
-                    <li key={i} style={{ padding: '0.75rem', backgroundColor: 'var(--bg-color)', borderRadius: '8px', fontSize: '0.9rem', color: 'var(--text-main)', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                      <div style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: 'var(--primary-blue)' }} />
-                      {name}
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
+            {(() => {
+              const stats = { fulltime: 0, parttime: 0, freelance: 0, unknown: 0 };
+              const decoratedList = listModal.list.map(name => {
+                const entry = trialPriorityList?.find(p => p.name === name);
+                const status = entry?.status || 'unknown';
+                stats[status] = (stats[status] || 0) + 1;
+                return { name, status };
+              }).sort((a, b) => a.name.localeCompare(b.name));
+
+              return (
+                <>
+                  <div style={{ padding: '1.25rem 1.5rem', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                    <div>
+                      <h2 style={{ fontSize: '1.1rem', margin: 0, color: 'var(--text-main)', marginBottom: '0.25rem' }}>{listModal.title}</h2>
+                      <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
+                        {stats.fulltime > 0 && <span>Full Time: <strong>{stats.fulltime}</strong></span>}
+                        {stats.parttime > 0 && <span>Part Time: <strong>{stats.parttime}</strong></span>}
+                        {stats.freelance > 0 && <span>Freelance: <strong>{stats.freelance}</strong></span>}
+                        {stats.unknown > 0 && <span>Unassigned: <strong>{stats.unknown}</strong></span>}
+                      </div>
+                    </div>
+                    <button onClick={() => setListModal(null)} style={{ background: 'none', border: 'none', fontSize: '1.5rem', cursor: 'pointer', color: 'var(--text-muted)', marginTop: '-4px' }}>&times;</button>
+                  </div>
+                  <div style={{ padding: '1.5rem', overflowY: 'auto', flex: 1 }}>
+                    {decoratedList.length === 0 ? (
+                      <div style={{ color: 'var(--text-muted)', textAlign: 'center' }}>No instructors found.</div>
+                    ) : (
+                      <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                        {decoratedList.map((item, i) => (
+                          <li key={i} style={{ padding: '0.75rem', backgroundColor: 'var(--bg-color)', borderRadius: '8px', fontSize: '0.9rem', color: 'var(--text-main)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                              <div style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: 'var(--primary-blue)' }} />
+                              {item.name}
+                            </div>
+                            {item.status !== 'unknown' && (
+                              <span style={{ fontSize: '0.7rem', padding: '0.2rem 0.5rem', borderRadius: '12px', backgroundColor: item.status === 'fulltime' ? '#dcfce7' : item.status === 'parttime' ? '#fef3c7' : '#e0e7ff', color: item.status === 'fulltime' ? '#166534' : item.status === 'parttime' ? '#92400e' : '#3730a3', fontWeight: 500 }}>
+                                {item.status === 'fulltime' ? 'Full Time' : item.status === 'parttime' ? 'Part Time' : 'Freelance'}
+                              </span>
+                            )}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                </>
+              );
+            })()}
           </div>
         </div>
       )}
