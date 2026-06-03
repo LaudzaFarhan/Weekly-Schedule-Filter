@@ -147,26 +147,62 @@ function parseCSVData(csvText, dayName, branchId, branchName) {
     skipEmptyLines: true,
   });
 
+  // Different branch sheets label their columns slightly differently
+  // (e.g. "Main Inst/PIC" vs "Main Instructor", "Term-Branch" vs
+  // "Term Modul", "Lesson Arrange Date" vs "Lesson Arrange"). Build a
+  // normalised header map once so we can resolve each logical field by
+  // trying a list of aliases instead of one hardcoded name.
+  const headerKeys = parsed.meta?.fields || (parsed.data[0] ? Object.keys(parsed.data[0]) : []);
+  const normKey = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  const headerLookup = {};
+  for (const h of headerKeys) headerLookup[normKey(h)] = h;
+
+  /** Resolve the real header for a logical field given candidate aliases. */
+  const resolveCol = (aliases) => {
+    for (const a of aliases) {
+      const real = headerLookup[normKey(a)];
+      if (real) return real;
+    }
+    return null;
+  };
+
+  const COL = {
+    time: resolveCol(['Time', 'Jam']),
+    term: resolveCol(['Term-Branch', 'Term Modul', 'Term Module', 'TermBranch', 'Term', 'Module', 'Modul']),
+    instructor: resolveCol(['Main Inst/PIC', 'Main Instructor', 'Main Inst', 'Instructor', 'PIC', 'Pengajar', 'Teacher']),
+    student: resolveCol(['Student Name', 'Student', 'Nama Murid', 'Murid', 'Nama Siswa']),
+    lessonArrange: resolveCol(['Lesson Arrange Date', 'Lesson Arrange', 'Lesson Arrangement', 'Arrange', 'Lesson Detail']),
+    program: resolveCol(['Program', 'Programme']),
+    remarks: resolveCol(['Remarks', 'Remark', 'Notes', 'Catatan', 'Keterangan']),
+  };
+
+  // Read a logical field from a row via the resolved header.
+  const cell = (row, key) => (COL[key] && row[COL[key]] != null ? row[COL[key]] : undefined);
+
   let lastTime = '';
   let lastTerm = '';
   let lastTeacher = '';
   let lastBaseTeacher = '';
 
   parsed.data.forEach((row) => {
-    if (!row['Student Name'] && !row['Time'] && !row['Term-Branch']) return;
-    if (row['Time'] === 'Time' || row['Term-Branch'] === 'Term-Branch') return;
+    const rawStudent = cell(row, 'student');
+    const rawTime = cell(row, 'time');
+    const rawTerm = cell(row, 'term');
 
-    let time = row['Time'] ? row['Time'].trim() : lastTime;
-    let term = row['Term-Branch'] ? row['Term-Branch'].trim() : lastTerm;
+    if (!rawStudent && !rawTime && !rawTerm) return;
+    if (rawTime === 'Time' || rawTerm === 'Term-Branch') return;
 
-    const rawColumnC = row['Main Inst/PIC'] ? row['Main Inst/PIC'].trim() : '';
+    let time = rawTime ? rawTime.trim() : lastTime;
+    let term = rawTerm ? rawTerm.trim() : lastTerm;
+
+    const rawColumnC = cell(row, 'instructor') ? cell(row, 'instructor').trim() : '';
     let baseTeacher = rawColumnC || lastBaseTeacher;
     let teacher = baseTeacher;
 
     if (baseTeacher) lastBaseTeacher = baseTeacher;
     if (baseTeacher && baseTeacher !== '-') baseTeachers.add(baseTeacher);
 
-    const lessonArrange = row['Lesson Arrange Date'];
+    const lessonArrange = cell(row, 'lessonArrange');
     let lessonDetail = '';
     if (lessonArrange && lessonArrange.includes(',')) {
       const parts = lessonArrange.split(',');
@@ -179,6 +215,27 @@ function parseCSVData(csvText, dayName, branchId, branchName) {
       if (/^[A-Z]+\d.*\.\d+$/i.test(rawDetail)) {
         lessonDetail = rawDetail;
       }
+    } else if (lessonArrange && lessonArrange.trim() && lessonArrange.trim() !== '-') {
+      // Bare value with no comma. It may be:
+      //   1. A lesson code ("K1.10", "Coder") → keep inherited instructor.
+      //   2. A bare instructor name ("Christian") → override instructor.
+      //   3. A date or freeform note ("29 May", "ijin 29 May") → ignore;
+      //      the inherited Main-Instructor stays the teacher.
+      const v = lessonArrange.trim();
+      const looksLikeLessonCode =
+        /^[A-Z]+\d.*\.\d+$/i.test(v) ||
+        /^(coder|trial|reg|k\d|kf\d|j\d|jf\d|cb\d|cd\d)/i.test(v);
+      const looksLikeDateOrNote =
+        /\d/.test(v) ||  // contains any digit → likely a date/note, not a name
+        /(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|mei|agu|okt|des|izin|ijin|reschedule|pending|done|tba)/i.test(v);
+      if (looksLikeLessonCode) {
+        if (/^[A-Z]+\d.*\.\d+$/i.test(v)) lessonDetail = v;
+        // teacher stays inherited
+      } else if (!looksLikeDateOrNote) {
+        // Pure name → treat as instructor override.
+        teacher = v;
+      }
+      // else: date/note → leave the inherited teacher untouched
     } else if (!lessonArrange || lessonArrange.trim() === '') {
       if (!rawColumnC) {
         teacher = '';
@@ -191,7 +248,7 @@ function parseCSVData(csvText, dayName, branchId, branchName) {
     if (term) lastTerm = term;
     if (teacher) lastTeacher = teacher;
 
-    let student = row['Student Name'] ? row['Student Name'].trim() : '';
+    let student = rawStudent ? rawStudent.trim() : '';
 
     // A lone '-' in Lesson Arrange Date means the student is on leave /
     // izin / not yet scheduled — keep them in the data so the UI can
@@ -207,8 +264,8 @@ function parseCSVData(csvText, dayName, branchId, branchName) {
         program: term,
         teacher,
         student,
-        remarks: row['Remarks'] || '',
-        fullProgram: row['Program'] || '',
+        remarks: cell(row, 'remarks') || '',
+        fullProgram: cell(row, 'program') || '',
         lessonDetail,
         notArranged,
       });

@@ -1,5 +1,32 @@
 import Papa from 'papaparse';
 
+const VALID_LEVELS = [
+  'Kinder Foundation',
+  'Kinder',
+  'Junior Foundation',
+  'Junior',
+  'Basic 1',
+  'Basic 2',
+  'Intermediate 1',
+  'Intermediate 2',
+  'Advance 1',
+  'Advance 2',
+  'Advance 3'
+];
+
+function extractLevel(raw) {
+  if (!raw) return '';
+  const lowerRaw = raw.toLowerCase();
+  // Match most specific first (e.g. 'Kinder Foundation' before 'Kinder')
+  const sortedLevels = [...VALID_LEVELS].sort((a, b) => b.length - a.length);
+  for (const lvl of sortedLevels) {
+    if (lowerRaw.includes(lvl.toLowerCase())) {
+      return lvl;
+    }
+  }
+  return '';
+}
+
 /**
  * Parse CSV text from a Google Sheets tab into class records.
  */
@@ -90,7 +117,7 @@ export function parseCSVData(csvText, dayName) {
             teacher,
             student,
             remarks: row['Remarks'] || '',
-            fullProgram: row['Program'] || '',
+            fullProgram: extractLevel(row['Program'] || ''),
             lessonDetail,
             notArranged,
           });

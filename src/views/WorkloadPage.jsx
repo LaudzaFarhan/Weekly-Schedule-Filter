@@ -1459,6 +1459,11 @@ function SessionRow({ session }) {
               }}
             >
               {sd.student || '—'}
+              {sd.fullProgram && (
+                <span style={{ fontWeight: 600, fontSize: '0.68rem', color: 'var(--text-muted)' }}>
+                  ({sd.fullProgram})
+                </span>
+              )}
               {sd.lessonDetail && sd.lessonDetail !== programLabel && (
                 <span style={{ fontWeight: 600, fontSize: '0.68rem', color: 'var(--text-muted)' }}>
                   {sd.lessonDetail}

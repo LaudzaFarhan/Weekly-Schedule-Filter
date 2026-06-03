@@ -490,7 +490,7 @@ function LessonLoadPanel({ overallClasses, enabledBranches }) {
             lessonNumber: parseLessonNumber(code),
           };
         }
-        lessonMap[code].students.push({ name: s.name, remarks: s.remarks, notArranged: s.notArranged });
+        lessonMap[code].students.push({ name: s.name, remarks: s.remarks, notArranged: s.notArranged, fullProgram: s.fullProgram });
       });
 
       // Annotate every lesson with attendance stats. A lesson with ALL
@@ -768,6 +768,11 @@ function LessonLoadPanel({ overallClasses, enabledBranches }) {
                             {lesson.students.map((s, si) => (
                               <span key={si} style={{ fontSize: '0.75rem', padding: '0.15rem 0.5rem', background: s.notArranged ? '#fef3c7' : 'var(--bg-color)', borderRadius: '4px', color: s.notArranged ? '#92400e' : 'var(--text-secondary)', border: s.notArranged ? '1px dashed #f59e0b' : 'none', display: 'inline-flex', alignItems: 'center', gap: '0.3rem' }}>
                                 {s.name}
+                                {s.fullProgram && (
+                                  <span style={{ fontWeight: 600, fontSize: '0.68rem', color: 'var(--text-muted)' }}>
+                                    ({s.fullProgram})
+                                  </span>
+                                )}
                                 {s.notArranged && (
                                   <span style={{ fontSize: '0.65rem', fontWeight: 600, color: '#d97706', background: '#fde68a', padding: '0.05rem 0.3rem', borderRadius: '3px' }}>izin</span>
                                 )}
