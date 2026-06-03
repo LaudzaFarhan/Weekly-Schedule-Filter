@@ -7,6 +7,7 @@ import { useSchedule } from '../contexts/ScheduleContext';
 import { DAY_NAMES } from '../utils/constants';
 import { parseTimeSlot, doTimeSlotsOverlap } from '../utils/timeUtils';
 import { leaveAppliesToDay } from '../utils/dateUtils';
+import { isValidTeacherName } from '../utils/instructorUtils';
 import { parseQuickFill } from '../utils/quickFillParser';
 import { useToast } from '../components/ui/Toast';
 
@@ -37,7 +38,7 @@ export default function TrialInputPage() {
   const filteredTeachers = useMemo(() => {
     const branchTeachers = new Set();
     branchClasses.forEach(c => {
-      if (c.teacher && c.teacher !== '-') branchTeachers.add(c.teacher);
+      if (isValidTeacherName(c.teacher)) branchTeachers.add(c.teacher);
     });
 
     return [...uniqueBaseTeachers].filter((t) => {

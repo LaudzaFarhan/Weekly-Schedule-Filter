@@ -138,8 +138,14 @@ export function ScheduleProvider({ children }) {
   // Config data — initialised from localStorage (instant), then overwritten by API
   const [branches, setBranches] = useState(() => loadLocal('branches', DEFAULT_BRANCHES));
   const [activeBranchId, setActiveBranchId] = useState(() => loadLocal('activeBranchId', 'default'));
-  const [leaveList, setLeaveList] = useState(() => loadLocal('leaveList', []));
-  const [trialPriorityList, setTrialPriorityList] = useState(() => loadLocal('trialPriority', []));
+  const [leaveList, setLeaveList] = useState(() => {
+    const list = loadLocal('leaveList', []);
+    return list.filter(l => isValidTeacherName(l.name));
+  });
+  const [trialPriorityList, setTrialPriorityList] = useState(() => {
+    const list = loadLocal('trialPriority', []);
+    return list.filter(p => isValidTeacherName(p.name));
+  });
   const [featureToggles, setFeatureToggles] = useState(() => loadLocal('featureToggles', DEFAULT_TOGGLES));
   const [disabledInstructors, setDisabledInstructors] = useState(() => new Set(loadLocal('disabledInstructors', [])));
   const [disabledBranches, setDisabledBranches] = useState(() => new Set(loadLocal('disabledBranches', [])));
@@ -244,12 +250,14 @@ export function ScheduleProvider({ children }) {
 
         // Only overwrite if the API returned data for each key
         if (data.leaveList) {
-          setLeaveList(data.leaveList);
-          localStorage.setItem('leaveList', JSON.stringify(data.leaveList));
+          const cleanLeave = data.leaveList.filter(l => isValidTeacherName(l.name));
+          setLeaveList(cleanLeave);
+          localStorage.setItem('leaveList', JSON.stringify(cleanLeave));
         }
         if (data.trialPriority) {
-          setTrialPriorityList(data.trialPriority);
-          localStorage.setItem('trialPriority', JSON.stringify(data.trialPriority));
+          const cleanPriority = data.trialPriority.filter(p => isValidTeacherName(p.name));
+          setTrialPriorityList(cleanPriority);
+          localStorage.setItem('trialPriority', JSON.stringify(cleanPriority));
         }
         if (data.featureToggles) {
           const mergedToggles = { ...DEFAULT_TOGGLES, ...data.featureToggles };

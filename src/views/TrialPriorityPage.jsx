@@ -77,18 +77,8 @@ export default function TrialPriorityPage() {
     setSelectedLocation(branch === 'Unknown' ? activeBranchName : branch);
   };
 
-  // Combine teachers from active branch classes + profiles matching this branch
-  const allBranchTeachers = useMemo(() => {
-    const names = new Set();
-    // Teachers from ALL synced branches — Trial Priority should allow adding any instructor
-    overallClasses.forEach(c => {
-      if (c.teacher && c.teacher !== '-') names.add(c.teacher);
-    });
-    return names;
-  }, [overallClasses]);
-
   const profileNames = (instructorProfiles || []).map(p => p.fullname || p.nickname || p.id.split('@')[0]);
-  const allPossibleTeachers = new Set([...allBranchTeachers, ...profileNames]);
+  const allPossibleTeachers = new Set([...uniqueBaseTeachers, ...profileNames]);
 
   // Show all instructors in dropdown — the Location field handles branch assignment
   // Only filter out disabled instructors and those already in the priority list (any branch)
