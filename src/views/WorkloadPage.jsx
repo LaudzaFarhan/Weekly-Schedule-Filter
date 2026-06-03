@@ -1240,7 +1240,7 @@ function Heatmap({ report, max, thresholds, onCellClick, trialPriorityList }) {
                 disabled={!hasData}
                 title={hasData
                   ? `${r.teacher} · ${d}: ${formatHoursMinutes(hrs)} (${dayData.sessions} sessions) — click for details`
-                  : (!isWorkingDay ? `${r.teacher} is not scheduled to work on ${d}` : `${r.teacher} · ${d}: no class`)}
+                  : (!isWorkingDay ? `${r.teacher} (NOT AVAILABLE)` : `${r.teacher} · ${d}: FREE TIME`)}
                 style={{
                   height: rowHeight,
                   borderRadius: '4px',
@@ -1248,7 +1248,7 @@ function Heatmap({ report, max, thresholds, onCellClick, trialPriorityList }) {
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  fontSize: '0.7rem',
+                  fontSize: !hasData ? '0.6rem' : '0.7rem',
                   fontWeight: 600,
                   color: hrs > thresholds.dailyAmber ? 'white' : (hrs > 0 ? 'white' : (isWorkingDay ? 'var(--text-muted)' : '#9ca3af')),
                   border: 'none',
@@ -1268,7 +1268,7 @@ function Heatmap({ report, max, thresholds, onCellClick, trialPriorityList }) {
                   e.currentTarget.style.boxShadow = 'none';
                 }}
               >
-                {hrs > 0 ? formatHoursMinutes(hrs) : (isWorkingDay ? '·' : '×')}
+                {hrs > 0 ? formatHoursMinutes(hrs) : (isWorkingDay ? 'FREE TIME' : 'NOT AVAILABLE')}
               </button>
             );
           })}

@@ -97,7 +97,10 @@ export default function AvailabilityPage() {
       if (trialEntry) {
         const isPartTime = trialEntry.status === 'parttime';
         const workingDays = isPartTime ? (trialEntry.workingDays || []) : DAY_NAMES;
-        if (!workingDays.includes(selectedDay)) return;
+        if (!workingDays.includes(selectedDay)) {
+          busyItems.push({ name: teacher, detail: "(NOT AVAILABLE)" });
+          return;
+        }
       }
 
       const busyClass = overallClasses.find(
@@ -110,7 +113,7 @@ export default function AvailabilityPage() {
         const badge = busyClass.branchName ? `[${busyClass.branchName}] ` : '';
         busyItems.push({ name: teacher, detail: `${busyClass.time} — ${badge}${busyClass.program}` });
       } else {
-        availableItems.push({ name: teacher });
+        availableItems.push({ name: teacher, detail: "FREE TIME" });
       }
     });
 

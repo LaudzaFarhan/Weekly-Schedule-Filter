@@ -262,7 +262,7 @@ export default function TrialPriorityPage() {
           
           if (!p.workingDays.includes(day)) {
             isAvailable = false;
-            reason = 'Not working on this day';
+            reason = '(NOT AVAILABLE)';
           } else if (leaveList.some((l) => l.name === p.name && leaveAppliesToDay(l, day))) {
             isAvailable = false;
             reason = 'On Leave';
