@@ -1025,7 +1025,7 @@ export default function WorkloadPage() {
 
       {/* Heatmap & Upcoming Trials Side-by-Side */}
       {report.length > 0 && (
-        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 300px', gap: '1.5rem', alignItems: 'start' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 300px', gap: '1.5rem', alignItems: 'stretch' }}>
           
           {/* Heatmap Panel */}
           <div className="panel" style={{ margin: 0 }}>
@@ -1053,14 +1053,14 @@ export default function WorkloadPage() {
           </div>
 
           {/* Upcoming Trials Panel */}
-          <div className="panel" style={{ margin: 0 }}>
-            <div className="panel-header" style={{ padding: '1rem 1.25rem' }}>
+          <div className="panel" style={{ margin: 0, display: 'flex', flexDirection: 'column' }}>
+            <div className="panel-header" style={{ padding: '1rem 1.25rem', flexShrink: 0 }}>
               <div className="panel-header-left">
                 <h2 style={{ fontSize: '1rem' }}>Upcoming Trials</h2>
                 <span className="subtext" style={{ fontSize: '0.75rem' }}>Nearest assigned trial class</span>
               </div>
             </div>
-            <div className="panel-body" style={{ padding: 0, maxHeight: '400px', overflowY: 'auto' }}>
+            <div className="panel-body" style={{ padding: 0, flex: 1, overflowY: 'auto' }}>
               {upcomingTrials.length === 0 ? (
                 <div style={{ padding: '1.5rem', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
                   No upcoming trial classes.
