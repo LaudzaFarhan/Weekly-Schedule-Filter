@@ -92,6 +92,13 @@ export default function AvailabilityPage() {
 
     filteredTeachers.forEach((teacher) => {
       if (onLeaveSet.has(teacher)) return;
+      
+      const p = (instructorProfiles || []).find(pr => pr.nickname === teacher || pr.fullname === teacher);
+      if (p) {
+        const workingDays = p.status === 'fulltime' ? DAY_NAMES : (p.workingDays || []);
+        if (!workingDays.includes(selectedDay)) return;
+      }
+
       const busyClass = overallClasses.find(
         (c) =>
           c.teacher === teacher &&

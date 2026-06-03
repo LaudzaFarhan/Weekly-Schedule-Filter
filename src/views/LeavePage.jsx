@@ -94,6 +94,9 @@ export default function LeavePage() {
 
           const p = (instructorProfiles || []).find(pr => pr.nickname === t || pr.fullname === t);
           if (!p) return; // skip garbage names from sheet (e.g. "Kinder HC Training")
+          
+          const workingDays = p.status === 'fulltime' ? DAY_NAMES : (p.workingDays || []);
+          if (!workingDays.includes(day)) return;
 
           const branchTag = p.location || '';
           

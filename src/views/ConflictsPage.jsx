@@ -196,6 +196,9 @@ function findFreeInstructorsForConflict(conflict, {
 
     const p = (instructorProfiles || []).find(pr => pr.nickname === t || pr.fullname === t);
     if (!p) continue;
+    
+    const workingDays = p.status === 'fulltime' ? DAY_NAMES : (p.workingDays || []);
+    if (!workingDays.includes(day)) continue;
 
     candidates.push({
       name: t,
