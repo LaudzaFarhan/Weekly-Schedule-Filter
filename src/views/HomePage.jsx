@@ -456,29 +456,48 @@ export default function HomePage({ onNavigate }) {
                       <div style={{ color: 'var(--text-muted)', textAlign: 'center' }}>No instructors found.</div>
                     ) : (
                       <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                        {decoratedList.map((item, i) => (
-                          <li 
-                            key={i} 
-                            style={{ padding: '0.75rem', backgroundColor: 'var(--bg-color)', borderRadius: '8px', fontSize: '0.9rem', color: 'var(--text-main)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', transition: 'background-color 0.2s' }}
-                            onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'var(--bg-hover)'}
-                            onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'var(--bg-color)'}
-                            onClick={() => {
-                              setListModal(null);
-                              if (onNavigate) onNavigate('leave', { instructor: item.name });
-                            }}
-                            title="Click to manage leave for this instructor"
-                          >
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                              <div style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: 'var(--primary-blue)' }} />
-                              {item.name}
-                            </div>
-                            {item.status !== 'unknown' && (
-                              <span style={{ fontSize: '0.7rem', padding: '0.2rem 0.5rem', borderRadius: '12px', backgroundColor: item.status === 'fulltime' ? '#dcfce7' : item.status === 'parttime' ? '#fef3c7' : '#e0e7ff', color: item.status === 'fulltime' ? '#166534' : item.status === 'parttime' ? '#92400e' : '#3730a3', fontWeight: 500 }}>
-                                {item.status === 'fulltime' ? 'Full Time' : item.status === 'parttime' ? 'Part Time' : 'Freelance'}
-                              </span>
-                            )}
-                          </li>
-                        ))}
+                        {decoratedList.map((item, i) => {
+                          const isClickable = listModal.title === 'On Leave';
+                          return (
+                            <li 
+                              key={i} 
+                              style={{ 
+                                padding: '0.75rem', 
+                                backgroundColor: 'var(--bg-color)', 
+                                borderRadius: '8px', 
+                                fontSize: '0.9rem', 
+                                color: 'var(--text-main)', 
+                                display: 'flex', 
+                                alignItems: 'center', 
+                                justifyContent: 'space-between', 
+                                cursor: isClickable ? 'pointer' : 'default', 
+                                transition: 'background-color 0.2s' 
+                              }}
+                              onMouseEnter={(e) => {
+                                if (isClickable) e.currentTarget.style.backgroundColor = 'var(--bg-hover)';
+                              }}
+                              onMouseLeave={(e) => {
+                                if (isClickable) e.currentTarget.style.backgroundColor = 'var(--bg-color)';
+                              }}
+                              onClick={() => {
+                                if (!isClickable) return;
+                                setListModal(null);
+                                if (onNavigate) onNavigate('leave', { instructor: item.name });
+                              }}
+                              title={isClickable ? "Click to manage leave for this instructor" : ""}
+                            >
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                                <div style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: 'var(--primary-blue)' }} />
+                                {item.name}
+                              </div>
+                              {item.status !== 'unknown' && (
+                                <span style={{ fontSize: '0.7rem', padding: '0.2rem 0.5rem', borderRadius: '12px', backgroundColor: item.status === 'fulltime' ? '#dcfce7' : item.status === 'parttime' ? '#fef3c7' : '#e0e7ff', color: item.status === 'fulltime' ? '#166534' : item.status === 'parttime' ? '#92400e' : '#3730a3', fontWeight: 500 }}>
+                                  {item.status === 'fulltime' ? 'Full Time' : item.status === 'parttime' ? 'Part Time' : 'Freelance'}
+                                </span>
+                              )}
+                            </li>
+                          );
+                        })}
                       </ul>
                     )}
                   </div>
