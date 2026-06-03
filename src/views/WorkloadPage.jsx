@@ -1025,7 +1025,7 @@ export default function WorkloadPage() {
 
       {/* Heatmap & Upcoming Trials Side-by-Side */}
       {report.length > 0 && (
-        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 300px', gap: '1.5rem', alignItems: 'start' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 300px', gap: '1.5rem', alignItems: 'stretch' }}>
           
           {/* Heatmap Panel */}
           <div className="panel" style={{ margin: 0 }}>
@@ -1052,40 +1052,42 @@ export default function WorkloadPage() {
             </div>
           </div>
 
-          {/* Upcoming Trials Panel */}
-          <div className="panel" style={{ margin: 0 }}>
-            <div className="panel-header" style={{ padding: '1rem 1.25rem' }}>
-              <div className="panel-header-left">
-                <h2 style={{ fontSize: '1rem' }}>Upcoming Trials</h2>
-                <span className="subtext" style={{ fontSize: '0.75rem' }}>Nearest assigned trial class</span>
-              </div>
-            </div>
-            <div className="panel-body" style={{ padding: 0, maxHeight: '600px', overflowY: 'auto' }}>
-              {upcomingTrials.length === 0 ? (
-                <div style={{ padding: '1.5rem', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
-                  No upcoming trial classes.
+          {/* Upcoming Trials Panel Container */}
+          <div style={{ position: 'relative' }}>
+            <div className="panel" style={{ margin: 0, position: 'absolute', top: 0, bottom: 0, left: 0, right: 0, display: 'flex', flexDirection: 'column' }}>
+              <div className="panel-header" style={{ padding: '1rem 1.25rem', flexShrink: 0 }}>
+                <div className="panel-header-left">
+                  <h2 style={{ fontSize: '1rem' }}>Upcoming Trials</h2>
+                  <span className="subtext" style={{ fontSize: '0.75rem' }}>Nearest assigned trial class</span>
                 </div>
-              ) : (
-                <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
-                  {upcomingTrials.map((ut, i) => (
-                    <li key={i} style={{ padding: '1rem 1.25rem', borderBottom: '1px solid var(--border-color)' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '0.5rem' }}>
-                        <strong style={{ fontSize: '0.9rem', color: 'var(--text-main)' }}>{ut.teacher}</strong>
-                        <Badge variant="neutral">{ut.count} trial{ut.count > 1 ? 's' : ''}</Badge>
-                      </div>
-                      <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                          <span style={{ fontWeight: 600, color: 'var(--primary-blue)' }}>
-                            {ut.nearest.day.slice(0,3)}, {ut.nearest.time}
-                          </span>
+              </div>
+              <div className="panel-body" style={{ padding: 0, flex: 1, overflowY: 'auto' }}>
+                {upcomingTrials.length === 0 ? (
+                  <div style={{ padding: '1.5rem', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+                    No upcoming trial classes.
+                  </div>
+                ) : (
+                  <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
+                    {upcomingTrials.map((ut, i) => (
+                      <li key={i} style={{ padding: '1rem 1.25rem', borderBottom: '1px solid var(--border-color)' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '0.5rem' }}>
+                          <strong style={{ fontSize: '0.9rem', color: 'var(--text-main)' }}>{ut.teacher}</strong>
+                          <Badge variant="neutral">{ut.count} trial{ut.count > 1 ? 's' : ''}</Badge>
                         </div>
-                        <span style={{ color: 'var(--text-main)' }}>{ut.nearest.student}</span>
-                        <span>{ut.nearest.program} {ut.nearest.branchName ? `(${ut.nearest.branchName})` : ''}</span>
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              )}
+                        <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                            <span style={{ fontWeight: 600, color: 'var(--primary-blue)' }}>
+                              {ut.nearest.day.slice(0,3)}, {ut.nearest.time}
+                            </span>
+                          </div>
+                          <span style={{ color: 'var(--text-main)' }}>{ut.nearest.student}</span>
+                          <span>{ut.nearest.program} {ut.nearest.branchName ? `(${ut.nearest.branchName})` : ''}</span>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
             </div>
           </div>
 
