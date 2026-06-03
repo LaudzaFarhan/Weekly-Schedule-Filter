@@ -54,6 +54,7 @@ export default function LeavePage() {
   const [reason, setReason] = useState('');
   const [page, setPage] = useState(1);
   const [simulateKey, setSimulateKey] = useState(null);
+  const [crossBranchSimulate, setCrossBranchSimulate] = useState(false);
 
   const getSimulateData = (leave) => {
     const affectedWeekdays = getWeekdaysInRange(leave.startDate, leave.endDate);
@@ -85,22 +86,27 @@ export default function LeavePage() {
           const isOnLeave = leaveList.some(l => l.name === t && leaveAppliesToDay(l, day));
           if (isOnLeave) return;
 
-          if (c.branchName && !instructorBelongsToBranch(t, c.branchName, instructorProfiles, overallClasses)) return;
+          const p = (instructorProfiles || []).find(pr => pr.nickname === t || pr.fullname === t);
+          if (!p) return; // skip garbage names from sheet (e.g. "Kinder HC Training")
+          const branchTag = p.location || '';
+
+          if (!crossBranchSimulate) {
+            // Strict check: substitute's primary location must exactly match the class's branch
+            if (c.branchName && branchTag !== c.branchName && branchTag !== 'All Branches') return;
+          } else {
+            // Loose check: substitute can be from any branch as long as they belong (or taught there)
+            if (c.branchName && !instructorBelongsToBranch(t, c.branchName, instructorProfiles, overallClasses)) return;
+          }
 
           const isBusy = overallClasses.some(
             oc => oc.teacher === t && oc.day === day && doTimeSlotsOverlap(oc.time, c.time)
           );
           if (isBusy) return;
 
-          const p = (instructorProfiles || []).find(pr => pr.nickname === t || pr.fullname === t);
-          if (!p) return; // skip garbage names from sheet (e.g. "Kinder HC Training")
-          
           const trialEntry = (trialPriorityList || []).find(tr => tr.name === t);
           const isPartTime = trialEntry?.status === 'parttime';
           const workingDays = isPartTime ? (trialEntry.workingDays || []) : DAY_NAMES;
           if (!workingDays.includes(day)) return;
-
-          const branchTag = p.location || '';
           
           substitutes.push({ name: t, branch: branchTag });
         });
@@ -218,9 +224,15 @@ export default function LeavePage() {
                         <tr>
                           <td colSpan="4" style={{ padding: 0, borderBottom: '1px solid var(--border-color)' }}>
                             <div style={{ padding: '1rem', background: 'var(--panel-bg)', borderLeft: '3px solid var(--primary-blue)' }}>
-                              <h4 style={{ fontSize: '0.85rem', marginBottom: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.4rem', color: 'var(--text-main)' }}>
-                                <Wand2 size={15} /> Impact Simulation for {l.name}
-                              </h4>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
+                                <h4 style={{ fontSize: '0.85rem', margin: 0, display: 'flex', alignItems: 'center', gap: '0.4rem', color: 'var(--text-main)' }}>
+                                  <Wand2 size={15} /> Impact Simulation for {l.name}
+                                </h4>
+                                <label style={{ fontSize: '0.75rem', fontWeight: 400, display: 'flex', alignItems: 'center', gap: '0.3rem', cursor: 'pointer', color: 'var(--text-secondary)' }}>
+                                  <input type="checkbox" checked={crossBranchSimulate} onChange={(e) => setCrossBranchSimulate(e.target.checked)} />
+                                  Include other branches
+                                </label>
+                              </div>
                               {Object.keys(getSimulateData(l)).length === 0 ? (
                                 <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
                                   No affected classes found for this leave period.
