@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
+import { subscribeToActivities } from '../services/activityService';
 import { useSchedule } from '../contexts/ScheduleContext';
 import { doTimeSlotsOverlap, parseTimeSlot } from '../utils/timeUtils';
 import { DAY_NAMES } from '../utils/constants';
@@ -16,6 +17,15 @@ export default function HomePage({ onNavigate }) {
     leaveList, instructorProfiles,
     disabledInstructors, trialPriorityList, enabledBranches, lastSyncTime
   } = useSchedule();
+
+  const [activities, setActivities] = useState([]);
+  
+  useEffect(() => {
+    const unsubscribe = subscribeToActivities(15, (logs) => {
+      setActivities(logs);
+    });
+    return () => unsubscribe();
+  }, []);
 
   const [selectedDay, setSelectedDay] = useState(() => {
     // JS getDay(): 0=Sun, 1=Mon … 6=Sat. We only support Mon–Sat,
@@ -370,30 +380,33 @@ export default function HomePage({ onNavigate }) {
               <h2>Activity Feed</h2>
             </div>
             <div className="panel-body" style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem', flex: 1, overflowY: 'auto', minHeight: 0 }}>
-              <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.6rem', fontSize: '0.8rem' }}>
-                <div style={{ width: '6px', height: '6px', borderRadius: '50%', background: 'var(--success)', marginTop: '0.4rem', flexShrink: 0 }} />
-                <div>
-                  <span style={{ fontWeight: 500 }}>Admin</span>
-                  <span style={{ color: 'var(--text-muted)' }}> logged in</span>
-                  <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.1rem' }}>Just now</div>
+              {activities.length === 0 ? (
+                <div style={{ padding: '1rem', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+                  No recent activity
                 </div>
-              </div>
-              <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.6rem', fontSize: '0.8rem' }}>
-                <div style={{ width: '6px', height: '6px', borderRadius: '50%', background: 'var(--primary-blue)', marginTop: '0.4rem', flexShrink: 0 }} />
-                <div>
-                  <span style={{ fontWeight: 500 }}>Admin</span>
-                  <span style={{ color: 'var(--text-muted)' }}> synced all branches</span>
-                  <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.1rem' }}>{lastSyncTime ? `${getRelativeTime()}` : '—'}</div>
-                </div>
-              </div>
-              <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.6rem', fontSize: '0.8rem' }}>
-                <div style={{ width: '6px', height: '6px', borderRadius: '50%', background: 'var(--warning)', marginTop: '0.4rem', flexShrink: 0 }} />
-                <div>
-                  <span style={{ fontWeight: 500 }}>System</span>
-                  <span style={{ color: 'var(--text-muted)' }}> loaded schedule from cache</span>
-                  <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.1rem' }}>On page load</div>
-                </div>
-              </div>
+              ) : (
+                activities.map(act => {
+                  let color = 'var(--text-muted)';
+                  if (act.action.includes('login') || act.action.includes('logged in')) color = 'var(--success)';
+                  else if (act.action.includes('sync')) color = 'var(--primary-blue)';
+                  else if (act.action.includes('logout') || act.action.includes('logged out') || act.action.includes('close')) color = 'var(--warning)';
+
+                  const timeStr = act.timestamp ? new Date(act.timestamp.toMillis ? act.timestamp.toMillis() : act.timestamp).toLocaleString(undefined, {
+                    hour: 'numeric', minute: '2-digit', month: 'short', day: 'numeric'
+                  }) : 'Just now';
+
+                  return (
+                    <div key={act.id} style={{ display: 'flex', alignItems: 'flex-start', gap: '0.6rem', fontSize: '0.8rem' }}>
+                      <div style={{ width: '6px', height: '6px', borderRadius: '50%', background: color, marginTop: '0.4rem', flexShrink: 0 }} />
+                      <div>
+                        <span style={{ fontWeight: 500 }}>{act.user}</span>
+                        <span style={{ color: 'var(--text-muted)' }}> {act.action}</span>
+                        <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.1rem' }}>{timeStr}</div>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
             </div>
           </div>
         </div>

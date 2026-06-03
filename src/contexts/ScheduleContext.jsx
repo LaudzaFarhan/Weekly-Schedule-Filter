@@ -7,6 +7,7 @@ import { getAllProfiles } from '../services/profileService';
 import { auth } from '../services/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
 import { useToast } from '../components/ui/Toast';
+import { logActivity } from '../services/activityService';
 
 const ScheduleContext = createContext(null);
 
@@ -432,6 +433,10 @@ export function ScheduleProvider({ children }) {
       if (data.failedTabs.length > 0) statusMsg += ` (${data.failedTabs.length} failed)`;
       setSyncStatus(statusMsg);
 
+      if (auth.currentUser?.email) {
+        logActivity(auth.currentUser.email, `synced ${activeBranch.name}`);
+      }
+
       // Compute and show diff toast — diff using visible (post-filter) classes
       const updatedVisible = updatedRaw.filter(c => !disabledBranches.has(c.branchName));
       const scheduleDiff = diffSchedule(prevClasses, updatedVisible, { branchName: activeBranch.name });
@@ -536,6 +541,10 @@ export function ScheduleProvider({ children }) {
 
       setLastSyncTime(new Date());
       setSyncStatus(`Full Sync: ${successCount} successful, ${failCount} failed.`);
+
+      if (auth.currentUser?.email) {
+        logActivity(auth.currentUser.email, 'synced all branches');
+      }
 
       // Compute and show diff toast (visible scope)
       const newVisible = newRaw.filter(c => !disabledBranches.has(c.branchName));
