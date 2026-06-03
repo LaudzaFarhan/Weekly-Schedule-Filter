@@ -1,4 +1,4 @@
-export default function KpiCard({ icon, title, value, variant = 'blue' }) {
+export default function KpiCard({ icon, title, value, variant = 'blue', onClick }) {
   const colors = {
     blue: { bg: 'rgba(79, 70, 229, 0.1)', color: '#4f46e5' },
     green: { bg: 'rgba(16, 185, 129, 0.1)', color: '#10b981' },
@@ -9,7 +9,7 @@ export default function KpiCard({ icon, title, value, variant = 'blue' }) {
   const style = colors[variant] || colors.blue;
 
   return (
-    <div className="kpi-card">
+    <div className="kpi-card" onClick={onClick} style={onClick ? { cursor: 'pointer' } : {}}>
       <div className="kpi-content">
         <h3>{title}</h3>
         <p>{value}</p>

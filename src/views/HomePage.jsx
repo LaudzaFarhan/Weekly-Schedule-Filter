@@ -38,6 +38,7 @@ export default function HomePage({ onNavigate }) {
   const [overviewBranch, setOverviewBranch] = useState('all');
   const [trendMetric, setTrendMetric] = useState('hours'); // 'hours' | 'sessions'
   const [trendBranch, setTrendBranch] = useState('all');
+  const [listModal, setListModal] = useState(null);
 
   const getRelativeTime = () => {
     if (!lastSyncTime) return null;
@@ -92,17 +93,17 @@ export default function HomePage({ onNavigate }) {
     });
 
     // Instructors on leave today or any day
-    const onLeaveCount = leaveList.filter(l => {
+    const onLeaveInstructors = leaveList.filter(l => {
       if (disabledInstructors?.has(l.name)) return false;
       if (!targetBranch) return true;
       return instructorBelongsToBranch(l.name, targetBranch, instructorProfiles, classesForBranch);
-    }).length;
+    });
 
     return {
-      total: allInstructors.length,
-      kinder: kinderInstructors.length,
-      coder: coderInstructors.length,
-      onLeave: onLeaveCount,
+      total: { count: allInstructors.length, list: allInstructors },
+      kinder: { count: kinderInstructors.length, list: kinderInstructors.map(k => k.name) },
+      coder: { count: coderInstructors.length, list: coderInstructors.map(c => c.name) },
+      onLeave: { count: onLeaveInstructors.length, list: onLeaveInstructors.map(l => l.name) },
     };
   }, [overviewBranch, overallClasses, uniqueBaseTeachers, disabledInstructors, instructorProfiles, trialPriorityList, leaveList, enabledBranches]);
 
@@ -259,26 +260,30 @@ export default function HomePage({ onNavigate }) {
             <KpiCard
               icon={<Users size={24} />}
               title="All Instructors"
-              value={branchStats.total}
+              value={branchStats.total.count}
               variant="blue"
+              onClick={() => setListModal({ title: 'All Instructors', list: branchStats.total.list })}
             />
             <KpiCard
               icon={<BookOpen size={24} />}
               title="Kinder Instructors"
-              value={branchStats.kinder}
+              value={branchStats.kinder.count}
               variant="orange"
+              onClick={() => setListModal({ title: 'Kinder Instructors', list: branchStats.kinder.list })}
             />
             <KpiCard
               icon={<GraduationCap size={24} />}
               title="Coder Instructors"
-              value={branchStats.coder}
+              value={branchStats.coder.count}
               variant="green"
+              onClick={() => setListModal({ title: 'Coder Instructors', list: branchStats.coder.list })}
             />
             <KpiCard
               icon={<CalendarX size={24} />}
               title="On Leave"
-              value={branchStats.onLeave}
+              value={branchStats.onLeave.count}
               variant="red"
+              onClick={() => setListModal({ title: 'On Leave', list: branchStats.onLeave.list })}
             />
           </div>
 
@@ -418,6 +423,32 @@ export default function HomePage({ onNavigate }) {
           onNavigate={onNavigate}
         />
       </div>
+
+      {/* KPI Instructor List Modal */}
+      {listModal && (
+        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.4)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(2px)' }} onClick={() => setListModal(null)}>
+          <div style={{ backgroundColor: '#fff', borderRadius: '12px', width: '400px', maxWidth: '90%', maxHeight: '80vh', display: 'flex', flexDirection: 'column', boxShadow: '0 10px 25px rgba(0,0,0,0.1)' }} onClick={e => e.stopPropagation()}>
+            <div style={{ padding: '1.25rem 1.5rem', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <h2 style={{ fontSize: '1.1rem', margin: 0, color: 'var(--text-main)' }}>{listModal.title}</h2>
+              <button onClick={() => setListModal(null)} style={{ background: 'none', border: 'none', fontSize: '1.5rem', cursor: 'pointer', color: 'var(--text-muted)' }}>&times;</button>
+            </div>
+            <div style={{ padding: '1.5rem', overflowY: 'auto', flex: 1 }}>
+              {listModal.list.length === 0 ? (
+                <div style={{ color: 'var(--text-muted)', textAlign: 'center' }}>No instructors found.</div>
+              ) : (
+                <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                  {listModal.list.sort().map((name, i) => (
+                    <li key={i} style={{ padding: '0.75rem', backgroundColor: 'var(--bg-color)', borderRadius: '8px', fontSize: '0.9rem', color: 'var(--text-main)', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                      <div style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: 'var(--primary-blue)' }} />
+                      {name}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </section>
   );
 }
