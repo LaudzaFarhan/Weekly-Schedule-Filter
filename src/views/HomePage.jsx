@@ -457,7 +457,17 @@ export default function HomePage({ onNavigate }) {
                     ) : (
                       <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
                         {decoratedList.map((item, i) => (
-                          <li key={i} style={{ padding: '0.75rem', backgroundColor: 'var(--bg-color)', borderRadius: '8px', fontSize: '0.9rem', color: 'var(--text-main)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                          <li 
+                            key={i} 
+                            style={{ padding: '0.75rem', backgroundColor: 'var(--bg-color)', borderRadius: '8px', fontSize: '0.9rem', color: 'var(--text-main)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', transition: 'background-color 0.2s' }}
+                            onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'var(--bg-hover)'}
+                            onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'var(--bg-color)'}
+                            onClick={() => {
+                              setListModal(null);
+                              if (onNavigate) onNavigate('leave', { instructor: item.name });
+                            }}
+                            title="Click to manage leave for this instructor"
+                          >
                             <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
                               <div style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: 'var(--primary-blue)' }} />
                               {item.name}

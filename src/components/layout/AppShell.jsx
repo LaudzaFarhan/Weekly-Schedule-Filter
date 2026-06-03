@@ -38,6 +38,7 @@ const PAGE_MAP = {
 export default function AppShell() {
   const { user, loading } = useAuth();
   const [currentPage, setCurrentPage] = useState('home');
+  const [pageParams, setPageParams] = useState(null);
 
   if (loading) {
     return (
@@ -54,8 +55,9 @@ export default function AppShell() {
 
   const PageComponent = PAGE_MAP[currentPage] || HomePage;
 
-  const handleNavigate = (page) => {
+  const handleNavigate = (page, params = null) => {
     setCurrentPage(page);
+    setPageParams(params);
     // Smooth scroll to top of dashboard
     const container = document.querySelector('.dashboard-container');
     if (container) container.scrollTo({ top: 0, behavior: 'smooth' });
@@ -69,7 +71,7 @@ export default function AppShell() {
           <main className="dashboard-container">
             <Header />
             <div className="dashboard-views">
-              <PageComponent onNavigate={handleNavigate} />
+              <PageComponent onNavigate={handleNavigate} params={pageParams} />
             </div>
           </main>
         </div>

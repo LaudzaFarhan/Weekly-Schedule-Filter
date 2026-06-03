@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo, Fragment } from 'react';
+import { useState, useMemo, useEffect, Fragment } from 'react';
 import { useSchedule } from '../contexts/ScheduleContext';
 import { DAY_NAMES } from '../utils/constants';
 import { getWeekdaysInRange, leaveAppliesToDay } from '../utils/dateUtils';
@@ -46,15 +46,21 @@ function dateKey(date) {
   return `${y}-${m}-${d}`;
 }
 
-export default function LeavePage() {
+export default function LeavePage({ params }) {
   const { uniqueBaseTeachers, leaveList, updateLeaveList, disabledInstructors, overallClasses, instructorProfiles, trialPriorityList } = useSchedule();
-  const [selectedInstructor, setSelectedInstructor] = useState('');
+  const [selectedInstructor, setSelectedInstructor] = useState(params?.instructor || '');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [reason, setReason] = useState('');
   const [page, setPage] = useState(1);
   const [simulateKey, setSimulateKey] = useState(null);
   const [crossBranchSimulate, setCrossBranchSimulate] = useState(false);
+
+  useEffect(() => {
+    if (params?.instructor) {
+      setSelectedInstructor(params.instructor);
+    }
+  }, [params?.instructor]);
 
   const getSimulateData = (leave) => {
     const affectedWeekdays = getWeekdaysInRange(leave.startDate, leave.endDate);
