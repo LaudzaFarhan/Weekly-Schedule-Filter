@@ -160,6 +160,7 @@ function findFreeInstructorsForConflict(conflict, {
   leaveList,
   disabledInstructors,
   instructorProfiles,
+  trialPriorityList,
 }) {
   const { day, time1, time2, teacher, branch1, branch2 } = conflict;
   const targetBranch = branch1 || branch2 || null;
@@ -197,7 +198,9 @@ function findFreeInstructorsForConflict(conflict, {
     const p = (instructorProfiles || []).find(pr => pr.nickname === t || pr.fullname === t);
     if (!p) continue;
     
-    const workingDays = p.status === 'fulltime' ? DAY_NAMES : (p.workingDays || []);
+    const trialEntry = (trialPriorityList || []).find(tr => tr.name === t);
+    const isPartTime = trialEntry?.status === 'parttime';
+    const workingDays = isPartTime ? (trialEntry.workingDays || []) : DAY_NAMES;
     if (!workingDays.includes(day)) continue;
 
     candidates.push({
@@ -219,7 +222,7 @@ function getInstructorBranchTag(name, instructorProfiles = []) {
 }
 
 export default function ConflictsPage() {
-  const { conflicts, enabledBranches, overallClasses, uniqueBaseTeachers, leaveList, disabledInstructors, instructorProfiles } = useSchedule();
+  const { conflicts, enabledBranches, overallClasses, uniqueBaseTeachers, leaveList, disabledInstructors, instructorProfiles, trialPriorityList } = useSchedule();
   const [page, setPage] = useState(1);
   const [filterBranch, setFilterBranch] = useState('all');
   const [filterDay, setFilterDay] = useState('all');
@@ -332,6 +335,7 @@ export default function ConflictsPage() {
                       leaveList,
                       disabledInstructors,
                       instructorProfiles,
+                      trialPriorityList,
                     })
                   : [];
                 return (

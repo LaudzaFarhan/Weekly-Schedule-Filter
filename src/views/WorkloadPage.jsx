@@ -110,6 +110,7 @@ export default function WorkloadPage() {
     leaveList,
     enabledBranches,
     instructorProfiles,
+    trialPriorityList,
   } = useSchedule();
   const { user } = useAuth();
   const { showToast } = useToast();
@@ -988,7 +989,7 @@ export default function WorkloadPage() {
               report={sorted.slice(0, 25)}
               max={heatmapMax}
               thresholds={thresholds}
-              instructorProfiles={instructorProfiles}
+              trialPriorityList={trialPriorityList}
               onCellClick={(teacher, day, data) => setHeatmapDetail({ teacher, day, dayData: data })}
             />
             {sorted.length > 25 && (
@@ -1165,7 +1166,7 @@ function PerDayPanel({ row, thresholds, onLeave, max }) {
   );
 }
 
-function Heatmap({ report, max, thresholds, onCellClick, instructorProfiles }) {
+function Heatmap({ report, max, thresholds, onCellClick, trialPriorityList }) {
   const rowHeight = 28;
   const labelWidth = 160;
 
@@ -1221,10 +1222,11 @@ function Heatmap({ report, max, thresholds, onCellClick, instructorProfiles }) {
             const hrs = dayData.hours;
             const hasData = hrs > 0;
             
-            const profile = (instructorProfiles || []).find(
-              p => p.fullname === r.teacher || p.nickname === r.teacher
+            const trialEntry = (trialPriorityList || []).find(
+              t => t.name === r.teacher
             );
-            const workingDays = profile?.status === 'fulltime' ? DAY_NAMES : (profile?.workingDays || []);
+            const isPartTime = trialEntry?.status === 'parttime';
+            const workingDays = isPartTime ? (trialEntry.workingDays || []) : DAY_NAMES;
             const isWorkingDay = workingDays.includes(d);
 
             const handleClick = hasData && onCellClick

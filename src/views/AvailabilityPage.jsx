@@ -41,7 +41,7 @@ function PaginatedList({ items, emptyText }) {
 }
 
 export default function AvailabilityPage() {
-  const { uniqueBaseTeachers, uniqueTimes, overallClasses, leaveList, activeBranchName, disabledInstructors, instructorProfiles, allClasses, enabledBranches } = useSchedule();
+  const { uniqueBaseTeachers, uniqueTimes, overallClasses, leaveList, activeBranchName, disabledInstructors, instructorProfiles, allClasses, enabledBranches, trialPriorityList } = useSchedule();
   const [selectedDay, setSelectedDay] = useState('');
   const [selectedTime, setSelectedTime] = useState('');
   const [filterBranch, setFilterBranch] = useState('all');
@@ -93,9 +93,10 @@ export default function AvailabilityPage() {
     filteredTeachers.forEach((teacher) => {
       if (onLeaveSet.has(teacher)) return;
       
-      const p = (instructorProfiles || []).find(pr => pr.nickname === teacher || pr.fullname === teacher);
-      if (p) {
-        const workingDays = p.status === 'fulltime' ? DAY_NAMES : (p.workingDays || []);
+      const trialEntry = (trialPriorityList || []).find(tr => tr.name === teacher);
+      if (trialEntry) {
+        const isPartTime = trialEntry.status === 'parttime';
+        const workingDays = isPartTime ? (trialEntry.workingDays || []) : DAY_NAMES;
         if (!workingDays.includes(selectedDay)) return;
       }
 

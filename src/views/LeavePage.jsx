@@ -47,7 +47,7 @@ function dateKey(date) {
 }
 
 export default function LeavePage() {
-  const { uniqueBaseTeachers, leaveList, updateLeaveList, disabledInstructors, overallClasses, instructorProfiles } = useSchedule();
+  const { uniqueBaseTeachers, leaveList, updateLeaveList, disabledInstructors, overallClasses, instructorProfiles, trialPriorityList } = useSchedule();
   const [selectedInstructor, setSelectedInstructor] = useState('');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
@@ -95,7 +95,9 @@ export default function LeavePage() {
           const p = (instructorProfiles || []).find(pr => pr.nickname === t || pr.fullname === t);
           if (!p) return; // skip garbage names from sheet (e.g. "Kinder HC Training")
           
-          const workingDays = p.status === 'fulltime' ? DAY_NAMES : (p.workingDays || []);
+          const trialEntry = (trialPriorityList || []).find(tr => tr.name === t);
+          const isPartTime = trialEntry?.status === 'parttime';
+          const workingDays = isPartTime ? (trialEntry.workingDays || []) : DAY_NAMES;
           if (!workingDays.includes(day)) return;
 
           const branchTag = p.location || '';
