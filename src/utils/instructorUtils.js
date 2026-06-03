@@ -14,8 +14,17 @@ export function isValidTeacherName(name) {
   const lower = name.toLowerCase();
   if (lower.startsWith('http')) return false;
   if (lower.includes('not assigned')) return false;
+  
   const days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
   if (days.includes(lower)) return false;
+
+  if (/^\d+$/.test(name.trim())) return false;
+  if (lower === 'call') return false;
+  
+  // Reject program/event names mistakenly put in instructor columns
+  const invalidKeywords = ['kinder', 'junior', 'coder', 'training'];
+  if (invalidKeywords.some(kw => lower.includes(kw))) return false;
+
   return true;
 }
 
