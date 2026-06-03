@@ -194,9 +194,12 @@ function findFreeInstructorsForConflict(conflict, {
     );
     if (busy) continue;
 
+    const p = (instructorProfiles || []).find(pr => pr.nickname === t || pr.fullname === t);
+    if (!p) continue;
+
     candidates.push({
       name: t,
-      branch: getInstructorBranchTag(t, instructorProfiles),
+      branch: p.location || '',
     });
   }
 

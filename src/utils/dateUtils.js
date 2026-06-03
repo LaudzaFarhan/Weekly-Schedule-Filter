@@ -88,3 +88,32 @@ export function instructorsOnLeaveForDay(leaveList = [], dayName) {
   }
   return set;
 }
+
+/**
+ * Get an array of unique weekday names that fall within a given date range.
+ * Skips Sundays (index 0).
+ * @param {string} startDateStr - YYYY-MM-DD
+ * @param {string} endDateStr - YYYY-MM-DD
+ * @returns {string[]} Array of day names, e.g., ['Monday', 'Tuesday']
+ */
+export function getWeekdaysInRange(startDateStr, endDateStr) {
+  if (!startDateStr || !endDateStr) return [];
+  const start = new Date(startDateStr);
+  start.setHours(0, 0, 0, 0);
+  const end = new Date(endDateStr);
+  end.setHours(23, 59, 59, 999);
+
+  const weekdays = new Set();
+  const cursor = new Date(start);
+
+  while (cursor <= end) {
+    const dayIndex = cursor.getDay();
+    if (dayIndex !== 0) { // skip Sunday
+      weekdays.add(DAY_NAMES[dayIndex - 1]);
+    }
+    cursor.setDate(cursor.getDate() + 1);
+    if (weekdays.size === 6) break; // All possible weekdays found
+  }
+
+  return Array.from(weekdays);
+}

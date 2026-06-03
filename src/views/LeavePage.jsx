@@ -1,11 +1,14 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, Fragment } from 'react';
 import { useSchedule } from '../contexts/ScheduleContext';
 import { DAY_NAMES } from '../utils/constants';
+import { getWeekdaysInRange, leaveAppliesToDay } from '../utils/dateUtils';
+import { doTimeSlotsOverlap } from '../utils/timeUtils';
+import { instructorBelongsToBranch } from '../utils/instructorUtils';
 import Badge from '../components/ui/Badge';
 import Pagination from '../components/ui/Pagination';
-import { Trash2, ChevronLeft, ChevronRight, CalendarDays } from 'lucide-react';
+import { Trash2, ChevronLeft, ChevronRight, CalendarDays, Wand2, CheckCircle, MapPin } from 'lucide-react';
 
 const PAGE_SIZE = 8;
 
@@ -44,12 +47,65 @@ function dateKey(date) {
 }
 
 export default function LeavePage() {
-  const { uniqueBaseTeachers, leaveList, updateLeaveList, disabledInstructors } = useSchedule();
+  const { uniqueBaseTeachers, leaveList, updateLeaveList, disabledInstructors, overallClasses, instructorProfiles } = useSchedule();
   const [selectedInstructor, setSelectedInstructor] = useState('');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [reason, setReason] = useState('');
   const [page, setPage] = useState(1);
+  const [simulateKey, setSimulateKey] = useState(null);
+
+  const getSimulateData = (leave) => {
+    const affectedWeekdays = getWeekdaysInRange(leave.startDate, leave.endDate);
+    
+    // Group affected classes by day -> time
+    const affectedClasses = {}; // day -> class[]
+    
+    (overallClasses || []).forEach(c => {
+      if (c.teacher === leave.name && affectedWeekdays.includes(c.day)) {
+        if (!affectedClasses[c.day]) affectedClasses[c.day] = [];
+        // prevent duplicate classes for the same time and branch
+        if (!affectedClasses[c.day].some(existing => existing.time === c.time && existing.branchName === c.branchName)) {
+           affectedClasses[c.day].push(c);
+        }
+      }
+    });
+
+    const result = {}; 
+    for (const day of Object.keys(affectedClasses)) {
+      result[day] = [];
+      const classesForDay = affectedClasses[day];
+      
+      classesForDay.forEach(c => {
+        const substitutes = [];
+        (uniqueBaseTeachers || []).forEach(t => {
+          if (t === leave.name) return;
+          if (disabledInstructors.has(t)) return;
+          
+          const isOnLeave = leaveList.some(l => l.name === t && leaveAppliesToDay(l, day));
+          if (isOnLeave) return;
+
+          if (c.branchName && !instructorBelongsToBranch(t, c.branchName, instructorProfiles, overallClasses)) return;
+
+          const isBusy = overallClasses.some(
+            oc => oc.teacher === t && oc.day === day && doTimeSlotsOverlap(oc.time, c.time)
+          );
+          if (isBusy) return;
+
+          const p = (instructorProfiles || []).find(pr => pr.nickname === t || pr.fullname === t);
+          if (!p) return; // skip garbage names from sheet (e.g. "Kinder HC Training")
+
+          const branchTag = p.location || '';
+          
+          substitutes.push({ name: t, branch: branchTag });
+        });
+        
+        result[day].push({ classInfo: c, substitutes });
+      });
+    }
+
+    return result;
+  };
 
   const sortedTeachers = [...uniqueBaseTeachers].filter(t => !disabledInstructors.has(t)).sort();
   const totalPages = Math.ceil(leaveList.length / PAGE_SIZE);
@@ -134,16 +190,93 @@ export default function LeavePage() {
                   <tr><td colSpan="4" className="empty-state-table">No instructors on leave.</td></tr>
                 ) : (
                   paged.map((l, i) => (
-                    <tr key={i}>
-                      <td>{l.name}</td>
-                      <td>{l.startDate} to {l.endDate}</td>
-                      <td>{l.reason || '—'}</td>
-                      <td style={{ textAlign: 'center' }}>
-                        <button className="btn-icon btn-icon-danger" onClick={() => handleRemove(i)} title="Remove">
-                          <Trash2 size={16} />
-                        </button>
-                      </td>
-                    </tr>
+                    <Fragment key={i}>
+                      <tr>
+                        <td>{l.name}</td>
+                        <td>{l.startDate} to {l.endDate}</td>
+                        <td>{l.reason || '—'}</td>
+                        <td style={{ textAlign: 'center' }}>
+                          <button 
+                            className="btn-icon" 
+                            style={{ color: simulateKey === i ? 'var(--primary-blue)' : 'var(--text-secondary)', marginRight: '0.5rem' }} 
+                            onClick={() => setSimulateKey(simulateKey === i ? null : i)}
+                            title="Simulate Impact"
+                          >
+                            <Wand2 size={16} />
+                          </button>
+                          <button className="btn-icon btn-icon-danger" onClick={() => handleRemove(i)} title="Remove">
+                            <Trash2 size={16} />
+                          </button>
+                        </td>
+                      </tr>
+                      {simulateKey === i && (
+                        <tr>
+                          <td colSpan="4" style={{ padding: 0, borderBottom: '1px solid var(--border-color)' }}>
+                            <div style={{ padding: '1rem', background: 'var(--panel-bg)', borderLeft: '3px solid var(--primary-blue)' }}>
+                              <h4 style={{ fontSize: '0.85rem', marginBottom: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.4rem', color: 'var(--text-main)' }}>
+                                <Wand2 size={15} /> Impact Simulation for {l.name}
+                              </h4>
+                              {Object.keys(getSimulateData(l)).length === 0 ? (
+                                <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                                  No affected classes found for this leave period.
+                                </div>
+                              ) : (
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                                  {Object.entries(getSimulateData(l)).map(([day, items]) => (
+                                    <div key={day}>
+                                      <strong style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '0.4rem' }}>{day}</strong>
+                                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                                        {items.map((item, idx) => (
+                                          <div key={idx} style={{ padding: '0.6rem 0.8rem', background: 'var(--bg-color)', borderRadius: '6px', border: '1px solid var(--border-color)' }}>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.4rem' }}>
+                                              <span style={{ fontSize: '0.8rem', fontWeight: 600 }}>
+                                                {item.classInfo.time} {item.classInfo.branchName && <span style={{ color: 'var(--text-muted)' }}>[{item.classInfo.branchName}]</span>}
+                                              </span>
+                                              <Badge variant="neutral">{item.classInfo.program}</Badge>
+                                            </div>
+                                            <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: '0.4rem' }}>
+                                              Suggested Substitutes:
+                                            </div>
+                                            {item.substitutes.length === 0 ? (
+                                              <div style={{ fontSize: '0.75rem', color: 'var(--warning)', fontStyle: 'italic' }}>
+                                                No free instructors found.
+                                              </div>
+                                            ) : (
+                                              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem' }}>
+                                                {item.substitutes.map(sub => (
+                                                  <span
+                                                    key={sub.name}
+                                                    style={{
+                                                      display: 'inline-flex', alignItems: 'center', gap: '0.2rem',
+                                                      fontSize: '0.72rem', fontWeight: 500,
+                                                      padding: '0.2rem 0.5rem', borderRadius: '99px',
+                                                      background: 'var(--success-bg)', color: 'var(--success)',
+                                                      border: '1px solid var(--success)',
+                                                    }}
+                                                  >
+                                                    <CheckCircle size={10} />
+                                                    {sub.name}
+                                                    {sub.branch && (
+                                                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.1rem', opacity: 0.7, fontWeight: 400 }}>
+                                                        <MapPin size={8} /> {sub.branch}
+                                                      </span>
+                                                    )}
+                                                  </span>
+                                                ))}
+                                              </div>
+                                            )}
+                                          </div>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                    </Fragment>
                   ))
                 )}
               </tbody>
