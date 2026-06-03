@@ -192,8 +192,20 @@ export default function WorkloadPage() {
   // form, so a sheet typo like "christian " still ties back to the profile.
   const reportWithIdle = useMemo(() => {
     const norm = (s) => String(s || '').trim().toLowerCase();
-    const existingByExact = new Set(rawReport.map((r) => r.teacher));
-    const existingByNorm = new Set(rawReport.map((r) => norm(r.teacher)));
+
+    // Only keep rows from rawReport if the teacher has an Instructor Profile.
+    // This strips out garbage like "Kinder HC Training" or URLs from the sheet.
+    const validTeachers = new Set();
+    for (const p of instructorProfiles) {
+      if (p.nickname) validTeachers.add(norm(p.nickname));
+      if (p.fullname) validTeachers.add(norm(p.fullname));
+      if (p.id) validTeachers.add(norm(p.id.split('@')[0]));
+    }
+    
+    const filteredRaw = rawReport.filter(r => validTeachers.has(norm(r.teacher)));
+
+    const existingByExact = new Set(filteredRaw.map((r) => r.teacher));
+    const existingByNorm = new Set(filteredRaw.map((r) => norm(r.teacher)));
     const extras = [];
     for (const profile of instructorProfiles) {
       const candidates = [
@@ -220,7 +232,7 @@ export default function WorkloadPage() {
       });
     }
 
-    return rawReport.concat(extras);
+    return filteredRaw.concat(extras);
   }, [rawReport, instructorProfiles, disabledInstructors]);
 
   // When a single branch is selected, drop instructors whose profile assigns
@@ -976,7 +988,8 @@ export default function WorkloadPage() {
               report={sorted.slice(0, 25)}
               max={heatmapMax}
               thresholds={thresholds}
-              onCellClick={(teacher, day, dayData) => setHeatmapDetail({ teacher, day, dayData })}
+              instructorProfiles={instructorProfiles}
+              onCellClick={(teacher, day, data) => setHeatmapDetail({ teacher, day, dayData: data })}
             />
             {sorted.length > 25 && (
               <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.5rem' }}>
@@ -1152,7 +1165,7 @@ function PerDayPanel({ row, thresholds, onLeave, max }) {
   );
 }
 
-function Heatmap({ report, max, thresholds, onCellClick }) {
+function Heatmap({ report, max, thresholds, onCellClick, instructorProfiles }) {
   const rowHeight = 28;
   const labelWidth = 160;
 
@@ -1207,6 +1220,13 @@ function Heatmap({ report, max, thresholds, onCellClick }) {
             const dayData = r.byDay[d];
             const hrs = dayData.hours;
             const hasData = hrs > 0;
+            
+            const profile = (instructorProfiles || []).find(
+              p => p.fullname === r.teacher || p.nickname === r.teacher
+            );
+            const workingDays = profile?.status === 'fulltime' ? DAY_NAMES : (profile?.workingDays || []);
+            const isWorkingDay = workingDays.includes(d);
+
             const handleClick = hasData && onCellClick
               ? () => onCellClick(r.teacher, d, dayData)
               : undefined;
@@ -1218,19 +1238,20 @@ function Heatmap({ report, max, thresholds, onCellClick }) {
                 disabled={!hasData}
                 title={hasData
                   ? `${r.teacher} · ${d}: ${formatHoursMinutes(hrs)} (${dayData.sessions} sessions) — click for details`
-                  : `${r.teacher} · ${d}: no class`}
+                  : (!isWorkingDay ? `${r.teacher} is not scheduled to work on ${d}` : `${r.teacher} · ${d}: no class`)}
                 style={{
                   height: rowHeight,
                   borderRadius: '4px',
-                  background: cellColor(hrs),
+                  background: hasData ? cellColor(hrs) : (isWorkingDay ? 'var(--bg-color)' : 'repeating-linear-gradient(45deg, var(--bg-color), var(--bg-color) 4px, var(--border-color) 4px, var(--border-color) 8px)'),
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
                   fontSize: '0.7rem',
                   fontWeight: 600,
-                  color: hrs > thresholds.dailyAmber ? 'white' : (hrs > 0 ? 'white' : 'var(--text-muted)'),
+                  color: hrs > thresholds.dailyAmber ? 'white' : (hrs > 0 ? 'white' : (isWorkingDay ? 'var(--text-muted)' : '#9ca3af')),
                   border: 'none',
                   padding: 0,
+                  opacity: isWorkingDay || hasData ? 1 : 0.65,
                   cursor: hasData ? 'pointer' : 'default',
                   transition: 'transform 0.12s ease, box-shadow 0.12s ease',
                 }}
@@ -1245,7 +1266,7 @@ function Heatmap({ report, max, thresholds, onCellClick }) {
                   e.currentTarget.style.boxShadow = 'none';
                 }}
               >
-                {hrs > 0 ? formatHoursMinutes(hrs) : '·'}
+                {hrs > 0 ? formatHoursMinutes(hrs) : (isWorkingDay ? '·' : '×')}
               </button>
             );
           })}
