@@ -162,12 +162,21 @@ export default function WorkloadPage() {
       byTeacher[c.teacher].push(c);
     });
 
-    const dayIndex = (d) => DAY_NAMES.indexOf(d);
+    const todayName = new Date().toLocaleDateString('en-US', { weekday: 'long' });
+    const todayIndex = DAY_NAMES.indexOf(todayName) !== -1 ? DAY_NAMES.indexOf(todayName) : 0;
+    
+    const getDayDiff = (d) => {
+      const idx = DAY_NAMES.indexOf(d);
+      if (idx === -1) return 999;
+      return (idx - todayIndex + 7) % 7;
+    };
 
     const list = Object.keys(byTeacher).map(t => {
       const cls = byTeacher[t];
       cls.sort((a, b) => {
-        if (dayIndex(a.day) !== dayIndex(b.day)) return dayIndex(a.day) - dayIndex(b.day);
+        const diffA = getDayDiff(a.day);
+        const diffB = getDayDiff(b.day);
+        if (diffA !== diffB) return diffA - diffB;
         return a.time.localeCompare(b.time);
       });
       return {
@@ -178,7 +187,9 @@ export default function WorkloadPage() {
     });
 
     list.sort((a, b) => {
-      if (dayIndex(a.nearest.day) !== dayIndex(b.nearest.day)) return dayIndex(a.nearest.day) - dayIndex(b.nearest.day);
+      const diffA = getDayDiff(a.nearest.day);
+      const diffB = getDayDiff(b.nearest.day);
+      if (diffA !== diffB) return diffA - diffB;
       return a.nearest.time.localeCompare(b.nearest.time);
     });
 
