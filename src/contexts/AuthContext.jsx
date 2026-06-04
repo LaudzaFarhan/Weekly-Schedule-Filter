@@ -32,7 +32,7 @@ export function AuthProvider({ children }) {
   }, [user]);
 
   const login = async (username, password) => {
-    let email = username;
+    let email = username.trim().toLowerCase();
     if (!email.includes('@')) {
       email = `${username}@schedule.local`;
     }

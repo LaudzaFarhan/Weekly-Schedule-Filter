@@ -37,7 +37,8 @@ export default function Sidebar({ currentPage, onNavigate }) {
     await logout();
   };
 
-  const userRole = users?.[user?.email] || 'Instructor';
+  const userEmail = user?.email?.toLowerCase() || '';
+  const userRole = users?.[userEmail] || 'Instructor';
   const currentToggles = roleToggles?.[userRole] || roleToggles?.['Instructor'] || {};
 
   const isItemVisible = (item) => {

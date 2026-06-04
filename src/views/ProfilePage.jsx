@@ -33,7 +33,8 @@ export default function ProfilePage() {
   const [syncResult, setSyncResult] = useState(null);
   const [selectedProfiles, setSelectedProfiles] = useState(new Set());
 
-  const userRole = users?.[user?.email] || 'Instructor';
+  const userEmail = user?.email?.toLowerCase() || '';
+  const userRole = users?.[userEmail] || 'Instructor';
   const isSupervisor = userRole === 'Supervisor' || userRole === 'SPA' || userRole === 'Admin';
 
   // Get active branch name for location tagging

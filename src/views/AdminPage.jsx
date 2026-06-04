@@ -241,7 +241,7 @@ export default function AdminPage() {
     setUserStatus('');
 
     try {
-      let formattedEmail = newEmail;
+      let formattedEmail = newEmail.trim().toLowerCase();
       if (!formattedEmail.includes('@')) formattedEmail = `${formattedEmail}@schedule.local`;
       
       let alreadyExists = false;

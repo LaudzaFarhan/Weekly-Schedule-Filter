@@ -11,7 +11,7 @@ export default function Header() {
     activeBranchId, changeActiveBranch,
     syncActiveBranch, syncAllBranches,
     isSyncing, syncProgress, lastSyncTime, failedBranches,
-    disabledBranches,
+    disabledBranches, users,
   } = useSchedule();
   const { user } = useAuth();
 
@@ -61,6 +61,8 @@ export default function Header() {
 
   const userName = user?.email?.split('@')[0] || 'User';
   const initials = userName.slice(0, 2).toUpperCase();
+  const userEmail = user?.email?.toLowerCase() || '';
+  const userRole = users?.[userEmail] || 'Instructor';
 
   return (
     <>
@@ -93,7 +95,7 @@ export default function Header() {
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
             <div style={{ textAlign: 'right' }}>
               <div style={{ fontSize: '0.8rem', fontWeight: 500, color: 'var(--text-main)' }}>{userName}</div>
-              <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>Administrator</div>
+              <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>{userRole}</div>
             </div>
             <div style={{ width: '34px', height: '34px', borderRadius: '50%', background: 'var(--sidebar-bg, #1e1b4b)', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.7rem', fontWeight: 600 }}>
               {initials}

@@ -151,7 +151,14 @@ export function ScheduleProvider({ children }) {
   const [disabledBranches, setDisabledBranches] = useState(() => new Set(loadLocal('disabledBranches', [])));
 
   // RBAC Config
-  const [users, setUsers] = useState(() => loadLocal('users', { 'admin@schedule.local': 'Admin' }));
+  const [users, setUsers] = useState(() => {
+    const loaded = loadLocal('users', { 'admin@schedule.local': 'Admin' });
+    const normalized = {};
+    for (const [k, v] of Object.entries(loaded || {})) {
+      if (k) normalized[k.toLowerCase()] = v;
+    }
+    return normalized;
+  });
   const [roleToggles, setRoleToggles] = useState(() => mergeRoleToggles(loadLocal('roleToggles', DEFAULT_ROLE_TOGGLES)));
 
   // Instructor Profiles
@@ -277,8 +284,12 @@ export function ScheduleProvider({ children }) {
           localStorage.setItem('branches', JSON.stringify(data.branches));
         }
         if (data.users) {
-          setUsers(data.users);
-          localStorage.setItem('users', JSON.stringify(data.users));
+          const normalized = {};
+          for (const [k, v] of Object.entries(data.users || {})) {
+            if (k) normalized[k.toLowerCase()] = v;
+          }
+          setUsers(normalized);
+          localStorage.setItem('users', JSON.stringify(normalized));
         }
         if (data.roleToggles) {
           const merged = mergeRoleToggles(data.roleToggles);
@@ -360,8 +371,12 @@ export function ScheduleProvider({ children }) {
   }, []);
 
   const updateUsers = useCallback((newUsers) => {
-    setUsers(newUsers);
-    persistConfig('users', newUsers);
+    const normalized = {};
+    for (const [k, v] of Object.entries(newUsers || {})) {
+      if (k) normalized[k.toLowerCase()] = v;
+    }
+    setUsers(normalized);
+    persistConfig('users', normalized);
   }, []);
 
   const updateRoleToggles = useCallback((newRoleToggles) => {
