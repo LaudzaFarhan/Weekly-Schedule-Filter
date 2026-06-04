@@ -28,7 +28,7 @@ import Badge from '../components/ui/Badge';
 import {
   Activity, Users, Clock, AlertOctagon, Minus,
   Search, ChevronDown, ChevronRight, BarChart3, MapPin,
-  Save, History, Calendar as CalendarIcon, TrendingUp, X,
+  Save, History, Calendar as CalendarIcon, TrendingUp, X, Globe, Home
 } from 'lucide-react';
 
 const PAGE_SIZE = 8;
@@ -1305,10 +1305,18 @@ function Heatmap({ report, max, thresholds, onCellClick, trialPriorityList }) {
               overflow: 'hidden',
               textOverflow: 'ellipsis',
               paddingRight: '0.5rem',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.35rem'
             }}
-            title={r.teacher}
+            title={`${r.teacher} — ${r.weekly.isNomaden ? `Nomaden (${r.weekly.branches.join(', ')})` : `Permanent`}`}
           >
-            {r.teacher}
+            {r.weekly.isNomaden ? (
+              <Globe size={13} style={{ color: 'var(--primary-blue)', flexShrink: 0 }} />
+            ) : (
+              <Home size={13} style={{ color: 'var(--text-muted)', opacity: 0.7, flexShrink: 0 }} />
+            )}
+            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.teacher}</span>
           </div>
           {DAY_NAMES.map((d) => {
             const dayData = r.byDay[d];
@@ -1322,6 +1330,11 @@ function Heatmap({ report, max, thresholds, onCellClick, trialPriorityList }) {
             const workingDays = isPartTime ? (trialEntry.workingDays || []) : DAY_NAMES;
             const isWorkingDay = workingDays.includes(d);
 
+            const dayBranches = Array.from(dayData.branches || []);
+            const cellTitle = hasData
+              ? `${r.teacher} · ${d}: ${formatHoursMinutes(hrs)} (${dayData.sessions} sessions) ${dayBranches.length > 0 ? `at ${dayBranches.join(', ')}` : ''} — click for details`
+              : (!isWorkingDay ? `${r.teacher} (NOT AVAILABLE)` : `${r.teacher} · ${d}: FREE TIME`);
+
             const handleClick = hasData && onCellClick
               ? () => onCellClick(r.teacher, d, dayData)
               : undefined;
@@ -1331,9 +1344,7 @@ function Heatmap({ report, max, thresholds, onCellClick, trialPriorityList }) {
                 type="button"
                 onClick={handleClick}
                 disabled={!hasData}
-                title={hasData
-                  ? `${r.teacher} · ${d}: ${formatHoursMinutes(hrs)} (${dayData.sessions} sessions) — click for details`
-                  : (!isWorkingDay ? `${r.teacher} (NOT AVAILABLE)` : `${r.teacher} · ${d}: FREE TIME`)}
+                title={cellTitle}
                 style={{
                   height: rowHeight,
                   borderRadius: '4px',
@@ -1341,6 +1352,7 @@ function Heatmap({ report, max, thresholds, onCellClick, trialPriorityList }) {
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
+                  position: 'relative',
                   fontSize: !hasData ? '0.6rem' : '0.7rem',
                   fontWeight: 600,
                   color: hrs > thresholds.dailyAmber ? 'white' : (hrs > 0 ? 'white' : (isWorkingDay ? 'var(--text-muted)' : '#9ca3af')),
@@ -1361,6 +1373,20 @@ function Heatmap({ report, max, thresholds, onCellClick, trialPriorityList }) {
                   e.currentTarget.style.boxShadow = 'none';
                 }}
               >
+                {hrs > 0 && r.weekly.isNomaden && dayBranches.length > 0 && (
+                  <div style={{
+                    position: 'absolute',
+                    top: '2px',
+                    left: '3px',
+                    fontSize: '0.5rem',
+                    fontWeight: 700,
+                    opacity: 0.6,
+                    lineHeight: 1,
+                    textTransform: 'uppercase'
+                  }}>
+                    {dayBranches[0].slice(0, 2)}
+                  </div>
+                )}
                 {hrs > 0 ? formatHoursMinutes(hrs) : (isWorkingDay ? 'FREE TIME' : 'NOT AVAILABLE')}
               </button>
             );

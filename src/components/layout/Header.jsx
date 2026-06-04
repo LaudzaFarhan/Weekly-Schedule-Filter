@@ -1,9 +1,9 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useSchedule } from '../../contexts/ScheduleContext';
 import { useAuth } from '../../contexts/AuthContext';
-import { RefreshCw, Plus, Trash2, Bell, EyeOff } from 'lucide-react';
+import { RefreshCw, Plus, Trash2, Bell, EyeOff, ChevronLeft, ChevronRight } from 'lucide-react';
 
 export default function Header() {
   const {
@@ -20,6 +20,22 @@ export default function Header() {
   const [newUrl, setNewUrl] = useState('');
   const [newTrialUrl, setNewTrialUrl] = useState('');
   const [showNotifications, setShowNotifications] = useState(false);
+
+  const [branchPage, setBranchPage] = useState(0);
+  const branchesPerPage = 3;
+
+  // Auto-jump to the page containing the active branch
+  useEffect(() => {
+    if (activeBranchId && branches.length > 0) {
+      const idx = branches.findIndex(b => b.id === activeBranchId);
+      if (idx !== -1) {
+        const expectedPage = Math.floor(idx / branchesPerPage);
+        if (branchPage !== expectedPage) {
+          setBranchPage(expectedPage);
+        }
+      }
+    }
+  }, [activeBranchId, branches.length]); // Avoid infinite loops by not depending on branches reference
 
   const handleAddBranch = () => {
     if (!newName || !newUrl) return;
@@ -108,7 +124,24 @@ export default function Header() {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.75rem 1.5rem' }}>
         {/* Branch tabs */}
         <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-          {branches.map(branch => {
+          {(() => {
+            const totalPages = Math.ceil(branches.length / branchesPerPage);
+            const currentBranchPage = Math.min(branchPage, Math.max(0, totalPages - 1));
+            const displayedBranches = branches.slice(currentBranchPage * branchesPerPage, (currentBranchPage + 1) * branchesPerPage);
+
+            return (
+              <>
+                {branches.length > branchesPerPage && (
+                  <button
+                    onClick={() => setBranchPage(p => Math.max(0, p - 1))}
+                    disabled={currentBranchPage === 0}
+                    style={{ padding: '0.3rem', borderRadius: '50%', border: '1px solid var(--border-color)', background: 'var(--bg-color)', cursor: currentBranchPage === 0 ? 'not-allowed' : 'pointer', opacity: currentBranchPage === 0 ? 0.4 : 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                  >
+                    <ChevronLeft size={16} />
+                  </button>
+                )}
+                
+                {displayedBranches.map(branch => {
             const isDisabled = disabledBranches?.has(branch.name);
             const isActive = activeBranchId === branch.id;
             return (
@@ -142,6 +175,19 @@ export default function Header() {
               </button>
             );
           })}
+          
+                {branches.length > branchesPerPage && (
+                  <button
+                    onClick={() => setBranchPage(p => Math.min(totalPages - 1, p + 1))}
+                    disabled={currentBranchPage === totalPages - 1}
+                    style={{ padding: '0.3rem', borderRadius: '50%', border: '1px solid var(--border-color)', background: 'var(--bg-color)', cursor: currentBranchPage === totalPages - 1 ? 'not-allowed' : 'pointer', opacity: currentBranchPage === totalPages - 1 ? 0.4 : 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                  >
+                    <ChevronRight size={16} />
+                  </button>
+                )}
+              </>
+            );
+          })()}
           {!isAdding ? (
             <button onClick={() => setIsAdding(true)} style={{ padding: '0.4rem 0.85rem', borderRadius: '20px', border: 'none', background: 'transparent', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
               <Plus size={13} /> ADD BRANCH

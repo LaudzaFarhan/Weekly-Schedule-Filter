@@ -15,7 +15,7 @@ export default function TrialInputPage() {
   const {
     uniqueTimes, uniqueBaseTeachers, overallClasses, leaveList,
     disabledInstructors, instructorProfiles, activeBranchName,
-    enabledBranches, branches, changeActiveBranch,
+    enabledBranches, branches, changeActiveBranch, trialPriorityList,
   } = useSchedule();
   const { showToast } = useToast();
   const [form, setForm] = useState({
@@ -424,7 +424,26 @@ export default function TrialInputPage() {
                 return (
                   <li key={profile.id} style={{ padding: '1rem', border: '1px solid var(--border-color)', borderRadius: '8px', display: 'flex', flexDirection: 'column', gap: '0.5rem', background: '#f8fafc' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <strong style={{ fontSize: '0.95rem' }}>{profile.fullname || profile.nickname || profile.id}</strong>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        <strong style={{ fontSize: '0.95rem' }}>{profile.fullname || profile.nickname || profile.id}</strong>
+                        {(() => {
+                          const instName = profile.fullname || profile.nickname || profile.id;
+                          const trialEntry = (trialPriorityList || []).find(t => t.name === instName);
+                          const isPartTime = trialEntry?.status === 'parttime';
+                          return (
+                            <span style={{ 
+                              fontSize: '0.65rem', 
+                              padding: '0.15rem 0.4rem', 
+                              borderRadius: '4px', 
+                              background: isPartTime ? 'var(--primary-blue-light)' : 'var(--success-bg)', 
+                              color: isPartTime ? 'var(--primary-blue)' : 'var(--success)',
+                              fontWeight: 600
+                            }}>
+                              {isPartTime ? 'PT' : 'FT'}
+                            </span>
+                          );
+                        })()}
+                      </div>
                       {form.time && (
                         <span style={{ fontSize: '0.7rem', padding: '0.15rem 0.4rem', borderRadius: '4px', background: isAvailableNow ? 'var(--success-color)' : 'var(--danger-color)', color: 'white' }}>
                           {isAvailableNow ? 'Free' : 'Busy'}
@@ -663,9 +682,14 @@ export default function TrialInputPage() {
                     required
                   >
                     <option value="" disabled>Select an instructor</option>
-                    {availableInstructors.map(inst => (
-                      <option key={inst} value={inst}>{inst}</option>
-                    ))}
+                    {availableInstructors.map(inst => {
+                      const trialEntry = (trialPriorityList || []).find(t => t.name === inst);
+                      const isPartTime = trialEntry?.status === 'parttime';
+                      const label = `${inst} (${isPartTime ? 'Part-time' : 'Full-time'})`;
+                      return (
+                        <option key={inst} value={inst}>{label}</option>
+                      );
+                    })}
                   </select>
                 </div>
                 

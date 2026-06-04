@@ -203,6 +203,7 @@ function computeForInstructor(rows) {
       students: 0,
       studentSet: new Set(),
       programs: new Set(),
+      branches: new Set(),
       busiestStartMin: null,
       busiestEndMin: null,
       intervals: [],
@@ -267,6 +268,7 @@ function computeForInstructor(rows) {
       intervals.push([parsed.start, parsed.end]);
       bucket.forEach((b) => {
         if (b.student) byDay[day].studentSet.add(b.student);
+        if (b.branchName) byDay[day].branches.add(b.branchName);
       });
     }
 
@@ -292,6 +294,7 @@ function computeForInstructor(rows) {
   let totalSessions = 0;
   let totalStudentEnrolments = 0; // sum of distinct students per session
   const allStudents = new Set();
+  const allBranches = new Set();
   const activeDays = [];
   let busiestDay = null;
   let busiestDayHours = 0;
@@ -303,6 +306,7 @@ function computeForInstructor(rows) {
     totalSessions += d.sessions;
     totalStudentEnrolments += d.sessionList.reduce((s, sess) => s + sess.students, 0);
     d.studentSet.forEach((s) => allStudents.add(s));
+    d.branches.forEach((b) => allBranches.add(b));
     if (d.sessions > 0) activeDays.push(day);
     if (d.hours > busiestDayHours) {
       busiestDayHours = d.hours;
@@ -359,6 +363,8 @@ function computeForInstructor(rows) {
       avgSessionMin,
       avgGroupSize,
       avgGapMin,
+      branches: Array.from(allBranches),
+      isNomaden: allBranches.size > 1,
       unparsedCount: unparsed.length,
       unparsedSamples: unparsed.slice(0, 3).map((r) => ({ day: r.day, time: r.time, student: r.student })),
     },
