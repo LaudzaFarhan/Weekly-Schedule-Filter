@@ -313,7 +313,7 @@ export default function HomePage({ onNavigate }) {
       </div>
 
       {/* Bottom Grid: Weekly Trend (60%) + Quick Actions/Activity stack (20%) + Instructors in Training (20%) */}
-      <div style={{ display: 'grid', gridTemplateColumns: '3fr 1fr 1fr', gap: '1.5rem', marginTop: '1.5rem', alignItems: 'stretch' }}>
+      <div className="bottom-grid">
         {/* Weekly Schedule Trend */}
         <div className="panel trend-panel">
           <WeeklyTrendHeader
@@ -380,7 +380,7 @@ export default function HomePage({ onNavigate }) {
           </div>
 
           {/* Activity Feed (bottom) */}
-          <div className="panel" style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+          <div className="panel" style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
             <div className="panel-header">
               <h2>Activity Feed</h2>
             </div>

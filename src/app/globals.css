@@ -664,6 +664,17 @@ body {
   .leave-form-row { flex-direction: column; }
   .trial-form-row { flex-direction: column; }
   .filter-controls { flex-direction: column; }
+  .bottom-grid { grid-template-columns: 1fr !important; height: auto !important; }
+}
+
+/* ── Dashboard Specific Layouts ───────────────────────── */
+.bottom-grid {
+  display: grid;
+  grid-template-columns: 3fr 1fr 1fr;
+  gap: 1.5rem;
+  margin-top: 1.5rem;
+  align-items: stretch;
+  height: 480px;
 }
 
 
