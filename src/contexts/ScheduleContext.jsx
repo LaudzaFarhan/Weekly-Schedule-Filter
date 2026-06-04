@@ -8,6 +8,8 @@ import { auth } from '../services/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
 import { useToast } from '../components/ui/Toast';
 import { logActivity } from '../services/activityService';
+import { getWorkingDaysForBranch } from '../utils/constants';
+import SyncReportModal from '../components/ui/SyncReportModal';
 
 const ScheduleContext = createContext(null);
 
@@ -164,11 +166,14 @@ export function ScheduleProvider({ children }) {
   // Instructor Profiles
   const [instructorProfiles, setInstructorProfiles] = useState([]);
 
+  // Sync report details state for modal
+  const [syncReportDetails, setSyncReportDetails] = useState(null);
+
   // ─── Derived data — automatically reflects disabled branches ─────
 
   /**
    * Schedule classes excluding any disabled-branch entries.
-   * Also filters out Sunday rows since the program operates Mon–Sat only.
+   * Also filters out the branch's off-day (Holiday)
    *
    * The filter matches a row to a disabled branch by **either** branchName
    * **or** branchId. This makes us resilient to the case where a branch was
@@ -184,7 +189,9 @@ export function ScheduleProvider({ children }) {
         .map((b) => b.id)
     );
     const result = rawClasses.filter((c) => {
-      if (c.day === 'Sunday') return false;
+      const workingDays = getWorkingDaysForBranch(c.branchName === 'All Branches' ? 'default' : c.branchName);
+      if (!workingDays.includes(c.day)) return false;
+      
       if (disabledBranches?.has(c.branchName)) return false;
       if (c.branchId && disabledIds.has(c.branchId)) return false;
       return true;
@@ -596,6 +603,9 @@ export function ScheduleProvider({ children }) {
         details: summary.chips,
         variant: toastVariant,
         duration: 8000,
+        onClick: () => setSyncReportDetails({
+          successCount, failCount, failed, skipped, scheduleDiff, conflictDiff
+        }),
       });
     } catch (error) {
       console.error('Full Sync error:', error);
@@ -667,7 +677,17 @@ export function ScheduleProvider({ children }) {
     instructorProfiles, refreshProfiles,
   };
 
-  return <ScheduleContext.Provider value={value}>{children}</ScheduleContext.Provider>;
+  return (
+    <ScheduleContext.Provider value={value}>
+      {children}
+      {syncReportDetails && (
+        <SyncReportModal 
+          report={syncReportDetails} 
+          onClose={() => setSyncReportDetails(null)} 
+        />
+      )}
+    </ScheduleContext.Provider>
+  );
 }
 
 export function useSchedule() {

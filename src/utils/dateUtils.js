@@ -108,11 +108,10 @@ export function getWeekdaysInRange(startDateStr, endDateStr) {
 
   while (cursor <= end) {
     const dayIndex = cursor.getDay();
-    if (dayIndex !== 0) { // skip Sunday
-      weekdays.add(DAY_NAMES[dayIndex - 1]);
-    }
+    const dayName = dayIndex === 0 ? 'Sunday' : DAY_NAMES[dayIndex - 1];
+    weekdays.add(dayName);
     cursor.setDate(cursor.getDate() + 1);
-    if (weekdays.size === 6) break; // All possible weekdays found
+    if (weekdays.size === 7) break; // All possible weekdays found
   }
 
   return Array.from(weekdays);

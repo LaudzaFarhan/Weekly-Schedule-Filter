@@ -2,7 +2,7 @@
 
 import { useState, useMemo, useEffect, Fragment } from 'react';
 import { useSchedule } from '../contexts/ScheduleContext';
-import { DAY_NAMES } from '../utils/constants';
+import { DAY_NAMES, getWorkingDaysForBranch } from '../utils/constants';
 import { getWeekdaysInRange, leaveAppliesToDay } from '../utils/dateUtils';
 import { doTimeSlotsOverlap } from '../utils/timeUtils';
 import { instructorBelongsToBranch } from '../utils/instructorUtils';
@@ -309,7 +309,7 @@ export default function LeavePage({ params }) {
         </div>
       </div>
 
-      <LeaveCalendar leaveList={leaveList} />
+      <LeaveCalendar leaveList={leaveList} instructorProfiles={instructorProfiles} />
     </section>
   );
 }
@@ -318,7 +318,7 @@ export default function LeavePage({ params }) {
 
 const WEEKDAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
-function LeaveCalendar({ leaveList }) {
+function LeaveCalendar({ leaveList, instructorProfiles }) {
   // Which month the grid is showing. Defaults to the current month.
   const [viewDate, setViewDate] = useState(() => {
     const d = new Date();
@@ -349,9 +349,16 @@ function LeaveCalendar({ leaveList }) {
       if (to < from) continue;
 
       const cursor = new Date(from);
+      
+      const p = (instructorProfiles || []).find(pr => pr.nickname === l.name || pr.fullname === l.name);
+      const branchName = p ? p.location : 'default';
+      const workingDays = getWorkingDaysForBranch(branchName === 'All Branches' ? 'default' : branchName);
+      
       while (cursor <= to) {
-        // Program runs Mon–Sat; skip Sundays in the leave fill.
-        if (cursor.getDay() !== 0) {
+        const dayIndex = cursor.getDay();
+        const dayName = dayIndex === 0 ? 'Sunday' : DAY_NAMES[dayIndex - 1];
+        
+        if (workingDays.includes(dayName)) {
           const key = dateKey(cursor);
           if (!map.has(key)) map.set(key, []);
           map.get(key).push({ name: l.name, reason: l.reason || '' });

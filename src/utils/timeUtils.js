@@ -94,10 +94,10 @@ export function doTimeSlotsOverlap(slot1, slot2) {
  * Generate 1-hour trial slots for a given day (e.g. "Monday").
  */
 export function generateTrialSlots(dayName) {
-  if (!dayName || dayName === 'Sunday') return [];
+  if (!dayName) return [];
   
-  const isSaturday = dayName === 'Saturday';
-  const startHour = isSaturday ? 10 : 11;
+  const isWeekend = dayName === 'Saturday' || dayName === 'Sunday';
+  const startHour = isWeekend ? 10 : 11;
   
   const slots = [];
   for (let hour = startHour; hour <= 18; hour++) {

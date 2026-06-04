@@ -4,7 +4,7 @@ import { useState, useMemo, useEffect, useCallback } from 'react';
 import { useSchedule } from '../contexts/ScheduleContext';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../components/ui/Toast';
-import { DAY_NAMES } from '../utils/constants';
+import { DAY_NAMES, getWorkingDaysForBranch } from '../utils/constants';
 import { getInstructorBranch } from '../utils/instructorUtils';
 import {
   buildWorkloadReport,
@@ -1042,6 +1042,7 @@ export default function WorkloadPage() {
                 max={heatmapMax}
                 thresholds={thresholds}
                 trialPriorityList={trialPriorityList}
+                instructorProfiles={instructorProfiles}
                 onCellClick={(teacher, day, data) => setHeatmapDetail({ teacher, day, dayData: data })}
               />
               {sorted.length > 25 && (
@@ -1259,7 +1260,7 @@ function PerDayPanel({ row, thresholds, onLeave, max }) {
   );
 }
 
-function Heatmap({ report, max, thresholds, onCellClick, trialPriorityList }) {
+function Heatmap({ report, max, thresholds, onCellClick, trialPriorityList, instructorProfiles }) {
   const rowHeight = 28;
   const labelWidth = 160;
 
@@ -1327,13 +1328,18 @@ function Heatmap({ report, max, thresholds, onCellClick, trialPriorityList }) {
               t => t.name === r.teacher
             );
             const isPartTime = trialEntry?.status === 'parttime';
-            const workingDays = isPartTime ? (trialEntry.workingDays || []) : DAY_NAMES;
+            
+            const p = (instructorProfiles || []).find(pr => pr.nickname === r.teacher || pr.fullname === r.teacher);
+            const branchName = p ? p.location : 'default';
+            const branchWorkingDays = getWorkingDaysForBranch(branchName === 'All Branches' ? 'default' : branchName);
+            const workingDays = isPartTime ? (trialEntry.workingDays || []) : branchWorkingDays;
+            
             const isWorkingDay = workingDays.includes(d);
 
             const dayBranches = Array.from(dayData.branches || []);
             const cellTitle = hasData
               ? `${r.teacher} · ${d}: ${formatHoursMinutes(hrs)} (${dayData.sessions} sessions) ${dayBranches.length > 0 ? `at ${dayBranches.join(', ')}` : ''} — click for details`
-              : (!isWorkingDay ? `${r.teacher} (NOT AVAILABLE)` : `${r.teacher} · ${d}: FREE TIME`);
+              : (!isWorkingDay ? `${r.teacher} (HOLIDAY)` : `${r.teacher} · ${d}: FREE TIME`);
 
             const handleClick = hasData && onCellClick
               ? () => onCellClick(r.teacher, d, dayData)
@@ -1387,7 +1393,7 @@ function Heatmap({ report, max, thresholds, onCellClick, trialPriorityList }) {
                     {dayBranches[0].slice(0, 2)}
                   </div>
                 )}
-                {hrs > 0 ? formatHoursMinutes(hrs) : (isWorkingDay ? 'FREE TIME' : 'NOT AVAILABLE')}
+                {hrs > 0 ? formatHoursMinutes(hrs) : (isWorkingDay ? 'FREE TIME' : 'HOLIDAY')}
               </button>
             );
           })}

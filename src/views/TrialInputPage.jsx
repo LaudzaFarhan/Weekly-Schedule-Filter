@@ -4,7 +4,7 @@ import { useState, useMemo } from 'react';
 import { submitTrialLead } from '../services/trialSubmit';
 import { Send, Clock, Calendar, MapPin } from 'lucide-react';
 import { useSchedule } from '../contexts/ScheduleContext';
-import { DAY_NAMES } from '../utils/constants';
+import { DAY_NAMES, getWorkingDaysForBranch } from '../utils/constants';
 import { parseTimeSlot, doTimeSlotsOverlap } from '../utils/timeUtils';
 import { leaveAppliesToDay } from '../utils/dateUtils';
 import { isValidTeacherName } from '../utils/instructorUtils';
@@ -63,10 +63,9 @@ export default function TrialInputPage() {
 
   const TRIAL_SLOTS = useMemo(() => {
     if (!form.day) return [];
-    if (form.day === 'Sunday') return [];
     
-    const isSaturday = form.day === 'Saturday';
-    const startHour = isSaturday ? 10 : 11;
+    const isWeekend = form.day === 'Saturday' || form.day === 'Sunday';
+    const startHour = isWeekend ? 10 : 11;
     
     const slots = [];
     for (let hour = startHour; hour <= 18; hour++) {
@@ -98,23 +97,23 @@ export default function TrialInputPage() {
   }, [form.day]);
 
   const currentMonthDates = useMemo(() => {
+    const validDays = getWorkingDaysForBranch(targetBranchName);
     const [yearStr, monthStr] = baseMonth.split('-');
     const year = parseInt(yearStr, 10);
     const month = parseInt(monthStr, 10) - 1; // 0-indexed
     const daysInMonth = new Date(year, month + 1, 0).getDate();
     const dates = [];
     
-    // JS getDay(): 0=Sun, 1=Mon … 6=Sat. We support Mon–Sat only.
     const getDayName = (d) => {
       const dow = d.getDay();
-      if (dow === 0) return null; // Sunday — excluded
-      return DAY_NAMES[dow - 1];
+      const name = dow === 0 ? 'Sunday' : DAY_NAMES[dow - 1];
+      return validDays.includes(name) ? name : null;
     };
 
     for (let i = 1; i <= daysInMonth; i++) {
       const d = new Date(year, month, i);
       const dayName = getDayName(d);
-      if (!dayName) continue; // skip Sundays from the picker
+      if (!dayName) continue; // skip Holidays from the picker
       dates.push({
         dateObj: d,
         dateStr: `${year}-${String(month + 1).padStart(2, '0')}-${String(i).padStart(2, '0')}`,
@@ -123,7 +122,7 @@ export default function TrialInputPage() {
       });
     }
     return dates;
-  }, [baseMonth]);
+  }, [baseMonth, targetBranchName]);
 
   const DATES_PER_PAGE = 10;
   const visibleDates = useMemo(() => {

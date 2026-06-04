@@ -23,7 +23,7 @@
  * the chatbot transcript is silently dropped.
  */
 
-import { DAY_NAMES } from './constants';
+import { DAY_NAMES, getWorkingDaysForBranch } from './constants';
 
 /* ─── Field detectors ──────────────────────────────────────────── */
 
@@ -180,12 +180,11 @@ function programForAge(age) {
   return null;
 }
 
-/** Day-of-week derivation; Sunday is left blank because we don't operate that day. */
+/** Day-of-week derivation (returns full day name) */
 function dayNameFromDate(d) {
   if (!d || isNaN(d.getTime())) return '';
   const dow = d.getDay();
-  if (dow === 0) return ''; // Sunday — caller should reject
-  return DAY_NAMES[dow - 1];
+  return dow === 0 ? 'Sunday' : DAY_NAMES[dow - 1];
 }
 
 /* ─── Main parser ─────────────────────────────────────────────── */
@@ -282,8 +281,6 @@ export function parseQuickFill(text, { branches = [] } = {}) {
             const dn = dayNameFromDate(d);
             if (dn) {
               result.day = dn;
-            } else {
-              result.warnings.push('Trial date falls on Sunday — please reschedule.');
             }
           } else {
             result.warnings.push(`Could not parse date "${value}".`);
@@ -336,6 +333,16 @@ export function parseQuickFill(text, { branches = [] } = {}) {
     if (branch) {
       result.branchName = branch.name;
       result.branchId = branch.id;
+    }
+  }
+
+  // Validate the day against the final resolved branch's working days.
+  if (result.day) {
+    const validDays = getWorkingDaysForBranch(result.branchName);
+    if (!validDays.includes(result.day)) {
+      result.warnings.push(`Trial date falls on a Holiday (${result.day}) for this branch — please reschedule.`);
+      // Clear out the invalid day so the form doesn't preselect it.
+      result.day = '';
     }
   }
 

@@ -37,6 +37,35 @@ function isValidTeacherName(name) {
   return true;
 }
 
+const ALIASES = {
+  'Time': ['time', 'jam'],
+  'Term-Branch': ['term-branch', 'term modul', 'term module', 'term', 'module', 'modul'],
+  'Main Inst/PIC': ['main inst/pic', 'main instructor', 'main inst', 'instructor', 'pic', 'pengajar', 'teacher'],
+  'Student Name': ['student name', 'student', 'nama murid', 'murid', 'nama siswa'],
+  'Lesson Arrange Date': ['lesson arrange date', 'lesson arrange', 'lesson arrangement', 'arrange', 'lesson detail'],
+  'Program': ['program', 'programme'],
+  'Remarks': ['remarks', 'remark', 'notes', 'catatan', 'keterangan']
+};
+
+function normalizeRow(rawRow) {
+  const normalized = {};
+  for (const [rawKey, val] of Object.entries(rawRow)) {
+    const lowerKey = (rawKey || '').toLowerCase().trim();
+    let matched = false;
+    for (const [stdKey, aliases] of Object.entries(ALIASES)) {
+      if (aliases.includes(lowerKey)) {
+        normalized[stdKey] = val;
+        matched = true;
+        break;
+      }
+    }
+    if (!matched) {
+      normalized[rawKey] = val; // keep unknown columns just in case
+    }
+  }
+  return normalized;
+}
+
 /**
  * Parse CSV text from a Google Sheets tab into class records.
  */
@@ -55,7 +84,9 @@ export function parseCSVData(csvText, dayName) {
       let lastTeacher = '';
       let lastBaseTeacher = '';
 
-      results.data.forEach((row) => {
+      results.data.forEach((rawRow) => {
+        const row = normalizeRow(rawRow);
+        
         if (!row['Student Name'] && !row['Time'] && !row['Term-Branch']) return;
         if (row['Time'] === 'Time' || row['Term-Branch'] === 'Term-Branch') return;
 

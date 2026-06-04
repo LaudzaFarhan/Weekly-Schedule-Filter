@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import Papa from 'papaparse';
 
-const DAY_NAMES = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+const DAY_NAMES = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
 /**
  * GET /api/schedule?sheetUrl=...
@@ -60,7 +60,12 @@ export async function GET(request) {
     // Step 2: Filter day tabs
     const dayTabs = tabs.filter((tab) => {
       const lower = tab.name.toLowerCase();
-      return DAY_NAMES.some((day) => lower.includes(day.toLowerCase()));
+      const matchedDay = DAY_NAMES.find((day) => lower.includes(day.toLowerCase()));
+      if (matchedDay) {
+        tab.normalizedDay = matchedDay;
+        return true;
+      }
+      return false;
     });
 
     if (dayTabs.length === 0) {
@@ -98,13 +103,13 @@ export async function GET(request) {
     for (const result of results) {
       if (result.status === 'fulfilled') {
         const { tab, csvText } = result.value;
-        const parsed = parseCSVData(csvText, tab.name, branchId, branchName);
+        const parsed = parseCSVData(csvText, tab.normalizedDay || tab.name, branchId, branchName);
         allClasses.push(...parsed.classes);
         parsed.teachers.forEach((t) => teachers.add(t));
         parsed.baseTeachers.forEach((t) => baseTeachers.add(t));
-        if (!times[tab.name]) times[tab.name] = [];
+        if (!times[tab.normalizedDay || tab.name]) times[tab.normalizedDay || tab.name] = [];
         parsed.times.forEach((t) => {
-          if (!times[tab.name].includes(t)) times[tab.name].push(t);
+          if (!times[tab.normalizedDay || tab.name].includes(t)) times[tab.normalizedDay || tab.name].push(t);
         });
         successCount++;
       } else {

@@ -36,6 +36,7 @@ export function ToastProvider({ children }) {
       details: options.details || null, // [{ label, value, variant }]
       variant: options.variant || 'info',
       duration: options.duration ?? 6000,
+      onClick: options.onClick || null,
     };
     setToasts((prev) => [...prev, toast]);
 
@@ -78,8 +79,18 @@ function ToastItem({ toast, onDismiss }) {
   const cfg = VARIANT_CONFIG[toast.variant] || VARIANT_CONFIG.info;
   const Icon = cfg.icon;
 
+  const handleClick = (e) => {
+    if (e.target.closest('.toast-dismiss')) return;
+    if (toast.onClick) toast.onClick();
+  };
+
   return (
-    <div className="toast-item" style={{ borderLeftColor: cfg.color }} role="status">
+    <div 
+      className="toast-item" 
+      style={{ borderLeftColor: cfg.color, cursor: toast.onClick ? 'pointer' : 'default' }} 
+      role="status"
+      onClick={handleClick}
+    >
       <div className="toast-icon" style={{ color: cfg.color }}>
         <Icon size={18} />
       </div>
