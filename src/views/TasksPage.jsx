@@ -226,36 +226,154 @@ export default function TasksPage() {
             </div>
             
             {isAnimating ? (
-              <div style={{ textAlign: 'center', padding: '3rem 0', overflow: 'hidden', position: 'relative', height: '200px' }}>
+              <div style={{ 
+                textAlign: 'center', 
+                padding: '1.5rem', 
+                overflow: 'hidden', 
+                position: 'relative', 
+                height: '240px',
+                background: 'linear-gradient(135deg, rgba(239, 246, 255, 0.9), rgba(219, 234, 254, 0.9))',
+                borderRadius: '16px',
+                border: '1px solid rgba(191, 219, 254, 0.8)',
+                boxShadow: 'inset 0 0 20px rgba(59, 130, 246, 0.05), 0 8px 32px 0 rgba(31, 38, 135, 0.05)',
+                display: 'flex',
+                flexDirection: 'column',
+                justifyContent: 'space-between',
+                animation: 'container-fade 2.5s ease-in-out infinite'
+              }}>
                 <style>{`
-                  @keyframes taichi-move {
-                    0% { transform: translateX(0) scale(1); }
-                    50% { transform: translateX(10px) scale(1.1); }
-                    100% { transform: translateX(0) scale(1); }
+                  @keyframes container-fade {
+                    0% { opacity: 0; transform: scale(0.95); }
+                    10% { opacity: 1; transform: scale(1); }
+                    90% { opacity: 1; transform: scale(1); }
+                    100% { opacity: 0; transform: scale(0.95); }
                   }
-                  @keyframes throw-task {
-                    0% { transform: translate(0, 0) rotate(0deg); opacity: 1; }
-                    80% { transform: translate(200px, -20px) rotate(360deg); opacity: 1; }
-                    100% { transform: translate(220px, 0) rotate(400deg); opacity: 0; }
+                  @keyframes body-throw {
+                    0%, 100% { transform: translateX(0) rotate(0deg); }
+                    24% { transform: translateX(-12px) rotate(-8deg); }
+                    36% { transform: translateX(18px) rotate(12deg); }
+                    56% { transform: translateX(8px) rotate(4deg); }
+                    80% { transform: translateX(0) rotate(0deg); }
                   }
-                  @keyframes receiver-react {
-                    0% { transform: scale(1); }
-                    80% { transform: scale(1); }
-                    90% { transform: scale(1.2) translateY(-10px); }
-                    100% { transform: scale(1) translateY(0); }
+                  @keyframes arm-throw {
+                    0%, 100% { transform: rotate(0deg) translate(0, 0); }
+                    24% { transform: rotate(-75deg) translate(-5px, -5px); }
+                    32% { transform: rotate(45deg) translate(5px, -2px); }
+                    48% { transform: rotate(60deg) translate(8px, 0px); }
+                    72% { transform: rotate(0deg) translate(0, 0); }
+                  }
+                  @keyframes card-fly {
+                    0% { transform: translate(0, 0) scale(0.6) rotate(0deg); opacity: 0; }
+                    24% { transform: translate(-10px, -15px) scale(0.8) rotate(-10deg); opacity: 1; }
+                    25% { transform: translate(0px, -15px) scale(1) rotate(0deg); opacity: 1; }
+                    48% { transform: translate(110px, -50px) scale(1.4) rotate(360deg); opacity: 1; }
+                    60% { transform: translate(220px, 0px) scale(1) rotate(720deg); opacity: 1; }
+                    64%, 100% { transform: translate(220px, 0px) scale(0) rotate(720deg); opacity: 0; }
+                  }
+                  @keyframes trail-sparkle {
+                    0%, 24% { opacity: 0; transform: scale(0.5); }
+                    25% { opacity: 0.8; transform: scale(1) translate(-10px, 10px); }
+                    48% { opacity: 0.8; transform: scale(0.8) translate(-25px, 20px); }
+                    60%, 100% { opacity: 0; transform: scale(0); }
+                  }
+                  @keyframes body-catch {
+                    0%, 56% { transform: scale(1) translateY(0); }
+                    64% { transform: scale(1.15) translateY(-8px) rotate(-5deg); }
+                    72% { transform: scale(1.1) translateY(-4px) rotate(5deg); }
+                    88%, 100% { transform: scale(1) translateY(0) rotate(0deg); }
+                  }
+                  @keyframes sparkle-glow {
+                    0%, 58% { opacity: 0; transform: scale(0.5) translateY(0); }
+                    62% { opacity: 1; transform: scale(1.2) translateY(-15px); }
+                    70% { opacity: 1; transform: scale(1) translateY(-25px); }
+                    80%, 100% { opacity: 0; transform: scale(0.8) translateY(-30px); }
                   }
                 `}</style>
-                <h3 style={{ marginBottom: '2rem', color: 'var(--primary-blue)' }}>Assigning Task with style...</h3>
-                <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', position: 'relative' }}>
-                  <div style={{ fontSize: '4rem', animation: 'taichi-move 2s ease-in-out', zIndex: 2 }}>🥋</div>
+                <h3 style={{ margin: '0 0 10px 0', color: '#1e3a8a', fontSize: '1.1rem', fontWeight: 600, letterSpacing: '0.5px' }}>
+                  Assigning Task to {newTask.assignee}...
+                </h3>
+                <div style={{ position: 'relative', width: '100%', height: '140px', marginTop: '10px' }}>
+                  {/* Decorative Floor */}
                   <div style={{ 
-                    fontSize: '2rem', 
                     position: 'absolute', 
-                    left: 'calc(50% - 20px)', 
-                    animation: 'throw-task 2s forwards cubic-bezier(0.25, 0.46, 0.45, 0.94)',
-                    zIndex: 1
-                  }}>📋</div>
-                  <div style={{ fontSize: '4rem', marginLeft: '180px', animation: 'receiver-react 2s forwards' }}>🧍</div>
+                    bottom: '10px', 
+                    left: '10%', 
+                    right: '10%', 
+                    height: '4px', 
+                    background: 'linear-gradient(90deg, transparent, rgba(59, 130, 246, 0.3), transparent)', 
+                    borderRadius: '2px' 
+                  }} />
+                  
+                  {/* Thrower */}
+                  <div style={{ 
+                    position: 'absolute', 
+                    left: '15%', 
+                    bottom: '15px', 
+                    display: 'flex', 
+                    flexDirection: 'column', 
+                    alignItems: 'center',
+                    animation: 'body-throw 2.5s cubic-bezier(0.25, 0.8, 0.25, 1) infinite' 
+                  }}>
+                    <span style={{ fontSize: '0.7rem', color: '#1e40af', fontWeight: '500', marginBottom: '2px', opacity: 0.8 }}>Assigner</span>
+                    <div style={{ position: 'relative', width: '50px', height: '50px', display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
+                      <div style={{ fontSize: '3rem', zIndex: 2 }}>🥋</div>
+                      {/* Separate Throwing Arm */}
+                      <div style={{ 
+                        position: 'absolute', 
+                        right: '-12px', 
+                        top: '12px', 
+                        fontSize: '2rem', 
+                        transformOrigin: 'left bottom',
+                        zIndex: 3,
+                        animation: 'arm-throw 2.5s cubic-bezier(0.25, 0.8, 0.25, 1) infinite'
+                      }}>🫱</div>
+                    </div>
+                  </div>
+
+                  {/* Flying Card */}
+                  <div style={{ 
+                    position: 'absolute', 
+                    left: 'calc(15% + 35px)', 
+                    bottom: '45px', 
+                    fontSize: '2rem', 
+                    zIndex: 4,
+                    animation: 'card-fly 2.5s cubic-bezier(0.25, 0.8, 0.25, 1) infinite'
+                  }}>
+                    📋
+                    <span style={{
+                      position: 'absolute',
+                      right: '-10px',
+                      bottom: '-5px',
+                      fontSize: '1rem',
+                      animation: 'trail-sparkle 2.5s infinite'
+                    }}>✨</span>
+                  </div>
+
+                  {/* Receiver */}
+                  <div style={{ 
+                    position: 'absolute', 
+                    right: '15%', 
+                    bottom: '15px', 
+                    display: 'flex', 
+                    flexDirection: 'column', 
+                    alignItems: 'center',
+                    animation: 'body-catch 2.5s cubic-bezier(0.25, 0.8, 0.25, 1) infinite'
+                  }}>
+                    <span style={{ fontSize: '0.7rem', color: '#1e40af', fontWeight: '500', marginBottom: '2px', opacity: 0.8 }}>
+                      {newTask.assignee || 'Assignee'}
+                    </span>
+                    <div style={{ position: 'relative', width: '50px', height: '50px', display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
+                      <div style={{ fontSize: '3rem', zIndex: 2 }}>🧍</div>
+                      {/* Sparks on Catch */}
+                      <div style={{
+                        position: 'absolute',
+                        top: '-10px',
+                        fontSize: '1.5rem',
+                        opacity: 0,
+                        animation: 'sparkle-glow 2.5s infinite'
+                      }}>✨</div>
+                    </div>
+                  </div>
                 </div>
               </div>
             ) : (
