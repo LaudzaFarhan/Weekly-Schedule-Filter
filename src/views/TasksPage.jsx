@@ -23,6 +23,7 @@ export default function TasksPage() {
   
   // Modal state
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isAnimating, setIsAnimating] = useState(false);
   const [newTask, setNewTask] = useState({
     title: '',
     description: '',
@@ -101,8 +102,15 @@ export default function TasksPage() {
         assigner: user.email || 'Admin',
         status: 'pending'
       });
-      setIsModalOpen(false);
-      setNewTask({ title: '', description: '', assignee: '', priority: 'medium', dueDate: '' });
+      
+      // Trigger animation instead of closing immediately
+      setIsAnimating(true);
+      setTimeout(() => {
+        setIsAnimating(false);
+        setIsModalOpen(false);
+        setNewTask({ title: '', description: '', assignee: '', priority: 'medium', dueDate: '' });
+      }, 2500);
+
       showToast({ title: 'Task Assigned successfully', variant: 'success' });
     } catch (error) {
       console.error("Error creating task:", error);
@@ -217,48 +225,82 @@ export default function TasksPage() {
               <button onClick={() => setIsModalOpen(false)} style={{ background: 'none', border: 'none', cursor: 'pointer' }}><X /></button>
             </div>
             
-            <form onSubmit={submitNewTask} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-              <div className="input-group">
-                <label>Title</label>
-                <input required type="text" value={newTask.title} onChange={e => setNewTask({...newTask, title: e.target.value})} placeholder="e.g. Call parent of Ebenezer" />
+            {isAnimating ? (
+              <div style={{ textAlign: 'center', padding: '3rem 0', overflow: 'hidden', position: 'relative', height: '200px' }}>
+                <style>{`
+                  @keyframes taichi-move {
+                    0% { transform: translateX(0) scale(1); }
+                    50% { transform: translateX(10px) scale(1.1); }
+                    100% { transform: translateX(0) scale(1); }
+                  }
+                  @keyframes throw-task {
+                    0% { transform: translate(0, 0) rotate(0deg); opacity: 1; }
+                    80% { transform: translate(200px, -20px) rotate(360deg); opacity: 1; }
+                    100% { transform: translate(220px, 0) rotate(400deg); opacity: 0; }
+                  }
+                  @keyframes receiver-react {
+                    0% { transform: scale(1); }
+                    80% { transform: scale(1); }
+                    90% { transform: scale(1.2) translateY(-10px); }
+                    100% { transform: scale(1) translateY(0); }
+                  }
+                `}</style>
+                <h3 style={{ marginBottom: '2rem', color: 'var(--primary-blue)' }}>Assigning Task with style...</h3>
+                <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', position: 'relative' }}>
+                  <div style={{ fontSize: '4rem', animation: 'taichi-move 2s ease-in-out', zIndex: 2 }}>🥋</div>
+                  <div style={{ 
+                    fontSize: '2rem', 
+                    position: 'absolute', 
+                    left: 'calc(50% - 20px)', 
+                    animation: 'throw-task 2s forwards cubic-bezier(0.25, 0.46, 0.45, 0.94)',
+                    zIndex: 1
+                  }}>📋</div>
+                  <div style={{ fontSize: '4rem', marginLeft: '180px', animation: 'receiver-react 2s forwards' }}>🧍</div>
+                </div>
               </div>
-              
-              <div className="input-group">
-                <label>Description</label>
-                <textarea rows="3" value={newTask.description} onChange={e => setNewTask({...newTask, description: e.target.value})} placeholder="Detailed instructions..." />
-              </div>
+            ) : (
+              <form onSubmit={submitNewTask} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                <div className="input-group">
+                  <label>Title</label>
+                  <input required type="text" value={newTask.title} onChange={e => setNewTask({...newTask, title: e.target.value})} placeholder="e.g. Call parent of Ebenezer" />
+                </div>
+                
+                <div className="input-group">
+                  <label>Description</label>
+                  <textarea rows="3" value={newTask.description} onChange={e => setNewTask({...newTask, description: e.target.value})} placeholder="Detailed instructions..." />
+                </div>
 
-              <div className="input-group">
-                <label>Assignee</label>
-                <select required value={newTask.assignee} onChange={e => setNewTask({...newTask, assignee: e.target.value})}>
-                  <option value="" disabled>Select an Instructor...</option>
-                  {[...uniqueBaseTeachers].filter(t => !disabledInstructors?.has(t)).map(t => (
-                    <option key={t} value={t}>{t}</option>
-                  ))}
-                  {/* Let's also add emails if needed, but for now names are easier */}
-                </select>
-              </div>
-
-              <div style={{ display: 'flex', gap: '1rem' }}>
-                <div className="input-group" style={{ flex: 1 }}>
-                  <label>Priority</label>
-                  <select value={newTask.priority} onChange={e => setNewTask({...newTask, priority: e.target.value})}>
-                    <option value="low">Low</option>
-                    <option value="medium">Medium</option>
-                    <option value="high">High</option>
+                <div className="input-group">
+                  <label>Assignee</label>
+                  <select required value={newTask.assignee} onChange={e => setNewTask({...newTask, assignee: e.target.value})}>
+                    <option value="" disabled>Select an Instructor...</option>
+                    {[...uniqueBaseTeachers].filter(t => !disabledInstructors?.has(t)).map(t => (
+                      <option key={t} value={t}>{t}</option>
+                    ))}
                   </select>
                 </div>
-                <div className="input-group" style={{ flex: 1 }}>
-                  <label>Due Date</label>
-                  <input type="date" required value={newTask.dueDate} onChange={e => setNewTask({...newTask, dueDate: e.target.value})} />
-                </div>
-              </div>
 
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '1rem', marginTop: '1rem' }}>
-                <button type="button" className="btn btn-sm" onClick={() => setIsModalOpen(false)}>Cancel</button>
-                <button type="submit" className="btn btn-primary">Create Task</button>
-              </div>
-            </form>
+                <div style={{ display: 'flex', gap: '1rem' }}>
+                  <div className="input-group" style={{ flex: 1 }}>
+                    <label>Priority</label>
+                    <select value={newTask.priority} onChange={e => setNewTask({...newTask, priority: e.target.value})}>
+                      <option value="low">Low</option>
+                      <option value="medium">Medium</option>
+                      <option value="high">High</option>
+                    </select>
+                  </div>
+                  <div className="input-group" style={{ flex: 1 }}>
+                    <label>Due Date</label>
+                    <input type="date" required value={newTask.dueDate} onChange={e => setNewTask({...newTask, dueDate: e.target.value})} />
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '1rem', marginTop: '1rem' }}>
+                  <button type="button" className="btn btn-sm" onClick={() => setIsModalOpen(false)}>Cancel</button>
+                  <button type="submit" className="btn btn-primary">Create Task</button>
+                </div>
+              </form>
+            )}
           </div>
         </div>
       )}
