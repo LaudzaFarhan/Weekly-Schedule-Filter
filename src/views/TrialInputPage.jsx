@@ -344,10 +344,15 @@ export default function TrialInputPage() {
       }
 
       setTimeout(() => {
-        setAvailabilityOverlay(slotAvailable ? 'available' : 'unavailable');
-        setTimeout(() => {
-          setAvailabilityOverlay(null);
-        }, 2500);
+        const result = slotAvailable ? 'available' : 'unavailable';
+        setAvailabilityOverlay(result);
+        
+        // Only auto-close if available. If unavailable, wait for user to read and click "Got it"
+        if (result === 'available') {
+          setTimeout(() => {
+            setAvailabilityOverlay(null);
+          }, 2500);
+        }
       }, 1000);
     }
   };
@@ -844,6 +849,25 @@ export default function TrialInputPage() {
                     Optimize students into fewer classes! If there are two teachers who each only have 2 students, consider merging them under 1 teacher. Check with the SPA if this is doable.
                   </p>
                 </div>
+                <button 
+                  onClick={() => setAvailabilityOverlay(null)} 
+                  style={{ 
+                    marginTop: '1rem', 
+                    padding: '0.75rem 2.5rem', 
+                    background: 'white', 
+                    border: '1px solid #fca5a5', 
+                    borderRadius: '8px', 
+                    cursor: 'pointer', 
+                    fontWeight: 600, 
+                    color: '#991b1b',
+                    transition: 'all 0.2s ease',
+                    boxShadow: '0 2px 4px rgba(0,0,0,0.05)'
+                  }}
+                  onMouseOver={(e) => { e.currentTarget.style.background = '#fef2f2'; }}
+                  onMouseOut={(e) => { e.currentTarget.style.background = 'white'; }}
+                >
+                  Got It
+                </button>
               </>
             )}
           </div>
