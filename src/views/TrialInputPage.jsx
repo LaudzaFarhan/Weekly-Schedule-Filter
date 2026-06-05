@@ -835,7 +835,15 @@ export default function TrialInputPage() {
               <>
                 <div style={{ width: '88px', height: '88px', borderRadius: '50%', background: 'var(--danger-bg)', color: 'var(--danger)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '3.5rem' }}>×</div>
                 <h2 style={{ fontSize: '2.8rem', color: 'var(--danger)', margin: 0 }}>Slot Not Available</h2>
-                <p style={{ color: 'var(--text-muted)', fontSize: '1.2rem', margin: 0 }}>No instructors are free at this time.</p>
+                <p style={{ color: 'var(--text-muted)', fontSize: '1.1rem', margin: '0.5rem 0 0.5rem 0' }}>No instructors are free at this time. Please contact the SPA to arrange the schedule.</p>
+                <div style={{ background: '#fef2f2', padding: '1.2rem', borderRadius: '12px', border: '1px dashed #fca5a5', textAlign: 'left', maxWidth: '450px' }}>
+                  <h4 style={{ color: '#991b1b', margin: '0 0 0.5rem 0', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    <span style={{ fontSize: '1.2rem' }}>💡</span> Recommendation
+                  </h4>
+                  <p style={{ color: '#991b1b', fontSize: '0.95rem', margin: 0, lineHeight: 1.5 }}>
+                    Optimize students into fewer classes! If there are two teachers who each only have 2 students, consider merging them under 1 teacher. Check with the SPA if this is doable.
+                  </p>
+                </div>
               </>
             )}
           </div>
