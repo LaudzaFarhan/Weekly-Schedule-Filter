@@ -296,17 +296,41 @@ export default function TrialPriorityPage() {
       ? overallClasses
       : overallClasses.filter(c => c.branchName === distBranch);
 
+    // Get list of active teachers for this branch filter
+    const activeTeachersInBranch = [...uniqueBaseTeachers].filter(t => {
+      if (disabledInstructors?.has(t)) return false;
+      if (distBranch === 'all') return true;
+      const profile = instructorProfiles.find(p => p.name === t);
+      if (profile && profile.location && profile.location === distBranch) return true;
+      return classesForDist.some(c => c.teacher === t);
+    });
+
     return FIXED_TRIAL_SLOTS.map((timeSlot) => {
       const row = { time: timeSlot };
       DAY_NAMES.forEach((day) => {
-        // Find all classes matching this day & time
-        const overlappingClasses = classesForDist.filter(c => 
-          c.day === day && doTimeSlotsOverlap(c.time, timeSlot)
+        // Find all regular classes matching this day & time (Exclude Trials)
+        const overlappingRegularClasses = classesForDist.filter(c => 
+          c.day === day && 
+          doTimeSlotsOverlap(c.time, timeSlot) &&
+          (!c.program || !c.program.toLowerCase().includes('trial'))
         );
         
-        // Group by teacher to get student count
         const teacherCounts = {};
-        overlappingClasses.forEach(c => {
+        
+        // Initialize all valid teachers with 0 count
+        activeTeachersInBranch.forEach(t => {
+          // Check if they are on leave
+          if (leaveList.some(l => l.name === t && leaveAppliesToDay(l, day))) return;
+          
+          // Check if part-timer is off today
+          const trialEntry = trialPriorityList.find(p => p.name === t);
+          if (trialEntry && trialEntry.status === 'parttime' && !trialEntry.workingDays.includes(day)) return;
+
+          teacherCounts[t] = { count: 0, classes: new Set() };
+        });
+
+        // Group by teacher to get student count
+        overlappingRegularClasses.forEach(c => {
           if (!teacherCounts[c.teacher]) teacherCounts[c.teacher] = { count: 0, classes: new Set() };
           teacherCounts[c.teacher].count += 1;
           if (c.program) teacherCounts[c.teacher].classes.add(c.program);
@@ -316,20 +340,24 @@ export default function TrialPriorityPage() {
         const activeTeachers = Object.entries(teacherCounts).map(([teacher, data]) => ({
           name: teacher,
           studentCount: data.count,
-          programs: Array.from(data.classes)
+          programs: data.classes.size > 0 ? Array.from(data.classes) : ['Available']
         }));
 
         // Sort by student count descending
         activeTeachers.sort((a, b) => b.studentCount - a.studentCount);
 
+        const activeClassCount = activeTeachers.filter(t => t.studentCount > 0).length;
+        const totalStudents = activeTeachers.reduce((sum, t) => sum + t.studentCount, 0);
+
         row[day] = {
-          activeCount: activeTeachers.length,
+          activeCount: activeClassCount,
+          totalStudents,
           teachers: activeTeachers
         };
       });
       return row;
     });
-  }, [overallClasses, distBranch]);
+  }, [overallClasses, distBranch, uniqueBaseTeachers, disabledInstructors, instructorProfiles, leaveList, trialPriorityList]);
 
   const totalPages = Math.ceil(filteredTrialPriorityList.length / PAGE_SIZE);
   const paged = filteredTrialPriorityList.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
@@ -699,25 +727,27 @@ export default function TrialPriorityPage() {
                       <td style={{ padding: 10, textAlign: 'left', fontWeight: 500 }}>{row.time}</td>
                       {DAY_NAMES.map((day) => (
                         <td key={day} style={{ padding: 10 }}>
-                          {row[day].activeCount > 0 ? (
+                          {row[day].teachers.length > 0 ? (
                             <span 
                               style={{ 
                                 cursor: 'pointer', 
                                 display: 'inline-flex', 
                                 alignItems: 'center', 
                                 justifyContent: 'center',
-                                background: 'var(--primary-light, #eff6ff)',
-                                color: 'var(--primary-dark, #1e3a8a)',
+                                background: row[day].activeCount >= 6 ? '#fee2e2' : row[day].activeCount >= 3 ? '#ffedd5' : row[day].activeCount > 0 ? '#dcfce7' : 'var(--bg-secondary, #f1f5f9)',
+                                color: row[day].activeCount >= 6 ? '#991b1b' : row[day].activeCount >= 3 ? '#9a3412' : row[day].activeCount > 0 ? '#166534' : 'var(--text-muted, #64748b)',
                                 padding: '4px 8px',
                                 borderRadius: '12px',
                                 fontSize: '0.8rem',
                                 fontWeight: 600,
-                                border: '1px solid var(--primary-border, #bfdbfe)'
+                                border: `1px solid ${row[day].activeCount >= 6 ? '#fecaca' : row[day].activeCount >= 3 ? '#fed7aa' : row[day].activeCount > 0 ? '#bbf7d0' : '#e2e8f0'}`,
+                                whiteSpace: 'nowrap'
                               }}
-                              onClick={() => setDistModalData({ day, time: row.time, teachers: row[day].teachers })}
+                              onClick={() => setDistModalData({ day, time: row.time, teachers: row[day].teachers, activeCount: row[day].activeCount })}
                               title="Click to see student counts"
                             >
                               {row[day].activeCount} Class{row[day].activeCount !== 1 && 'es'}
+                              {row[day].totalStudents > 0 && <span style={{ fontSize: '0.7rem', marginLeft: '4px', opacity: 0.8 }}>• {row[day].totalStudents}</span>}
                             </span>
                           ) : (
                             <span 
@@ -751,7 +781,7 @@ export default function TrialPriorityPage() {
             </p>
             
             <h4 style={{ color: 'var(--text-primary)', marginBottom: '0.75rem', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.5rem' }}>
-              Active Classes ({distModalData.teachers.length})
+              Active Classes ({distModalData.activeCount})
             </h4>
             
             {distModalData.teachers.length > 0 ? (
@@ -759,19 +789,19 @@ export default function TrialPriorityPage() {
                 {distModalData.teachers.map((t, i) => (
                   <li key={i} style={{ padding: '0.75rem 0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #f1f5f9' }}>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
-                      <span style={{ fontWeight: 600, fontSize: '1.05rem' }}>{t.name}</span>
-                      <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{t.programs.join(', ')}</span>
+                      <span style={{ fontWeight: 600, fontSize: '1.05rem', color: t.studentCount === 0 ? 'var(--text-secondary)' : 'var(--text-primary)' }}>{t.name}</span>
+                      <span style={{ fontSize: '0.8rem', color: t.studentCount === 0 ? 'var(--success)' : 'var(--text-muted)' }}>{t.programs.join(', ')}</span>
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                      <Badge variant={t.studentCount >= 6 ? 'danger' : t.studentCount >= 4 ? 'warning' : 'success'}>
-                        {t.studentCount} student{t.studentCount > 1 ? 's' : ''}
+                      <Badge variant={t.studentCount >= 6 ? 'danger' : t.studentCount >= 4 ? 'warning' : t.studentCount > 0 ? 'success' : 'neutral'}>
+                        {t.studentCount} student{t.studentCount !== 1 ? 's' : ''}
                       </Badge>
                     </div>
                   </li>
                 ))}
               </ul>
             ) : (
-              <p style={{ color: 'var(--text-secondary)', fontStyle: 'italic' }}>No classes active.</p>
+              <p style={{ color: 'var(--text-secondary)', fontStyle: 'italic' }}>No teachers available.</p>
             )}
           </div>
         </div>
