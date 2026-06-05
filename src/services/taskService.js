@@ -57,11 +57,12 @@ export function listenToMyTasks(assigneeEmail, callback) {
   if (!assigneeEmail) return () => {};
   const q = query(
     collection(db, TASKS_COLLECTION),
-    where('assignee', '==', assigneeEmail),
-    orderBy('createdAt', 'desc')
+    where('assignee', '==', assigneeEmail)
   );
   return onSnapshot(q, (snapshot) => {
     const tasks = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    // Sort descending client-side to avoid requiring a composite index
+    tasks.sort((a, b) => (b.createdAt?.toMillis() || 0) - (a.createdAt?.toMillis() || 0));
     callback(tasks);
   });
 }
@@ -76,11 +77,12 @@ export function listenToDelegatedTasks(assignerEmail, callback) {
   if (!assignerEmail) return () => {};
   const q = query(
     collection(db, TASKS_COLLECTION),
-    where('assigner', '==', assignerEmail),
-    orderBy('createdAt', 'desc')
+    where('assigner', '==', assignerEmail)
   );
   return onSnapshot(q, (snapshot) => {
     const tasks = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    // Sort descending client-side to avoid requiring a composite index
+    tasks.sort((a, b) => (b.createdAt?.toMillis() || 0) - (a.createdAt?.toMillis() || 0));
     callback(tasks);
   });
 }
@@ -89,9 +91,11 @@ export function listenToDelegatedTasks(assignerEmail, callback) {
  * Listen to ALL tasks (Master View for Admins)
  */
 export function listenToAllTasks(callback) {
-  const q = query(collection(db, TASKS_COLLECTION), orderBy('createdAt', 'desc'));
+  const q = query(collection(db, TASKS_COLLECTION));
   return onSnapshot(q, (snapshot) => {
     const tasks = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    // Sort descending client-side
+    tasks.sort((a, b) => (b.createdAt?.toMillis() || 0) - (a.createdAt?.toMillis() || 0));
     callback(tasks);
   });
 }
