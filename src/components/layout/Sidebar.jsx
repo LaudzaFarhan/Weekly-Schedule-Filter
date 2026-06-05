@@ -1,11 +1,13 @@
 'use client';
 
+import { useState, useEffect } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useSchedule } from '@/contexts/ScheduleContext';
 import {
   Home, AlertTriangle, Calendar, Activity, Star,
-  Search, FileText, PenLine, Terminal, Settings, LogOut, User, BarChart3,
+  Search, FileText, PenLine, Terminal, Settings, LogOut, User, BarChart3, ClipboardList
 } from 'lucide-react';
+import { listenToMyTasks } from '@/services/taskService';
 
 /**
  * Each navItem maps to a sidebar `roleKey` (used in the Role Permissions
@@ -24,6 +26,7 @@ const navItems = [
   { id: 'finder', icon: Search, label: 'Free Finder', roleKey: 'finder' },
   { id: 'schedule', icon: FileText, label: 'Master Schedule', roleKey: 'schedule' },
   { id: 'trial-input', icon: PenLine, label: 'Input Trial Leads', roleKey: 'trial_input' },
+  { id: 'tasks', icon: ClipboardList, label: 'To-Do List', roleKey: 'tasks' },
   { id: 'profiles', icon: User, label: 'Instructor Profiles', roleKey: 'profiles' },
   { id: 'api-docs', icon: Terminal, label: 'API Documentation', roleKey: 'api_docs' },
   { id: 'admin', icon: Settings, label: 'Admin Settings', roleKey: 'admin' },
@@ -40,6 +43,26 @@ export default function Sidebar({ currentPage, onNavigate }) {
   const userEmail = user?.email?.toLowerCase() || '';
   const userRole = users?.[userEmail] || 'Instructor';
   const currentToggles = roleToggles?.[userRole] || roleToggles?.['Instructor'] || {};
+
+  const [pendingCount, setPendingCount] = useState(0);
+
+  // Determine the logged in user's instructor name for task queries
+  const { instructorProfiles } = useSchedule();
+  const myProfile = instructorProfiles?.find(p => 
+    p.id === user?.email || 
+    p.linkedEmail === user?.email || 
+    (p.nickname && p.nickname.toLowerCase() === userEmail.split('@')[0])
+  );
+  const myTeacherName = myProfile?.fullname || myProfile?.nickname || userEmail.split('@')[0] || 'Unknown';
+
+  useEffect(() => {
+    if (!user) return;
+    const unsubscribe = listenToMyTasks(myTeacherName, (tasks) => {
+      const pending = tasks.filter(t => t.status === 'pending').length;
+      setPendingCount(pending);
+    });
+    return () => unsubscribe();
+  }, [user, myTeacherName]);
 
   const isItemVisible = (item) => {
     // Role-permission gate: missing key defaults to enabled
@@ -69,9 +92,24 @@ export default function Sidebar({ currentPage, onNavigate }) {
               key={id}
               className={`nav-item ${currentPage === id ? 'active' : ''}`}
               onClick={() => onNavigate(id)}
+              style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
             >
-              <Icon size={20} />
-              {label}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                <Icon size={20} />
+                {label}
+              </div>
+              {id === 'tasks' && pendingCount > 0 && (
+                <span style={{ 
+                  background: 'var(--danger)', 
+                  color: 'white', 
+                  fontSize: '0.7rem', 
+                  fontWeight: 'bold', 
+                  padding: '2px 6px', 
+                  borderRadius: '10px' 
+                }}>
+                  {pendingCount}
+                </span>
+              )}
             </button>
           );
         })}

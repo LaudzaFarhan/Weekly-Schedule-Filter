@@ -19,6 +19,7 @@ import ApiDocsPage from '@/views/ApiDocsPage';
 import AdminPage from '@/views/AdminPage';
 import ProfilePage from '@/views/ProfilePage';
 import WorkloadPage from '@/views/WorkloadPage';
+import TasksPage from '@/views/TasksPage';
 
 const PAGE_MAP = {
   home: HomePage,
@@ -31,6 +32,7 @@ const PAGE_MAP = {
   'trial-input': TrialInputPage,
   profiles: ProfilePage,
   workload: WorkloadPage,
+  tasks: TasksPage,
   'api-docs': ApiDocsPage,
   admin: AdminPage,
 };
