@@ -111,10 +111,10 @@ export default function TasksPage() {
 
   return (
     <section className="dashboard-view active">
-      <div className="panel" style={{ marginBottom: '1.5rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+      <div style={{ marginBottom: '1.5rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div>
-          <h2>To-Do List & Task Assignment</h2>
-          <p className="subtext">Manage personal tasks and delegated follow-ups</p>
+          <h2 style={{ margin: '0 0 0.25rem 0' }}>To-Do List & Task Assignment</h2>
+          <p className="subtext" style={{ margin: 0 }}>Manage personal tasks and delegated follow-ups</p>
         </div>
         <button className="btn btn-primary" onClick={() => setIsModalOpen(true)}>
           <Plus size={18} /> Assign New Task
