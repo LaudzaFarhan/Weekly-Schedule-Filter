@@ -4,11 +4,12 @@ import { useSchedule } from '../contexts/ScheduleContext';
 import { 
   createTask, 
   updateTask, 
+  deleteTask,
   listenToMyTasks, 
   listenToDelegatedTasks, 
   listenToAllTasks 
 } from '../services/taskService';
-import { Plus, X, Search } from 'lucide-react';
+import { Plus, X, Search, Trash2 } from 'lucide-react';
 import Badge from '../components/ui/Badge';
 import { useToast } from '../components/ui/Toast';
 
@@ -78,6 +79,17 @@ export default function TasksPage() {
     } catch (err) {
       console.error(err);
       showToast({ title: 'Error moving task', variant: 'error' });
+    }
+  };
+
+  const handleDeleteTask = async (taskId) => {
+    if (!confirm('Are you sure you want to delete this task?')) return;
+    try {
+      await deleteTask(taskId);
+      showToast({ title: 'Task deleted successfully', variant: 'success' });
+    } catch (err) {
+      console.error(err);
+      showToast({ title: 'Failed to delete task', variant: 'error' });
     }
   };
 
@@ -159,7 +171,7 @@ export default function TasksPage() {
             Pending <Badge>{pendingTasks.length}</Badge>
           </h3>
           {pendingTasks.map(task => (
-            <TaskCard key={task.id} task={task} onDragStart={handleDragStart} getPriorityColor={getPriorityColor} />
+            <TaskCard key={task.id} task={task} onDragStart={handleDragStart} getPriorityColor={getPriorityColor} onDelete={() => handleDeleteTask(task.id)} />
           ))}
         </div>
 
@@ -173,7 +185,7 @@ export default function TasksPage() {
             In Progress <Badge variant="warning">{inProgressTasks.length}</Badge>
           </h3>
           {inProgressTasks.map(task => (
-            <TaskCard key={task.id} task={task} onDragStart={handleDragStart} getPriorityColor={getPriorityColor} />
+            <TaskCard key={task.id} task={task} onDragStart={handleDragStart} getPriorityColor={getPriorityColor} onDelete={() => handleDeleteTask(task.id)} />
           ))}
         </div>
 
@@ -187,7 +199,7 @@ export default function TasksPage() {
             Completed <Badge variant="success">{completedTasks.length}</Badge>
           </h3>
           {completedTasks.map(task => (
-            <TaskCard key={task.id} task={task} onDragStart={handleDragStart} getPriorityColor={getPriorityColor} />
+            <TaskCard key={task.id} task={task} onDragStart={handleDragStart} getPriorityColor={getPriorityColor} onDelete={() => handleDeleteTask(task.id)} />
           ))}
         </div>
 
@@ -255,7 +267,7 @@ export default function TasksPage() {
   );
 }
 
-function TaskCard({ task, onDragStart, getPriorityColor }) {
+function TaskCard({ task, onDragStart, getPriorityColor, onDelete }) {
   return (
     <div 
       draggable
@@ -270,9 +282,23 @@ function TaskCard({ task, onDragStart, getPriorityColor }) {
         borderLeft: `4px solid var(--${getPriorityColor(task.priority)})`
       }}
     >
-      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem', alignItems: 'flex-start' }}>
         <Badge variant={getPriorityColor(task.priority)}>{task.priority}</Badge>
-        <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{task.dueDate}</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+          <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{task.dueDate}</span>
+          <button 
+            onClick={(e) => { e.stopPropagation(); onDelete(); }} 
+            style={{ 
+              background: 'none', border: 'none', cursor: 'pointer', 
+              color: 'var(--danger)', opacity: 0.6, padding: '2px', display: 'flex', alignItems: 'center' 
+            }}
+            title="Delete task"
+            onMouseOver={(e) => e.currentTarget.style.opacity = 1}
+            onMouseOut={(e) => e.currentTarget.style.opacity = 0.6}
+          >
+            <Trash2 size={16} />
+          </button>
+        </div>
       </div>
       <h4 style={{ margin: '0 0 0.5rem 0' }}>{task.title}</h4>
       <p style={{ margin: '0 0 1rem 0', fontSize: '0.9rem', color: 'var(--text-secondary)' }}>{task.description}</p>
