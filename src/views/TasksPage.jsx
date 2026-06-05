@@ -10,10 +10,11 @@ import {
 } from '../services/taskService';
 import { Plus, X, Search } from 'lucide-react';
 import Badge from '../components/ui/Badge';
-import { showToast } from '../components/ui/Toast';
+import { useToast } from '../components/ui/Toast';
 
 export default function TasksPage() {
   const { user } = useAuth();
+  const { showToast } = useToast();
   const { uniqueBaseTeachers, disabledInstructors, instructorProfiles } = useSchedule();
   
   const [activeTab, setActiveTab] = useState('my_tasks'); // my_tasks, delegated, master
