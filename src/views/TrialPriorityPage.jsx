@@ -31,6 +31,7 @@ export default function TrialPriorityPage() {
   const [page, setPage] = useState(1);
   const [selectedSlotData, setSelectedSlotData] = useState(null);
   const [selectedRows, setSelectedRows] = useState(new Set());
+  const [overviewBranch, setOverviewBranch] = useState('all');
   const [distBranch, setDistBranch] = useState('all');
   const [distModalData, setDistModalData] = useState(null);
 
