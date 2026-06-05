@@ -147,6 +147,17 @@ export default function TrialInputPage() {
     filteredTeachers.forEach((teacher) => {
       if (disabledInstructors.has(teacher)) return;
       if (onLeave.has(teacher)) return;
+
+      // If they are explicitly part-time in trial priority, check their working days
+      if (trialPriorityList) {
+        const priorityInfo = trialPriorityList.find(p => p.name === teacher);
+        if (priorityInfo && priorityInfo.status === 'parttime') {
+          if (!priorityInfo.workingDays?.includes(form.day)) {
+            return; // Not a working day for this part-timer
+          }
+        }
+      }
+
       const isBusy = branchClasses?.some(
         (c) =>
           c.teacher === teacher &&
@@ -157,7 +168,7 @@ export default function TrialInputPage() {
     });
 
     return available;
-  }, [form.day, form.time, filteredTeachers, branchClasses, leaveList, disabledInstructors]);
+  }, [form.day, form.time, filteredTeachers, branchClasses, leaveList, disabledInstructors, trialPriorityList]);
 
   // Determine ready instructors based on profile specialization
   const readyInstructors = useMemo(() => {
@@ -298,6 +309,16 @@ export default function TrialInputPage() {
 
       for (const teacher of teachersInBranch) {
         if (onLeave.has(teacher)) continue;
+
+        // Check if they are part-time and if this is a working day
+        if (trialPriorityList) {
+          const priorityInfo = trialPriorityList.find(p => p.name === teacher);
+          if (priorityInfo && priorityInfo.status === 'parttime') {
+            if (!priorityInfo.workingDays?.includes(parsed.day)) {
+              continue; // Not a working day for this part-timer
+            }
+          }
+        }
         
         if (parsed.program && instructorProfiles) {
            const profile = instructorProfiles.find(p => p.fullname === teacher || p.nickname === teacher || p.id === teacher);
