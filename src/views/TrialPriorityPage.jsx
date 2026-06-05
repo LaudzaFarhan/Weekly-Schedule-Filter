@@ -31,7 +31,8 @@ export default function TrialPriorityPage() {
   const [page, setPage] = useState(1);
   const [selectedSlotData, setSelectedSlotData] = useState(null);
   const [selectedRows, setSelectedRows] = useState(new Set());
-  const [overviewBranch, setOverviewBranch] = useState('all');
+  const [distBranch, setDistBranch] = useState('all');
+  const [distModalData, setDistModalData] = useState(null);
 
   // Filter the list for the management table — show all entries, not just active branch
   // This allows managing instructors from any branch in one place
@@ -278,6 +279,56 @@ export default function TrialPriorityPage() {
       return row;
     });
   }, [trialPriorityList, overallClasses, leaveList, disabledInstructors, overviewBranch]);
+
+  // Student Distribution Overview Table
+  const distributionOverview = useMemo(() => {
+    if (overallClasses.length === 0) return [];
+
+    const FIXED_TRIAL_SLOTS = [
+      "1.00 - 2.00 pm", "1.30 - 2.30 pm", "2.00 - 3.00 pm", "2.30 - 3.30 pm",
+      "3.00 - 4.00 pm", "3.30 - 4.30 pm", "4.00 - 5.00 pm", "4.30 - 5.30 pm",
+      "5.00 - 6.00 pm", "5.30 - 6.30 pm"
+    ];
+
+    // Filter classes by selected distribution branch
+    const classesForDist = distBranch === 'all'
+      ? overallClasses
+      : overallClasses.filter(c => c.branchName === distBranch);
+
+    return FIXED_TRIAL_SLOTS.map((timeSlot) => {
+      const row = { time: timeSlot };
+      DAY_NAMES.forEach((day) => {
+        // Find all classes matching this day & time
+        const overlappingClasses = classesForDist.filter(c => 
+          c.day === day && doTimeSlotsOverlap(c.time, timeSlot)
+        );
+        
+        // Group by teacher to get student count
+        const teacherCounts = {};
+        overlappingClasses.forEach(c => {
+          if (!teacherCounts[c.teacher]) teacherCounts[c.teacher] = { count: 0, classes: new Set() };
+          teacherCounts[c.teacher].count += 1;
+          if (c.program) teacherCounts[c.teacher].classes.add(c.program);
+        });
+
+        // Convert to array
+        const activeTeachers = Object.entries(teacherCounts).map(([teacher, data]) => ({
+          name: teacher,
+          studentCount: data.count,
+          programs: Array.from(data.classes)
+        }));
+
+        // Sort by student count descending
+        activeTeachers.sort((a, b) => b.studentCount - a.studentCount);
+
+        row[day] = {
+          activeCount: activeTeachers.length,
+          teachers: activeTeachers
+        };
+      });
+      return row;
+    });
+  }, [overallClasses, distBranch]);
 
   const totalPages = Math.ceil(filteredTrialPriorityList.length / PAGE_SIZE);
   const paged = filteredTrialPriorityList.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
@@ -583,6 +634,143 @@ export default function TrialPriorityPage() {
               </ul>
             ) : (
               <p style={{ color: 'var(--text-secondary)', fontStyle: 'italic' }}>All assigned priority instructors are available.</p>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Student Distribution Checker */}
+      <div className="panel trial-overview-panel" style={{ marginTop: '1.5rem' }}>
+        <div className="panel-header">
+          <div className="panel-header-left">
+            <h2>Student Distribution Checker</h2>
+            <span className="subtext">View class load and total students per instructor</span>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', background: 'var(--bg-secondary, #f1f5f9)', borderRadius: '8px', padding: '0.35rem 0.6rem' }}>
+              <button
+                onClick={() => {
+                  const branchOptions = ['all', ...(branches || []).map(b => b.name)];
+                  const currentIdx = branchOptions.indexOf(distBranch);
+                  const prevIdx = currentIdx <= 0 ? branchOptions.length - 1 : currentIdx - 1;
+                  setDistBranch(branchOptions[prevIdx]);
+                }}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1.1rem', padding: '0.1rem 0.4rem', color: 'var(--primary, #3b82f6)', fontWeight: 600 }}
+                title="Previous branch"
+              >
+                ‹
+              </button>
+              <span style={{ fontSize: '0.85rem', fontWeight: 600, minWidth: '110px', textAlign: 'center', color: 'var(--text-primary)' }}>
+                {distBranch === 'all' ? 'All Branches' : distBranch}
+              </span>
+              <button
+                onClick={() => {
+                  const branchOptions = ['all', ...(branches || []).map(b => b.name)];
+                  const currentIdx = branchOptions.indexOf(distBranch);
+                  const nextIdx = currentIdx >= branchOptions.length - 1 ? 0 : currentIdx + 1;
+                  setDistBranch(branchOptions[nextIdx]);
+                }}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1.1rem', padding: '0.1rem 0.4rem', color: 'var(--primary, #3b82f6)', fontWeight: 600 }}
+                title="Next branch"
+              >
+                ›
+              </button>
+            </div>
+          </div>
+        </div>
+        <div className="panel-body">
+          <div style={{ overflowX: 'auto' }}>
+            <table className="trial-overview-table" style={{ width: '100%', textAlign: 'center', borderCollapse: 'collapse', marginTop: '1rem' }}>
+              <thead>
+                <tr style={{ borderBottom: '2px solid var(--border-color)' }}>
+                  <th style={{ padding: 10, textAlign: 'left' }}>Time</th>
+                  {DAY_NAMES.map((d) => <th key={d} style={{ padding: 10 }}>{d}</th>)}
+                </tr>
+              </thead>
+              <tbody>
+                {overallClasses.length === 0 ? (
+                  <tr><td colSpan={DAY_NAMES.length + 1} className="empty-state-table" style={{ padding: '2rem' }}>Click "Sync All Branches" to generate student distribution.</td></tr>
+                ) : distributionOverview.length === 0 ? (
+                  <tr><td colSpan={DAY_NAMES.length + 1} className="empty-state-table" style={{ padding: '2rem' }}>No classes found.</td></tr>
+                ) : (
+                  distributionOverview.map((row, i) => (
+                    <tr key={i} style={{ borderBottom: '1px solid var(--border-color)' }}>
+                      <td style={{ padding: 10, textAlign: 'left', fontWeight: 500 }}>{row.time}</td>
+                      {DAY_NAMES.map((day) => (
+                        <td key={day} style={{ padding: 10 }}>
+                          {row[day].activeCount > 0 ? (
+                            <span 
+                              style={{ 
+                                cursor: 'pointer', 
+                                display: 'inline-flex', 
+                                alignItems: 'center', 
+                                justifyContent: 'center',
+                                background: 'var(--primary-light, #eff6ff)',
+                                color: 'var(--primary-dark, #1e3a8a)',
+                                padding: '4px 8px',
+                                borderRadius: '12px',
+                                fontSize: '0.8rem',
+                                fontWeight: 600,
+                                border: '1px solid var(--primary-border, #bfdbfe)'
+                              }}
+                              onClick={() => setDistModalData({ day, time: row.time, teachers: row[day].teachers })}
+                              title="Click to see student counts"
+                            >
+                              {row[day].activeCount} Class{row[day].activeCount !== 1 && 'es'}
+                            </span>
+                          ) : (
+                            <span 
+                              className="trial-avail-none"
+                              style={{ color: 'var(--text-muted)' }}
+                            >
+                              —
+                            </span>
+                          )}
+                        </td>
+                      ))}
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      {/* Student Distribution Modal */}
+      {distModalData && (
+        <div className="modal-backdrop" onClick={() => setDistModalData(null)} style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div className="modal-content panel" onClick={e => e.stopPropagation()} style={{ width: '90%', maxWidth: '500px', maxHeight: '80vh', overflowY: 'auto', padding: '1.5rem', margin: 0 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+              <h3 style={{ margin: 0 }}>Student Distribution</h3>
+              <button className="btn-icon" onClick={() => setDistModalData(null)} style={{ fontSize: '1.5rem', lineHeight: 1 }}>&times;</button>
+            </div>
+            <p style={{ margin: '0 0 1.5rem 0', color: 'var(--text-secondary)' }}>
+              <strong>{distModalData.day}</strong> at <strong>{distModalData.time}</strong>
+            </p>
+            
+            <h4 style={{ color: 'var(--text-primary)', marginBottom: '0.75rem', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.5rem' }}>
+              Active Classes ({distModalData.teachers.length})
+            </h4>
+            
+            {distModalData.teachers.length > 0 ? (
+              <ul style={{ listStyle: 'none', padding: 0, margin: '0 0 1rem 0' }}>
+                {distModalData.teachers.map((t, i) => (
+                  <li key={i} style={{ padding: '0.75rem 0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #f1f5f9' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+                      <span style={{ fontWeight: 600, fontSize: '1.05rem' }}>{t.name}</span>
+                      <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{t.programs.join(', ')}</span>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      <Badge variant={t.studentCount >= 6 ? 'danger' : t.studentCount >= 4 ? 'warning' : 'success'}>
+                        {t.studentCount} student{t.studentCount > 1 ? 's' : ''}
+                      </Badge>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p style={{ color: 'var(--text-secondary)', fontStyle: 'italic' }}>No classes active.</p>
             )}
           </div>
         </div>
