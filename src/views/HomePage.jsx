@@ -41,6 +41,7 @@ export default function HomePage({ onNavigate }) {
   const [listModal, setListModal] = useState(null);
   const [isLogSidebarOpen, setIsLogSidebarOpen] = useState(false);
   const [fullLogs, setFullLogs] = useState([]);
+  const [logDateFilter, setLogDateFilter] = useState('');
 
   useEffect(() => {
     if (isLogSidebarOpen) {
@@ -527,17 +528,53 @@ export default function HomePage({ onNavigate }) {
 
       {/* Activity Log Sidebar */}
       {isLogSidebarOpen && (
-        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.4)', zIndex: 9999, display: 'flex', justifyContent: 'flex-end', backdropFilter: 'blur(2px)' }} onClick={() => setIsLogSidebarOpen(false)}>
-          <div style={{ backgroundColor: '#fff', width: '400px', maxWidth: '90%', height: '100%', display: 'flex', flexDirection: 'column', boxShadow: '-5px 0 25px rgba(0,0,0,0.1)' }} onClick={e => e.stopPropagation()}>
+        <div 
+          style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.4)', zIndex: 9999, display: 'flex', justifyContent: 'flex-end', backdropFilter: 'blur(2px)', animation: 'fadeIn 0.4s ease-out' }} 
+          onClick={() => setIsLogSidebarOpen(false)}
+        >
+          <style>{`
+            @keyframes slideInRight {
+              from { transform: translateX(100%); }
+              to { transform: translateX(0); }
+            }
+          `}</style>
+          <div 
+            style={{ backgroundColor: '#fff', width: '400px', maxWidth: '90%', height: '100%', display: 'flex', flexDirection: 'column', boxShadow: '-5px 0 25px rgba(0,0,0,0.1)', animation: 'slideInRight 0.4s cubic-bezier(0.16, 1, 0.3, 1)' }} 
+            onClick={e => e.stopPropagation()}
+          >
             <div style={{ padding: '1.25rem 1.5rem', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <h2 style={{ fontSize: '1.1rem', margin: 0, color: 'var(--text-main)' }}>All Activity Logs</h2>
-              <button onClick={() => setIsLogSidebarOpen(false)} style={{ background: 'none', border: 'none', fontSize: '1.5rem', cursor: 'pointer', color: 'var(--text-muted)' }}>&times;</button>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
+                <h2 style={{ fontSize: '1.1rem', margin: 0, color: 'var(--text-main)' }}>All Activity Logs</h2>
+                <input 
+                  type="date" 
+                  value={logDateFilter}
+                  onChange={(e) => setLogDateFilter(e.target.value)}
+                  style={{ padding: '0.4rem 0.6rem', border: '1px solid var(--border-color)', borderRadius: '6px', fontSize: '0.8rem', outline: 'none' }}
+                />
+              </div>
+              <button onClick={() => setIsLogSidebarOpen(false)} style={{ background: 'none', border: 'none', fontSize: '1.5rem', cursor: 'pointer', color: 'var(--text-muted)', alignSelf: 'flex-start' }}>&times;</button>
             </div>
             <div style={{ padding: '1.5rem', overflowY: 'auto', flex: 1, display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-              {fullLogs.length === 0 ? (
-                <div style={{ color: 'var(--text-muted)', textAlign: 'center' }}>Loading logs...</div>
-              ) : (
-                fullLogs.map(act => {
+              {(() => {
+                const filteredLogs = logDateFilter ? fullLogs.filter(act => {
+                  if (!act.timestamp) return false;
+                  const d = new Date(act.timestamp.toMillis ? act.timestamp.toMillis() : act.timestamp);
+                  const year = d.getFullYear();
+                  const month = String(d.getMonth() + 1).padStart(2, '0');
+                  const day = String(d.getDate()).padStart(2, '0');
+                  const dateStr = `${year}-${month}-${day}`;
+                  return dateStr === logDateFilter;
+                }) : fullLogs;
+
+                if (fullLogs.length === 0) {
+                  return <div style={{ color: 'var(--text-muted)', textAlign: 'center' }}>Loading logs...</div>;
+                }
+
+                if (filteredLogs.length === 0) {
+                  return <div style={{ color: 'var(--text-muted)', textAlign: 'center' }}>No logs found for this date.</div>;
+                }
+
+                return filteredLogs.map(act => {
                   let color = 'var(--text-muted)';
                   if (act.action.includes('login') || act.action.includes('logged in')) color = 'var(--success)';
                   else if (act.action.includes('sync')) color = 'var(--primary-blue)';
@@ -557,8 +594,8 @@ export default function HomePage({ onNavigate }) {
                       </div>
                     </div>
                   );
-                })
-              )}
+                });
+              })()}
             </div>
           </div>
         </div>
