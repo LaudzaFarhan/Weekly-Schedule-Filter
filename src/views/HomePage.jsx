@@ -39,6 +39,17 @@ export default function HomePage({ onNavigate }) {
   const [trendMetric, setTrendMetric] = useState('hours'); // 'hours' | 'sessions'
   const [trendBranch, setTrendBranch] = useState('all');
   const [listModal, setListModal] = useState(null);
+  const [isLogSidebarOpen, setIsLogSidebarOpen] = useState(false);
+  const [fullLogs, setFullLogs] = useState([]);
+
+  useEffect(() => {
+    if (isLogSidebarOpen) {
+      const unsubscribe = subscribeToActivities(100, (logs) => {
+        setFullLogs(logs);
+      });
+      return () => unsubscribe();
+    }
+  }, [isLogSidebarOpen]);
 
   const getRelativeTime = () => {
     if (!lastSyncTime) return null;
@@ -381,8 +392,14 @@ export default function HomePage({ onNavigate }) {
 
           {/* Activity Feed (bottom) */}
           <div className="panel" style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
-            <div className="panel-header">
+            <div className="panel-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <h2>Activity Feed</h2>
+              <button 
+                onClick={() => setIsLogSidebarOpen(true)}
+                style={{ fontSize: '0.8rem', background: 'none', border: 'none', color: 'var(--primary-blue)', cursor: 'pointer', fontWeight: 500 }}
+              >
+                View All
+              </button>
             </div>
             <div className="panel-body" style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem', flex: 1, overflowY: 'auto', minHeight: 0 }}>
               {activities.length === 0 ? (
@@ -504,6 +521,45 @@ export default function HomePage({ onNavigate }) {
                 </>
               );
             })()}
+          </div>
+        </div>
+      )}
+
+      {/* Activity Log Sidebar */}
+      {isLogSidebarOpen && (
+        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.4)', zIndex: 9999, display: 'flex', justifyContent: 'flex-end', backdropFilter: 'blur(2px)' }} onClick={() => setIsLogSidebarOpen(false)}>
+          <div style={{ backgroundColor: '#fff', width: '400px', maxWidth: '90%', height: '100%', display: 'flex', flexDirection: 'column', boxShadow: '-5px 0 25px rgba(0,0,0,0.1)' }} onClick={e => e.stopPropagation()}>
+            <div style={{ padding: '1.25rem 1.5rem', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <h2 style={{ fontSize: '1.1rem', margin: 0, color: 'var(--text-main)' }}>All Activity Logs</h2>
+              <button onClick={() => setIsLogSidebarOpen(false)} style={{ background: 'none', border: 'none', fontSize: '1.5rem', cursor: 'pointer', color: 'var(--text-muted)' }}>&times;</button>
+            </div>
+            <div style={{ padding: '1.5rem', overflowY: 'auto', flex: 1, display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+              {fullLogs.length === 0 ? (
+                <div style={{ color: 'var(--text-muted)', textAlign: 'center' }}>Loading logs...</div>
+              ) : (
+                fullLogs.map(act => {
+                  let color = 'var(--text-muted)';
+                  if (act.action.includes('login') || act.action.includes('logged in')) color = 'var(--success)';
+                  else if (act.action.includes('sync')) color = 'var(--primary-blue)';
+                  else if (act.action.includes('logout') || act.action.includes('logged out') || act.action.includes('close')) color = 'var(--warning)';
+
+                  const timeStr = act.timestamp ? new Date(act.timestamp.toMillis ? act.timestamp.toMillis() : act.timestamp).toLocaleString(undefined, {
+                    month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit'
+                  }) : 'Just now';
+
+                  return (
+                    <div key={act.id} style={{ display: 'flex', alignItems: 'flex-start', gap: '0.8rem', fontSize: '0.85rem' }}>
+                      <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: color, marginTop: '0.4rem', flexShrink: 0 }} />
+                      <div>
+                        <span style={{ fontWeight: 600 }}>{act.user}</span>
+                        <span style={{ color: 'var(--text-muted)' }}> {act.action}</span>
+                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.2rem' }}>{timeStr}</div>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
           </div>
         </div>
       )}
