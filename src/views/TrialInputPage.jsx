@@ -54,6 +54,7 @@ export default function TrialInputPage() {
   const [submitting, setSubmitting] = useState(false);
   const [datePage, setDatePage] = useState(0);
   const [quickFillText, setQuickFillText] = useState('');
+  const [availabilityOverlay, setAvailabilityOverlay] = useState(null);
   const [baseMonth, setBaseMonth] = useState(() => {
     const d = new Date();
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
@@ -265,6 +266,68 @@ export default function TrialInputPage() {
     }
 
     setQuickFillText('');
+
+    if (parsed.day && parsed.time) {
+      setAvailabilityOverlay('checking');
+      
+      let slotAvailable = false;
+      const targetBranch = parsed.branchName || targetBranchName;
+      const bClasses = overallClasses.filter((c) => c.branchName === targetBranch);
+      
+      const bTeachers = new Set();
+      bClasses.forEach(c => {
+        if (isValidTeacherName(c.teacher)) bTeachers.add(c.teacher);
+      });
+
+      const teachersInBranch = [...uniqueBaseTeachers].filter((t) => {
+        if (disabledInstructors?.has(t)) return false;
+        const profile = instructorProfiles?.find(p => p.fullname === t || p.nickname === t);
+        if (profile) {
+          return profile.location === 'All Branches' || profile.location === targetBranch;
+        }
+        return bTeachers.has(t);
+      });
+
+      const onLeave = new Set();
+      if (leaveList) {
+        leaveList.forEach((l) => {
+          if (leaveAppliesToDay(l, parsed.day)) onLeave.add(l.name);
+        });
+      }
+
+      for (const teacher of teachersInBranch) {
+        if (onLeave.has(teacher)) continue;
+        
+        if (parsed.program && instructorProfiles) {
+           const profile = instructorProfiles.find(p => p.fullname === teacher || p.nickname === teacher || p.id === teacher);
+           if (profile) {
+             let canTeach = false;
+             if (parsed.program.includes('Kinder') && (profile.specialization === 'kinder-junior' || profile.specialization === 'all')) canTeach = true;
+             else if (parsed.program.includes('Junior') && (profile.specialization === 'kinder-junior' || profile.specialization === 'junior-coder' || profile.specialization === 'all')) canTeach = true;
+             else if (parsed.program.includes('Coder') && (profile.specialization === 'junior-coder' || profile.specialization === 'all')) canTeach = true;
+             if (!canTeach) continue;
+           }
+        }
+
+        const isBusy = bClasses.some(
+          (c) =>
+            c.teacher === teacher &&
+            c.day === parsed.day &&
+            doTimeSlotsOverlap(c.time, parsed.time)
+        );
+        if (!isBusy) {
+          slotAvailable = true;
+          break;
+        }
+      }
+
+      setTimeout(() => {
+        setAvailabilityOverlay(slotAvailable ? 'available' : 'unavailable');
+        setTimeout(() => {
+          setAvailabilityOverlay(null);
+        }, 2500);
+      }, 1000);
+    }
   };
 
   const handleProgramSelect = (program) => {
@@ -712,6 +775,51 @@ export default function TrialInputPage() {
           </div>
 
       </div>
+
+      {/* Availability Overlay */}
+      {availabilityOverlay && (
+        <div style={{
+          position: 'fixed', inset: 0, zIndex: 10000,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          backgroundColor: 'rgba(255,255,255,0.4)',
+          backdropFilter: 'blur(12px)',
+          animation: 'fadeIn 0.5s ease-out',
+          transition: 'all 0.5s ease',
+        }}>
+          <div style={{
+            padding: '4rem 6rem',
+            background: 'white',
+            borderRadius: '24px',
+            boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)',
+            textAlign: 'center',
+            transform: availabilityOverlay === 'checking' ? 'scale(0.95)' : 'scale(1)',
+            transition: 'transform 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275)',
+            display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1.5rem'
+          }}>
+            {availabilityOverlay === 'checking' && (
+              <>
+                <div className="spin" style={{ width: '64px', height: '64px', border: '6px solid var(--border-color)', borderTopColor: 'var(--primary-blue)', borderRadius: '50%' }} />
+                <h2 style={{ fontSize: '2.2rem', color: 'var(--primary-blue)', margin: 0 }}>Checking Slot...</h2>
+              </>
+            )}
+            {availabilityOverlay === 'available' && (
+              <>
+                <div style={{ width: '88px', height: '88px', borderRadius: '50%', background: 'var(--success-bg)', color: 'var(--success)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '3.5rem' }}>✓</div>
+                <h2 style={{ fontSize: '2.8rem', color: 'var(--success)', margin: 0 }}>Slot Available</h2>
+                <p style={{ color: 'var(--text-muted)', fontSize: '1.2rem', margin: 0 }}>We found instructors for this time.</p>
+              </>
+            )}
+            {availabilityOverlay === 'unavailable' && (
+              <>
+                <div style={{ width: '88px', height: '88px', borderRadius: '50%', background: 'var(--danger-bg)', color: 'var(--danger)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '3.5rem' }}>×</div>
+                <h2 style={{ fontSize: '2.8rem', color: 'var(--danger)', margin: 0 }}>Slot Not Available</h2>
+                <p style={{ color: 'var(--text-muted)', fontSize: '1.2rem', margin: 0 }}>No instructors are free at this time.</p>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
     </section>
   );
 }
