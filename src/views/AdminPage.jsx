@@ -59,6 +59,7 @@ const INTERNAL_FEATURES = {
   leave: 'Leave Management',
   trial: 'Trial Priority Instructors',
   trial_overview: 'Trial Availability Overview',
+  student_distribution: '  ↳ Student Distribution Checker',
   workload: 'Instructor Workload',
   finder: 'Free Instructor Finder',
   schedule: 'Master Schedule View',
@@ -481,7 +482,7 @@ export default function AdminPage() {
                 aria-hidden={!revealToggles}
               >
                 {Object.entries(INTERNAL_FEATURES).map(([key, label], idx, arr) => {
-                  const isSubItem = key.startsWith('avail_');
+                  const isSubItem = key.startsWith('avail_') || key === 'student_distribution';
                   // Insert divider before the "Navigation / system pages" section
                   const prevKey = idx > 0 ? arr[idx - 1][0] : null;
                   const showDivider = key === 'home' && prevKey !== null;

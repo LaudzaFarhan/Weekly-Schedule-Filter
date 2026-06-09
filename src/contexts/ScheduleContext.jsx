@@ -74,7 +74,7 @@ const DEFAULT_TOGGLES = {
   // Global "internal feature" toggles (some pages also expose role-level controls)
   conflicts: true, availability: true, avail_available: true,
   avail_busy: true, avail_leave: true, leave: true,
-  trial: true, trial_overview: true, finder: true, schedule: true, trial_input: true,
+  trial: true, trial_overview: true, student_distribution: false, finder: true, schedule: true, trial_input: true,
   workload: true, tasks: true,
   api_docs: true, admin: true,
   // Sidebar role-permission keys for every sidebar entry
