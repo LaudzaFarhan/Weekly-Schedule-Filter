@@ -15,7 +15,7 @@ import { listenToMyTasks } from '@/services/taskService';
  * Admin → Internal Feature Toggles). A page is hidden if either is OFF.
  */
 const navItems = [
-  { id: 'home', icon: Home, label: 'Home', roleKey: 'home' },
+  { id: 'home', icon: Home, label: 'Home', roleKey: 'home', globalKey: 'home' },
   { id: 'conflicts', icon: AlertTriangle, label: 'Conflict Report', roleKey: 'conflicts', globalKey: 'conflicts' },
   { id: 'availability', icon: Calendar, label: 'Slot Checker', roleKey: 'availability', globalKey: 'availability' },
   { id: 'workload', icon: BarChart3, label: 'Workload', roleKey: 'workload', globalKey: 'workload' },
@@ -23,13 +23,13 @@ const navItems = [
   // Trial Priority page combines two global toggles — show if either is on
   { id: 'trial-priority', icon: Star, label: 'Trial Priority', roleKey: 'trial_priority',
     globalCheck: (g) => g?.trial !== false || g?.trial_overview !== false },
-  { id: 'finder', icon: Search, label: 'Free Finder', roleKey: 'finder' },
-  { id: 'schedule', icon: FileText, label: 'Master Schedule', roleKey: 'schedule' },
-  { id: 'trial-input', icon: PenLine, label: 'Input Trial Leads', roleKey: 'trial_input' },
-  { id: 'tasks', icon: ClipboardList, label: 'To-Do List', roleKey: 'tasks' },
-  { id: 'profiles', icon: User, label: 'Instructor Profiles', roleKey: 'profiles' },
-  { id: 'api-docs', icon: Terminal, label: 'API Documentation', roleKey: 'api_docs' },
-  { id: 'admin', icon: Settings, label: 'Admin Settings', roleKey: 'admin' },
+  { id: 'finder', icon: Search, label: 'Free Finder', roleKey: 'finder', globalKey: 'finder' },
+  { id: 'schedule', icon: FileText, label: 'Master Schedule', roleKey: 'schedule', globalKey: 'schedule' },
+  { id: 'trial-input', icon: PenLine, label: 'Input Trial Leads', roleKey: 'trial_input', globalKey: 'trial_input' },
+  { id: 'tasks', icon: ClipboardList, label: 'To-Do List', roleKey: 'tasks', globalKey: 'tasks' },
+  { id: 'profiles', icon: User, label: 'Instructor Profiles', roleKey: 'profiles', globalKey: 'profiles' },
+  { id: 'api-docs', icon: Terminal, label: 'API Documentation', roleKey: 'api_docs', globalKey: 'api_docs' },
+  { id: 'admin', icon: Settings, label: 'Admin Settings', roleKey: 'admin', globalKey: 'admin' },
 ];
 
 export default function Sidebar({ currentPage, onNavigate }) {

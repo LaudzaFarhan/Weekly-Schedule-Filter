@@ -50,6 +50,7 @@ const formatDateTime = (iso) => {
 };
 
 const INTERNAL_FEATURES = {
+  // ── Page-level features ─────────────────────
   conflicts: 'Conflict Report',
   availability: 'Slot Availability Checker',
   avail_available: '  ↳ Available Column',
@@ -59,6 +60,16 @@ const INTERNAL_FEATURES = {
   trial: 'Trial Priority Instructors',
   trial_overview: 'Trial Availability Overview',
   workload: 'Instructor Workload',
+  finder: 'Free Instructor Finder',
+  schedule: 'Master Schedule View',
+  trial_input: 'Input Trial Leads',
+  tasks: 'To-Do List',
+  // ── Navigation / system pages ───────────────
+  home: 'Home Page',
+  trial_priority: 'Trial Priority Page',
+  profiles: 'Instructor Profiles',
+  api_docs: 'API Documentation',
+  admin: 'Admin Settings',
 };
 
 const SIDEBAR_FEATURES = {
@@ -71,6 +82,7 @@ const SIDEBAR_FEATURES = {
   finder: 'Free Instructor Finder',
   schedule: 'Master Schedule View',
   trial_input: 'Input Trial Leads',
+  tasks: 'To-Do List',
   profiles: 'Instructor Profiles',
   api_docs: 'API Documentation',
   admin: 'Admin Settings'
@@ -468,21 +480,35 @@ export default function AdminPage() {
                 }}
                 aria-hidden={!revealToggles}
               >
-                {Object.entries(INTERNAL_FEATURES).map(([key, label]) => (
-                  <div key={key} className={`admin-toggle-row ${key.startsWith('avail_') ? 'indent' : ''}`}>
-                    <span className="admin-toggle-label">{label}</span>
-                    <label className="toggle-switch">
-                      <input
-                        type="checkbox"
-                        checked={featureToggles[key] !== false}
-                        onChange={() => handleToggle(key)}
-                        disabled={!revealToggles}
-                        tabIndex={revealToggles ? 0 : -1}
-                      />
-                      <span className="toggle-slider" />
-                    </label>
-                  </div>
-                ))}
+                {Object.entries(INTERNAL_FEATURES).map(([key, label], idx, arr) => {
+                  const isSubItem = key.startsWith('avail_');
+                  // Insert divider before the "Navigation / system pages" section
+                  const prevKey = idx > 0 ? arr[idx - 1][0] : null;
+                  const showDivider = key === 'home' && prevKey !== null;
+                  return (
+                    <div key={key}>
+                      {showDivider && (
+                        <div style={{ borderTop: '1px solid var(--border-color)', margin: '0.75rem 0', paddingTop: '0.5rem' }}>
+                          <span style={{ fontSize: '0.7rem', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Navigation &amp; System Pages</span>
+                        </div>
+                      )}
+                      <div className={`admin-toggle-row ${isSubItem ? 'indent' : ''}`}>
+                        <span className="admin-toggle-label">{label}</span>
+                        <label className="toggle-switch">
+                          <input
+                            type="checkbox"
+                            checked={featureToggles[key] !== false}
+                            onChange={() => handleToggle(key)}
+                            disabled={!revealToggles || key === 'admin'}
+                            tabIndex={revealToggles ? 0 : -1}
+                            title={key === 'admin' ? 'Cannot disable Admin — you would lose access to this panel' : ''}
+                          />
+                          <span className="toggle-slider" />
+                        </label>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             </div>
           </div>
