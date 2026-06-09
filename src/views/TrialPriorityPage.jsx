@@ -670,6 +670,7 @@ export default function TrialPriorityPage() {
 
       {/* Student Distribution Checker */}
       {featureToggles?.student_distribution !== false && (
+      <>
       <div className="panel trial-overview-panel" style={{ marginTop: '1.5rem' }}>
         <div className="panel-header">
           <div className="panel-header-left">
@@ -807,6 +808,7 @@ export default function TrialPriorityPage() {
           </div>
         </div>
       )}
+      </>
       )}
     </section>
   );
