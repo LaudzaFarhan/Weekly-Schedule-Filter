@@ -19,7 +19,7 @@ export async function POST(request) {
 
     // 2. Parse request JSON body
     const body = await request.json();
-    const { name, phone, message, status, notes } = body;
+    const { name, phone, message, status, notes, branch, branchName } = body;
 
     if (!name || !phone) {
       return NextResponse.json({ error: 'Missing required fields: name, phone' }, { status: 400 });
@@ -33,6 +33,7 @@ export async function POST(request) {
       message: message || '',
       status: status || 'interest_trial',
       notes: notes || '',
+      branch: branch || branchName || '',
       createdAt: new Date(),
       updatedAt: new Date()
     });

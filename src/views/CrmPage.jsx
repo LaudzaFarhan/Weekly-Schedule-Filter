@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../components/ui/Toast';
+import { useSchedule } from '../contexts/ScheduleContext';
 import {
   listenToLeads,
   createLead,
@@ -23,10 +24,12 @@ const COLUMNS = [
 export default function CrmPage() {
   const { user } = useAuth();
   const { showToast } = useToast();
+  const { branches, activeBranchName } = useSchedule();
 
   const [leads, setLeads] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
+  const [selectedBranchFilter, setSelectedBranchFilter] = useState('all');
   
   // Modals state
   const [isAddOpen, setIsAddOpen] = useState(false);
@@ -39,7 +42,8 @@ export default function CrmPage() {
     phone: '',
     message: '',
     status: 'interest_trial',
-    notes: ''
+    notes: '',
+    branch: ''
   });
 
   const [editedLead, setEditedLead] = useState({
@@ -47,8 +51,25 @@ export default function CrmPage() {
     phone: '',
     message: '',
     status: '',
-    notes: ''
+    notes: '',
+    branch: ''
   });
+
+  // Sync default filter and new lead branch when active branch loads
+  useEffect(() => {
+    if (activeBranchName) {
+      setSelectedBranchFilter(activeBranchName);
+    }
+  }, [activeBranchName]);
+
+  useEffect(() => {
+    if (isAddOpen) {
+      setNewLead(prev => ({
+        ...prev,
+        branch: activeBranchName || ''
+      }));
+    }
+  }, [isAddOpen, activeBranchName]);
 
   // Listen for real-time CRM updates
   useEffect(() => {
@@ -122,7 +143,8 @@ export default function CrmPage() {
       phone: lead.phone,
       message: lead.message || '',
       status: lead.status,
-      notes: lead.notes || ''
+      notes: lead.notes || '',
+      branch: lead.branch || ''
     });
     setIsDetailOpen(true);
   };
@@ -156,17 +178,28 @@ export default function CrmPage() {
     }
   };
 
-  // Filter leads by search query
+  // Filter leads by search query and branch filter
   const filteredLeads = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
-    if (!query) return leads;
-    return leads.filter(l => 
-      l.name.toLowerCase().includes(query) ||
-      l.phone.toLowerCase().includes(query) ||
-      (l.message && l.message.toLowerCase().includes(query)) ||
-      (l.notes && l.notes.toLowerCase().includes(query))
-    );
-  }, [leads, searchQuery]);
+    return leads.filter(l => {
+      // 1. Branch filter
+      if (selectedBranchFilter !== 'all') {
+        const leadBranch = l.branch || '';
+        if (leadBranch !== selectedBranchFilter) {
+          return false;
+        }
+      }
+      
+      // 2. Search query filter
+      if (!query) return true;
+      return (
+        l.name.toLowerCase().includes(query) ||
+        l.phone.toLowerCase().includes(query) ||
+        (l.message && l.message.toLowerCase().includes(query)) ||
+        (l.notes && l.notes.toLowerCase().includes(query))
+      );
+    });
+  }, [leads, searchQuery, selectedBranchFilter]);
 
   // Group filtered leads by status
   const leadsByStatus = useMemo(() => {
@@ -210,8 +243,8 @@ export default function CrmPage() {
           <h2 style={{ margin: '0 0 0.25rem 0' }}>CRM Lead Pipeline</h2>
           <p className="subtext" style={{ margin: 0 }}>Track trial interest and follow-ups from WhatsApp chatbot webhook</p>
         </div>
-        <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
-          <div className="search-input-wrapper" style={{ minWidth: '240px' }}>
+        <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', flexWrap: 'wrap' }}>
+          <div className="search-input-wrapper" style={{ minWidth: '200px' }}>
             <Search className="search-icon" size={16} />
             <input
               type="text"
@@ -222,8 +255,31 @@ export default function CrmPage() {
               style={{ width: '100%', paddingLeft: '2.5rem' }}
             />
           </div>
-          <button className="btn btn-primary" onClick={() => setIsAddOpen(true)}>
-            <Plus size={18} /> Add New Lead
+
+          <select
+            value={selectedBranchFilter}
+            onChange={(e) => setSelectedBranchFilter(e.target.value)}
+            style={{
+              padding: '0.5rem 2rem 0.5rem 1rem',
+              borderRadius: '6px',
+              border: '1px solid var(--border-color)',
+              background: 'white',
+              fontSize: '0.85rem',
+              color: 'var(--text-main)',
+              outline: 'none',
+              cursor: 'pointer',
+              height: '38px',
+              lineHeight: '1.2'
+            }}
+          >
+            <option value="all">All Branches</option>
+            {branches.map(b => (
+              <option key={b.id} value={b.name}>{b.name}</option>
+            ))}
+          </select>
+
+          <button className="btn btn-primary" onClick={() => setIsAddOpen(true)} style={{ height: '38px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+            <Plus size={18} /> Add Lead
           </button>
         </div>
       </div>
@@ -351,8 +407,22 @@ export default function CrmPage() {
                         )}
 
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid #f1f5f9', paddingTop: '0.5rem', marginTop: '0.5rem' }}>
-                          <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                            <Phone size={11} /> {lead.phone}
+                          <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '4px', flexWrap: 'wrap' }}>
+                            <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                              <Phone size={11} /> {lead.phone}
+                            </span>
+                            {lead.branch && (
+                              <span style={{
+                                padding: '1px 5px',
+                                borderRadius: '4px',
+                                background: '#f1f5f9',
+                                border: '1px solid #e2e8f0',
+                                fontSize: '0.65rem',
+                                color: 'var(--text-secondary)'
+                              }}>
+                                {lead.branch}
+                              </span>
+                            )}
                           </span>
                           <a
                             href={getWhatsAppLink(lead.phone)}
@@ -443,6 +513,19 @@ export default function CrmPage() {
               </div>
 
               <div style={{ display: 'flex', gap: '1rem' }}>
+                <div className="input-group" style={{ flex: 1 }}>
+                  <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Branch</label>
+                  <select
+                    value={newLead.branch}
+                    onChange={e => setNewLead({ ...newLead, branch: e.target.value })}
+                    style={{ width: '100%', padding: '0.5rem', borderRadius: '6px', border: '1px solid var(--border-color)' }}
+                  >
+                    <option value="">No Branch / All</option>
+                    {branches.map(b => (
+                      <option key={b.id} value={b.name}>{b.name}</option>
+                    ))}
+                  </select>
+                </div>
                 <div className="input-group" style={{ flex: 1 }}>
                   <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Initial Status</label>
                   <select
@@ -549,6 +632,19 @@ export default function CrmPage() {
               </div>
 
               <div style={{ display: 'flex', gap: '1rem' }}>
+                <div className="input-group" style={{ flex: 1 }}>
+                  <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Branch</label>
+                  <select
+                    value={editedLead.branch}
+                    onChange={e => setEditedLead({ ...editedLead, branch: e.target.value })}
+                    style={{ width: '100%', padding: '0.5rem', borderRadius: '6px', border: '1px solid var(--border-color)' }}
+                  >
+                    <option value="">No Branch / All</option>
+                    {branches.map(b => (
+                      <option key={b.id} value={b.name}>{b.name}</option>
+                    ))}
+                  </select>
+                </div>
                 <div className="input-group" style={{ flex: 1 }}>
                   <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Status</label>
                   <select
