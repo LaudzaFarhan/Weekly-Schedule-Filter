@@ -4,6 +4,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../components/ui/Toast';
 import { useSchedule } from '../contexts/ScheduleContext';
+import Pagination from '../components/ui/Pagination';
 import {
   listenToLeads,
   createLead,
@@ -30,6 +31,10 @@ export default function CrmPage() {
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedBranchFilter, setSelectedBranchFilter] = useState('all');
+  const [viewMode, setViewMode] = useState('table'); // Default to table view
+  const [selectedLeadIds, setSelectedLeadIds] = useState(new Set());
+  const [page, setPage] = useState(1);
+  const PAGE_SIZE = 10;
   
   // Modals state
   const [isAddOpen, setIsAddOpen] = useState(false);
@@ -171,6 +176,11 @@ export default function CrmPage() {
       await deleteLead(leadId);
       setIsDetailOpen(false);
       setSelectedLead(null);
+      setSelectedLeadIds(prev => {
+        const next = new Set(prev);
+        next.delete(leadId);
+        return next;
+      });
       showToast({ title: 'Lead deleted successfully', variant: 'success' });
     } catch (err) {
       console.error(err);
@@ -200,6 +210,64 @@ export default function CrmPage() {
       );
     });
   }, [leads, searchQuery, selectedBranchFilter]);
+
+  // Bulk deletion handler
+  const handleBulkDelete = async () => {
+    const count = selectedLeadIds.size;
+    if (count === 0) return;
+    if (!confirm(`Are you sure you want to delete ${count} selected lead(s)?`)) return;
+
+    try {
+      const promises = Array.from(selectedLeadIds).map(id => deleteLead(id));
+      await Promise.all(promises);
+      setSelectedLeadIds(new Set());
+      showToast({ title: `${count} leads deleted successfully`, variant: 'success' });
+    } catch (err) {
+      console.error(err);
+      showToast({ title: 'Failed to delete some leads', variant: 'error' });
+    }
+  };
+
+  // Checkbox handlers
+  const toggleRow = (leadId) => {
+    setSelectedLeadIds(prev => {
+      const next = new Set(prev);
+      if (next.has(leadId)) next.delete(leadId);
+      else next.add(leadId);
+      return next;
+    });
+  };
+
+  const toggleAllOnPage = (pagedLeads) => {
+    const allSelected = pagedLeads.length > 0 && pagedLeads.every(l => selectedLeadIds.has(l.id));
+    setSelectedLeadIds(prev => {
+      const next = new Set(prev);
+      pagedLeads.forEach(l => {
+        if (allSelected) {
+          next.delete(l.id);
+        } else {
+          next.add(l.id);
+        }
+      });
+      return next;
+    });
+  };
+
+  // Pagination computed properties
+  const totalPages = useMemo(() => {
+    return Math.ceil(filteredLeads.length / PAGE_SIZE);
+  }, [filteredLeads.length]);
+
+  const pagedLeads = useMemo(() => {
+    return filteredLeads.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  }, [filteredLeads, page]);
+
+  // Clamp pagination page if bounds change
+  useEffect(() => {
+    if (page > totalPages && totalPages > 0) {
+      setPage(totalPages);
+    }
+  }, [filteredLeads.length, totalPages, page]);
 
   // Group filtered leads by status
   const leadsByStatus = useMemo(() => {
@@ -244,6 +312,29 @@ export default function CrmPage() {
           <p className="subtext" style={{ margin: 0 }}>Track trial interest and follow-ups from WhatsApp chatbot webhook</p>
         </div>
         <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', flexWrap: 'wrap' }}>
+          {selectedLeadIds.size > 0 && (
+            <button 
+              className="btn btn-sm" 
+              onClick={handleBulkDelete}
+              style={{
+                height: '38px',
+                background: '#fee2e2',
+                border: '1px solid #fca5a5',
+                color: '#b91c1c',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px',
+                cursor: 'pointer',
+                borderRadius: '6px',
+                padding: '0 1rem',
+                fontSize: '0.85rem',
+                fontWeight: 600
+              }}
+            >
+              <Trash2 size={16} /> Delete ({selectedLeadIds.size})
+            </button>
+          )}
+
           <div className="search-input-wrapper" style={{ minWidth: '200px' }}>
             <Search className="search-icon" size={16} />
             <input
@@ -260,7 +351,7 @@ export default function CrmPage() {
             value={selectedBranchFilter}
             onChange={(e) => setSelectedBranchFilter(e.target.value)}
             style={{
-              padding: '0.5rem 2rem 0.5rem 1rem',
+              padding: '0.5rem 2.2rem 0.5rem 1rem',
               borderRadius: '6px',
               border: '1px solid var(--border-color)',
               background: 'white',
@@ -278,19 +369,212 @@ export default function CrmPage() {
             ))}
           </select>
 
+          {/* View Mode Toggle */}
+          <div style={{ display: 'flex', border: '1px solid var(--border-color)', borderRadius: '6px', overflow: 'hidden', height: '38px' }}>
+            <button
+              onClick={() => setViewMode('table')}
+              style={{
+                padding: '0 0.8rem',
+                fontSize: '0.85rem',
+                border: 'none',
+                background: viewMode === 'table' ? 'var(--primary, #4f46e5)' : 'white',
+                color: viewMode === 'table' ? 'white' : 'var(--text-secondary)',
+                cursor: 'pointer',
+                transition: 'background 0.15s, color 0.15s',
+                fontWeight: viewMode === 'table' ? 600 : 'normal'
+              }}
+            >
+              Table View
+            </button>
+            <button
+              onClick={() => setViewMode('board')}
+              style={{
+                padding: '0 0.8rem',
+                fontSize: '0.85rem',
+                border: 'none',
+                background: viewMode === 'board' ? 'var(--primary, #4f46e5)' : 'white',
+                color: viewMode === 'board' ? 'white' : 'var(--text-secondary)',
+                cursor: 'pointer',
+                transition: 'background 0.15s, color 0.15s',
+                fontWeight: viewMode === 'board' ? 600 : 'normal'
+              }}
+            >
+              Board View
+            </button>
+          </div>
+
           <button className="btn btn-primary" onClick={() => setIsAddOpen(true)} style={{ height: '38px', display: 'flex', alignItems: 'center', gap: '4px' }}>
             <Plus size={18} /> Add Lead
           </button>
         </div>
       </div>
 
-      {/* Kanban Board */}
+      {/* Kanban Board / Table View Switcher */}
       {loading ? (
         <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '200px' }}>
           <div className="loading-spinner" />
           <span style={{ marginLeft: '1rem', color: 'var(--text-secondary)' }}>Loading leads...</span>
         </div>
+      ) : viewMode === 'table' ? (
+        /* Tabular View */
+        <div className="trial-table-wrapper" style={{ background: 'white', padding: '1rem', borderRadius: '12px', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
+          <table className="trial-table">
+            <thead>
+              <tr>
+                <th style={{ width: 40, textAlign: 'center' }}>
+                  <input
+                    type="checkbox"
+                    checked={pagedLeads.length > 0 && pagedLeads.every(l => selectedLeadIds.has(l.id))}
+                    onChange={() => toggleAllOnPage(pagedLeads)}
+                    style={{ cursor: 'pointer', width: '16px', height: '16px' }}
+                  />
+                </th>
+                <th>Customer Name</th>
+                <th>Branch</th>
+                <th>Phone Number</th>
+                <th>Message</th>
+                <th>Status</th>
+                <th>Admin Notes</th>
+                <th>Updated At</th>
+                <th style={{ width: 100, textAlign: 'center' }}>Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredLeads.length === 0 ? (
+                <tr>
+                  <td colSpan="9" className="empty-state-table" style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-muted)' }}>
+                    No leads match your filter.
+                  </td>
+                </tr>
+              ) : (
+                pagedLeads.map((lead) => {
+                  const statusCol = COLUMNS.find(c => c.id === lead.status) || COLUMNS[0];
+                  return (
+                    <tr 
+                      key={lead.id} 
+                      style={{ 
+                        background: selectedLeadIds.has(lead.id) ? 'var(--danger-bg, #fef2f2)' : undefined,
+                        cursor: 'pointer'
+                      }}
+                      onClick={() => handleOpenDetails(lead)}
+                    >
+                      <td style={{ textAlign: 'center' }} onClick={(e) => e.stopPropagation()}>
+                        <input
+                          type="checkbox"
+                          checked={selectedLeadIds.has(lead.id)}
+                          onChange={() => toggleRow(lead.id)}
+                          style={{ cursor: 'pointer', width: '16px', height: '16px' }}
+                        />
+                      </td>
+                      <td style={{ fontWeight: 600, color: 'var(--text-main)' }}>
+                        {lead.name}
+                      </td>
+                      <td>
+                        {lead.branch ? (
+                          <span className="branch-tag">{lead.branch}</span>
+                        ) : (
+                          <span style={{ color: 'var(--text-muted)' }}>—</span>
+                        )}
+                      </td>
+                      <td onClick={(e) => e.stopPropagation()}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <span style={{ fontSize: '0.85rem' }}>{lead.phone}</span>
+                          <a
+                            href={getWhatsAppLink(lead.phone)}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '3px',
+                              background: '#22c55e',
+                              color: 'white',
+                              border: 'none',
+                              borderRadius: '4px',
+                              padding: '2px 6px',
+                              fontSize: '0.7rem',
+                              fontWeight: 600,
+                              textDecoration: 'none'
+                            }}
+                          >
+                            Chat <ExternalLink size={9} />
+                          </a>
+                        </div>
+                      </td>
+                      <td>
+                        <div style={{
+                          maxWidth: '220px',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap',
+                          fontSize: '0.85rem',
+                          color: 'var(--text-secondary)'
+                        }} title={lead.message}>
+                          {lead.message || <span style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>No message</span>}
+                        </div>
+                      </td>
+                      <td>
+                        <span style={{
+                          fontSize: '0.75rem',
+                          fontWeight: 'bold',
+                          padding: '3px 8px',
+                          borderRadius: '20px',
+                          background: statusCol.badge,
+                          color: statusCol.textColor,
+                          display: 'inline-block'
+                        }}>
+                          {statusCol.title}
+                        </span>
+                      </td>
+                      <td>
+                        <div style={{
+                          maxWidth: '180px',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap',
+                          fontSize: '0.85rem',
+                          color: 'var(--text-secondary)'
+                        }} title={lead.notes}>
+                          {lead.notes || <span style={{ color: 'var(--text-muted)' }}>—</span>}
+                        </div>
+                      </td>
+                      <td style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                        {formatRelativeTime(lead.updatedAt || lead.createdAt)}
+                      </td>
+                      <td style={{ textAlign: 'center' }} onClick={(e) => e.stopPropagation()}>
+                        <div style={{ display: 'flex', justifyContent: 'center', gap: '8px' }}>
+                          <button 
+                            className="btn btn-sm"
+                            onClick={() => handleOpenDetails(lead)}
+                            style={{ padding: '4px 8px', background: '#f1f5f9', border: '1px solid #cbd5e1', cursor: 'pointer' }}
+                            title="Edit Details"
+                          >
+                            Edit
+                          </button>
+                          <button 
+                            className="btn-icon btn-icon-danger"
+                            onClick={() => handleDeleteLead(lead.id)}
+                            title="Delete Lead"
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+          
+          <Pagination 
+            currentPage={page} 
+            totalPages={totalPages} 
+            onPageChange={setPage} 
+          />
+        </div>
       ) : (
+        /* Kanban Board View */
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '1rem', alignItems: 'start', minHeight: '60vh' }}>
           {COLUMNS.map((col) => {
             const columnLeads = leadsByStatus[col.id] || [];
