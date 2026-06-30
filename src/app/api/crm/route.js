@@ -19,10 +19,48 @@ export async function POST(request) {
 
     // 2. Parse request JSON body
     const body = await request.json();
-    const { name, phone, message, status, notes, branch, branchName } = body;
+    
+    // Check if it's the WhatsApp formatted lead
+    const isWhatsAppLead = body.parent_name || body.child_name || body.location;
+    
+    let name = body.name;
+    let phone = body.phone || body.phone_number || body.wa_id || '';
+    let message = body.message;
+    let status = body.status;
+    let notes = body.notes;
+    let branch = body.branch || body.branchName || '';
+
+    if (isWhatsAppLead) {
+      const parentName = body.parent_name || '';
+      const childName = body.child_name || '';
+      const age = body.age || '';
+      const program = body.program || '';
+      const location = body.location || '';
+      const instructor = body.instructor || '';
+      const day = body.day || '';
+      const date = body.date || '';
+      const time = body.time || '';
+
+      name = parentName ? `${parentName} (Parent of ${childName})` : childName;
+      if (!phone) {
+        phone = body.phone || body.phone_number || '08123456789'; // Fallback phone
+      }
+      
+      message = `WhatsApp Lead Details:
+- Parent Name: ${parentName}
+- Child Name: ${childName} (Age: ${age})
+- Program: ${program}
+- Location: ${location}
+- Instructor: ${instructor}
+- Schedule: ${day}, ${date} @ ${time}`;
+
+      branch = location;
+      status = status || 'trial_booked'; // Set to trial_booked since a schedule is already assigned
+      notes = notes || 'Inserted via WhatsApp chatbot final data';
+    }
 
     if (!name || !phone) {
-      return NextResponse.json({ error: 'Missing required fields: name, phone' }, { status: 400 });
+      return NextResponse.json({ error: 'Missing required fields: name/child_name and phone/phone_number' }, { status: 400 });
     }
 
     // 3. Add to Firestore collection 'crmLeads'
@@ -33,7 +71,7 @@ export async function POST(request) {
       message: message || '',
       status: status || 'interest_trial',
       notes: notes || '',
-      branch: branch || branchName || '',
+      branch: branch || '',
       createdAt: new Date(),
       updatedAt: new Date()
     });
