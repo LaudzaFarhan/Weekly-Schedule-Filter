@@ -31,6 +31,7 @@ export default function CrmPage() {
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedBranchFilter, setSelectedBranchFilter] = useState('all');
+  const [selectedStatusFilter, setSelectedStatusFilter] = useState('all');
   const [viewMode, setViewMode] = useState('table'); // Default to table view
   const [selectedLeadIds, setSelectedLeadIds] = useState(new Set());
   const [page, setPage] = useState(1);
@@ -188,7 +189,7 @@ export default function CrmPage() {
     }
   };
 
-  // Filter leads by search query and branch filter
+  // Filter leads by search query, branch filter and status filter
   const filteredLeads = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
     return leads.filter(l => {
@@ -200,7 +201,14 @@ export default function CrmPage() {
         }
       }
       
-      // 2. Search query filter
+      // 2. Status filter
+      if (selectedStatusFilter !== 'all') {
+        if (l.status !== selectedStatusFilter) {
+          return false;
+        }
+      }
+      
+      // 3. Search query filter
       if (!query) return true;
       return (
         l.name.toLowerCase().includes(query) ||
@@ -209,7 +217,7 @@ export default function CrmPage() {
         (l.notes && l.notes.toLowerCase().includes(query))
       );
     });
-  }, [leads, searchQuery, selectedBranchFilter]);
+  }, [leads, searchQuery, selectedBranchFilter, selectedStatusFilter]);
 
   // Bulk deletion handler
   const handleBulkDelete = async () => {
@@ -366,6 +374,28 @@ export default function CrmPage() {
             <option value="all">All Branches</option>
             {branches.map(b => (
               <option key={b.id} value={b.name}>{b.name}</option>
+            ))}
+          </select>
+
+          <select
+            value={selectedStatusFilter}
+            onChange={(e) => setSelectedStatusFilter(e.target.value)}
+            style={{
+              padding: '0.5rem 2.2rem 0.5rem 1rem',
+              borderRadius: '6px',
+              border: '1px solid var(--border-color)',
+              background: 'white',
+              fontSize: '0.85rem',
+              color: 'var(--text-main)',
+              outline: 'none',
+              cursor: 'pointer',
+              height: '38px',
+              lineHeight: '1.2'
+            }}
+          >
+            <option value="all">All Statuses</option>
+            {COLUMNS.map(col => (
+              <option key={col.id} value={col.id}>{col.title}</option>
             ))}
           </select>
 
