@@ -5,7 +5,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useSchedule } from '@/contexts/ScheduleContext';
 import {
   Home, AlertTriangle, Calendar, Activity, Star,
-  Search, FileText, PenLine, Terminal, Settings, LogOut, User, BarChart3, ClipboardList
+  Search, FileText, PenLine, Terminal, Settings, LogOut, User, BarChart3, ClipboardList, Users
 } from 'lucide-react';
 import { listenToMyTasks } from '@/services/taskService';
 
@@ -24,15 +24,17 @@ const navItems = [
   { id: 'trial-priority', icon: Star, label: 'Trial Priority', roleKey: 'trial_priority',
     globalCheck: (g) => g?.trial !== false || g?.trial_overview !== false },
   { id: 'finder', icon: Search, label: 'Free Finder', roleKey: 'finder', globalKey: 'finder' },
+  { id: 'student-search', icon: Search, label: 'Student Search', roleKey: 'home', globalKey: 'home' },
   { id: 'schedule', icon: FileText, label: 'Master Schedule', roleKey: 'schedule', globalKey: 'schedule' },
   { id: 'trial-input', icon: PenLine, label: 'Input Trial Leads', roleKey: 'trial_input', globalKey: 'trial_input' },
   { id: 'tasks', icon: ClipboardList, label: 'To-Do List', roleKey: 'tasks', globalKey: 'tasks' },
+  { id: 'crm', icon: Users, label: 'CRM Leads', roleKey: 'crm', globalKey: 'crm' },
   { id: 'profiles', icon: User, label: 'Instructor Profiles', roleKey: 'profiles', globalKey: 'profiles' },
   { id: 'api-docs', icon: Terminal, label: 'API Documentation', roleKey: 'api_docs', globalKey: 'api_docs' },
   { id: 'admin', icon: Settings, label: 'Admin Settings', roleKey: 'admin', globalKey: 'admin' },
 ];
 
-export default function Sidebar({ currentPage, onNavigate }) {
+export default function Sidebar({ currentPage, onNavigate, onToggleSearch }) {
   const { user, logout } = useAuth();
   const { roleToggles, users, featureToggles } = useSchedule();
 
@@ -91,7 +93,13 @@ export default function Sidebar({ currentPage, onNavigate }) {
             <button
               key={id}
               className={`nav-item ${currentPage === id ? 'active' : ''}`}
-              onClick={() => onNavigate(id)}
+              onClick={() => {
+                if (id === 'student-search') {
+                  onToggleSearch();
+                } else {
+                  onNavigate(id);
+                }
+              }}
               style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
             >
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>

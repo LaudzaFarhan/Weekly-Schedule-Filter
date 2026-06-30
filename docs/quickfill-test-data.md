@@ -258,12 +258,23 @@ If `Cilandak Mall` is not in Admin → Branches, expected toast: `"Branch \"Cila
 ### Mostly-junk text — should still extract what it can
 
 ```
+Available Schedule
 Anak : Lila Pertiwi
 Umur : 9
 Phone : 0812-3344-5566
 Tanggal : 17 Juni 2026
 Jam : 4 sore
 Lokasi : Puri Indah
+Catatan : THIS IS A TEST FEATURE FROM A CHATBOT (LAUDZA)
+
+
+Not Available Schedule 
+Anak : Lila Pertiwi
+Umur : 15
+Phone : 0812-3344-5566
+Tanggal : 13 Juni 2026
+Jam : 4.30 sore
+Lokasi : Gading Serpong
 Catatan : THIS IS A TEST FEATURE FROM A CHATBOT (LAUDZA)
 ```
 Expected: Age 9 → Trial Junior, Branch: Puri Indah, Date: 2026-06-17, Time: 4.00 - 5.00 pm. Catatan line lands in Remarks.

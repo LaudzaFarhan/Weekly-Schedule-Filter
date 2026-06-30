@@ -7,6 +7,7 @@ import { ToastProvider } from '@/components/ui/Toast';
 import LoginOverlay from '@/components/auth/LoginOverlay';
 import Sidebar from '@/components/layout/Sidebar';
 import Header from '@/components/layout/Header';
+import StudentSearchSidebar from '@/components/layout/StudentSearchSidebar';
 import HomePage from '@/views/HomePage';
 import ConflictsPage from '@/views/ConflictsPage';
 import AvailabilityPage from '@/views/AvailabilityPage';
@@ -20,6 +21,7 @@ import AdminPage from '@/views/AdminPage';
 import ProfilePage from '@/views/ProfilePage';
 import WorkloadPage from '@/views/WorkloadPage';
 import TasksPage from '@/views/TasksPage';
+import CrmPage from '@/views/CrmPage';
 
 const PAGE_MAP = {
   home: HomePage,
@@ -33,6 +35,7 @@ const PAGE_MAP = {
   profiles: ProfilePage,
   workload: WorkloadPage,
   tasks: TasksPage,
+  crm: CrmPage,
   'api-docs': ApiDocsPage,
   admin: AdminPage,
 };
@@ -41,6 +44,7 @@ export default function AppShell() {
   const { user, loading } = useAuth();
   const [currentPage, setCurrentPage] = useState('home');
   const [pageParams, setPageParams] = useState(null);
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
 
   if (loading) {
     return (
@@ -69,13 +73,18 @@ export default function AppShell() {
     <ToastProvider>
       <ScheduleProvider>
         <div className="app-layout">
-          <Sidebar currentPage={currentPage} onNavigate={handleNavigate} />
+          <Sidebar 
+            currentPage={currentPage} 
+            onNavigate={handleNavigate} 
+            onToggleSearch={() => setIsSearchOpen(true)} 
+          />
           <main className="dashboard-container">
-            <Header />
+            <Header onToggleSearch={() => setIsSearchOpen(true)} />
             <div className="dashboard-views">
               <PageComponent onNavigate={handleNavigate} params={pageParams} />
             </div>
           </main>
+          <StudentSearchSidebar isOpen={isSearchOpen} onClose={() => setIsSearchOpen(false)} />
         </div>
       </ScheduleProvider>
     </ToastProvider>

@@ -14,6 +14,13 @@ service cloud.firestore {
     }
 
     // ============================================
+    // CRM LEADS COLLECTION
+    // ============================================
+    match /crmLeads/{leadId} {
+      allow read, write: if request.auth != null;
+    }
+
+    // ============================================
     // CATCH-ALL: Allow all (temporary - expires June 2026)
     // ============================================
     match /{document=**} {

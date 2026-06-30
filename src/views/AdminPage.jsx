@@ -84,6 +84,7 @@ const SIDEBAR_FEATURES = {
   schedule: 'Master Schedule View',
   trial_input: 'Input Trial Leads',
   tasks: 'To-Do List',
+  crm: 'CRM Leads',
   profiles: 'Instructor Profiles',
   api_docs: 'API Documentation',
   admin: 'Admin Settings'

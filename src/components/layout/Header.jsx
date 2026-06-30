@@ -3,9 +3,9 @@
 import { useState, useEffect } from 'react';
 import { useSchedule } from '../../contexts/ScheduleContext';
 import { useAuth } from '../../contexts/AuthContext';
-import { RefreshCw, Plus, Trash2, Bell, EyeOff, ChevronLeft, ChevronRight } from 'lucide-react';
+import { RefreshCw, Plus, Trash2, Bell, EyeOff, ChevronLeft, ChevronRight, Search } from 'lucide-react';
 
-export default function Header() {
+export default function Header({ onToggleSearch }) {
   const {
     branches, updateBranches,
     activeBranchId, changeActiveBranch,
@@ -95,6 +95,13 @@ export default function Header() {
               Synced {getRelativeTime()}
             </div>
           )}
+          <button 
+            onClick={onToggleSearch} 
+            style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '4px', display: 'flex' }}
+            title="Search Students"
+          >
+            <Search size={20} style={{ color: '#cbd5e1' }} />
+          </button>
           <div style={{ position: 'relative' }}>
             <button onClick={() => setShowNotifications(!showNotifications)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '4px', display: 'flex' }}>
               <Bell size={20} style={{ color: '#cbd5e1' }} />

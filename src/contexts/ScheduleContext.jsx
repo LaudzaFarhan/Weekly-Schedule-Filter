@@ -75,7 +75,7 @@ const DEFAULT_TOGGLES = {
   conflicts: true, availability: true, avail_available: true,
   avail_busy: true, avail_leave: true, leave: true,
   trial: true, trial_overview: true, student_distribution: false, finder: true, schedule: true, trial_input: true,
-  workload: true, tasks: true,
+  workload: true, tasks: true, crm: true,
   api_docs: true, admin: true,
   // Sidebar role-permission keys for every sidebar entry
   home: true,
