@@ -14,7 +14,10 @@ export async function POST(request) {
   try {
     // 1. Validate API Key
     const authHeader = request.headers.get('authorization');
+    console.log('Auth Header received:', authHeader);
+    console.log('Expected Key config:', EXPECTED_API_KEY);
     if (!authHeader || authHeader !== `Bearer ${EXPECTED_API_KEY}`) {
+      console.log('Auth Mismatch: unauthorized!');
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
