@@ -413,6 +413,8 @@ export default function HomePage({ onNavigate }) {
                   if (act.action.includes('login') || act.action.includes('logged in')) color = 'var(--success)';
                   else if (act.action.includes('sync')) color = 'var(--primary-blue)';
                   else if (act.action.includes('logout') || act.action.includes('logged out') || act.action.includes('close')) color = 'var(--warning)';
+                  else if (act.action.includes('lead') || act.action.includes('CRM')) color = '#4f46e5'; // Indigo for CRM Lead updates
+
 
                   const timeStr = act.timestamp ? new Date(act.timestamp.toMillis ? act.timestamp.toMillis() : act.timestamp).toLocaleString(undefined, {
                     hour: 'numeric', minute: '2-digit', month: 'short', day: 'numeric'
@@ -579,6 +581,8 @@ export default function HomePage({ onNavigate }) {
                   if (act.action.includes('login') || act.action.includes('logged in')) color = 'var(--success)';
                   else if (act.action.includes('sync')) color = 'var(--primary-blue)';
                   else if (act.action.includes('logout') || act.action.includes('logged out') || act.action.includes('close')) color = 'var(--warning)';
+                  else if (act.action.includes('lead') || act.action.includes('CRM')) color = '#4f46e5'; // Indigo for CRM Lead updates
+
 
                   const timeStr = act.timestamp ? new Date(act.timestamp.toMillis ? act.timestamp.toMillis() : act.timestamp).toLocaleString(undefined, {
                     month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit'

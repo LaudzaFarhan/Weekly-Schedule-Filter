@@ -11,6 +11,7 @@ import {
   updateLead,
   deleteLead
 } from '../services/crmService';
+import { logActivity } from '../services/activityService';
 import {
   Plus, X, Search, Trash2, ExternalLink, Phone, Save, Clock
 } from 'lucide-react';
@@ -112,11 +113,15 @@ export default function CrmPage() {
     const leadId = e.dataTransfer.getData('leadId');
     if (!leadId) return;
 
+    const lead = leads.find(l => l.id === leadId);
+    const leadName = lead ? lead.name : 'Unknown Lead';
+
     // Optimistic update
     setLeads(prev => prev.map(l => l.id === leadId ? { ...l, status: newStatus, updatedAt: new Date() } : l));
 
     try {
       await updateLead(leadId, { status: newStatus });
+      logActivity(user?.email, 'changed lead status', `Changed status of "${leadName}" to "${newStatus}"`);
       showToast({ title: 'Lead status updated', variant: 'success' });
     } catch (err) {
       console.error(err);
@@ -133,6 +138,7 @@ export default function CrmPage() {
 
     try {
       await createLead(newLead);
+      logActivity(user?.email, 'added CRM lead', `Added lead "${newLead.name}"`);
       setIsAddOpen(false);
       setNewLead({ name: '', phone: '', message: '', status: 'interest_trial', notes: '' });
       showToast({ title: 'Lead added successfully', variant: 'success' });
@@ -161,6 +167,28 @@ export default function CrmPage() {
 
     try {
       await updateLead(selectedLead.id, editedLead);
+
+      // Determine what changed to write a nice log
+      const changes = [];
+      if (selectedLead.status !== editedLead.status) {
+        changes.push(`status to "${editedLead.status}"`);
+      }
+      if (selectedLead.notes !== editedLead.notes) {
+        changes.push(`notes`);
+      }
+      if (selectedLead.name !== editedLead.name) {
+        changes.push(`name to "${editedLead.name}"`);
+      }
+      if (selectedLead.phone !== editedLead.phone) {
+        changes.push(`phone`);
+      }
+      if (selectedLead.branch !== editedLead.branch) {
+        changes.push(`branch to "${editedLead.branch}"`);
+      }
+
+      const changeMsg = changes.length > 0 ? `Updated ${changes.join(', ')}` : 'No changes';
+      logActivity(user?.email, 'updated CRM lead details', `Lead: "${selectedLead.name}". ${changeMsg}`);
+
       setIsDetailOpen(false);
       setSelectedLead(null);
       showToast({ title: 'Lead updated successfully', variant: 'success' });
@@ -173,8 +201,12 @@ export default function CrmPage() {
   const handleDeleteLead = async (leadId) => {
     if (!confirm('Are you sure you want to delete this lead?')) return;
 
+    const lead = leads.find(l => l.id === leadId);
+    const leadName = lead ? lead.name : 'Unknown Lead';
+
     try {
       await deleteLead(leadId);
+      logActivity(user?.email, 'deleted CRM lead', `Deleted lead "${leadName}"`);
       setIsDetailOpen(false);
       setSelectedLead(null);
       setSelectedLeadIds(prev => {

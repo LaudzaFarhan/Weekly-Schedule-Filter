@@ -4,6 +4,31 @@ const EXPECTED_API_KEY = process.env.CRM_API_KEY || 'crm-secure-key-12345';
 const PROJECT_ID = process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || 'weekly-schedule-chatbot';
 const API_KEY = process.env.NEXT_PUBLIC_FIREBASE_API_KEY || 'AIzaSyAmeryoAv6Nisk7foNUPOAQ3WIfYUajyOQ';
 
+async function logActivityRest(userEmail, action, meta = '') {
+  try {
+    const name = userEmail ? userEmail.split('@')[0] : 'Unknown';
+    const url = `https://firestore.googleapis.com/v1/projects/${PROJECT_ID}/databases/(default)/documents/activityLogs?key=${API_KEY}`;
+    await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        fields: {
+          user: { stringValue: name },
+          email: { stringValue: userEmail || '' },
+          action: { stringValue: action },
+          meta: { stringValue: meta || '' },
+          timestamp: { timestampValue: new Date().toISOString() }
+        }
+      })
+    });
+  } catch (err) {
+    console.error('Failed to log activity via REST:', err);
+  }
+}
+
+
 /**
  * POST /api/crm
  * Webhook endpoint for WhatsApp bots to insert leads into CRM.
@@ -96,6 +121,9 @@ export async function POST(request) {
     const data = await res.json();
     const docId = data.name.split('/').pop();
 
+    // Log the activity to Firestore logs
+    await logActivityRest('api-webhook@whatsapp.bot', 'added CRM lead (via Webhook)', `Added lead "${name}"`);
+
     return NextResponse.json({
       success: true,
       message: 'CRM lead successfully created',
@@ -167,11 +195,19 @@ export async function PATCH(request) {
       throw new Error(`Firestore REST API returned ${res.status}: ${errText}`);
     }
 
+    const updatedFieldsList = Object.keys(fields).filter(k => k !== 'updatedAt');
+    const statusVal = body.status ? `status to "${body.status}"` : '';
+    const otherVals = updatedFieldsList.filter(f => f !== 'status').join(', ');
+    const changeDetail = [statusVal, otherVals ? `updated ${otherVals}` : ''].filter(Boolean).join(' and ');
+    
+    // Log the activity to Firestore logs
+    await logActivityRest('api-webhook@whatsapp.bot', 'updated CRM lead (via Webhook)', `Lead ID: ${leadId}. ${changeDetail}`);
+
     return NextResponse.json({
       success: true,
       message: 'CRM lead successfully updated',
       id: leadId,
-      updatedFields: Object.keys(fields).filter(k => k !== 'updatedAt')
+      updatedFields: updatedFieldsList
     }, { status: 200 });
 
   } catch (error) {
