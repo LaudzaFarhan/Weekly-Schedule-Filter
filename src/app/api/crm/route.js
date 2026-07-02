@@ -107,3 +107,76 @@ export async function POST(request) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
+
+/**
+ * PATCH /api/crm
+ * Webhook endpoint to update an existing CRM lead (e.g. status, notes).
+ * Expects Authorization: Bearer <CRM_API_KEY>
+ */
+export async function PATCH(request) {
+  console.log('CRM API Route PATCH Request Received!');
+  try {
+    // 1. Validate API Key
+    const authHeader = request.headers.get('authorization');
+    if (!authHeader || authHeader !== `Bearer ${EXPECTED_API_KEY}`) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    // 2. Parse request JSON body
+    const body = await request.json();
+    const leadId = body.id || body.leadId || body.lead_id;
+
+    if (!leadId) {
+      return NextResponse.json({ error: 'Missing required field: id or leadId' }, { status: 400 });
+    }
+
+    // 3. Build fields and updateMask dynamically
+    const fields = {};
+    const updateMaskFieldPaths = [];
+
+    // Fields we support updating
+    const updateableFields = ['status', 'notes', 'message', 'name', 'phone', 'branch'];
+    for (const key of updateableFields) {
+      if (body[key] !== undefined) {
+        fields[key] = { stringValue: String(body[key]).trim() };
+        updateMaskFieldPaths.push(`updateMask.fieldPaths=${key}`);
+      }
+    }
+
+    if (updateMaskFieldPaths.length === 0) {
+      return NextResponse.json({ error: 'No fields to update provided' }, { status: 400 });
+    }
+
+    // Always update updatedAt
+    fields.updatedAt = { timestampValue: new Date().toISOString() };
+    updateMaskFieldPaths.push('updateMask.fieldPaths=updatedAt');
+
+    const updateMaskQuery = updateMaskFieldPaths.join('&');
+    const url = `https://firestore.googleapis.com/v1/projects/${PROJECT_ID}/databases/(default)/documents/crmLeads/${leadId}?${updateMaskQuery}&key=${API_KEY}`;
+
+    const res = await fetch(url, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ fields })
+    });
+
+    if (!res.ok) {
+      const errText = await res.text();
+      throw new Error(`Firestore REST API returned ${res.status}: ${errText}`);
+    }
+
+    return NextResponse.json({
+      success: true,
+      message: 'CRM lead successfully updated',
+      id: leadId,
+      updatedFields: Object.keys(fields).filter(k => k !== 'updatedAt')
+    }, { status: 200 });
+
+  } catch (error) {
+    console.error('CRM Update Webhook Error:', error);
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+}
+

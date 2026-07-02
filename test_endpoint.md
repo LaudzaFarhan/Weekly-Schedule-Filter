@@ -119,8 +119,8 @@ curl -X POST "https://<your-domain>/api/crm" \
 
 ---
 
-## Expected Response
-A successful request returns a `200 OK` status with the following body:
+## Expected Response (POST)
+A successful creation request returns a `200 OK` status with the following body:
 ```json
 {
   "success": true,
@@ -132,3 +132,73 @@ A successful request returns a `200 OK` status with the following body:
 Once a successful response is received:
 *   **Format A leads** will appear in the **CRM Lead Pipeline** on the dashboard under the **Trial Booked** column.
 *   **Format B leads** will appear under the **Interested (Trial)** column by default.
+
+---
+
+## 3. Updating Lead Status (PATCH)
+We also support updating existing leads (such as changing status, notes, or branch) via a `PATCH` request to the same endpoint.
+
+### Endpoint Details
+*   **Production URL**: `https://<your-vercel-domain>/api/crm`
+*   **Local Development URL**: `http://localhost:3000/api/crm`
+*   **HTTP Method**: `PATCH`
+
+### Required Payload Fields
+*   **`id`** (or `leadId` / `lead_id`): The Firestore document ID of the lead to update (Required).
+*   One or more of the following updateable fields (Optional):
+    *   **`status`**: e.g., `'interest_trial'`, `'no_response'`, `'trial_booked'`, `'closed'`
+    *   **`notes`**: text string
+    *   **`message`**: text string
+    *   **`name`**: text string
+    *   **`phone`**: text string
+    *   **`branch`**: text string
+
+### Example Payload
+```json
+{
+  "id": "FIRESTORE_DOCUMENT_ID",
+  "status": "trial_booked",
+  "notes": "Status updated by WhatsApp automation."
+}
+```
+
+### curl Example (Terminal)
+```bash
+curl -X PATCH "https://<your-domain>/api/crm" \
+     -H "Content-Type: application/json" \
+     -H "Authorization: Bearer crm-secure-key-12345" \
+     -d '{
+       "id": "FIRESTORE_DOCUMENT_ID",
+       "status": "trial_booked",
+       "notes": "Status updated by terminal curl test"
+     }'
+```
+
+### Expected Response (PATCH)
+```json
+{
+  "success": true,
+  "message": "CRM lead successfully updated",
+  "id": "FIRESTORE_DOCUMENT_ID",
+  "updatedFields": ["status", "notes"]
+}
+```
+
+---
+
+## Automated Test Scripts
+You can quickly run automated tests in development using Node.js to verify the CRM integration:
+
+1.  **General / Direct Lead integration test (POST)**:
+    ```bash
+    node scratch/test_crm_api.js
+    ```
+2.  **WhatsApp Chatbot Lead integration test (POST)**:
+    ```bash
+    node scratch/test_whatsapp_crm_webhook.js
+    ```
+3.  **CRM Lead Update integration test (PATCH)**:
+    ```bash
+    node scratch/test_crm_patch_api.js
+    ```
+
