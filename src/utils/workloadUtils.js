@@ -347,6 +347,26 @@ function computeForInstructor(rows) {
   }
   const avgGapMin = gapDays > 0 ? totalGapMin / gapDays : 0;
 
+  // Group intervals by branch for each day to calculate hours per branch accurately
+  const branchHoursMap = {};
+  for (const day of DAY_NAMES) {
+    const timeMap = dayTimeMap[day] || {};
+    const branchIntervals = {};
+    for (const [timeStr, { rows: bucket, parsed }] of Object.entries(timeMap)) {
+      bucket.forEach(b => {
+        const bName = b.branchName || 'Unknown';
+        if (!branchIntervals[bName]) branchIntervals[bName] = [];
+        branchIntervals[bName].push([parsed.start, parsed.end]);
+      });
+    }
+
+    for (const [bName, intervals] of Object.entries(branchIntervals)) {
+      const merged = mergeIntervals(intervals);
+      const hours = totalMinutes(merged) / 60;
+      branchHoursMap[bName] = (branchHoursMap[bName] || 0) + hours;
+    }
+  }
+
   return {
     byDay,
     weekly: {
@@ -364,6 +384,7 @@ function computeForInstructor(rows) {
       avgGroupSize,
       avgGapMin,
       branches: Array.from(allBranches),
+      branchHours: branchHoursMap,
       isNomaden: allBranches.size > 1,
       unparsedCount: unparsed.length,
       unparsedSamples: unparsed.slice(0, 3).map((r) => ({ day: r.day, time: r.time, student: r.student })),

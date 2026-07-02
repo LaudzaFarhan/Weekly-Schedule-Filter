@@ -198,8 +198,8 @@ export default function WorkloadPage() {
 
   // Build the full report once per data change
   const rawReport = useMemo(
-    () => buildWorkloadReport(sourceClasses, { disabledInstructors }),
-    [sourceClasses, disabledInstructors]
+    () => buildWorkloadReport(overallClasses, { disabledInstructors }),
+    [overallClasses, disabledInstructors]
   );
 
   // Lookup for profile-declared locations — used to filter the workload list
@@ -285,13 +285,18 @@ export default function WorkloadPage() {
     return filteredRaw.concat(extras);
   }, [rawReport, instructorProfiles, disabledInstructors]);
 
-  // When a single branch is selected, drop instructors whose profile assigns
-  // them to a different branch — even if they happen to show up in this
-  // branch's schedule (e.g., a stray class row or stale data). This keeps the
-  // workload list aligned with the Instructor Profiles page.
+  // When a single branch is selected, show instructors who belong to the branch
+  // (via profile home location) OR who are scheduled to teach at least one class
+  // in that branch. This enables cross-branch workload tracking.
   const report = useMemo(() => {
     if (branchFilter === 'all') return reportWithIdle;
     return reportWithIdle.filter((r) => {
+      // Check if they are scheduled in the selected branch
+      const hasClassesInSelectedBranch = overallClasses.some(
+        (c) => c.teacher === r.teacher && c.branchName === branchFilter
+      );
+      if (hasClassesInSelectedBranch) return true;
+
       const profileLoc = profileLocationByName.get(r.teacher);
       if (profileLoc) {
         // Profile is the source of truth: match the selected branch
@@ -302,7 +307,7 @@ export default function WorkloadPage() {
       // have classes in the selected branch (legacy behaviour).
       return true;
     });
-  }, [reportWithIdle, branchFilter, profileLocationByName]);
+  }, [reportWithIdle, branchFilter, profileLocationByName, overallClasses]);
 
   // Resolve a profile-based "home branch" tag for each instructor in the report.
   // Falls back to the schedule-derived branch when no profile location exists.
@@ -1155,28 +1160,41 @@ function FragmentRow({ row, cellStyle, cellCenterStyle, cls, peakMax, isOpen, on
           )}
         </td>
         <td style={cellStyle}>
-          {branchTag ? (
-            <span
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '0.3rem',
-                padding: '0.18rem 0.55rem',
-                borderRadius: '99px',
-                fontSize: '0.72rem',
-                fontWeight: 500,
-                background: branchTag === 'All Branches' ? 'var(--primary-blue-light)' : 'var(--bg-color)',
-                color: branchTag === 'All Branches' ? 'var(--primary-blue)' : 'var(--text-secondary)',
-                border: '1px solid var(--border-color)',
-                whiteSpace: 'nowrap',
-              }}
-            >
-              <MapPin size={10} />
-              {branchTag}
-            </span>
-          ) : (
-            <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>—</span>
-          )}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+            {branchTag ? (
+              <span
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '0.3rem',
+                  padding: '0.18rem 0.55rem',
+                  borderRadius: '99px',
+                  fontSize: '0.72rem',
+                  fontWeight: 500,
+                  background: branchTag === 'All Branches' ? 'var(--primary-blue-light)' : 'var(--bg-color)',
+                  color: branchTag === 'All Branches' ? 'var(--primary-blue)' : 'var(--text-secondary)',
+                  border: '1px solid var(--border-color)',
+                  whiteSpace: 'nowrap',
+                  width: 'fit-content'
+                }}
+              >
+                <MapPin size={10} />
+                {branchTag}
+              </span>
+            ) : (
+              <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>—</span>
+            )}
+            
+            {row.weekly.branchHours && Object.keys(row.weekly.branchHours).length > 1 && (
+              <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', display: 'flex', flexWrap: 'wrap', gap: '0.25rem', marginTop: '2px' }}>
+                {Object.entries(row.weekly.branchHours).map(([b, h]) => (
+                  <span key={b} style={{ background: 'var(--bg-color)', padding: '0.1rem 0.3rem', borderRadius: '4px', border: '1px solid var(--border-color)', whiteSpace: 'nowrap' }}>
+                    {b.slice(0, 4)}: <strong>{h.toFixed(1)}h</strong>
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
         </td>
         <td style={{ ...cellStyle, minWidth: '160px' }}>
           <HourBar hours={row.weekly.hours} max={peakMax} variant={cls} />

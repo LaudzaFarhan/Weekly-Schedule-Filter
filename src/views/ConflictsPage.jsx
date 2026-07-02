@@ -180,10 +180,10 @@ function findFreeInstructorsForConflict(conflict, {
     if (disabledInstructors?.has(t)) continue;
     if (onLeave.has(t)) continue;
 
-    // Respect profile/branch ownership when we know the target branch.
-    if (targetBranch && !instructorBelongsToBranch(t, targetBranch, instructorProfiles, branchClasses)) {
-      continue;
-    }
+    // Check if the instructor belongs to the target branch (primary candidates)
+    const belongs = targetBranch 
+      ? instructorBelongsToBranch(t, targetBranch, instructorProfiles, branchClasses) 
+      : true;
 
     // Busy if they teach anything overlapping either conflicting slot that day.
     const busy = overallClasses.some(
@@ -206,10 +206,17 @@ function findFreeInstructorsForConflict(conflict, {
     candidates.push({
       name: t,
       branch: p.location || '',
+      isCrossBranch: !belongs
     });
   }
 
-  candidates.sort((a, b) => a.name.localeCompare(b.name));
+  // Sort: primary candidates (same branch) first, then alphabetical
+  candidates.sort((a, b) => {
+    if (a.isCrossBranch !== b.isCrossBranch) {
+      return a.isCrossBranch ? 1 : -1;
+    }
+    return a.name.localeCompare(b.name);
+  });
   return candidates;
 }
 
@@ -403,16 +410,17 @@ export default function ConflictsPage() {
                                     display: 'inline-flex', alignItems: 'center', gap: '0.3rem',
                                     fontSize: '0.78rem', fontWeight: 500,
                                     padding: '0.25rem 0.6rem', borderRadius: '99px',
-                                    background: 'var(--success-bg)', color: 'var(--success)',
-                                    border: '1px solid var(--success)',
+                                    background: f.isCrossBranch ? 'var(--primary-blue-light)' : 'var(--success-bg)',
+                                    color: f.isCrossBranch ? 'var(--primary-blue)' : 'var(--success)',
+                                    border: f.isCrossBranch ? '1px solid var(--primary-blue)' : '1px solid var(--success)',
                                   }}
-                                  title={f.branch ? `Home branch: ${f.branch}` : undefined}
+                                  title={f.isCrossBranch ? `Cross-branch cover from home branch: ${f.branch}` : `Home branch: ${f.branch}`}
                                 >
                                   <CheckCircle size={12} />
                                   {f.name}
                                   {f.branch && (
                                     <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.15rem', opacity: 0.7, fontWeight: 400 }}>
-                                      <MapPin size={9} /> {f.branch}
+                                      <MapPin size={9} /> {f.branch} {f.isCrossBranch && '(Cross-Branch)'}
                                     </span>
                                   )}
                                 </span>

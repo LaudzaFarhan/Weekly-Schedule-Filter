@@ -57,6 +57,11 @@ export default function TrialPriorityPage() {
       // Don't override "All Branches" — it's intentionally cross-branch
       if (entry.location === 'All Branches') return entry;
 
+      // Relax sync: Only override if the instructor has a single entry in the list.
+      // If they are listed in multiple branches, do not overwrite their custom branch assignments.
+      const occurrences = trialPriorityList.filter(p => p.name === entry.name).length;
+      if (occurrences > 1) return entry;
+
       const profile = instructorProfiles.find(p =>
         p.fullname === entry.name || p.nickname === entry.name
       );
@@ -83,12 +88,12 @@ export default function TrialPriorityPage() {
   const allPossibleTeachers = new Set([...uniqueBaseTeachers, ...profileNames]);
 
   // Show all instructors in dropdown — the Location field handles branch assignment
-  // Only filter out disabled instructors and those already in the priority list (any branch)
+  // Filter out disabled instructors, and instructors already in the priority list FOR the selected location
   const sortedTeachers = [...allPossibleTeachers]
     .filter((t) => {
       if (disabledInstructors.has(t)) return false;
-      // Check against FULL list (all branches) to prevent duplicates
-      if (trialPriorityList.some(p => p.name === t)) return false;
+      // Allow adding to multiple branches: only filter if already in the list for this specific branch
+      if (trialPriorityList.some(p => p.name === t && p.location === selectedLocation)) return false;
       return true;
     })
     .sort();
@@ -110,8 +115,8 @@ export default function TrialPriorityPage() {
         newList[editIndex] = entry;
         setEditIndex(-1);
       } else {
-        const exists = filteredTrialPriorityList.some((p) => p.name === selectedName);
-        if (exists) { alert(`${selectedName} is already in the priority list for this branch.`); return; }
+        const exists = filteredTrialPriorityList.some((p) => p.name === selectedName && p.location === selectedLocation);
+        if (exists) { alert(`${selectedName} is already in the priority list for ${selectedLocation}.`); return; }
         
         // Auto-create Firebase account and profile for new additions in the background
         // so it never blocks the UI or causes the button to hang
@@ -259,7 +264,7 @@ export default function TrialPriorityPage() {
             isAvailable = false;
             reason = 'On Leave';
           } else {
-            const busyClass = classesForOverview.find(
+            const busyClass = overallClasses.find(
               (c) => c.teacher === p.name && c.day === day && doTimeSlotsOverlap(c.time, timeSlot)
             );
             if (busyClass) {
