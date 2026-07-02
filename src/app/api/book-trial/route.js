@@ -52,8 +52,8 @@ export async function POST(request) {
       body.colH || ''
     ];
 
-    // Assuming the tab is named "Trial Leads" since colA always sends "Trial Leads"
-    const sheetName = 'Trial Leads'; 
+    // The tab is named "Trial" in the spreadsheet
+    const sheetName = 'Trial'; 
     await appendRow(sheetName, values);
 
     return NextResponse.json({ success: true, method: 'native-api' });
