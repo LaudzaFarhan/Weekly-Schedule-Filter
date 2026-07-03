@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { GET as getSchedule } from '../schedule/route';
+import { GET as getInstructors } from '../instructors/route';
 import { getAllConfig, isConfigured, appendRow } from '@/lib/googleSheets';
 import { doTimeSlotsOverlap } from '@/utils/timeUtils';
 import { leaveAppliesToDay } from '@/utils/dateUtils';
@@ -36,7 +37,7 @@ export async function POST(request) {
 
     // 3. Parse JSON Body
     const body = await request.json();
-    let { student, age, day, date, time, program, remarks } = body;
+    let { student, age, day, date, time, program, remarks, location } = body;
 
     if (!student || !day || !date || !time) {
       return NextResponse.json({ error: 'Missing required fields: student, day, date, time' }, { status: 400 });
@@ -54,6 +55,27 @@ export async function POST(request) {
 
     if (!program) {
       return NextResponse.json({ error: 'Could not determine program. Please provide age or program.' }, { status: 400 });
+    }
+
+    // Fetch instructors pool filtered by location/primaryBranch
+    let instructorPool = [];
+    if (location) {
+      try {
+        const apiKey = process.env.CHATBOT_API_KEY || 'test-qontak-key-123';
+        const instRequest = new Request(`http://localhost/api/instructors?key=${apiKey}`);
+        const instRes = await getInstructors(instRequest);
+        const instData = await instRes.json();
+        if (instData.success && Array.isArray(instData.instructors)) {
+          const matchedInstructors = instData.instructors.filter(
+            inst => inst.primaryBranch?.toLowerCase() === location.trim().toLowerCase()
+          );
+          if (matchedInstructors.length > 0) {
+            instructorPool = matchedInstructors.map(inst => inst.name);
+          }
+        }
+      } catch (err) {
+        console.warn('Failed to fetch/filter instructors by primaryBranch:', err.message);
+      }
     }
 
     // 5. Find an Available Instructor — fetch all branch schedules
@@ -101,9 +123,10 @@ export async function POST(request) {
       const onLeave = new Set();
       leaveList.forEach((l) => { if (leaveAppliesToDay(l, day)) onLeave.add(l.name); });
 
+      const baseTeachersToScan = instructorPool.length > 0 ? instructorPool : Array.from(allBaseTeachers);
       const availableInstructors = [];
 
-      for (const teacher of allBaseTeachers) {
+      for (const teacher of baseTeachersToScan) {
         if (disabledInstructors.has(teacher) || onLeave.has(teacher)) continue;
         if (prioritizedTeachers.length > 0 && !prioritizedTeachers.includes(teacher)) continue;
 
@@ -123,6 +146,11 @@ export async function POST(request) {
     }
 
     // 6. Append to Google Sheets directly
+    let finalRemarks = remarks || 'Via Chatbot';
+    if (location) {
+      finalRemarks = remarks ? `${remarks} (Location: ${location})` : `Location: ${location} (Via Chatbot)`;
+    }
+
     const rowData = [
       'Trial Leads',                  // Col A
       program,                        // Col B
@@ -131,7 +159,7 @@ export async function POST(request) {
       dayFormatMap[day] || day,       // Col E
       time,                           // Col F
       date,                           // Col G
-      remarks || 'Via Chatbot'        // Col H
+      finalRemarks                    // Col H
     ];
 
     // Using the native googleSheets.js API helper — tab name is "Summary All"
@@ -140,7 +168,7 @@ export async function POST(request) {
     return NextResponse.json({
       success: true,
       message: 'Booking successfully saved',
-      data: { student, program, instructor: assignedInstructor, day, date, time }
+      data: { student, program, instructor: assignedInstructor, day, date, time, location }
     });
 
   } catch (error) {
