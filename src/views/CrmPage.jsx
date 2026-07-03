@@ -139,6 +139,7 @@ export default function CrmPage() {
 
   const [selectedCrmInstructor, setSelectedCrmInstructor] = useState('');
   const [selectedCrmDay, setSelectedCrmDay] = useState('Saturday');
+  const [selectedCrmDate, setSelectedCrmDate] = useState('');
 
   // Extract unique instructor names in the currently filtered branch
   const activeBranchInstructors = useMemo(() => {
@@ -153,6 +154,19 @@ export default function CrmPage() {
     return Array.from(insts).sort();
   }, [overallClasses, selectedBranchFilter]);
 
+  // Extract unique trial dates from schedule
+  const availableTrialDates = useMemo(() => {
+    const dates = new Set();
+    overallClasses.forEach(c => {
+      if (c.date) {
+        dates.add(c.date.trim());
+      }
+    });
+    return Array.from(dates).sort((a, b) => {
+      return a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' });
+    });
+  }, [overallClasses]);
+
   // Sync selectedCrmInstructor when the instructor list loads or changes
   useEffect(() => {
     if (activeBranchInstructors.length > 0) {
@@ -163,6 +177,17 @@ export default function CrmPage() {
       setSelectedCrmInstructor('');
     }
   }, [activeBranchInstructors, selectedCrmInstructor]);
+
+  // Sync selectedCrmDate when trial dates load or change
+  useEffect(() => {
+    if (availableTrialDates.length > 0) {
+      if (!selectedCrmDate || !availableTrialDates.includes(selectedCrmDate)) {
+        setSelectedCrmDate(availableTrialDates[0]);
+      }
+    } else {
+      setSelectedCrmDate('');
+    }
+  }, [availableTrialDates, selectedCrmDate]);
 
   // Helper for standard slots based on weekday or weekend
   const getStandardSlotsForDay = (day) => {
@@ -196,9 +221,18 @@ export default function CrmPage() {
       (selectedBranchFilter === 'all' || c.branchName === selectedBranchFilter)
     );
 
+    // Filter dayClasses by date: include regular classes (no date) + trial classes matching selectedCrmDate
+    const filteredDayClasses = dayClasses.filter(c => {
+      if (!c.date) return true;
+      if (selectedCrmDate) {
+        return c.date.trim().toLowerCase() === selectedCrmDate.trim().toLowerCase();
+      }
+      return true;
+    });
+
     return slots.map(slotStr => {
       // Find all classes in this slot (overlapping check)
-      const matchedClasses = dayClasses.filter(c => doTimeSlotsOverlap(c.time, slotStr));
+      const matchedClasses = filteredDayClasses.filter(c => doTimeSlotsOverlap(c.time, slotStr));
       
       let status = 'Free';
       let bookedStudents = [];
@@ -238,7 +272,7 @@ export default function CrmPage() {
         remaining
       };
     });
-  }, [selectedCrmInstructor, selectedCrmDay, overallClasses, selectedBranchFilter]);
+  }, [selectedCrmInstructor, selectedCrmDay, selectedCrmDate, overallClasses, selectedBranchFilter]);
   
   // Modals state
   const [isAddOpen, setIsAddOpen] = useState(false);
@@ -736,6 +770,30 @@ export default function CrmPage() {
                   ))}
                 </select>
               </div>
+
+              {/* Date Select Dropdown */}
+              {availableTrialDates.length > 0 && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                  <span style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-secondary)' }}>Date:</span>
+                  <select
+                    value={selectedCrmDate}
+                    onChange={e => setSelectedCrmDate(e.target.value)}
+                    style={{
+                      padding: '0.4rem 0.6rem',
+                      border: '1px solid var(--border-color)',
+                      borderRadius: '6px',
+                      fontSize: '0.82rem',
+                      background: 'white',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    <option value="">All Dates</option>
+                    {availableTrialDates.map(d => (
+                      <option key={d} value={d}>{d}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
             </div>
           </div>
 
