@@ -122,6 +122,75 @@ const getScheduledClass = (lead, overallClasses = []) => {
   return found;
 };
 
+const parseLooseCrmDate = (value) => {
+  const v = String(value || '').trim();
+  if (!v || v === '-') return null;
+
+  // 1. ISO format YYYY-MM-DD
+  const iso = /^(\d{4})-(\d{2})-(\d{2})$/.exec(v);
+  if (iso) {
+    const d = new Date(parseInt(iso[1], 10), parseInt(iso[2], 10) - 1, parseInt(iso[3], 10));
+    return isNaN(d.getTime()) ? null : d;
+  }
+
+  // 2. DMY / DM: e.g. 21/12/2025, 21-12, 21.12.25
+  const dmy = /^(\d{1,2})[\/\-.](\d{1,2})(?:[\/\-.](\d{2,4}))?$/.exec(v);
+  if (dmy) {
+    const day = parseInt(dmy[1], 10);
+    const month = parseInt(dmy[2], 10);
+    let year = dmy[3] ? parseInt(dmy[3], 10) : new Date().getFullYear();
+    if (year < 100) year += 2000;
+    if (day >= 1 && day <= 31 && month >= 1 && month <= 12) {
+      const d = new Date(year, month - 1, day);
+      return isNaN(d.getTime()) ? null : d;
+    }
+  }
+
+  // 3. Try standard month string parsing (e.g., "11 Jul", "11 Jul 2026")
+  let cleanVal = v;
+  const idMonths = {
+    mei: 'may', agustus: 'august', des: 'dec', desember: 'december',
+    okt: 'oct', oktober: 'october', maret: 'march', juli: 'july'
+  };
+  for (const [id, en] of Object.entries(idMonths)) {
+    cleanVal = cleanVal.replace(new RegExp(`\\b${id}\\b`, 'gi'), en);
+  }
+
+  const hasYear = /\b(20\d{2}|\d{2})$/.test(cleanVal.trim());
+  if (!hasYear) {
+    const currentYear = new Date().getFullYear();
+    cleanVal = `${cleanVal} ${currentYear}`;
+  }
+
+  const native = new Date(cleanVal);
+  if (!isNaN(native.getTime())) {
+    native.setHours(0, 0, 0, 0);
+    return native;
+  }
+
+  return null;
+};
+
+const formatDateToISO = (date) => {
+  if (!date) return '';
+  const yyyy = date.getFullYear();
+  const mm = String(date.getMonth() + 1).padStart(2, '0');
+  const dd = String(date.getDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
+};
+
+const crmDatesEqual = (d1, d2) => {
+  if (!d1 || !d2) return false;
+  const clean1 = d1.trim().toLowerCase();
+  const clean2 = d2.trim().toLowerCase();
+  if (clean1 === clean2) return true;
+
+  const p1 = parseLooseCrmDate(d1);
+  const p2 = parseLooseCrmDate(d2);
+  if (!p1 || !p2) return clean1 === clean2;
+  return p1.getTime() === p2.getTime();
+};
+
 export default function CrmPage() {
   const { user } = useAuth();
   const { showToast } = useToast();
@@ -181,13 +250,33 @@ export default function CrmPage() {
   // Sync selectedCrmDate when trial dates load or change
   useEffect(() => {
     if (availableTrialDates.length > 0) {
-      if (!selectedCrmDate || !availableTrialDates.includes(selectedCrmDate)) {
-        setSelectedCrmDate(availableTrialDates[0]);
+      const hasMatch = selectedCrmDate && availableTrialDates.some(d => crmDatesEqual(d, selectedCrmDate));
+      if (!selectedCrmDate || !hasMatch) {
+        const firstDateObj = parseLooseCrmDate(availableTrialDates[0]);
+        if (firstDateObj) {
+          setSelectedCrmDate(formatDateToISO(firstDateObj));
+        }
       }
     } else {
       setSelectedCrmDate('');
     }
   }, [availableTrialDates, selectedCrmDate]);
+
+  const handleCrmDateChange = (e) => {
+    const dateStr = e.target.value; // YYYY-MM-DD
+    setSelectedCrmDate(dateStr);
+    
+    if (dateStr) {
+      const parsed = parseLooseCrmDate(dateStr);
+      if (parsed) {
+        const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+        const dayName = days[parsed.getDay()];
+        if (dayName !== 'Sunday') {
+          setSelectedCrmDay(dayName);
+        }
+      }
+    }
+  };
 
   // Helper for standard slots based on weekday or weekend
   const getStandardSlotsForDay = (day) => {
@@ -225,7 +314,7 @@ export default function CrmPage() {
     const filteredDayClasses = dayClasses.filter(c => {
       if (!c.date) return true;
       if (selectedCrmDate) {
-        return c.date.trim().toLowerCase() === selectedCrmDate.trim().toLowerCase();
+        return crmDatesEqual(c.date, selectedCrmDate);
       }
       return true;
     });
@@ -771,29 +860,44 @@ export default function CrmPage() {
                 </select>
               </div>
 
-              {/* Date Select Dropdown */}
-              {availableTrialDates.length > 0 && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                  <span style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-secondary)' }}>Date:</span>
-                  <select
-                    value={selectedCrmDate}
-                    onChange={e => setSelectedCrmDate(e.target.value)}
+              {/* Date Calendar Picker */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                <span style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-secondary)' }}>Date:</span>
+                <input
+                  type="date"
+                  value={selectedCrmDate}
+                  onChange={handleCrmDateChange}
+                  style={{
+                    padding: '0.4rem 0.6rem',
+                    border: '1px solid var(--border-color)',
+                    borderRadius: '6px',
+                    fontSize: '0.82rem',
+                    background: 'white',
+                    cursor: 'pointer',
+                    outline: 'none',
+                    height: '34px',
+                    boxSizing: 'border-box'
+                  }}
+                />
+                {selectedCrmDate && (
+                  <button
+                    onClick={() => setSelectedCrmDate('')}
                     style={{
-                      padding: '0.4rem 0.6rem',
-                      border: '1px solid var(--border-color)',
-                      borderRadius: '6px',
-                      fontSize: '0.82rem',
-                      background: 'white',
-                      cursor: 'pointer'
+                      background: 'none',
+                      border: 'none',
+                      color: '#ef4444',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      padding: '2px',
+                      marginLeft: '2px'
                     }}
+                    title="Clear Date"
                   >
-                    <option value="">All Dates</option>
-                    {availableTrialDates.map(d => (
-                      <option key={d} value={d}>{d}</option>
-                    ))}
-                  </select>
-                </div>
-              )}
+                    <X size={16} />
+                  </button>
+                )}
+              </div>
             </div>
           </div>
 
