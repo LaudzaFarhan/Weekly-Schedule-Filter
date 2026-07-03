@@ -12,6 +12,7 @@ import {
   deleteLead
 } from '../services/crmService';
 import { logActivity } from '../services/activityService';
+import { doTimeSlotsOverlap } from '../utils/timeUtils';
 import {
   Plus, X, Search, Trash2, ExternalLink, Phone, Save, Clock, Calendar
 } from 'lucide-react';
@@ -135,6 +136,109 @@ export default function CrmPage() {
   const [selectedLeadIds, setSelectedLeadIds] = useState(new Set());
   const [page, setPage] = useState(1);
   const PAGE_SIZE = 10;
+
+  const [selectedCrmInstructor, setSelectedCrmInstructor] = useState('');
+  const [selectedCrmDay, setSelectedCrmDay] = useState('Saturday');
+
+  // Extract unique instructor names in the currently filtered branch
+  const activeBranchInstructors = useMemo(() => {
+    const insts = new Set();
+    overallClasses.forEach(c => {
+      if (selectedBranchFilter === 'all' || c.branchName === selectedBranchFilter) {
+        if (c.teacher && c.teacher !== '-') {
+          insts.add(c.teacher);
+        }
+      }
+    });
+    return Array.from(insts).sort();
+  }, [overallClasses, selectedBranchFilter]);
+
+  // Sync selectedCrmInstructor when the instructor list loads or changes
+  useEffect(() => {
+    if (activeBranchInstructors.length > 0) {
+      if (!selectedCrmInstructor || !activeBranchInstructors.includes(selectedCrmInstructor)) {
+        setSelectedCrmInstructor(activeBranchInstructors[0]);
+      }
+    } else {
+      setSelectedCrmInstructor('');
+    }
+  }, [activeBranchInstructors, selectedCrmInstructor]);
+
+  // Helper for standard slots based on weekday or weekend
+  const getStandardSlotsForDay = (day) => {
+    if (day === 'Saturday' || day === 'Sunday') {
+      return [
+        '10.00 am - 11.00 am',
+        '11.00 am - 12.00 pm',
+        '1.00 pm - 2.00 pm',
+        '2.00 pm - 3.00 pm',
+        '3.00 pm - 4.00 pm',
+        '4.00 pm - 5.00 pm'
+      ];
+    }
+    return [
+      '1.00 pm - 2.00 pm',
+      '2.00 pm - 3.00 pm',
+      '3.00 pm - 4.00 pm',
+      '4.00 pm - 5.00 pm',
+      '5.00 pm - 6.00 pm'
+    ];
+  };
+
+  // Calculate slot remaining capacity for the selected instructor on the selected day
+  const instructorSlotsData = useMemo(() => {
+    if (!selectedCrmInstructor) return [];
+
+    const slots = getStandardSlotsForDay(selectedCrmDay);
+    const dayClasses = overallClasses.filter(c => 
+      c.teacher.toLowerCase() === selectedCrmInstructor.toLowerCase() && 
+      c.day === selectedCrmDay &&
+      (selectedBranchFilter === 'all' || c.branchName === selectedBranchFilter)
+    );
+
+    return slots.map(slotStr => {
+      // Find all classes in this slot (overlapping check)
+      const matchedClasses = dayClasses.filter(c => doTimeSlotsOverlap(c.time, slotStr));
+      
+      let status = 'Free';
+      let bookedStudents = [];
+      let remaining = 4; // Max capacity is 4
+
+      if (matchedClasses.length > 0) {
+        // If there's at least one regular class (non-trial), the slot is fully booked
+        const hasRegularClass = matchedClasses.some(c => 
+          !c.program?.toLowerCase().includes('trial') && 
+          !c.remarks?.toLowerCase().includes('trial')
+        );
+
+        if (hasRegularClass) {
+          status = 'Booked';
+          remaining = 0;
+          bookedStudents = matchedClasses.map(c => c.student);
+        } else {
+          status = 'Trial';
+          const students = [];
+          matchedClasses.forEach(c => {
+            if (c.student) {
+              c.student.split(',').forEach(s => {
+                const trimmed = s.trim();
+                if (trimmed) students.push(trimmed);
+              });
+            }
+          });
+          bookedStudents = students;
+          remaining = Math.max(0, 4 - students.length);
+        }
+      }
+
+      return {
+        slot: slotStr,
+        status,
+        bookedStudents,
+        remaining
+      };
+    });
+  }, [selectedCrmInstructor, selectedCrmDay, overallClasses, selectedBranchFilter]);
   
   // Modals state
   const [isAddOpen, setIsAddOpen] = useState(false);
@@ -574,6 +678,166 @@ export default function CrmPage() {
           </button>
         </div>
       </div>
+
+      {/* Instructor Slot Availability Panel */}
+      {activeBranchInstructors.length > 0 && (
+        <div style={{
+          background: 'white',
+          padding: '1.25rem',
+          borderRadius: '12px',
+          boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
+          marginBottom: '1.5rem',
+          border: '1px solid var(--border-color)'
+        }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem', marginBottom: '1rem' }}>
+            <div>
+              <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 600, color: 'var(--text-main)' }}>Instructor Slots Remaining</h3>
+              <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Check real-time capacity and booked students per instructor</span>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+              {/* Instructor Select Dropdown */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                <span style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-secondary)' }}>Instructor:</span>
+                <select
+                  value={selectedCrmInstructor}
+                  onChange={e => setSelectedCrmInstructor(e.target.value)}
+                  style={{
+                    padding: '0.4rem 0.6rem',
+                    border: '1px solid var(--border-color)',
+                    borderRadius: '6px',
+                    fontSize: '0.82rem',
+                    background: 'white',
+                    cursor: 'pointer'
+                  }}
+                >
+                  {activeBranchInstructors.map(inst => (
+                    <option key={inst} value={inst}>{inst}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Day Select Dropdown */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                <span style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-secondary)' }}>Day:</span>
+                <select
+                  value={selectedCrmDay}
+                  onChange={e => setSelectedCrmDay(e.target.value)}
+                  style={{
+                    padding: '0.4rem 0.6rem',
+                    border: '1px solid var(--border-color)',
+                    borderRadius: '6px',
+                    fontSize: '0.82rem',
+                    background: 'white',
+                    cursor: 'pointer'
+                  }}
+                >
+                  {['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'].map(d => (
+                    <option key={d} value={d}>{d}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          </div>
+
+          {/* Slots Grid */}
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))',
+            gap: '0.85rem'
+          }}>
+            {instructorSlotsData.map(data => {
+              const isFree = data.status === 'Free';
+              const isTrial = data.status === 'Trial';
+              const isBooked = data.status === 'Booked';
+
+              let cardBg = '#f8fafc';
+              let borderCol = '#e2e8f0';
+              let badgeBg = 'rgba(100, 116, 139, 0.1)';
+              let badgeColor = '#475569';
+              let badgeText = 'Regular Class';
+
+              if (isFree) {
+                cardBg = 'rgba(34, 197, 94, 0.02)';
+                borderCol = '#bbf7d0';
+                badgeBg = 'rgba(34, 197, 94, 0.1)';
+                badgeColor = '#166534';
+                badgeText = 'Available';
+              } else if (isTrial) {
+                cardBg = 'rgba(245, 158, 11, 0.02)';
+                borderCol = '#fde047';
+                badgeBg = 'rgba(245, 158, 11, 0.1)';
+                badgeColor = '#854d0e';
+                badgeText = 'Trial Session';
+              }
+
+              return (
+                <div key={data.slot} style={{
+                  background: cardBg,
+                  border: `1px solid ${borderCol}`,
+                  borderRadius: '8px',
+                  padding: '0.75rem',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '0.4rem',
+                  transition: 'transform 0.15s, box-shadow 0.15s',
+                  position: 'relative'
+                }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ fontSize: '0.75rem', fontWeight: 'bold', color: 'var(--text-main)' }}>
+                      {data.slot.replace(' am', '').replace(' pm', '')}
+                    </span>
+                    <span style={{
+                      fontSize: '0.62rem',
+                      fontWeight: 700,
+                      padding: '1px 5px',
+                      borderRadius: '4px',
+                      background: badgeBg,
+                      color: badgeColor,
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.02em'
+                    }}>
+                      {badgeText}
+                    </span>
+                  </div>
+
+                  <div style={{ display: 'flex', flexDirection: 'column' }}>
+                    <span style={{ fontSize: '0.85rem', fontWeight: 600, color: isFree ? '#166534' : isTrial ? '#854d0e' : '#475569' }}>
+                      {data.remaining} slot{data.remaining !== 1 ? 's' : ''} left
+                    </span>
+                    <span style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }}>
+                      Capacity: {4 - data.remaining}/4 booked
+                    </span>
+                  </div>
+
+                  {data.bookedStudents.length > 0 && (
+                    <div style={{
+                      borderTop: '1px solid rgba(0,0,0,0.04)',
+                      paddingTop: '0.4rem',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '2px',
+                      maxHeight: '48px',
+                      overflowY: 'auto'
+                    }}>
+                      {data.bookedStudents.map((st, idx) => (
+                        <div key={idx} style={{
+                          fontSize: '0.68rem',
+                          color: 'var(--text-secondary)',
+                          whiteSpace: 'nowrap',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis'
+                        }} title={st}>
+                          • {st}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Kanban Board / Table View Switcher */}
       {loading ? (
