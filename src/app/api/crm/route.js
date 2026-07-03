@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { GET as getSchedule } from '../schedule/route';
 import { getAllConfig, isConfigured } from '@/lib/googleSheets';
 import { generateTrialSlots, doTimeSlotsOverlap } from '@/utils/timeUtils';
-import { leaveAppliesToDay } from '@/utils/dateUtils';
+import { leaveAppliesToDay, parseLooseDate, getDateForCurrentWeekDay } from '@/utils/dateUtils';
 import { DAY_NAMES } from '@/utils/constants';
 
 function getLevenshteinDistance(a, b) {
@@ -341,6 +341,22 @@ export async function GET(request) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
+    const { searchParams } = new URL(request.url);
+    const dateParam = searchParams.get('date') || '';
+
+    // Date comparison helper
+    const areDatesEqual = (d1, d2) => {
+      if (!d1 || !d2) return false;
+      const clean1 = d1.trim().toLowerCase();
+      const clean2 = d2.trim().toLowerCase();
+      if (clean1 === clean2) return true;
+
+      const p1 = parseLooseDate(d1);
+      const p2 = parseLooseDate(d2);
+      if (!p1 || !p2) return clean1 === clean2;
+      return p1.getTime() === p2.getTime();
+    };
+
     // 2. Fetch CRM leads from Firestore via REST
     const leadsUrl = `https://firestore.googleapis.com/v1/projects/${PROJECT_ID}/databases/(default)/documents/crmLeads?pageSize=300&key=${API_KEY}`;
     const leadsRes = await fetch(leadsUrl);
@@ -387,13 +403,20 @@ export async function GET(request) {
       };
     });
 
-    // 6. Compute Booked Slots Summary
+    // 6. Compute Booked Slots Summary (filter by dateParam if provided)
     let totalBooked = 0;
     const byBranch = {};
     const byDayAndTime = {};
 
     matchedLeads.forEach(lead => {
       if (lead.scheduledClass) {
+        if (dateParam) {
+          const leadDate = lead.trialDate || lead.scheduledClass.date || '';
+          if (!areDatesEqual(leadDate, dateParam)) {
+            return;
+          }
+        }
+
         totalBooked++;
         const { branchName, day, time } = lead.scheduledClass;
         
@@ -417,12 +440,33 @@ export async function GET(request) {
     const availability = {};
     const programs = ['Trial Kinder', 'Trial Junior', 'Trial Coder'];
     const branches = ['Bintaro', 'Bekasi'];
+    const daysOfWeek = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
     for (const branchName of branches) {
       availability[branchName] = {};
       const workingDays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
       for (const day of workingDays) {
+        let targetDateStr = '';
+        if (dateParam) {
+          const parsedParamDate = parseLooseDate(dateParam);
+          const paramDayName = parsedParamDate ? daysOfWeek[parsedParamDate.getDay()] : '';
+          
+          if (paramDayName === day) {
+            targetDateStr = dateParam;
+          } else {
+            // Skip days that do not match the selected date parameter
+            continue;
+          }
+        } else {
+          // Default to the date of this weekday in the current week
+          const currentWeekDate = getDateForCurrentWeekDay(day);
+          const dayNum = currentWeekDate.getDate();
+          const monthsShort = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+          const monthStr = monthsShort[currentWeekDate.getMonth()];
+          targetDateStr = `${dayNum} ${monthStr}`;
+        }
+
         availability[branchName][day] = {};
         const allSlots = generateTrialSlots(day);
 
@@ -450,17 +494,59 @@ export async function GET(request) {
                 continue;
               }
 
-              // Check if teacher is busy in this slot
-              const isBusy = classes.some(
+              // Get all classes this teacher teaches on this day in this branch in this slot
+              const teacherClassesInSlot = classes.filter(
                 (c) =>
-                  c.teacher === teacher &&
+                  c.teacher.toLowerCase() === teacher.toLowerCase() &&
                   c.day === day &&
                   c.branchName &&
                   c.branchName.toLowerCase() === branchName.toLowerCase() &&
                   doTimeSlotsOverlap(c.time, slotStr)
               );
 
-              if (!isBusy) {
+              let isAvailable = true;
+              if (teacherClassesInSlot.length > 0) {
+                // 1. Check if there is a regular class (non-trial)
+                const hasRegularClass = teacherClassesInSlot.some(c => 
+                  !c.program?.toLowerCase().includes('trial') && 
+                  !c.remarks?.toLowerCase().includes('trial')
+                );
+
+                if (hasRegularClass) {
+                  isAvailable = false; // regular class = fully booked / busy
+                } else {
+                  // 2. Count trial students scheduled on the target date
+                  let activeTrialCount = 0;
+                  
+                  teacherClassesInSlot.forEach(c => {
+                    // Find matching lead to verify the trial date
+                    const matchingLead = matchedLeads.find(l => 
+                      l.scheduledClass && 
+                      l.scheduledClass.teacher.toLowerCase() === c.teacher.toLowerCase() &&
+                      l.scheduledClass.day === c.day &&
+                      l.scheduledClass.time === c.time &&
+                      l.scheduledClass.student === c.student
+                    );
+
+                    const leadDate = matchingLead?.trialDate || c.date || '';
+                    if (areDatesEqual(leadDate, targetDateStr)) {
+                      if (c.student) {
+                        const studentCount = c.student.split(',').filter(s => s.trim().length > 0).length;
+                        activeTrialCount += studentCount;
+                      } else {
+                        activeTrialCount += 1;
+                      }
+                    }
+                  });
+
+                  // 3. Max capacity is 2 trial bookings per teacher per slot
+                  if (activeTrialCount >= 2) {
+                    isAvailable = false;
+                  }
+                }
+              }
+
+              if (isAvailable) {
                 availableTeachers.push(teacher);
               }
             }
