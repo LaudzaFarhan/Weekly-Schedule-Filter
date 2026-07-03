@@ -5,6 +5,7 @@ import { useSchedule } from '../contexts/ScheduleContext';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../components/ui/Toast';
 import { DAY_NAMES, getWorkingDaysForBranch } from '../utils/constants';
+import { parseLooseDate, getMondayOfDate, formatWeekRange } from '../utils/dateUtils';
 import { getInstructorBranch } from '../utils/instructorUtils';
 import {
   buildWorkloadReport,
@@ -117,6 +118,7 @@ export default function WorkloadPage() {
   const { showToast } = useToast();
 
   const [branchFilter, setBranchFilter] = useState(activeBranchName || 'all');
+  const [selectedWeek, setSelectedWeek] = useState('all');
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [sortBy, setSortBy] = useState('hours');
@@ -142,11 +144,56 @@ export default function WorkloadPage() {
 
   const thresholds = DEFAULT_THRESHOLDS;
 
-  // Source classes: respect branch filter. "all" means every enabled branch.
+  // Extract unique weeks represented in the classes schedule (based on trial dates)
+  const weeksList = useMemo(() => {
+    const mondayMap = new Map();
+    overallClasses.forEach(c => {
+      if (!c.date) return;
+      const parsed = parseLooseDate(c.date);
+      if (!parsed) return;
+      const monday = getMondayOfDate(parsed);
+      const label = formatWeekRange(monday);
+      if (!mondayMap.has(label)) {
+        mondayMap.set(label, monday);
+      }
+    });
+
+    const list = Array.from(mondayMap.entries()).map(([label, monday]) => ({
+      label,
+      monday
+    }));
+    list.sort((a, b) => a.monday.getTime() - b.monday.getTime());
+    return list;
+  }, [overallClasses]);
+
+  // Intermediate helper for classes scoped to the selected week (applies to workload and heatmap)
+  const weekFilteredClasses = useMemo(() => {
+    if (selectedWeek === 'all') return overallClasses;
+    
+    const weekInfo = weeksList.find(w => w.label === selectedWeek);
+    if (!weekInfo) return overallClasses;
+    
+    const monday = weekInfo.monday;
+    const sunday = new Date(monday);
+    sunday.setDate(monday.getDate() + 6);
+    sunday.setHours(23, 59, 59, 999);
+    
+    return overallClasses.filter((c) => {
+      if (!c.date) return true; // regular weekly classes
+      const parsed = parseLooseDate(c.date);
+      if (!parsed) return true; // unparseable dates / codes
+      return parsed.getTime() >= monday.getTime() && parsed.getTime() <= sunday.getTime();
+    });
+  }, [overallClasses, selectedWeek, weeksList]);
+
+  // Source classes: respect branch filter AND week filter (used for upcoming trials)
   const sourceClasses = useMemo(() => {
-    if (branchFilter === 'all') return overallClasses;
-    return overallClasses.filter((c) => c.branchName === branchFilter);
-  }, [overallClasses, branchFilter]);
+    let classes = weekFilteredClasses;
+    if (branchFilter !== 'all') {
+      classes = classes.filter((c) => c.branchName === branchFilter);
+    }
+    return classes;
+  }, [weekFilteredClasses, branchFilter]);
 
   // Compute nearest trials per teacher
   const upcomingTrials = useMemo(() => {
@@ -196,10 +243,10 @@ export default function WorkloadPage() {
     return list;
   }, [sourceClasses]);
 
-  // Build the full report once per data change
+  // Build the full report once per data change, respecting week filter
   const rawReport = useMemo(
-    () => buildWorkloadReport(overallClasses, { disabledInstructors }),
-    [overallClasses, disabledInstructors]
+    () => buildWorkloadReport(weekFilteredClasses, { disabledInstructors }),
+    [weekFilteredClasses, disabledInstructors]
   );
 
   // Lookup for profile-declared locations — used to filter the workload list
@@ -292,7 +339,7 @@ export default function WorkloadPage() {
     if (branchFilter === 'all') return reportWithIdle;
     return reportWithIdle.filter((r) => {
       // Check if they are scheduled in the selected branch
-      const hasClassesInSelectedBranch = overallClasses.some(
+      const hasClassesInSelectedBranch = weekFilteredClasses.some(
         (c) => c.teacher === r.teacher && c.branchName === branchFilter
       );
       if (hasClassesInSelectedBranch) return true;
@@ -307,18 +354,18 @@ export default function WorkloadPage() {
       // have classes in the selected branch (legacy behaviour).
       return true;
     });
-  }, [reportWithIdle, branchFilter, profileLocationByName, overallClasses]);
+  }, [reportWithIdle, branchFilter, profileLocationByName, weekFilteredClasses]);
 
   // Resolve a profile-based "home branch" tag for each instructor in the report.
   // Falls back to the schedule-derived branch when no profile location exists.
   const instructorTagMap = useMemo(() => {
     const map = new Map();
     for (const r of report) {
-      const tag = getInstructorBranch(r.teacher, instructorProfiles, overallClasses);
+      const tag = getInstructorBranch(r.teacher, instructorProfiles, weekFilteredClasses);
       map.set(r.teacher, tag === 'Unknown' ? null : tag);
     }
     return map;
-  }, [report, instructorProfiles, overallClasses]);
+  }, [report, instructorProfiles, weekFilteredClasses]);
 
   const summary = useMemo(() => summarizeWorkload(report, thresholds), [report, thresholds]);
 
@@ -412,9 +459,9 @@ export default function WorkloadPage() {
    * email-prefix.
    */
   const buildReportForBranch = useCallback((branchName) => {
-    const scoped = overallClasses.filter((c) => c.branchName === branchName);
+    const scoped = weekFilteredClasses.filter((c) => c.branchName === branchName);
     const built = buildWorkloadReport(scoped, { disabledInstructors });
-
+ 
     // Inject idle rows for profile-only instructors who belong to this branch.
     const existing = new Set(built.map((r) => r.teacher));
     for (const profile of instructorProfiles) {
@@ -426,17 +473,17 @@ export default function WorkloadPage() {
       if (candidates.length === 0) continue;
       const alreadyKnown = candidates.some((c) => existing.has(c));
       if (alreadyKnown) continue;
-
+ 
       const displayName = candidates[0];
       if (disabledInstructors && disabledInstructors.has(displayName)) continue;
-
+ 
       const loc = profile.location;
       if (loc !== branchName && loc !== 'All Branches') continue;
-
+ 
       built.push(buildIdleWorkloadRow(displayName));
       candidates.forEach((c) => existing.add(c));
     }
-
+ 
     return built.filter((r) => {
       const profileLoc = profileLocationByName.get(r.teacher);
       if (profileLoc) {
@@ -444,7 +491,7 @@ export default function WorkloadPage() {
       }
       return true;
     });
-  }, [overallClasses, disabledInstructors, profileLocationByName, instructorProfiles]);
+  }, [weekFilteredClasses, disabledInstructors, profileLocationByName, instructorProfiles]);
 
   /** Save today's snapshot for ALL enabled branches (one doc per branch). */
   const handleSaveSnapshot = useCallback(async () => {
@@ -899,6 +946,28 @@ export default function WorkloadPage() {
                 ))}
               </select>
             </div>
+            {weeksList.length > 0 && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                <CalendarIcon size={14} style={{ color: 'var(--text-muted)' }} />
+                <select
+                  value={selectedWeek}
+                  onChange={(e) => { setSelectedWeek(e.target.value); setPage(1); }}
+                  style={{
+                    padding: '0.4rem 0.6rem',
+                    border: '1px solid var(--border-color)',
+                    borderRadius: '8px',
+                    fontSize: '0.85rem',
+                    background: 'white',
+                    cursor: 'pointer',
+                  }}
+                >
+                  <option value="all">All Weeks</option>
+                  {weeksList.map((w) => (
+                    <option key={w.label} value={w.label}>{w.label}</option>
+                  ))}
+                </select>
+              </div>
+            )}
             <div style={{ position: 'relative' }}>
               <Search
                 size={14}

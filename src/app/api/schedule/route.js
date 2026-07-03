@@ -273,6 +273,7 @@ function parseCSVData(csvText, dayName, branchId, branchName) {
         fullProgram: cell(row, 'program') || '',
         lessonDetail,
         notArranged,
+        date: lessonArrange ? lessonArrange.trim() : '',
       });
 
       if (teacher !== '-') teachers.add(teacher);
