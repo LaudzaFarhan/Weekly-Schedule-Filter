@@ -103,12 +103,21 @@ function parseCSVData(csvText, dayName, branchId, branchName) {
 
   const cell = (row, key) => (COL[key] && row[COL[key]] != null ? row[COL[key]] : undefined);
 
-  let lastTime = '';
+  // 1. Assign row_number to all rows based on original order
+  const rowsWithRowNumber = parsed.data.map((row, index) => ({
+    ...row,
+    row_number: index + 2 // 1-based index + 1 for header row
+  }));
+
+  // 2. Explicitly sort by row_number to guarantee spreadsheet order
+  rowsWithRowNumber.sort((a, b) => a.row_number - b.row_number);
+
+  let current_time = '';
   let lastTerm = '';
   let lastTeacher = '';
   let lastBaseTeacher = '';
 
-  parsed.data.forEach((row) => {
+  rowsWithRowNumber.forEach((row) => {
     const rawStudent = cell(row, 'student');
     const rawTime = cell(row, 'time');
     const rawTerm = cell(row, 'term');
@@ -116,7 +125,11 @@ function parseCSVData(csvText, dayName, branchId, branchName) {
     if (!rawStudent && !rawTime && !rawTerm) return;
     if (rawTime === 'Time' || rawTerm === 'Term-Branch') return;
 
-    let time = rawTime ? rawTime.trim() : lastTime;
+    // 3. Loop every row: if row.time is populated, update current_time, else inherit
+    if (rawTime && rawTime.trim() !== '') {
+      current_time = rawTime.trim();
+    }
+    let time = current_time;
     let term = rawTerm ? rawTerm.trim() : lastTerm;
 
     const rawColumnC = cell(row, 'instructor') ? cell(row, 'instructor').trim() : '';
@@ -149,7 +162,11 @@ function parseCSVData(csvText, dayName, branchId, branchName) {
       }
     }
 
-    if (time.startsWith('010.')) time = time.substring(1);
+    if (time && time.startsWith('010.')) time = time.substring(1);
+
+    if (time) current_time = time;
+    if (term) lastTerm = term;
+    if (teacher) lastTeacher = teacher;
 
     if (rawStudent && teacher && teacher !== '-') {
       classes.push({
@@ -160,7 +177,9 @@ function parseCSVData(csvText, dayName, branchId, branchName) {
         student: rawStudent.trim(),
         remarks: cell(row, 'remarks') || '',
         branchId,
-        branchName
+        branchName,
+        row_number: row.row_number,
+        rowNumber: row.row_number
       });
     }
   });
