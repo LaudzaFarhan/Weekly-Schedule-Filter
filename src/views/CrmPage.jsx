@@ -13,7 +13,7 @@ import {
 } from '../services/crmService';
 import { logActivity } from '../services/activityService';
 import {
-  Plus, X, Search, Trash2, ExternalLink, Phone, Save, Clock
+  Plus, X, Search, Trash2, ExternalLink, Phone, Save, Clock, Calendar
 } from 'lucide-react';
 
 const COLUMNS = [
@@ -23,10 +23,54 @@ const COLUMNS = [
   { id: 'closed', title: 'Closed', color: '#64748b', badge: 'rgba(100, 116, 139, 0.15)', textColor: '#475569' }
 ];
 
+const cleanDay = (day) => {
+  if (!day) return '';
+  return day.replace(/^\d+\.\s*/, '');
+};
+
+const getScheduledClass = (lead, overallClasses = []) => {
+  if (!lead || !lead.name) return null;
+  
+  // Extract candidate student name from format: "Mida (Parent of Mary)" -> "Mary"
+  const match = lead.name.match(/\(Parent of\s+([^)]+)\)/i) || lead.name.match(/Parent of\s+(.+)/i);
+  const studentName = match ? match[1].trim() : lead.name.trim();
+  
+  const cleanStr = (s) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
+  const targetClean = cleanStr(studentName);
+  
+  if (!targetClean || targetClean.length < 2) return null;
+  
+  const isMatch = (classStudent) => {
+    if (!classStudent) return false;
+    const classStudentClean = cleanStr(classStudent);
+    if (!classStudentClean || classStudentClean.length < 2) return false;
+    
+    // If one of them is short (e.g. <= 3 chars), require exact match
+    if (targetClean.length <= 3 || classStudentClean.length <= 3) {
+      return classStudentClean === targetClean;
+    }
+    
+    return classStudentClean.includes(targetClean) || targetClean.includes(classStudentClean);
+  };
+
+  // 1. Try matching within the same branch first
+  let found = overallClasses.find(c => {
+    const sameBranch = lead.branch && c.branchName && lead.branch.toLowerCase() === c.branchName.toLowerCase();
+    return sameBranch && isMatch(c.student);
+  });
+  
+  // 2. Fallback to any branch if no branch-specific match
+  if (!found) {
+    found = overallClasses.find(c => isMatch(c.student));
+  }
+  
+  return found;
+};
+
 export default function CrmPage() {
   const { user } = useAuth();
   const { showToast } = useToast();
-  const { branches, activeBranchName } = useSchedule();
+  const { branches, activeBranchName, overallClasses = [] } = useSchedule();
 
   const [leads, setLeads] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -496,6 +540,7 @@ export default function CrmPage() {
                 <th>Phone Number</th>
                 <th>Message</th>
                 <th>Status</th>
+                <th>Weekly Schedule</th>
                 <th>Admin Notes</th>
                 <th>Updated At</th>
                 <th style={{ width: 100, textAlign: 'center' }}>Action</th>
@@ -504,13 +549,14 @@ export default function CrmPage() {
             <tbody>
               {filteredLeads.length === 0 ? (
                 <tr>
-                  <td colSpan="9" className="empty-state-table" style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-muted)' }}>
+                  <td colSpan="10" className="empty-state-table" style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-muted)' }}>
                     No leads match your filter.
                   </td>
                 </tr>
               ) : (
                 pagedLeads.map((lead) => {
                   const statusCol = COLUMNS.find(c => c.id === lead.status) || COLUMNS[0];
+                  const matchedClass = getScheduledClass(lead, overallClasses);
                   return (
                     <tr 
                       key={lead.id} 
@@ -587,6 +633,31 @@ export default function CrmPage() {
                         }}>
                           {statusCol.title}
                         </span>
+                      </td>
+                      <td>
+                        {matchedClass ? (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                            <span style={{
+                              fontSize: '0.75rem',
+                              fontWeight: 'bold',
+                              padding: '2px 6px',
+                              borderRadius: '4px',
+                              background: 'rgba(16, 185, 129, 0.15)',
+                              color: '#047857',
+                              alignSelf: 'start',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '4px'
+                            }}>
+                              {cleanDay(matchedClass.day)} • {matchedClass.time.split(' - ')[0]}
+                            </span>
+                            <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', paddingLeft: '2px' }}>
+                              {matchedClass.teacher} {lead.branch?.toLowerCase() !== matchedClass.branchName?.toLowerCase() ? `(${matchedClass.branchName})` : ''}
+                            </span>
+                          </div>
+                        ) : (
+                          <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem', fontStyle: 'italic' }}>—</span>
+                        )}
                       </td>
                       <td>
                         <div style={{
@@ -686,22 +757,24 @@ export default function CrmPage() {
                       Drag leads here
                     </div>
                   ) : (
-                    columnLeads.map((lead) => (
-                      <div
-                        key={lead.id}
-                        draggable
-                        onDragStart={(e) => handleDragStart(e, lead.id)}
-                        onClick={() => handleOpenDetails(lead)}
-                        style={{
-                          background: 'white',
-                          borderRadius: '8px',
-                          padding: '0.9rem',
-                          marginBottom: '0.75rem',
-                          boxShadow: '0 1px 3px rgba(0,0,0,0.05), 0 1px 2px rgba(0,0,0,0.1)',
-                          cursor: 'grab',
-                          borderLeft: `4px solid ${col.color}`,
-                          transition: 'transform 0.15s, box-shadow 0.15s'
-                        }}
+                    columnLeads.map((lead) => {
+                      const matchedClass = getScheduledClass(lead, overallClasses);
+                      return (
+                        <div
+                          key={lead.id}
+                          draggable
+                          onDragStart={(e) => handleDragStart(e, lead.id)}
+                          onClick={() => handleOpenDetails(lead)}
+                          style={{
+                            background: 'white',
+                            borderRadius: '8px',
+                            padding: '0.9rem',
+                            marginBottom: '0.75rem',
+                            boxShadow: '0 1px 3px rgba(0,0,0,0.05), 0 1px 2px rgba(0,0,0,0.1)',
+                            cursor: 'grab',
+                            borderLeft: `4px solid ${col.color}`,
+                            transition: 'transform 0.15s, box-shadow 0.15s'
+                          }}
                         onMouseEnter={(e) => {
                           e.currentTarget.style.transform = 'translateY(-2px)';
                           e.currentTarget.style.boxShadow = '0 4px 6px -1px rgba(0,0,0,0.08), 0 2px 4px -1px rgba(0,0,0,0.06)';
@@ -733,6 +806,23 @@ export default function CrmPage() {
                           }}>
                             {lead.message}
                           </p>
+                        )}
+
+                        {matchedClass && (
+                          <div style={{
+                            fontSize: '0.75rem',
+                            background: 'rgba(16, 185, 129, 0.1)',
+                            padding: '4px 8px',
+                            borderRadius: '4px',
+                            color: '#047857',
+                            marginBottom: '0.6rem',
+                            borderLeft: '2px solid #10b981',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap'
+                          }} title={`Scheduled on ${cleanDay(matchedClass.day)} ${matchedClass.time} with ${matchedClass.teacher}`}>
+                            <strong>Weekly:</strong> {cleanDay(matchedClass.day)} • {matchedClass.time.split(' - ')[0]} ({matchedClass.teacher})
+                          </div>
                         )}
 
                         {lead.notes && (
@@ -794,7 +884,8 @@ export default function CrmPage() {
                           </a>
                         </div>
                       </div>
-                    ))
+                      );
+                    })
                   )}
                 </div>
               </div>
@@ -1004,6 +1095,45 @@ export default function CrmPage() {
                   </select>
                 </div>
               </div>
+
+              {(() => {
+                const matched = getScheduledClass(selectedLead, overallClasses);
+                return matched ? (
+                  <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    fontSize: '0.85rem',
+                    background: '#f0fdf4',
+                    padding: '0.75rem',
+                    borderRadius: '6px',
+                    border: '1px solid #bbf7d0',
+                    color: '#15803d',
+                    marginBottom: '0.2rem'
+                  }}>
+                    <span style={{ display: 'flex', alignItems: 'center' }}><Calendar size={16} /></span>
+                    <span>
+                      <strong>Weekly Schedule:</strong> Scheduled on <strong>{cleanDay(matched.day)}</strong> at <strong>{matched.time}</strong> with <strong>{matched.teacher}</strong> ({matched.branchName})
+                    </span>
+                  </div>
+                ) : (
+                  <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    fontSize: '0.85rem',
+                    background: '#f8fafc',
+                    padding: '0.75rem',
+                    borderRadius: '6px',
+                    border: '1px solid #cbd5e1',
+                    color: 'var(--text-muted)',
+                    marginBottom: '0.2rem'
+                  }}>
+                    <span style={{ display: 'flex', alignItems: 'center' }}><Calendar size={16} /></span>
+                    <span>Not yet scheduled in the weekly schedule.</span>
+                  </div>
+                );
+              })()}
 
               <div className="input-group">
                 <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Follow-up Notes</label>
