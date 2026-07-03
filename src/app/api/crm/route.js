@@ -157,66 +157,69 @@ export async function POST(request) {
     // Check if it's the WhatsApp formatted lead
     const isWhatsAppLead = body.parent_name || body.child_name || body.location;
     
-    let name = body.name;
-    let phone = body.phone || body.phone_number || body.wa_id || '';
-    let message = body.message;
-    let status = body.status;
-    let notes = body.notes;
-    let branch = body.branch || body.branchName || '';
-
-    if (isWhatsAppLead) {
-      const parentName = body.parent_name || '';
-      const childName = body.child_name || '';
-      const age = body.age || '';
-      const program = body.program || '';
-      const location = body.location || '';
-      const instructor = body.instructor || '';
-      const day = body.day || '';
-      const date = body.date || '';
-      const time = body.time || '';
-
-      name = parentName ? `${parentName} (Parent of ${childName})` : childName;
-      if (!phone) {
-        phone = body.phone || body.phone_number || '08123456789'; // Fallback phone
-      }
-      
-      message = `WhatsApp Lead Details:
-- Parent Name: ${parentName}
-- Child Name: ${childName} (Age: ${age})
-- Program: ${program}
-- Location: ${location}
-- Instructor: ${instructor}
-- Schedule: ${day}, ${date} @ ${time}`;
-
-      branch = location;
-      status = status || 'trial_booked'; // Set to trial_booked since a schedule is already assigned
-      notes = notes || 'Inserted via WhatsApp chatbot final data';
-    }
-
-    if (!name || !phone) {
-      return NextResponse.json({ error: 'Missing required fields: name/child_name and phone/phone_number' }, { status: 400 });
-    }
-
-    // 3. Add to Firestore collection 'crmLeads' using standard REST API to bypass gRPC issues in server context
-    const url = `https://firestore.googleapis.com/v1/projects/${PROJECT_ID}/databases/(default)/documents/crmLeads?key=${API_KEY}`;
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        fields: {
-          name: { stringValue: name.trim() },
-          phone: { stringValue: phone.trim() },
-          message: { stringValue: message || '' },
-          status: { stringValue: status || 'interest_trial' },
-          notes: { stringValue: notes || '' },
-          branch: { stringValue: branch || '' },
-          createdAt: { timestampValue: new Date().toISOString() },
-          updatedAt: { timestampValue: new Date().toISOString() }
-        }
-      })
-    });
+     let name = body.name;
+     let phone = body.phone || body.phone_number || body.wa_id || '';
+     let message = body.message;
+     let status = body.status;
+     let notes = body.notes;
+     let branch = body.branch || body.branchName || '';
+     let trialDate = body.trialDate || body.trial_date || '';
+ 
+     if (isWhatsAppLead) {
+       const parentName = body.parent_name || '';
+       const childName = body.child_name || '';
+       const age = body.age || '';
+       const program = body.program || '';
+       const location = body.location || '';
+       const instructor = body.instructor || '';
+       const day = body.day || '';
+       const date = body.date || '';
+       const time = body.time || '';
+ 
+       name = parentName ? `${parentName} (Parent of ${childName})` : childName;
+       if (!phone) {
+         phone = body.phone || body.phone_number || '08123456789'; // Fallback phone
+       }
+       
+       message = `WhatsApp Lead Details:
+ - Parent Name: ${parentName}
+ - Child Name: ${childName} (Age: ${age})
+ - Program: ${program}
+ - Location: ${location}
+ - Instructor: ${instructor}
+ - Schedule: ${day}, ${date} @ ${time}`;
+ 
+       branch = location;
+       status = status || 'trial_booked'; // Set to trial_booked since a schedule is already assigned
+       notes = notes || 'Inserted via WhatsApp chatbot final data';
+       trialDate = date;
+     }
+ 
+     if (!name || !phone) {
+       return NextResponse.json({ error: 'Missing required fields: name/child_name and phone/phone_number' }, { status: 400 });
+     }
+ 
+     // 3. Add to Firestore collection 'crmLeads' using standard REST API to bypass gRPC issues in server context
+     const url = `https://firestore.googleapis.com/v1/projects/${PROJECT_ID}/databases/(default)/documents/crmLeads?key=${API_KEY}`;
+     const res = await fetch(url, {
+       method: 'POST',
+       headers: {
+         'Content-Type': 'application/json'
+       },
+       body: JSON.stringify({
+         fields: {
+           name: { stringValue: name.trim() },
+           phone: { stringValue: phone.trim() },
+           message: { stringValue: message || '' },
+           status: { stringValue: status || 'interest_trial' },
+           notes: { stringValue: notes || '' },
+           branch: { stringValue: branch || '' },
+           trialDate: { stringValue: trialDate || '' },
+           createdAt: { timestampValue: new Date().toISOString() },
+           updatedAt: { timestampValue: new Date().toISOString() }
+         }
+       })
+     });
 
     if (!res.ok) {
       const errText = await res.text();
@@ -268,10 +271,14 @@ export async function PATCH(request) {
     const updateMaskFieldPaths = [];
 
     // Fields we support updating
-    const updateableFields = ['status', 'notes', 'message', 'name', 'phone', 'branch'];
+    const updateableFields = ['status', 'notes', 'message', 'name', 'phone', 'branch', 'trialDate'];
     for (const key of updateableFields) {
-      if (body[key] !== undefined) {
-        fields[key] = { stringValue: String(body[key]).trim() };
+      let val = body[key];
+      if (key === 'trialDate' && val === undefined) {
+        val = body.trial_date;
+      }
+      if (val !== undefined) {
+        fields[key] = { stringValue: String(val).trim() };
         updateMaskFieldPaths.push(`updateMask.fieldPaths=${key}`);
       }
     }

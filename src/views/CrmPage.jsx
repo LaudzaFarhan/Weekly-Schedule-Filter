@@ -148,7 +148,8 @@ export default function CrmPage() {
     message: '',
     status: 'interest_trial',
     notes: '',
-    branch: ''
+    branch: '',
+    trialDate: ''
   });
 
   const [editedLead, setEditedLead] = useState({
@@ -157,7 +158,8 @@ export default function CrmPage() {
     message: '',
     status: '',
     notes: '',
-    branch: ''
+    branch: '',
+    trialDate: ''
   });
 
   // Sync default filter and new lead branch when active branch loads
@@ -238,7 +240,7 @@ export default function CrmPage() {
       await createLead(newLead);
       logActivity(user?.email, 'added CRM lead', `Added lead "${newLead.name}"`);
       setIsAddOpen(false);
-      setNewLead({ name: '', phone: '', message: '', status: 'interest_trial', notes: '' });
+      setNewLead({ name: '', phone: '', message: '', status: 'interest_trial', notes: '', branch: '', trialDate: '' });
       showToast({ title: 'Lead added successfully', variant: 'success' });
     } catch (err) {
       console.error(err);
@@ -254,7 +256,8 @@ export default function CrmPage() {
       message: lead.message || '',
       status: lead.status,
       notes: lead.notes || '',
-      branch: lead.branch || ''
+      branch: lead.branch || '',
+      trialDate: lead.trialDate || ''
     });
     setIsDetailOpen(true);
   };
@@ -282,6 +285,9 @@ export default function CrmPage() {
       }
       if (selectedLead.branch !== editedLead.branch) {
         changes.push(`branch to "${editedLead.branch}"`);
+      }
+      if (selectedLead.trialDate !== editedLead.trialDate) {
+        changes.push(`trialDate to "${editedLead.trialDate}"`);
       }
 
       const changeMsg = changes.length > 0 ? `Updated ${changes.join(', ')}` : 'No changes';
@@ -595,6 +601,7 @@ export default function CrmPage() {
                 <th>Message</th>
                 <th>Status</th>
                 <th>Weekly Schedule</th>
+                <th>Trial Date</th>
                 <th>Admin Notes</th>
                 <th>Updated At</th>
                 <th style={{ width: 100, textAlign: 'center' }}>Action</th>
@@ -711,6 +718,19 @@ export default function CrmPage() {
                           </div>
                         ) : (
                           <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem', fontStyle: 'italic' }}>—</span>
+                        )}
+                      </td>
+                      <td>
+                        {lead.trialDate ? (
+                          <span style={{ fontSize: '0.85rem', color: 'var(--text-main)', fontWeight: 500 }}>
+                            {lead.trialDate}
+                          </span>
+                        ) : matchedClass && matchedClass.date ? (
+                          <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', fontStyle: 'italic' }} title="Derived from sheet schedule">
+                            {matchedClass.date}*
+                          </span>
+                        ) : (
+                          <span style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>—</span>
                         )}
                       </td>
                       <td>
@@ -879,6 +899,23 @@ export default function CrmPage() {
                           </div>
                         )}
 
+                        {(lead.trialDate || (matchedClass && matchedClass.date)) && (
+                          <div style={{
+                            fontSize: '0.75rem',
+                            background: 'rgba(59, 130, 246, 0.1)',
+                            padding: '4px 8px',
+                            borderRadius: '4px',
+                            color: 'var(--primary-blue)',
+                            marginBottom: '0.6rem',
+                            borderLeft: '2px solid var(--primary-blue)',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap'
+                          }}>
+                            <strong>Trial Date:</strong> {lead.trialDate || `${matchedClass.date}*`}
+                          </div>
+                        )}
+
                         {lead.notes && (
                           <div style={{
                             fontSize: '0.75rem',
@@ -1032,6 +1069,17 @@ export default function CrmPage() {
               </div>
 
               <div className="input-group">
+                <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Trial Date</label>
+                <input
+                  type="text"
+                  value={newLead.trialDate}
+                  onChange={e => setNewLead({ ...newLead, trialDate: e.target.value })}
+                  placeholder="e.g. 11 Jul 2026 or 18 Jul"
+                  style={{ width: '100%', padding: '0.5rem', borderRadius: '6px', border: '1px solid var(--border-color)' }}
+                />
+              </div>
+
+              <div className="input-group">
                 <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Admin Notes</label>
                 <textarea
                   rows="2"
@@ -1148,6 +1196,17 @@ export default function CrmPage() {
                     ))}
                   </select>
                 </div>
+              </div>
+
+              <div className="input-group">
+                <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Trial Date</label>
+                <input
+                  type="text"
+                  value={editedLead.trialDate}
+                  onChange={e => setEditedLead({ ...editedLead, trialDate: e.target.value })}
+                  placeholder="e.g. 11 Jul 2026 or 18 Jul"
+                  style={{ width: '100%', padding: '0.5rem', borderRadius: '6px', border: '1px solid var(--border-color)' }}
+                />
               </div>
 
               {(() => {
