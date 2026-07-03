@@ -28,29 +28,83 @@ const cleanDay = (day) => {
   return day.replace(/^\d+\.\s*/, '');
 };
 
+const getLevenshteinDistance = (a, b) => {
+  if (a.length === 0) return b.length;
+  if (b.length === 0) return a.length;
+  const matrix = [];
+  for (let i = 0; i <= b.length; i++) {
+    matrix[i] = [i];
+  }
+  for (let j = 0; j <= a.length; j++) {
+    matrix[0][j] = j;
+  }
+  for (let i = 1; i <= b.length; i++) {
+    for (let j = 1; j <= a.length; j++) {
+      if (b.charAt(i - 1) === a.charAt(j - 1)) {
+        matrix[i][j] = matrix[i - 1][j - 1];
+      } else {
+        matrix[i][j] = Math.min(
+          matrix[i - 1][j - 1] + 1, // substitution
+          matrix[i][j - 1] + 1,     // insertion
+          matrix[i - 1][j] + 1      // deletion
+        );
+      }
+    }
+  }
+  return matrix[b.length][a.length];
+};
+
 const getScheduledClass = (lead, overallClasses = []) => {
   if (!lead || !lead.name) return null;
   
-  // Extract candidate student name from format: "Mida (Parent of Mary)" -> "Mary"
-  const match = lead.name.match(/\(Parent of\s+([^)]+)\)/i) || lead.name.match(/Parent of\s+(.+)/i);
-  const studentName = match ? match[1].trim() : lead.name.trim();
+  // Extract candidate names to match (e.g. child name and/or parent name)
+  const namesToMatch = [];
+  const parentOfMatch = lead.name.match(/^([^(]+)\s+\(Parent of\s+([^)]+)\)/i) || lead.name.match(/^([^(]+)\s+Parent of\s+(.+)/i);
+  if (parentOfMatch) {
+    namesToMatch.push(parentOfMatch[2].trim()); // Child name
+    namesToMatch.push(parentOfMatch[1].trim()); // Parent name
+  } else {
+    const parenMatch = lead.name.match(/^([^(]+)\s+\(([^)]+)\)/);
+    if (parenMatch) {
+      namesToMatch.push(parenMatch[1].trim());
+      namesToMatch.push(parenMatch[2].trim());
+    } else {
+      namesToMatch.push(lead.name.trim());
+    }
+  }
   
   const cleanStr = (s) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
-  const targetClean = cleanStr(studentName);
+  const cleanTargets = namesToMatch
+    .map(name => cleanStr(name))
+    .filter(name => name.length >= 2);
   
-  if (!targetClean || targetClean.length < 2) return null;
+  if (cleanTargets.length === 0) return null;
   
   const isMatch = (classStudent) => {
     if (!classStudent) return false;
     const classStudentClean = cleanStr(classStudent);
     if (!classStudentClean || classStudentClean.length < 2) return false;
     
-    // If one of them is short (e.g. <= 3 chars), require exact match
-    if (targetClean.length <= 3 || classStudentClean.length <= 3) {
-      return classStudentClean === targetClean;
-    }
-    
-    return classStudentClean.includes(targetClean) || targetClean.includes(classStudentClean);
+    return cleanTargets.some(targetClean => {
+      // 1. Exact match
+      if (classStudentClean === targetClean) return true;
+      
+      // 2. Substring match for longer strings
+      if (targetClean.length >= 4 && classStudentClean.length >= 4) {
+        if (classStudentClean.includes(targetClean) || targetClean.includes(classStudentClean)) {
+          return true;
+        }
+      }
+      
+      // 3. Fuzzy Levenshtein match (distance <= 1) for minor typos/spelling variations
+      if (targetClean.length >= 3 && classStudentClean.length >= 3) {
+        if (getLevenshteinDistance(targetClean, classStudentClean) <= 1) {
+          return true;
+        }
+      }
+      
+      return false;
+    });
   };
 
   // 1. Try matching within the same branch first
@@ -59,8 +113,8 @@ const getScheduledClass = (lead, overallClasses = []) => {
     return sameBranch && isMatch(c.student);
   });
   
-  // 2. Fallback to any branch if no branch-specific match
-  if (!found) {
+  // 2. Fallback to any branch ONLY if lead doesn't specify a branch
+  if (!found && (!lead.branch || lead.branch.trim() === '')) {
     found = overallClasses.find(c => isMatch(c.student));
   }
   
