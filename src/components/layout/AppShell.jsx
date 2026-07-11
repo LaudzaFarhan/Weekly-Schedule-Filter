@@ -23,6 +23,7 @@ import WorkloadPage from '@/views/WorkloadPage';
 import TasksPage from '@/views/TasksPage';
 import CrmPage from '@/views/CrmPage';
 import ComingSoonPage from '@/views/ComingSoonPage';
+import NewSchedulePage from '@/views/NewSchedulePage';
 
 const PAGE_MAP = {
   home: HomePage,
@@ -61,7 +62,7 @@ export default function AppShell() {
     return <LoginOverlay />;
   }
 
-  const PageComponent = opsMode === 'new' ? ComingSoonPage : (PAGE_MAP[currentPage] || HomePage);
+  const PageComponent = opsMode === 'new' ? NewSchedulePage : (PAGE_MAP[currentPage] || HomePage);
 
   const handleNavigate = (page, params = null) => {
     setCurrentPage(page);

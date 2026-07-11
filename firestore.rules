@@ -44,6 +44,15 @@ service cloud.firestore {
       // Only authenticated users can access and manage workload snapshots
       allow read, write: if request.auth != null;
     }
+
+    // ============================================
+    // INTERNAL CLASSES COLLECTION (New Operations)
+    // ============================================
+    match /internalClasses/{classId} {
+      // Read allowed for anyone, write allowed only for authenticated operators
+      allow read: if true;
+      allow write: if request.auth != null;
+    }
   }
 }
 
