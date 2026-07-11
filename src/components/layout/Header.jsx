@@ -72,6 +72,8 @@ export default function Header({ onToggleSearch, opsMode = 'old' }) {
     }
   };
 
+  const activeBranch = branches.find(b => b.id === activeBranchId) || branches[0];
+
   const getRelativeTime = () => {
     if (!lastSyncTime) return '';
     const diff = Math.floor((new Date() - lastSyncTime) / 1000);
