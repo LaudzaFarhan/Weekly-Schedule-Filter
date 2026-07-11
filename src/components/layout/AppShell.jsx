@@ -22,6 +22,7 @@ import ProfilePage from '@/views/ProfilePage';
 import WorkloadPage from '@/views/WorkloadPage';
 import TasksPage from '@/views/TasksPage';
 import CrmPage from '@/views/CrmPage';
+import ComingSoonPage from '@/views/ComingSoonPage';
 
 const PAGE_MAP = {
   home: HomePage,
@@ -45,6 +46,7 @@ export default function AppShell() {
   const [currentPage, setCurrentPage] = useState('home');
   const [pageParams, setPageParams] = useState(null);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const [opsMode, setOpsMode] = useState('old');
 
   if (loading) {
     return (
@@ -59,7 +61,7 @@ export default function AppShell() {
     return <LoginOverlay />;
   }
 
-  const PageComponent = PAGE_MAP[currentPage] || HomePage;
+  const PageComponent = opsMode === 'new' ? ComingSoonPage : (PAGE_MAP[currentPage] || HomePage);
 
   const handleNavigate = (page, params = null) => {
     setCurrentPage(page);
@@ -77,14 +79,18 @@ export default function AppShell() {
             currentPage={currentPage} 
             onNavigate={handleNavigate} 
             onToggleSearch={() => setIsSearchOpen(true)} 
+            opsMode={opsMode}
+            setOpsMode={setOpsMode}
           />
           <main className="dashboard-container">
-            <Header onToggleSearch={() => setIsSearchOpen(true)} />
+            <Header onToggleSearch={() => setIsSearchOpen(true)} opsMode={opsMode} />
             <div className="dashboard-views">
               <PageComponent onNavigate={handleNavigate} params={pageParams} />
             </div>
           </main>
-          <StudentSearchSidebar isOpen={isSearchOpen} onClose={() => setIsSearchOpen(false)} />
+          {opsMode === 'old' && (
+            <StudentSearchSidebar isOpen={isSearchOpen} onClose={() => setIsSearchOpen(false)} />
+          )}
         </div>
       </ScheduleProvider>
     </ToastProvider>

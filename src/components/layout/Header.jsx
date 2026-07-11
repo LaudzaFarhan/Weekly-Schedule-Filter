@@ -5,7 +5,7 @@ import { useSchedule } from '../../contexts/ScheduleContext';
 import { useAuth } from '../../contexts/AuthContext';
 import { RefreshCw, Plus, Trash2, Bell, EyeOff, ChevronLeft, ChevronRight, Search } from 'lucide-react';
 
-export default function Header({ onToggleSearch }) {
+export default function Header({ onToggleSearch, opsMode = 'old' }) {
   const {
     branches, updateBranches,
     activeBranchId, changeActiveBranch,
@@ -35,7 +35,7 @@ export default function Header({ onToggleSearch }) {
         }
       }
     }
-  }, [activeBranchId, branches.length]); // Avoid infinite loops by not depending on branches reference
+  }, [activeBranchId, branches.length]);
 
   const handleAddBranch = () => {
     if (!newName || !newUrl) return;
@@ -43,35 +43,40 @@ export default function Header({ onToggleSearch }) {
     // trialUrl is optional — without it, submitTrialLead falls back to the
     // legacy default URL so existing single-branch deployments keep working.
     const newBranch = { id: newId, name: newName, url: newUrl };
-    if (newTrialUrl) newBranch.trialUrl = newTrialUrl;
-    updateBranches([...branches, newBranch]);
+
+    if (newTrialUrl) {
+      newBranch.trialUrl = newTrialUrl;
+    }
+
+    const currentBranches = Array.isArray(branches) ? branches : [];
+    updateBranches([...currentBranches, newBranch]);
+    setIsAdding(false);
     setNewName('');
     setNewUrl('');
     setNewTrialUrl('');
-    setIsAdding(false);
-    changeActiveBranch(newId);
   };
 
-  const handleRemoveBranch = (e, id) => {
+  const handleDeleteBranch = (e, branchId) => {
     e.stopPropagation();
-    if (confirm('Remove this branch?')) {
-      const filtered = branches.filter(b => b.id !== id);
-      updateBranches(filtered);
-      if (activeBranchId === id && filtered.length > 0) {
-        changeActiveBranch(filtered[0].id);
+    const ok = window.confirm(`Are you sure you want to delete branch "${branchId}"? This will also disable its configs.`);
+    if (!ok) return;
+
+    updateBranches(branches.filter(b => b.id !== branchId));
+    if (activeBranchId === branchId) {
+      const remaining = branches.filter(b => b.id !== branchId);
+      if (remaining.length > 0) {
+        changeActiveBranch(remaining[0].id);
+      } else {
+        changeActiveBranch(null);
       }
     }
   };
 
-  const activeBranch = branches.find(b => b.id === activeBranchId) || branches[0];
-
   const getRelativeTime = () => {
-    if (!lastSyncTime) return null;
-    const mins = Math.round((Date.now() - lastSyncTime.getTime()) / 60000);
-    if (mins < 1) return 'just now';
-    if (mins < 60) return `${mins}m ago`;
-    const hrs = Math.round(mins / 60);
-    if (hrs < 24) return `${hrs}h ago`;
+    if (!lastSyncTime) return '';
+    const diff = Math.floor((new Date() - lastSyncTime) / 1000);
+    if (diff < 60) return 'just now';
+    if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
     return lastSyncTime.toLocaleDateString();
   };
 
@@ -86,35 +91,41 @@ export default function Header({ onToggleSearch }) {
       <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '1rem 1.5rem', background: 'var(--panel-bg)', borderBottom: '1px solid var(--border-color)' }}>
         <div>
           <h1 style={{ fontFamily: "'Outfit', sans-serif", fontSize: '1.3rem', color: 'var(--text-main)', margin: 0 }}>The Lab Operation System</h1>
-          <p style={{ color: 'var(--text-muted)', fontSize: '0.75rem', margin: 0 }}>School Operations, Live</p>
+          <p style={{ color: 'var(--text-muted)', fontSize: '0.75rem', margin: 0 }}>
+            {opsMode === 'new' ? 'New Operations Portal' : 'School Operations, Live'}
+          </p>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem' }}>
-          {lastSyncTime && (
+          {opsMode === 'old' && lastSyncTime && (
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
               <span className={`status-dot ${isSyncing ? 'syncing' : 'synced'}`} />
               Synced {getRelativeTime()}
             </div>
           )}
-          <button 
-            onClick={onToggleSearch} 
-            style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '4px', display: 'flex' }}
-            title="Search Students"
-          >
-            <Search size={20} style={{ color: '#cbd5e1' }} />
-          </button>
-          <div style={{ position: 'relative' }}>
-            <button onClick={() => setShowNotifications(!showNotifications)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '4px', display: 'flex' }}>
-              <Bell size={20} style={{ color: '#cbd5e1' }} />
+          {opsMode === 'old' && (
+            <button 
+              onClick={onToggleSearch} 
+              style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '4px', display: 'flex' }}
+              title="Search Students"
+            >
+              <Search size={20} style={{ color: '#cbd5e1' }} />
             </button>
-            {showNotifications && (
-              <div style={{ position: 'absolute', top: '100%', right: 0, marginTop: '0.5rem', width: '260px', background: 'var(--panel-bg)', border: '1px solid var(--border-color)', borderRadius: '10px', boxShadow: '0 8px 24px rgba(0,0,0,0.1)', zIndex: 100, overflow: 'hidden' }}>
-                <div style={{ padding: '0.75rem 1rem', borderBottom: '1px solid var(--border-color)', fontWeight: 600, fontSize: '0.85rem' }}>Notifications</div>
-                <div style={{ padding: '1.5rem 1rem', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.8rem' }}>
-                  No notifications yet
+          )}
+          {opsMode === 'old' && (
+            <div style={{ position: 'relative' }}>
+              <button onClick={() => setShowNotifications(!showNotifications)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '4px', display: 'flex' }}>
+                <Bell size={20} style={{ color: '#cbd5e1' }} />
+              </button>
+              {showNotifications && (
+                <div style={{ position: 'absolute', top: '100%', right: 0, marginTop: '0.5rem', width: '260px', background: 'var(--panel-bg)', border: '1px solid var(--border-color)', borderRadius: '10px', boxShadow: '0 8px 24px rgba(0,0,0,0.1)', zIndex: 100, overflow: 'hidden' }}>
+                  <div style={{ padding: '0.75rem 1rem', borderBottom: '1px solid var(--border-color)', fontWeight: 600, fontSize: '0.85rem' }}>Notifications</div>
+                  <div style={{ padding: '1.5rem 1rem', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.8rem' }}>
+                    No notifications yet
+                  </div>
                 </div>
-              </div>
-            )}
-          </div>
+              )}
+            </div>
+          )}
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
             <div style={{ textAlign: 'right' }}>
               <div style={{ fontSize: '0.8rem', fontWeight: 500, color: 'var(--text-main)' }}>{userName}</div>
@@ -128,7 +139,9 @@ export default function Header({ onToggleSearch }) {
       </header>
 
       {/* Sub Bar: Branch Tabs (left) + Sync Buttons (right) — outside header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.75rem 1.5rem' }}>
+      {opsMode === 'old' && (
+        <>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.75rem 1.5rem' }}>
         {/* Branch tabs */}
         <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
           {(() => {
@@ -246,6 +259,8 @@ export default function Header({ onToggleSearch }) {
           <span>Failed: {failedBranches.join(', ')}</span>
           <button onClick={syncAllBranches} style={{ background: 'none', border: 'none', color: 'var(--primary-blue)', cursor: 'pointer', fontSize: '0.75rem', textDecoration: 'underline' }}>Retry</button>
         </div>
+      )}
+        </>
       )}
     </>
   );

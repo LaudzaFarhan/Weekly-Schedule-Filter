@@ -34,7 +34,7 @@ const navItems = [
   { id: 'admin', icon: Settings, label: 'Admin Settings', roleKey: 'admin', globalKey: 'admin' },
 ];
 
-export default function Sidebar({ currentPage, onNavigate, onToggleSearch }) {
+export default function Sidebar({ currentPage, onNavigate, onToggleSearch, opsMode = 'old', setOpsMode }) {
   const { user, logout } = useAuth();
   const { roleToggles, users, featureToggles } = useSchedule();
 
@@ -85,8 +85,26 @@ export default function Sidebar({ currentPage, onNavigate, onToggleSearch }) {
         <h2>The Lab Operation System</h2>
         <div className="version">SCHOOL OPERATIONS, LIVE</div>
       </div>
+      
+      <div className="operations-switcher">
+        <button 
+          className={`switcher-tab ${opsMode === 'old' ? 'active' : ''}`}
+          onClick={() => setOpsMode('old')}
+          style={{ fontSize: '0.7rem' }}
+        >
+          Old Operations
+        </button>
+        <button 
+          className={`switcher-tab ${opsMode === 'new' ? 'active' : ''}`}
+          onClick={() => setOpsMode('new')}
+          style={{ fontSize: '0.7rem' }}
+        >
+          New Operations
+        </button>
+      </div>
+
       <nav className="sidebar-nav">
-        {navItems.map((item) => {
+        {opsMode === 'old' && navItems.map((item) => {
           if (!isItemVisible(item)) return null;
           const { id, icon: Icon, label } = item;
           return (
