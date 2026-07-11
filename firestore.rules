@@ -53,6 +53,15 @@ service cloud.firestore {
       allow read: if true;
       allow write: if request.auth != null;
     }
+
+    // ============================================
+    // INTERNAL STUDENTS COLLECTION (New Operations)
+    // ============================================
+    match /internalStudents/{studentId} {
+      // Read allowed for anyone, write allowed only for authenticated operators
+      allow read: if true;
+      allow write: if request.auth != null;
+    }
   }
 }
 

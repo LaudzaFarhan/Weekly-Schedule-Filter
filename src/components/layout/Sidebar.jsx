@@ -105,15 +105,28 @@ export default function Sidebar({ currentPage, onNavigate, onToggleSearch, opsMo
 
       <nav className="sidebar-nav">
         {opsMode === 'new' && (
-          <button
-            className="nav-item active"
-            style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-              <Calendar size={20} />
-              Schedule
-            </div>
-          </button>
+          <>
+            <button
+              className={`nav-item ${currentPage !== 'students' ? 'active' : ''}`}
+              onClick={() => onNavigate('schedule')}
+              style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                <Calendar size={20} />
+                Schedule
+              </div>
+            </button>
+            <button
+              className={`nav-item ${currentPage === 'students' ? 'active' : ''}`}
+              onClick={() => onNavigate('students')}
+              style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                <Users size={20} />
+                Students
+              </div>
+            </button>
+          </>
         )}
         {opsMode === 'old' && navItems.map((item) => {
           if (!isItemVisible(item)) return null;
