@@ -25,6 +25,7 @@ export default function NewSchedulePage() {
   const [filterDay, setFilterDay] = useState('all');
   const [filterBranch, setFilterBranch] = useState('all');
   const [filterInstructor, setFilterInstructor] = useState('all');
+  const [filterClassType, setFilterClassType] = useState('all');
   const [page, setPage] = useState(1);
 
   // Modal/Form State
@@ -38,6 +39,7 @@ export default function NewSchedulePage() {
     teacher: '',
     student: '',
     branchName: '',
+    classType: 'Regular',
     remarks: ''
   });
 
@@ -62,17 +64,20 @@ export default function NewSchedulePage() {
       if (filterDay !== 'all' && c.day !== filterDay) return false;
       if (filterBranch !== 'all' && c.branchName !== filterBranch) return false;
       if (filterInstructor !== 'all' && c.teacher !== filterInstructor) return false;
+      const type = c.classType || 'Regular';
+      if (filterClassType !== 'all' && type !== filterClassType) return false;
       if (s) {
         const match =
           (c.teacher && c.teacher.toLowerCase().includes(s)) ||
           (c.student && c.student.toLowerCase().includes(s)) ||
           (c.program && c.program.toLowerCase().includes(s)) ||
-          (c.remarks && c.remarks.toLowerCase().includes(s));
+          (c.remarks && c.remarks.toLowerCase().includes(s)) ||
+          (type.toLowerCase().includes(s));
         if (!match) return false;
       }
       return true;
     });
-  }, [classes, search, filterDay, filterBranch, filterInstructor]);
+  }, [classes, search, filterDay, filterBranch, filterInstructor, filterClassType]);
 
   // Sort classes by day order and then time
   const dayOrder = {
@@ -100,6 +105,7 @@ export default function NewSchedulePage() {
       teacher: sortedTeachers[0] || '',
       student: '',
       branchName: branchList[0] || '',
+      classType: 'Regular',
       remarks: ''
     });
     setFormErrors({});
@@ -115,6 +121,7 @@ export default function NewSchedulePage() {
       teacher: c.teacher || '',
       student: c.student || '',
       branchName: c.branchName || '',
+      classType: c.classType || 'Regular',
       remarks: c.remarks || ''
     });
     setFormErrors({});
@@ -226,6 +233,19 @@ export default function NewSchedulePage() {
               {sortedTeachers.map((t) => <option key={t} value={t}>{t}</option>)}
             </select>
           </div>
+
+          <div className="input-group" style={{ margin: 0, width: '140px' }}>
+            <label style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '0.3rem', display: 'block' }}>Class Type</label>
+            <select
+              value={filterClassType}
+              onChange={(e) => { setFilterClassType(e.target.value); setPage(1); }}
+              style={{ width: '100%' }}
+            >
+              <option value="all">All Types</option>
+              <option value="Regular">Regular Class</option>
+              <option value="Trial">Trial Class</option>
+            </select>
+          </div>
         </div>
 
         {/* Day Tabs */}
@@ -275,6 +295,7 @@ export default function NewSchedulePage() {
                   <th style={{ width: '120px' }}>Day</th>
                   <th style={{ width: '140px' }}>Time</th>
                   <th style={{ width: '150px' }}>Program / Lesson</th>
+                  <th style={{ width: '120px' }}>Class Type</th>
                   <th>Student Name</th>
                   <th style={{ width: '180px' }}>Instructor</th>
                   <th style={{ width: '140px' }}>Branch</th>
@@ -326,6 +347,21 @@ export default function NewSchedulePage() {
                         }}>
                           <BookOpen size={11} />
                           {c.program}
+                        </span>
+                      </td>
+                      <td>
+                        <span style={{ 
+                          background: (c.classType || 'Regular') === 'Trial' ? 'rgba(249, 115, 22, 0.08)' : 'rgba(95, 61, 196, 0.08)',
+                          border: (c.classType || 'Regular') === 'Trial' ? '1px solid rgba(249, 115, 22, 0.2)' : '1px solid rgba(95, 61, 196, 0.2)',
+                          color: (c.classType || 'Regular') === 'Trial' ? '#ea580c' : '#5f3dc4',
+                          padding: '0.15rem 0.5rem',
+                          borderRadius: '6px',
+                          fontSize: '0.72rem',
+                          fontWeight: 600,
+                          display: 'inline-flex',
+                          alignItems: 'center'
+                        }}>
+                          {(c.classType || 'Regular')}
                         </span>
                       </td>
                       <td style={{ fontWeight: 600, color: 'var(--text-main)' }}>
@@ -509,6 +545,18 @@ export default function NewSchedulePage() {
                     {sortedTeachers.map((t) => <option key={t} value={t}>{t}</option>)}
                   </select>
                   {formErrors.teacher && <span style={{ fontSize: '0.72rem', color: 'var(--danger)', marginTop: '0.2rem', display: 'block' }}>{formErrors.teacher}</span>}
+                </div>
+
+                <div>
+                  <label className="modal-form-label">Class Type *</label>
+                  <select
+                    value={form.classType || 'Regular'}
+                    onChange={(e) => setForm({ ...form, classType: e.target.value })}
+                    className="modal-select-field"
+                  >
+                    <option value="Regular">Regular Class</option>
+                    <option value="Trial">Trial Class</option>
+                  </select>
                 </div>
 
                 {/* Remarks */}
