@@ -60,7 +60,7 @@ export default function LoginOverlay() {
               <path d="M8 22L14 16L20 22L26 16" stroke="#38bdf8" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
             </svg>
           </div>
-          <h2>Pulse</h2>
+          <h2>The Lab Operation System</h2>
         </div>
 
         <h3 className="glass-login-title">Login</h3>

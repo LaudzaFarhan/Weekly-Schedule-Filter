@@ -360,7 +360,7 @@ export default function AdminPage() {
     const ok = window.confirm(
       `Remove ${email}?\n\n` +
       `This will:\n` +
-      `• Remove their role assignment from Pulse\n` +
+      `• Remove their role assignment from The Lab Operation System\n` +
       (role === 'Instructor' ? `• Delete their instructor profile from Firestore\n` : '') +
       `\nNote: the Firebase Auth account itself stays — delete it from the Firebase console for a full purge.`
     );
@@ -801,7 +801,7 @@ export default function AdminPage() {
                                 ? 'Seed admin cannot be removed'
                                 : currentUser?.email === email
                                   ? 'You cannot remove yourself'
-                                  : 'Remove user from Pulse (and delete profile if instructor)'
+                                  : 'Remove user from The Lab Operation System (and delete profile if instructor)'
                             }
                             style={{
                               display: 'flex', alignItems: 'center', gap: '0.3rem',

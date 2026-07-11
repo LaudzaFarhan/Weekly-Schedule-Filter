@@ -1,6 +1,6 @@
 @echo off
 echo ============================================
-echo   Pulse — School Operations, Live
+echo   The Lab Operation System — School Operations, Live
 echo ============================================
 echo.
 echo Starting CORS proxy server + Vite dev server...

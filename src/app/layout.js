@@ -1,7 +1,7 @@
 import '@/app/globals.css';
 
 export const metadata = {
-  title: 'Pulse — School Operations, Live',
+  title: 'The Lab Operation System — School Operations, Live',
   description: 'Live school operations: schedule sync, conflict detection, workload analytics, trial intake, and instructor training.',
 };
 

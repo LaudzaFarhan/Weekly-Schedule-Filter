@@ -82,7 +82,7 @@ export default function Sidebar({ currentPage, onNavigate, onToggleSearch }) {
   return (
     <aside className="sidebar">
       <div className="sidebar-header">
-        <h2>Pulse</h2>
+        <h2>The Lab Operation System</h2>
         <div className="version">SCHOOL OPERATIONS, LIVE</div>
       </div>
       <nav className="sidebar-nav">

@@ -7,9 +7,8 @@ service cloud.firestore {
     // INSTRUCTOR PROFILES COLLECTION
     // ============================================
     match /instructorProfiles/{profileId} {
-      // Any authenticated user can read profiles
-      allow read: if request.auth != null;
-      // Any authenticated user can create/update/delete profiles
+      // Allowed for public read (REST API instructors query) and authenticated write
+      allow read: if true;
       allow write: if request.auth != null;
     }
 
@@ -17,14 +16,34 @@ service cloud.firestore {
     // CRM LEADS COLLECTION
     // ============================================
     match /crmLeads/{leadId} {
+      // Allowed for read/write by both webhooks (unauthenticated REST API) and authenticated users
+      allow read, write: if true;
+    }
+
+    // ============================================
+    // TASKS COLLECTION
+    // ============================================
+    match /tasks/{taskId} {
+      // Only authenticated users can access and manage tasks
       allow read, write: if request.auth != null;
     }
 
     // ============================================
-    // CATCH-ALL: Allow all (temporary - expires June 2026)
+    // ACTIVITY LOGS COLLECTION
     // ============================================
-    match /{document=**} {
-      allow read, write: if request.time < timestamp.date(2026, 7, 11);
+    match /activityLogs/{logId} {
+      // Authenticated users can view activity logs, anyone can write/submit logs (needed for webhook logActivityRest)
+      allow read: if request.auth != null;
+      allow write: if true;
+    }
+
+    // ============================================
+    // WORKLOAD SNAPSHOTS COLLECTION
+    // ============================================
+    match /workloadSnapshots/{snapshotId} {
+      // Only authenticated users can access and manage workload snapshots
+      allow read, write: if request.auth != null;
     }
   }
 }
+

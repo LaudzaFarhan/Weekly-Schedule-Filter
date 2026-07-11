@@ -85,7 +85,7 @@ export default function Header({ onToggleSearch }) {
       {/* Header Bar: Title + Sync Status + User */}
       <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '1rem 1.5rem', background: 'var(--panel-bg)', borderBottom: '1px solid var(--border-color)' }}>
         <div>
-          <h1 style={{ fontFamily: "'Outfit', sans-serif", fontSize: '1.3rem', color: 'var(--text-main)', margin: 0 }}>Pulse</h1>
+          <h1 style={{ fontFamily: "'Outfit', sans-serif", fontSize: '1.3rem', color: 'var(--text-main)', margin: 0 }}>The Lab Operation System</h1>
           <p style={{ color: 'var(--text-muted)', fontSize: '0.75rem', margin: 0 }}>School Operations, Live</p>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem' }}>
