@@ -434,11 +434,11 @@ export default function NewSchedulePage() {
                 {/* Branch and Day Row */}
                 <div style={{ display: 'flex', gap: '1rem' }}>
                   <div style={{ flex: 1 }}>
-                    <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '0.4rem', display: 'block' }}>Branch *</label>
+                    <label className="modal-form-label">Branch *</label>
                     <select
                       value={form.branchName}
                       onChange={(e) => setForm({ ...form, branchName: e.target.value })}
-                      style={{ width: '100%', borderColor: formErrors.branchName ? 'var(--danger)' : 'var(--border-color)' }}
+                      className={`modal-select-field ${formErrors.branchName ? 'error' : ''}`}
                     >
                       <option value="">Select Branch</option>
                       {branchList.map(name => <option key={name} value={name}>{name}</option>)}
@@ -447,11 +447,11 @@ export default function NewSchedulePage() {
                   </div>
                   
                   <div style={{ flex: 1 }}>
-                    <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '0.4rem', display: 'block' }}>Day *</label>
+                    <label className="modal-form-label">Day *</label>
                     <select
                       value={form.day}
                       onChange={(e) => setForm({ ...form, day: e.target.value })}
-                      style={{ width: '100%' }}
+                      className="modal-select-field"
                     >
                       {DAY_NAMES.map(day => <option key={day} value={day}>{day}</option>)}
                     </select>
@@ -461,25 +461,25 @@ export default function NewSchedulePage() {
                 {/* Time and Program Row */}
                 <div style={{ display: 'flex', gap: '1rem' }}>
                   <div style={{ flex: 1 }}>
-                    <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '0.4rem', display: 'block' }}>Time *</label>
+                    <label className="modal-form-label">Time Slot *</label>
                     <input
                       type="text"
                       placeholder="e.g. 1.00 - 2.00 pm"
                       value={form.time}
                       onChange={(e) => setForm({ ...form, time: e.target.value })}
-                      style={{ width: '100%', borderColor: formErrors.time ? 'var(--danger)' : 'var(--border-color)' }}
+                      className={`modal-input-field ${formErrors.time ? 'error' : ''}`}
                     />
                     {formErrors.time && <span style={{ fontSize: '0.72rem', color: 'var(--danger)', marginTop: '0.2rem', display: 'block' }}>{formErrors.time}</span>}
                   </div>
                   
                   <div style={{ flex: 1 }}>
-                    <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '0.4rem', display: 'block' }}>Program / Lesson *</label>
+                    <label className="modal-form-label">Program / Lesson *</label>
                     <input
                       type="text"
                       placeholder="e.g. Trial Kinder, KF1.5"
                       value={form.program}
                       onChange={(e) => setForm({ ...form, program: e.target.value })}
-                      style={{ width: '100%', borderColor: formErrors.program ? 'var(--danger)' : 'var(--border-color)' }}
+                      className={`modal-input-field ${formErrors.program ? 'error' : ''}`}
                     />
                     {formErrors.program && <span style={{ fontSize: '0.72rem', color: 'var(--danger)', marginTop: '0.2rem', display: 'block' }}>{formErrors.program}</span>}
                   </div>
@@ -487,23 +487,23 @@ export default function NewSchedulePage() {
 
                 {/* Student and Instructor Row */}
                 <div>
-                  <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '0.4rem', display: 'block' }}>Student Name(s) *</label>
+                  <label className="modal-form-label">Student Name(s) *</label>
                   <input
                     type="text"
                     placeholder="Type student name..."
                     value={form.student}
                     onChange={(e) => setForm({ ...form, student: e.target.value })}
-                    style={{ width: '100%', borderColor: formErrors.student ? 'var(--danger)' : 'var(--border-color)' }}
+                    className={`modal-input-field ${formErrors.student ? 'error' : ''}`}
                   />
                   {formErrors.student && <span style={{ fontSize: '0.72rem', color: 'var(--danger)', marginTop: '0.2rem', display: 'block' }}>{formErrors.student}</span>}
                 </div>
 
                 <div>
-                  <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '0.4rem', display: 'block' }}>Instructor *</label>
+                  <label className="modal-form-label">Instructor *</label>
                   <select
                     value={form.teacher}
                     onChange={(e) => setForm({ ...form, teacher: e.target.value })}
-                    style={{ width: '100%', borderColor: formErrors.teacher ? 'var(--danger)' : 'var(--border-color)' }}
+                    className={`modal-select-field ${formErrors.teacher ? 'error' : ''}`}
                   >
                     <option value="">Select Instructor</option>
                     {sortedTeachers.map((t) => <option key={t} value={t}>{t}</option>)}
@@ -513,22 +513,12 @@ export default function NewSchedulePage() {
 
                 {/* Remarks */}
                 <div>
-                  <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '0.4rem', display: 'block' }}>Remarks / Notes</label>
+                  <label className="modal-form-label">Remarks / Notes</label>
                   <textarea
                     placeholder="Enter any additional details..."
                     value={form.remarks}
                     onChange={(e) => setForm({ ...form, remarks: e.target.value })}
-                    style={{ 
-                      width: '100%', 
-                      height: '70px',
-                      borderRadius: '8px', 
-                      padding: '0.5rem 0.75rem',
-                      border: '1px solid var(--border-color)',
-                      resize: 'none',
-                      fontSize: '0.9rem',
-                      fontFamily: 'inherit',
-                      outline: 'none'
-                    }}
+                    className="modal-textarea-field"
                   />
                 </div>
               </div>
