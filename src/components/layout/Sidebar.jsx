@@ -107,7 +107,7 @@ export default function Sidebar({ currentPage, onNavigate, onToggleSearch, opsMo
         {opsMode === 'new' && (
           <>
             <button
-              className={`nav-item ${currentPage !== 'students' ? 'active' : ''}`}
+              className={`nav-item ${currentPage !== 'students' && currentPage !== 'instructors' ? 'active' : ''}`}
               onClick={() => onNavigate('schedule')}
               style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
             >
@@ -124,6 +124,16 @@ export default function Sidebar({ currentPage, onNavigate, onToggleSearch, opsMo
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
                 <Users size={20} />
                 Students
+              </div>
+            </button>
+            <button
+              className={`nav-item ${currentPage === 'instructors' ? 'active' : ''}`}
+              onClick={() => onNavigate('instructors')}
+              style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                <User size={20} />
+                Instructors
               </div>
             </button>
           </>
