@@ -1,73 +1,109 @@
-import { db } from './firebase';
-import { 
-  collection, 
-  doc, 
-  addDoc, 
-  updateDoc, 
-  deleteDoc, 
-  query, 
-  onSnapshot,
-  serverTimestamp 
-} from 'firebase/firestore';
+/**
+ * API client service for New Operations CRM (PostgreSQL Database via Next.js routes)
+ */
 
-const CRM_COLLECTION = 'newCrmLeads';
+const API_PATH = '/api/new/crm';
+
+/**
+ * Fetch all CRM leads once
+ */
+export async function getAllLeads() {
+  try {
+    const res = await fetch(API_PATH);
+    if (!res.ok) {
+      const errData = await res.json();
+      throw new Error(errData.error || 'Failed to fetch leads');
+    }
+    return await res.json();
+  } catch (error) {
+    console.error('Error fetching CRM leads:', error);
+    throw error;
+  }
+}
+
+/**
+ * Listen to all CRM leads using polling (simulates real-time snapshot listener)
+ */
+export function listenToLeads(callback) {
+  let active = true;
+
+  const poll = async () => {
+    try {
+      const data = await getAllLeads();
+      if (active) {
+        callback(data);
+      }
+    } catch (error) {
+      console.error('Polling error in CRM leads:', error);
+    }
+  };
+
+  poll();
+  const interval = setInterval(poll, 3000); // Poll database every 3 seconds
+
+  return () => {
+    active = false;
+    clearInterval(interval);
+  };
+}
 
 /**
  * Create a new CRM lead
- * @param {Object} leadData { name, phone, message, status, notes }
  */
 export async function createLead(leadData) {
-  const colRef = collection(db, CRM_COLLECTION);
-  return addDoc(colRef, {
-    ...leadData,
-    status: leadData.status || 'interest_trial',
-    createdAt: serverTimestamp(),
-    updatedAt: serverTimestamp(),
-  });
+  try {
+    const res = await fetch(API_PATH, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(leadData)
+    });
+    if (!res.ok) {
+      const errData = await res.json();
+      throw new Error(errData.error || 'Failed to create lead');
+    }
+    return await res.json();
+  } catch (error) {
+    console.error('Error creating CRM lead:', error);
+    throw error;
+  }
 }
 
 /**
  * Update an existing CRM lead
  */
 export async function updateLead(leadId, updates) {
-  const docRef = doc(db, CRM_COLLECTION, leadId);
-  return updateDoc(docRef, {
-    ...updates,
-    updatedAt: serverTimestamp(),
-  });
+  try {
+    const res = await fetch(API_PATH, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: leadId, ...updates })
+    });
+    if (!res.ok) {
+      const errData = await res.json();
+      throw new Error(errData.error || 'Failed to update lead');
+    }
+    return await res.json();
+  } catch (error) {
+    console.error('Error updating CRM lead:', error);
+    throw error;
+  }
 }
 
 /**
  * Delete a CRM lead
  */
 export async function deleteLead(leadId) {
-  const docRef = doc(db, CRM_COLLECTION, leadId);
-  return deleteDoc(docRef);
-}
-
-/**
- * Listen to all CRM leads
- * @param {function} callback - Receives array of leads
- * @returns unsubscribe function
- */
-export function listenToLeads(callback) {
-  const q = query(collection(db, CRM_COLLECTION));
-  return onSnapshot(q, (snapshot) => {
-    const leads = snapshot.docs.map(doc => {
-      const data = doc.data();
-      return {
-        id: doc.id,
-        ...data,
-        createdAt: data.createdAt?.toDate ? data.createdAt.toDate() : data.createdAt,
-        updatedAt: data.updatedAt?.toDate ? data.updatedAt.toDate() : data.updatedAt,
-      };
+  try {
+    const res = await fetch(`${API_PATH}?id=${leadId}`, {
+      method: 'DELETE'
     });
-    // Sort descending by updatedAt
-    leads.sort((a, b) => {
-      const timeA = a.updatedAt ? new Date(a.updatedAt).getTime() : 0;
-      const timeB = b.updatedAt ? new Date(b.updatedAt).getTime() : 0;
-      return timeB - timeA;
-    });
-    callback(leads);
-  });
+    if (!res.ok) {
+      const errData = await res.json();
+      throw new Error(errData.error || 'Failed to delete lead');
+    }
+    return await res.json();
+  } catch (error) {
+    console.error('Error deleting CRM lead:', error);
+    throw error;
+  }
 }

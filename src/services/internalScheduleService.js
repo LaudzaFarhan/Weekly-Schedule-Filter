@@ -1,29 +1,20 @@
-import { db } from './firebase';
-import { 
-  collection, 
-  doc, 
-  addDoc, 
-  updateDoc, 
-  deleteDoc, 
-  query, 
-  onSnapshot,
-  getDocs,
-  serverTimestamp 
-} from 'firebase/firestore';
+/**
+ * API client service for New Operations Schedule (PostgreSQL Database via Next.js routes)
+ */
 
-const COLLECTION = 'internalClasses';
+const API_PATH = '/api/new/schedule';
 
 /**
  * Fetch all internal classes once
  */
 export async function getAllInternalClasses() {
   try {
-    const querySnapshot = await getDocs(collection(db, COLLECTION));
-    const classes = [];
-    querySnapshot.forEach((doc) => {
-      classes.push({ id: doc.id, ...doc.data() });
-    });
-    return classes;
+    const res = await fetch(API_PATH);
+    if (!res.ok) {
+      const errData = await res.json();
+      throw new Error(errData.error || 'Failed to fetch schedule');
+    }
+    return await res.json();
   } catch (error) {
     console.error('Error fetching internal classes:', error);
     throw error;
@@ -31,19 +22,29 @@ export async function getAllInternalClasses() {
 }
 
 /**
- * Subscribe to internal classes in real-time
+ * Subscribe to internal classes using polling (simulates real-time)
  */
 export function subscribeToInternalClasses(callback) {
-  const q = query(collection(db, COLLECTION));
-  return onSnapshot(q, (snapshot) => {
-    const classes = snapshot.docs.map(doc => ({
-      id: doc.id,
-      ...doc.data()
-    }));
-    callback(classes);
-  }, (error) => {
-    console.error('Error in internal classes snapshot listener:', error);
-  });
+  let active = true;
+
+  const poll = async () => {
+    try {
+      const data = await getAllInternalClasses();
+      if (active) {
+        callback(data);
+      }
+    } catch (error) {
+      console.error('Polling error in internal classes:', error);
+    }
+  };
+
+  poll();
+  const interval = setInterval(poll, 3000); // Poll database every 3 seconds
+
+  return () => {
+    active = false;
+    clearInterval(interval);
+  };
 }
 
 /**
@@ -51,12 +52,16 @@ export function subscribeToInternalClasses(callback) {
  */
 export async function createInternalClass(classData) {
   try {
-    const colRef = collection(db, COLLECTION);
-    return await addDoc(colRef, {
-      ...classData,
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp(),
+    const res = await fetch(API_PATH, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(classData)
     });
+    if (!res.ok) {
+      const errData = await res.json();
+      throw new Error(errData.error || 'Failed to create class');
+    }
+    return await res.json();
   } catch (error) {
     console.error('Error creating internal class:', error);
     throw error;
@@ -68,11 +73,16 @@ export async function createInternalClass(classData) {
  */
 export async function updateInternalClass(classId, updates) {
   try {
-    const docRef = doc(db, COLLECTION, classId);
-    return await updateDoc(docRef, {
-      ...updates,
-      updatedAt: serverTimestamp(),
+    const res = await fetch(API_PATH, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: classId, ...updates })
     });
+    if (!res.ok) {
+      const errData = await res.json();
+      throw new Error(errData.error || 'Failed to update class');
+    }
+    return await res.json();
   } catch (error) {
     console.error('Error updating internal class:', error);
     throw error;
@@ -84,8 +94,14 @@ export async function updateInternalClass(classId, updates) {
  */
 export async function deleteInternalClass(classId) {
   try {
-    const docRef = doc(db, COLLECTION, classId);
-    return await deleteDoc(docRef);
+    const res = await fetch(`${API_PATH}?id=${classId}`, {
+      method: 'DELETE'
+    });
+    if (!res.ok) {
+      const errData = await res.json();
+      throw new Error(errData.error || 'Failed to delete class');
+    }
+    return await res.json();
   } catch (error) {
     console.error('Error deleting internal class:', error);
     throw error;
