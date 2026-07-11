@@ -1,6 +1,7 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { useRouter, usePathname } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { ScheduleProvider } from '@/contexts/ScheduleContext';
 import { ToastProvider } from '@/components/ui/Toast';
@@ -46,10 +47,35 @@ const PAGE_MAP = {
 
 export default function AppShell() {
   const { user, loading } = useAuth();
+  const router = useRouter();
+  const pathname = usePathname();
   const [currentPage, setCurrentPage] = useState('home');
   const [pageParams, setPageParams] = useState(null);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [opsMode, setOpsMode] = useState('old');
+
+  // Sync state from URL pathname on mount and changes
+  useEffect(() => {
+    if (!pathname) return;
+    const parts = pathname.split('/').filter(Boolean);
+
+    let mode = 'old';
+    let page = 'home';
+
+    if (parts[0] === 'new') {
+      mode = 'new';
+      page = parts[1] || 'schedule';
+    } else if (parts[0] === 'old') {
+      mode = 'old';
+      page = parts[1] || 'home';
+    } else if (parts[0]) {
+      mode = 'old';
+      page = parts[0];
+    }
+
+    setOpsMode(mode);
+    setCurrentPage(page);
+  }, [pathname]);
 
   if (loading) {
     return (
@@ -78,11 +104,23 @@ export default function AppShell() {
   }
 
   const handleNavigate = (page, params = null) => {
-    setCurrentPage(page);
     setPageParams(params);
+    if (opsMode === 'new') {
+      router.push(`/new/${page}`);
+    } else {
+      router.push(`/${page}`);
+    }
     // Smooth scroll to top of dashboard
     const container = document.querySelector('.dashboard-container');
     if (container) container.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const handleSetOpsMode = (mode) => {
+    if (mode === 'new') {
+      router.push('/new/schedule');
+    } else {
+      router.push('/home');
+    }
   };
 
   return (
@@ -94,7 +132,7 @@ export default function AppShell() {
             onNavigate={handleNavigate} 
             onToggleSearch={() => setIsSearchOpen(true)} 
             opsMode={opsMode}
-            setOpsMode={setOpsMode}
+            setOpsMode={handleSetOpsMode}
           />
           <main className="dashboard-container">
             <Header onToggleSearch={() => setIsSearchOpen(true)} opsMode={opsMode} />
