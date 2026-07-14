@@ -24,7 +24,7 @@ export async function getAllInternalClasses() {
 /**
  * Subscribe to internal classes using polling (simulates real-time)
  */
-export function subscribeToInternalClasses(callback) {
+export function subscribeToInternalClasses(callback, onError) {
   let active = true;
 
   const poll = async () => {
@@ -35,6 +35,9 @@ export function subscribeToInternalClasses(callback) {
       }
     } catch (error) {
       console.error('Polling error in internal classes:', error);
+      if (active && typeof onError === 'function') {
+        onError(error);
+      }
     }
   };
 

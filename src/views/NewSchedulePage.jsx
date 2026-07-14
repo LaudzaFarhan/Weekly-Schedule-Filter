@@ -34,6 +34,7 @@ export default function NewSchedulePage() {
   // State
   const [classes, setClasses] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(null);
   
   const [search, setSearch] = useState('');
   const [filterDay, setFilterDay] = useState('all');
@@ -67,10 +68,17 @@ export default function NewSchedulePage() {
 
   // Subscribe to real-time updates from Firestore
   useEffect(() => {
-    const unsubscribe = subscribeToInternalClasses((data) => {
-      setClasses(data);
-      setLoading(false);
-    });
+    const unsubscribe = subscribeToInternalClasses(
+      (data) => {
+        setClasses(data);
+        setLoadError(null);
+        setLoading(false);
+      },
+      (err) => {
+        setLoadError(err?.message || 'Unable to load schedule from the database.');
+        setLoading(false);
+      }
+    );
     return () => unsubscribe();
   }, []);
 
@@ -472,7 +480,16 @@ export default function NewSchedulePage() {
           {loading ? (
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '4rem 0', color: 'var(--text-muted)' }}>
               <div className="loading-spinner" style={{ marginBottom: '1rem' }} />
-              <p>Fetching schedule from Firestore...</p>
+              <p>Fetching schedule from the database...</p>
+            </div>
+          ) : loadError ? (
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '3.5rem 1.5rem', color: 'var(--text-muted)', textAlign: 'center', gap: '0.4rem' }}>
+              <AlertTriangle size={32} style={{ color: 'var(--danger)', marginBottom: '0.25rem' }} />
+              <div style={{ fontWeight: 600, color: 'var(--text-main)' }}>Couldn&apos;t load the schedule</div>
+              <div style={{ fontSize: '0.82rem', maxWidth: '460px' }}>{loadError}</div>
+              <div style={{ fontSize: '0.75rem', marginTop: '0.35rem' }}>
+                Locally this usually means <code>DATABASE_URL</code> isn&apos;t set in <code>.env.local</code>. It retries automatically.
+              </div>
             </div>
           ) : (
             <table id="schedule-table">
