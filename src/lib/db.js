@@ -1,11 +1,33 @@
 import { Pool } from 'pg';
 
-// Initialize connection pool from environment variable (PostgreSQL connection string)
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  // Enable SSL (required for remote connections to secure PostgreSQL instances, like on Vercel)
-  ssl: process.env.DATABASE_SSL === 'true' ? { rejectUnauthorized: false } : undefined
-});
+// The connection string comes from the environment. Without it, `pg` silently
+// falls back to localhost:5432 and every query fails with a confusing
+// "ECONNREFUSED 127.0.0.1:5432". Detect that up front so the API returns a
+// clear, actionable message instead.
+const CONNECTION_STRING = process.env.DATABASE_URL;
+
+// Lazily create the pool so a missing DATABASE_URL doesn't crash the whole
+// serverless function at import time — only the routes that actually hit the
+// DB will surface the configuration error.
+let pool = null;
+function getPool() {
+  if (!CONNECTION_STRING) {
+    throw new Error(
+      'DATABASE_URL is not set. Add your PostgreSQL connection string to the ' +
+      'environment (Vercel → Project → Settings → Environment Variables for ' +
+      'production, or .env.local for local dev), then redeploy. See setup_vps.sh ' +
+      'for the connection string format.'
+    );
+  }
+  if (!pool) {
+    pool = new Pool({
+      connectionString: CONNECTION_STRING,
+      // Enable SSL for remote/secure PostgreSQL instances.
+      ssl: process.env.DATABASE_SSL === 'true' ? { rejectUnauthorized: false } : undefined,
+    });
+  }
+  return pool;
+}
 
 /**
  * Execute a query on the PostgreSQL database
@@ -15,7 +37,7 @@ const pool = new Pool({
 export async function query(text, params) {
   const start = Date.now();
   try {
-    const res = await pool.query(text, params);
+    const res = await getPool().query(text, params);
     const duration = Date.now() - start;
     // Log query metrics in dev environment
     if (process.env.NODE_ENV !== 'production') {
@@ -23,9 +45,9 @@ export async function query(text, params) {
     }
     return res;
   } catch (error) {
-    console.error('[db] Database query error:', error);
+    console.error('[db] Database query error:', error.message);
     throw error;
   }
 }
 
-export default pool;
+export default getPool;

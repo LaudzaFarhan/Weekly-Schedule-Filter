@@ -34,7 +34,7 @@ echo "------------------------------------------"
 # Replace 'dbpassword' with a very secure password!
 DB_USER="lab_operator"
 DB_NAME="thelabops"
-DB_PASS="lab_secure_password" # Change this password!
+DB_PASS="calculated213" # Change this password!
 
 echo "Creating database user '${DB_USER}' and database '${DB_NAME}'..."
 
@@ -141,6 +141,21 @@ CREATE OR REPLACE TRIGGER update_new_crm_leads_changetimestamp
 echo "------------------------------------------"
 echo "Tables initialized successfully."
 echo "------------------------------------------"
+
+# 5b. Grant table/sequence privileges to the app user.
+# The tables above were created by the 'postgres' superuser, so they are owned
+# by 'postgres'. Without these grants, the app user ('${DB_USER}') would get
+# "permission denied for table ..." on every query. We also set DEFAULT
+# PRIVILEGES so any future tables created by postgres stay accessible.
+echo "Granting privileges to '${DB_USER}'..."
+sudo -i -u postgres psql -d ${DB_NAME} -c "
+GRANT ALL ON SCHEMA public TO ${DB_USER};
+GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO ${DB_USER};
+GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO ${DB_USER};
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO ${DB_USER};
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO ${DB_USER};
+"
+echo "Privileges granted."
 
 # 6. Enable Remote Connections (So Vercel can connect)
 echo "Configuring PostgreSQL to allow remote connections..."
