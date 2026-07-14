@@ -1721,6 +1721,9 @@ function SessionRow({ session }) {
   const branchLabel = session.branches?.length > 0
     ? session.branches.join(' · ')
     : null;
+  const assistLabel = session.assistants?.length > 0
+    ? session.assistants.join(', ')
+    : null;
 
   return (
     <div
@@ -1739,6 +1742,22 @@ function SessionRow({ session }) {
           <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
             {Math.round(session.durationMin)}m · {session.students} student{session.students === 1 ? '' : 's'}
           </span>
+          {assistLabel && (
+            <span
+              title={`Assist instructor: ${assistLabel}`}
+              style={{
+                marginTop: '0.1rem',
+                fontSize: '0.68rem',
+                fontWeight: 600,
+                color: 'var(--primary-blue, #4f46e5)',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '0.25rem',
+              }}
+            >
+              <Users size={11} /> Assist: {assistLabel}
+            </span>
+          )}
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', alignItems: 'flex-end' }}>
           <span

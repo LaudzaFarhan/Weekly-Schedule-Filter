@@ -254,6 +254,9 @@ function computeForInstructor(rows) {
       const branches = Array.from(
         new Set(bucket.map((b) => b.branchName).filter(Boolean))
       );
+      const assistants = Array.from(
+        new Set(bucket.map((b) => b.assistant).filter(Boolean))
+      );
       byDay[day].sessionList.push({
         time: timeStr,
         start: parsed.start,
@@ -263,6 +266,7 @@ function computeForInstructor(rows) {
         studentDetails,
         programs,
         branches,
+        assistants,
         durationMin,
       });
       intervals.push([parsed.start, parsed.end]);

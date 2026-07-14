@@ -178,6 +178,7 @@ function parseCSVData(csvText, dayName, branchId, branchName) {
     student: resolveCol(['Student Name', 'Student', 'Nama Murid', 'Murid', 'Nama Siswa']),
     lessonArrange: resolveCol(['Lesson Arrange Date', 'Lesson Arrange', 'Lesson Arrangement', 'Arrange', 'Lesson Detail']),
     program: resolveCol(['Program', 'Programme']),
+    assist: resolveCol(['Assist Instructor', 'Assist Inst', 'Assistant Instructor', 'Assistant', 'Assist', 'Co-Instructor', 'Co Instructor', 'Co-Teacher', 'Asisten', 'Asisten Instruktur']),
     remarks: resolveCol(['Remarks', 'Remark', 'Notes', 'Catatan', 'Keterangan']),
   };
 
@@ -197,6 +198,7 @@ function parseCSVData(csvText, dayName, branchId, branchName) {
   let lastTerm = '';
   let lastTeacher = '';
   let lastBaseTeacher = '';
+  let lastAssist = '';
 
   rowsWithRowNumber.forEach((row) => {
     const rawStudent = cell(row, 'student');
@@ -207,11 +209,24 @@ function parseCSVData(csvText, dayName, branchId, branchName) {
     if (rawTime === 'Time' || rawTerm === 'Term-Branch') return;
 
     // 3. Loop every row: if row.time is populated, update current_time, else inherit
-    if (rawTime && rawTime.trim() !== '') {
+    const startsNewSession = !!(rawTime && rawTime.trim() !== '');
+    if (startsNewSession) {
       current_time = rawTime.trim();
     }
     let time = current_time;
     let term = rawTerm ? rawTerm.trim() : lastTerm;
+
+    // Column G (Assist Instructor). Sheets merge this cell across a session's
+    // student rows, so a new session (row with its own time) resets it — even
+    // to blank — while continuation rows inherit it. A lone '-' means no assist.
+    const rawAssist = cell(row, 'assist');
+    const cleanAssist = rawAssist && rawAssist.trim() && rawAssist.trim() !== '-' ? rawAssist.trim() : '';
+    if (startsNewSession) {
+      lastAssist = cleanAssist;
+    } else if (cleanAssist) {
+      lastAssist = cleanAssist;
+    }
+    const assistant = lastAssist;
 
     const rawColumnC = cell(row, 'instructor') ? cell(row, 'instructor').trim() : '';
     let baseTeacher = rawColumnC || lastBaseTeacher;
@@ -281,6 +296,7 @@ function parseCSVData(csvText, dayName, branchId, branchName) {
         time,
         program: term,
         teacher,
+        assistant,
         student,
         remarks: cell(row, 'remarks') || '',
         fullProgram: cell(row, 'program') || '',

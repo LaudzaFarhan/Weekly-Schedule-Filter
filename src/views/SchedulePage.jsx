@@ -133,7 +133,26 @@ export default function SchedulePage() {
                     <td>{c.day}</td>
                     <td>{c.time}</td>
                     <td>{c.lessonDetail || c.program}</td>
-                    <td>{c.teacher}</td>
+                    <td>
+                      {c.teacher}
+                      {c.assistant && (
+                        <span
+                          title={`Assist: ${c.assistant}`}
+                          style={{
+                            marginLeft: '0.4rem',
+                            fontSize: '0.65rem',
+                            fontWeight: 600,
+                            color: 'var(--primary-blue, #4f46e5)',
+                            background: 'var(--primary-blue-light, rgba(79,70,229,0.12))',
+                            padding: '0.1rem 0.4rem',
+                            borderRadius: '99px',
+                            whiteSpace: 'nowrap',
+                          }}
+                        >
+                          + {c.assistant}
+                        </span>
+                      )}
+                    </td>
                     <td>{c.student}{c.notArranged && <span style={{ marginLeft: '0.4rem', fontSize: '0.65rem', fontWeight: 600, color: '#d97706', background: '#fde68a', padding: '0.1rem 0.35rem', borderRadius: '3px' }}>izin</span>}</td>
                     <td style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{c.branchName || '—'}</td>
                     <td>{c.remarks || '—'}</td>
