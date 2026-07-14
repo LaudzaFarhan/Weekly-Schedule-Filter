@@ -25,6 +25,7 @@ import TasksPage from '@/views/TasksPage';
 import CrmPage from '@/views/CrmPage';
 import ComingSoonPage from '@/views/ComingSoonPage';
 import NewSchedulePage from '@/views/NewSchedulePage';
+import NewOperationalsPage from '@/views/NewOperationalsPage';
 import NewStudentsPage from '@/views/NewStudentsPage';
 import NewInstructorsPage from '@/views/NewInstructorsPage';
 import NewCrmPage from '@/views/NewCrmPage';
@@ -93,7 +94,9 @@ export default function AppShell() {
 
   let PageComponent;
   if (opsMode === 'new') {
-    if (currentPage === 'students') {
+    if (currentPage === 'operationals') {
+      PageComponent = NewOperationalsPage;
+    } else if (currentPage === 'students') {
       PageComponent = NewStudentsPage;
     } else if (currentPage === 'instructors') {
       PageComponent = NewInstructorsPage;

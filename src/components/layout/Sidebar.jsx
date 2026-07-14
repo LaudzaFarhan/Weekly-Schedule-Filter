@@ -5,7 +5,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useSchedule } from '@/contexts/ScheduleContext';
 import {
   Home, AlertTriangle, Calendar, Activity, Star,
-  Search, FileText, PenLine, Terminal, Settings, LogOut, User, BarChart3, ClipboardList, Users
+  Search, FileText, PenLine, Terminal, Settings, LogOut, User, BarChart3, ClipboardList, Users, Building2
 } from 'lucide-react';
 import { listenToMyTasks } from '@/services/taskService';
 
@@ -107,13 +107,23 @@ export default function Sidebar({ currentPage, onNavigate, onToggleSearch, opsMo
         {opsMode === 'new' && (
           <>
             <button
-              className={`nav-item ${currentPage !== 'students' && currentPage !== 'instructors' && currentPage !== 'crm' ? 'active' : ''}`}
+              className={`nav-item ${currentPage !== 'operationals' && currentPage !== 'students' && currentPage !== 'instructors' && currentPage !== 'crm' ? 'active' : ''}`}
               onClick={() => onNavigate('schedule')}
               style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
             >
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
                 <Calendar size={20} />
                 Schedule
+              </div>
+            </button>
+            <button
+              className={`nav-item ${currentPage === 'operationals' ? 'active' : ''}`}
+              onClick={() => onNavigate('operationals')}
+              style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                <Building2 size={20} />
+                Operationals
               </div>
             </button>
             <button

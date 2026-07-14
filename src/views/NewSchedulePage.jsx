@@ -10,6 +10,7 @@ import {
   deleteInternalClass 
 } from '../services/internalScheduleService';
 import { DAY_NAMES, SCHEDULE_PAGE_SIZE, getWorkingDaysForBranch } from '../utils/constants';
+import { resolveBranchWorkingDays } from './NewOperationalsPage';
 import Pagination from '../components/ui/Pagination';
 import { Plus, Pencil, Trash2, Search, X, Calendar, MapPin, User, BookOpen, Clock, AlertTriangle } from 'lucide-react';
 
@@ -148,10 +149,15 @@ export default function NewSchedulePage() {
   };
 
   // Branches that are operational (open) on the currently selected sidebar day.
+  // Uses the per-branch operational days configured on the Operationals page
+  // (falls back to the legacy defaults when a branch hasn't been configured).
+  const daysForBranchName = (name) => {
+    const branch = (branches || []).find((b) => b.name === name);
+    if (branch) return resolveBranchWorkingDays(branch);
+    return getWorkingDaysForBranch(name === 'All Branches' ? 'default' : name);
+  };
   const branchesActiveOn = (day) =>
-    branchList.filter((name) =>
-      getWorkingDaysForBranch(name === 'All Branches' ? 'default' : name).includes(day)
-    );
+    branchList.filter((name) => daysForBranchName(name).includes(day));
   const activeBranchesForDay = branchesActiveOn(sideDay);
 
   // Pick a day in the sidebar: sync the table filter and drop the selected
