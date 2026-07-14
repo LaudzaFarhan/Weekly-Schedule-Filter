@@ -4,7 +4,7 @@ import { useState, useMemo, useEffect, useCallback } from 'react';
 import { useSchedule } from '../contexts/ScheduleContext';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../components/ui/Toast';
-import { DAY_NAMES, getWorkingDaysForBranch } from '../utils/constants';
+import { DAY_NAMES, getWorkingDaysForBranch, getBranchCode, classBelongsToBranch } from '../utils/constants';
 import { parseLooseDate, getMondayOfDate, formatWeekRange } from '../utils/dateUtils';
 import { getInstructorBranch } from '../utils/instructorUtils';
 import {
@@ -130,6 +130,12 @@ export default function WorkloadPage() {
   // showing exactly what the instructor teaches that day.
   const [heatmapDetail, setHeatmapDetail] = useState(null); // { teacher, day, dayData }
 
+  // When a single branch is selected, the heatmap cells still aggregate hours
+  // an instructor teaches at OTHER branches (that's what the small KE/PU tags
+  // represent). This toggle scopes the heatmap to only the selected branch so
+  // cross-branch hours drop out.
+  const [heatmapBranchOnly, setHeatmapBranchOnly] = useState(false);
+
   // History state
   const [isSaving, setIsSaving] = useState(false);
   const [snapshots, setSnapshots] = useState([]);     // list of { id, date, branch, rows[] }
@@ -190,7 +196,7 @@ export default function WorkloadPage() {
   const sourceClasses = useMemo(() => {
     let classes = weekFilteredClasses;
     if (branchFilter !== 'all') {
-      classes = classes.filter((c) => c.branchName === branchFilter);
+      classes = classes.filter((c) => classBelongsToBranch(c, branchFilter));
     }
     return classes;
   }, [weekFilteredClasses, branchFilter]);
@@ -332,27 +338,35 @@ export default function WorkloadPage() {
     return filteredRaw.concat(extras);
   }, [rawReport, instructorProfiles, disabledInstructors]);
 
-  // When a single branch is selected, show instructors who belong to the branch
-  // (via profile home location) OR who are scheduled to teach at least one class
-  // in that branch. This enables cross-branch workload tracking.
+  // When a single branch is selected, show instructors who genuinely belong to
+  // that branch: either their profile HOME location is exactly this branch, or
+  // they are scheduled to teach at least one class there.
+  //
+  // We deliberately do NOT include instructors just because their profile is
+  // flagged "All Branches", nor unprofiled instructors by default. Doing so
+  // surfaced nomaden teachers (e.g. Yovi, who only teaches at GS/BTR) under
+  // unrelated branches like Pondok Indah even though they never teach there.
   const report = useMemo(() => {
     if (branchFilter === 'all') return reportWithIdle;
     return reportWithIdle.filter((r) => {
-      // Check if they are scheduled in the selected branch
+      // Check if they are scheduled in the selected branch. Meeting rows tagged
+      // in column D (e.g. "Puri, BTR") only count for the branches they name,
+      // not the sheet they were entered on.
       const hasClassesInSelectedBranch = weekFilteredClasses.some(
-        (c) => c.teacher === r.teacher && c.branchName === branchFilter
+        (c) => c.teacher === r.teacher && classBelongsToBranch(c, branchFilter)
       );
       if (hasClassesInSelectedBranch) return true;
 
       const profileLoc = profileLocationByName.get(r.teacher);
       if (profileLoc) {
-        // Profile is the source of truth: match the selected branch
-        // or instructors flagged "All Branches".
-        return profileLoc === branchFilter || profileLoc === 'All Branches';
+        // Profile is the source of truth: only include when their home branch
+        // is exactly the selected branch. "All Branches" instructors only show
+        // here if they actually teach a class in this branch (handled above).
+        return profileLoc === branchFilter;
       }
-      // Unprofiled instructors fall through — they still appear if they
-      // have classes in the selected branch (legacy behaviour).
-      return true;
+      // Unprofiled instructors only appear if they have a class in the selected
+      // branch (already returned true above); otherwise hide them.
+      return false;
     });
   }, [reportWithIdle, branchFilter, profileLocationByName, weekFilteredClasses]);
 
@@ -420,6 +434,22 @@ export default function WorkloadPage() {
   const currentPage = Math.min(page, totalPages);
   const paged = sorted.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
 
+  // Rows shown in the heatmap (top 25 by current sort). When the
+  // "only this branch" toggle is on and a single branch is selected, replace
+  // each row's per-day data with a version built from just that branch's
+  // classes so cross-branch hours are excluded. Instructors with no classes
+  // in the branch collapse to an all-idle row.
+  const heatmapReport = useMemo(() => {
+    const base = sorted.slice(0, 25);
+    if (!heatmapBranchOnly || branchFilter === 'all') return base;
+
+    const scopedClasses = weekFilteredClasses.filter((c) => classBelongsToBranch(c, branchFilter));
+    const scopedReport = buildWorkloadReport(scopedClasses, { disabledInstructors });
+    const scopedByTeacher = new Map(scopedReport.map((r) => [r.teacher, r]));
+
+    return base.map((r) => scopedByTeacher.get(r.teacher) || buildIdleWorkloadRow(r.teacher));
+  }, [sorted, heatmapBranchOnly, branchFilter, weekFilteredClasses, disabledInstructors]);
+
   // Heatmap max — used to scale per-day bars/colors consistently
   const heatmapMax = useMemo(() => {
     let max = 0;
@@ -430,6 +460,18 @@ export default function WorkloadPage() {
     }
     return max;
   }, [report]);
+
+  // Max scoped to the rows actually rendered in the heatmap (respects the
+  // branch-only toggle) so the color scale stays accurate when scoped.
+  const heatmapDisplayMax = useMemo(() => {
+    let max = 0;
+    for (const r of heatmapReport) {
+      for (const d of DAY_NAMES) {
+        if (r.byDay[d].hours > max) max = r.byDay[d].hours;
+      }
+    }
+    return max;
+  }, [heatmapReport]);
 
   // Aggregate parser-warning samples so we can flag bad time strings
   const parserWarnings = useMemo(() => {
@@ -459,7 +501,7 @@ export default function WorkloadPage() {
    * email-prefix.
    */
   const buildReportForBranch = useCallback((branchName) => {
-    const scoped = weekFilteredClasses.filter((c) => c.branchName === branchName);
+    const scoped = weekFilteredClasses.filter((c) => classBelongsToBranch(c, branchName));
     const built = buildWorkloadReport(scoped, { disabledInstructors });
  
     // Inject idle rows for profile-only instructors who belong to this branch.
@@ -1108,12 +1150,37 @@ export default function WorkloadPage() {
                 <h2>Daily Workload Heatmap</h2>
                 <span className="subtext">Hours per day, per instructor. Red cells exceed {thresholds.dailyRed}h.</span>
               </div>
-              <Legend thresholds={thresholds} />
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.85rem' }}>
+                {branchFilter !== 'all' && (
+                  <label
+                    title={`Show only hours taught at ${branchFilter}, hiding cross-branch classes`}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.4rem',
+                      fontSize: '0.75rem',
+                      color: 'var(--text-muted)',
+                      cursor: 'pointer',
+                      whiteSpace: 'nowrap',
+                      userSelect: 'none',
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={heatmapBranchOnly}
+                      onChange={(e) => setHeatmapBranchOnly(e.target.checked)}
+                      style={{ cursor: 'pointer' }}
+                    />
+                    Only {branchFilter}
+                  </label>
+                )}
+                <Legend thresholds={thresholds} />
+              </div>
             </div>
             <div className="panel-body" style={{ overflowX: 'auto' }}>
               <Heatmap
-                report={sorted.slice(0, 25)}
-                max={heatmapMax}
+                report={heatmapReport}
+                max={heatmapDisplayMax}
                 thresholds={thresholds}
                 trialPriorityList={trialPriorityList}
                 instructorProfiles={instructorProfiles}
@@ -1475,9 +1542,8 @@ function Heatmap({ report, max, thresholds, onCellClick, trialPriorityList, inst
                     fontWeight: 700,
                     opacity: 0.6,
                     lineHeight: 1,
-                    textTransform: 'uppercase'
                   }}>
-                    {dayBranches[0].slice(0, 2)}
+                    {getBranchCode(dayBranches[0])}
                   </div>
                 )}
                 {hrs > 0 ? formatHoursMinutes(hrs) : (isWorkingDay ? 'FREE TIME' : 'HOLIDAY')}
