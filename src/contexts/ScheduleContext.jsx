@@ -37,12 +37,16 @@ function persistConfig(key, value) {
   // 1) localStorage — instant cache
   try { localStorage.setItem(key, JSON.stringify(value)); } catch { /* ignore */ }
 
-  // 2) API — background fire-and-forget
-  fetch('/api/config', {
+  // 2) API — return the promise so callers CAN await a durable save when it
+  //    matters (e.g. before the user refreshes). Callers that don't await keep
+  //    the old fire-and-forget behaviour.
+  return fetch('/api/config', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ key, value }),
-  }).catch(() => { /* API not configured or offline — localStorage is the fallback */ });
+  })
+    .then((res) => res.json())
+    .catch((err) => ({ configured: false, error: err?.message || 'offline' }));
 }
 
 /** Cache raw schedule data (all branches) so it persists across page refreshes */
@@ -338,7 +342,7 @@ export function ScheduleProvider({ children }) {
 
   const updateBranches = useCallback((newBranches) => {
     setBranches(newBranches);
-    persistConfig('branches', newBranches);
+    return persistConfig('branches', newBranches);
   }, []);
 
   const changeActiveBranch = useCallback((branchId) => {

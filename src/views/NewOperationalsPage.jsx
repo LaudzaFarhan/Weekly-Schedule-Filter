@@ -23,24 +23,24 @@ export default function NewOperationalsPage() {
   // Editable draft: branchId -> Set(dayName)
   const [draft, setDraft] = useState({});
   const [saving, setSaving] = useState(false);
+  const [dirty, setDirty] = useState(false);
 
-  // Initialise / sync the draft from context branches. We only ADD branches
-  // that aren't already in the draft so we never clobber in-progress edits.
+  // Sync the draft from context branches. When there are no unsaved edits we
+  // fully re-sync (so a cloud-config load after mount is reflected); when the
+  // user has pending edits we keep those and only add any new branches.
   useEffect(() => {
     setDraft((prev) => {
-      const next = { ...prev };
-      let changed = false;
+      const next = {};
       for (const b of branches) {
-        if (!next[b.id]) {
-          next[b.id] = new Set(resolveBranchWorkingDays(b));
-          changed = true;
-        }
+        next[b.id] = dirty && prev[b.id] ? prev[b.id] : new Set(resolveBranchWorkingDays(b));
       }
-      return changed ? next : prev;
+      return next;
     });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [branches]);
 
   const toggleDay = (branchId, day) => {
+    setDirty(true);
     setDraft((prev) => {
       const set = new Set(prev[branchId] || []);
       if (set.has(day)) set.delete(day);
@@ -50,6 +50,7 @@ export default function NewOperationalsPage() {
   };
 
   const setAll = (branchId, on) => {
+    setDirty(true);
     setDraft((prev) => ({ ...prev, [branchId]: new Set(on ? DAY_NAMES : []) }));
   };
 
@@ -60,8 +61,22 @@ export default function NewOperationalsPage() {
         ...b,
         workingDays: DAY_NAMES.filter((d) => draft[b.id]?.has(d)),
       }));
-      updateBranches(updated);
-      showToast({ title: 'Operational settings saved', variant: 'success' });
+      // Await the durable (Google Sheets) write before confirming, so a quick
+      // refresh can't cancel an in-flight save and lose the change.
+      const res = await updateBranches(updated);
+      if (res && res.configured === false) {
+        showToast({
+          title: 'Saved on this device only',
+          message: res.error
+            ? `Cloud sync failed: ${res.error}`
+            : 'Cloud config is not connected, so this will not sync to other devices or the deployment.',
+          variant: 'warning',
+          duration: 7000,
+        });
+      } else {
+        showToast({ title: 'Operational settings saved', variant: 'success' });
+      }
+      setDirty(false);
     } catch (err) {
       console.error('Failed to save operationals:', err);
       showToast({ title: 'Failed to save', message: err.message, variant: 'error' });
