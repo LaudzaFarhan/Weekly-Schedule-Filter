@@ -255,20 +255,39 @@ function parseCSVData(csvText, dayName, branchId, branchName) {
       //   3. A date or freeform note ("29 May", "ijin 29 May") → ignore;
       //      the inherited Main-Instructor stays the teacher.
       const v = lessonArrange.trim();
-      const looksLikeLessonCode =
-        /^[A-Z]+\d.*\.\d+$/i.test(v) ||
-        /^(coder|trial|reg|k\d|kf\d|j\d|jf\d|cb\d|cd\d)/i.test(v);
-      const looksLikeDateOrNote =
-        /\d/.test(v) ||  // contains any digit → likely a date/note, not a name
-        /(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|mei|agu|okt|des|izin|ijin|reschedule|pending|done|tba)/i.test(v);
-      if (looksLikeLessonCode) {
-        if (/^[A-Z]+\d.*\.\d+$/i.test(v)) lessonDetail = v;
-        // teacher stays inherited
-      } else if (!looksLikeDateOrNote) {
-        // Pure name → treat as instructor override.
-        teacher = v;
+
+      // Case: "CODE Name" separated by a SPACE (no comma), e.g. "K1.7 Angel".
+      // Split the leading lesson code from a trailing instructor name so the
+      // class is credited to the assigned instructor (same intent as the
+      // comma form "K1.7, Angel").
+      const codeNameMatch = v.match(/^([A-Za-z]{1,4}\d+(?:\.\d+)?)\s+(.+)$/);
+      const noteWords = /(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|mei|agu|okt|des|izin|ijin|reschedule|pending|done|tba|repl|slot|update|available|invoicing)/i;
+
+      if (codeNameMatch) {
+        const codePart = codeNameMatch[1].trim();
+        const namePart = codeNameMatch[2].trim();
+        if (/^[A-Z]+\d.*\.\d+$/i.test(codePart)) lessonDetail = codePart;
+        // Only treat the trailing text as an instructor if it looks like a
+        // name (no digits, not a known note/status word).
+        if (namePart && namePart !== '-' && !/\d/.test(namePart) && !noteWords.test(namePart)) {
+          teacher = namePart;
+        }
+      } else {
+        const looksLikeLessonCode =
+          /^[A-Z]+\d.*\.\d+$/i.test(v) ||
+          /^(coder|trial|reg|k\d|kf\d|j\d|jf\d|cb\d|cd\d)/i.test(v);
+        const looksLikeDateOrNote =
+          /\d/.test(v) ||  // contains any digit → likely a date/note, not a name
+          noteWords.test(v);
+        if (looksLikeLessonCode) {
+          if (/^[A-Z]+\d.*\.\d+$/i.test(v)) lessonDetail = v;
+          // teacher stays inherited
+        } else if (!looksLikeDateOrNote) {
+          // Pure name → treat as instructor override.
+          teacher = v;
+        }
+        // else: date/note → leave the inherited teacher untouched
       }
-      // else: date/note → leave the inherited teacher untouched
     } else if (!lessonArrange || lessonArrange.trim() === '') {
       if (!rawColumnC) {
         teacher = '';
