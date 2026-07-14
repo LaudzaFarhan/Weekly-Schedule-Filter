@@ -4,7 +4,7 @@ import { useState, useMemo, useEffect, useCallback } from 'react';
 import { useSchedule } from '../contexts/ScheduleContext';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../components/ui/Toast';
-import { DAY_NAMES, getWorkingDaysForBranch, getBranchCode, classBelongsToBranch } from '../utils/constants';
+import { DAY_NAMES, getWorkingDaysForBranch, getBranchCode, classBelongsToBranch, parseMeetingBranches } from '../utils/constants';
 import { parseLooseDate, getMondayOfDate, formatWeekRange } from '../utils/dateUtils';
 import { getInstructorBranch } from '../utils/instructorUtils';
 import {
@@ -174,21 +174,37 @@ export default function WorkloadPage() {
 
   // Intermediate helper for classes scoped to the selected week (applies to workload and heatmap)
   const weekFilteredClasses = useMemo(() => {
-    if (selectedWeek === 'all') return overallClasses;
-    
-    const weekInfo = weeksList.find(w => w.label === selectedWeek);
-    if (!weekInfo) return overallClasses;
-    
-    const monday = weekInfo.monday;
-    const sunday = new Date(monday);
-    sunday.setDate(monday.getDate() + 6);
-    sunday.setHours(23, 59, 59, 999);
-    
-    return overallClasses.filter((c) => {
-      if (!c.date) return true; // regular weekly classes
-      const parsed = parseLooseDate(c.date);
-      if (!parsed) return true; // unparseable dates / codes
-      return parsed.getTime() >= monday.getTime() && parsed.getTime() <= sunday.getTime();
+    let base = overallClasses;
+
+    if (selectedWeek !== 'all') {
+      const weekInfo = weeksList.find(w => w.label === selectedWeek);
+      if (weekInfo) {
+        const monday = weekInfo.monday;
+        const sunday = new Date(monday);
+        sunday.setDate(monday.getDate() + 6);
+        sunday.setHours(23, 59, 59, 999);
+
+        base = overallClasses.filter((c) => {
+          if (!c.date) return true; // regular weekly classes
+          const parsed = parseLooseDate(c.date);
+          if (!parsed) return true; // unparseable dates / codes
+          return parsed.getTime() >= monday.getTime() && parsed.getTime() <= sunday.getTime();
+        });
+      }
+    }
+
+    // Normalise branch attribution: when column D (Term-Branch) names a single
+    // branch (e.g. "GS"), that IS the branch the session belongs to — even if
+    // the row was typed into another branch's sheet. Rewriting branchName here
+    // makes the heatmap label, cell tag and branch filter all agree. Multi-
+    // branch meetings (e.g. "Puri, BTR") keep their sheet branch and are scoped
+    // via classBelongsToBranch instead.
+    return base.map((c) => {
+      const meeting = parseMeetingBranches(c.program);
+      if (meeting && !meeting.all && meeting.branches.length === 1 && meeting.branches[0] !== c.branchName) {
+        return { ...c, branchName: meeting.branches[0] };
+      }
+      return c;
     });
   }, [overallClasses, selectedWeek, weeksList]);
 
@@ -443,7 +459,10 @@ export default function WorkloadPage() {
     const base = sorted.slice(0, 25);
     if (!heatmapBranchOnly || branchFilter === 'all') return base;
 
-    const scopedClasses = weekFilteredClasses.filter((c) => classBelongsToBranch(c, branchFilter));
+    const scopedClasses = weekFilteredClasses
+      .filter((c) => classBelongsToBranch(c, branchFilter))
+      // Everything here belongs to branchFilter — relabel so cell tags show it.
+      .map((c) => (c.branchName === branchFilter ? c : { ...c, branchName: branchFilter }));
     const scopedReport = buildWorkloadReport(scopedClasses, { disabledInstructors });
     const scopedByTeacher = new Map(scopedReport.map((r) => [r.teacher, r]));
 
@@ -501,7 +520,9 @@ export default function WorkloadPage() {
    * email-prefix.
    */
   const buildReportForBranch = useCallback((branchName) => {
-    const scoped = weekFilteredClasses.filter((c) => classBelongsToBranch(c, branchName));
+    const scoped = weekFilteredClasses
+      .filter((c) => classBelongsToBranch(c, branchName))
+      .map((c) => (c.branchName === branchName ? c : { ...c, branchName }));
     const built = buildWorkloadReport(scoped, { disabledInstructors });
  
     // Inject idle rows for profile-only instructors who belong to this branch.

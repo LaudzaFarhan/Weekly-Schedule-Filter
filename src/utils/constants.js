@@ -63,6 +63,13 @@ for (const [name, code] of Object.entries(BRANCH_CODES)) {
  *   - null            → not a branch tag (treat as a normal class)
  *   - { all: true }   → applies to every branch ("All Branch")
  *   - { branches }    → applies only to the listed branch names
+ *
+ * A tag is recognised only when EVERY comma/slash-separated token exactly
+ * matches a known branch code or name (e.g. "GS", "Puri, BTR", "Pondok Indah").
+ * This works for single-branch tags too — a lone "GS" means the session is at
+ * Gading Serpong even though it was typed into another branch's sheet. Module
+ * codes like "K1", "J4" or "Trial Kinder" never resolve, so normal classes are
+ * left attributed to the sheet they came from.
  */
 export const parseMeetingBranches = (term) => {
   if (!term) return null;
@@ -74,10 +81,10 @@ export const parseMeetingBranches = (term) => {
     return { all: true, branches: [] };
   }
 
-  // Split on comma or slash. Require 2+ tokens so a single module/branch cell
-  // isn't accidentally reinterpreted as a meeting.
+  // Split on comma or slash. Every token must resolve to a known branch for
+  // this to count as a branch tag (single-token tags like "GS" are allowed).
   const tokens = raw.split(/[,/]+/).map((t) => t.trim()).filter(Boolean);
-  if (tokens.length < 2) return null;
+  if (tokens.length === 0) return null;
 
   const resolved = [];
   for (const tok of tokens) {
