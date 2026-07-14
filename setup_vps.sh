@@ -38,8 +38,13 @@ DB_PASS="calculated213" # Change this password!
 
 echo "Creating database user '${DB_USER}' and database '${DB_NAME}'..."
 
-sudo -i -u postgres psql -c "CREATE USER ${DB_USER} WITH PASSWORD '${DB_PASS}';"
-sudo -i -u postgres psql -c "CREATE DATABASE ${DB_NAME} OWNER ${DB_USER};"
+# Idempotent: only create the role/database if they don't already exist, so
+# re-running the script (e.g. after a partial run) doesn't abort under `set -e`.
+sudo -i -u postgres psql -c "DO \$\$ BEGIN IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname='${DB_USER}') THEN CREATE ROLE ${DB_USER} LOGIN PASSWORD '${DB_PASS}'; END IF; END \$\$;"
+# Keep the password in sync in case it changed.
+sudo -i -u postgres psql -c "ALTER ROLE ${DB_USER} WITH LOGIN PASSWORD '${DB_PASS}';"
+sudo -i -u postgres psql -tc "SELECT 1 FROM pg_database WHERE datname='${DB_NAME}'" | grep -q 1 \
+  || sudo -i -u postgres psql -c "CREATE DATABASE ${DB_NAME} OWNER ${DB_USER};"
 sudo -i -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE ${DB_NAME} TO ${DB_USER};"
 
 echo "------------------------------------------"
@@ -170,9 +175,14 @@ CONF_DIR="/etc/postgresql/${PG_VERSION}/main"
 # Allow PostgreSQL to listen on all interfaces
 sudo sed -i "s/#listen_addresses = 'localhost'/listen_addresses = '*'/g" "${CONF_DIR}/postgresql.conf"
 
-# Append host access record to pg_hba.conf (Allows connections with password authentication from any IP)
+# Append host access record to pg_hba.conf (Allows connections with password
+# authentication from any IP). PostgreSQL 14+ stores passwords as scram-sha-256
+# by default, so we must use scram-sha-256 here (md5 would fail to authenticate).
 # In production, restrict this to Vercel's IP ranges if needed, or secure via SSL.
-echo "host    all             all             0.0.0.0/0               md5" | sudo tee -a "${CONF_DIR}/pg_hba.conf"
+# Guarded so re-running the script doesn't append duplicate lines.
+if ! sudo grep -q "0.0.0.0/0" "${CONF_DIR}/pg_hba.conf"; then
+    echo "host    all             all             0.0.0.0/0               scram-sha-256" | sudo tee -a "${CONF_DIR}/pg_hba.conf"
+fi
 
 # Restart PostgreSQL service to apply config changes
 sudo systemctl restart postgresql
