@@ -48,6 +48,7 @@ export default function NewSchedulePage() {
   const [sideDay, setSideDay] = useState(DAY_NAMES.includes(todayName) ? todayName : 'Monday');
   const [sideBranch, setSideBranch] = useState('');
   const [sideTime, setSideTime] = useState('');
+  const [instructorSearch, setInstructorSearch] = useState('');
 
   // Modal/Form State
   const [showModal, setShowModal] = useState(false);
@@ -261,8 +262,11 @@ export default function NewSchedulePage() {
     <section className="dashboard-view active">
       <div style={{ display: 'grid', gridTemplateColumns: '280px minmax(0, 1fr)', gap: '1.5rem', alignItems: 'start' }}>
 
+        {/* Left column: Quick Add + Instructors list */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', position: 'sticky', top: '1rem' }}>
+
         {/* Quick Add Sidebar — operational schedule by day & branch */}
-        <div className="panel" style={{ margin: 0, position: 'sticky', top: '1rem' }}>
+        <div className="panel" style={{ margin: 0 }}>
           <div className="panel-header" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: '0.15rem' }}>
             <h2 style={{ fontSize: '1rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
               <Plus size={16} /> Quick Add
@@ -368,6 +372,73 @@ export default function NewSchedulePage() {
               <Plus size={16} /> Add to {sideBranch || 'schedule'}
             </button>
           </div>
+        </div>
+
+        {/* Instructors list — click to filter the schedule by instructor */}
+        <div className="panel" style={{ margin: 0 }}>
+          <div className="panel-header" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: '0.15rem' }}>
+            <h2 style={{ fontSize: '1rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+              <User size={16} /> Instructors
+              <span style={{ fontSize: '0.72rem', fontWeight: 500, color: 'var(--text-muted)' }}>({sortedTeachers.length})</span>
+            </h2>
+            <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Click a name to filter the list.</span>
+          </div>
+
+          <div style={{ padding: '0.85rem 1rem', display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
+            <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+              <Search size={14} style={{ position: 'absolute', left: '9px', color: 'var(--text-muted)' }} />
+              <input
+                type="text"
+                placeholder="Find instructor…"
+                value={instructorSearch}
+                onChange={(e) => setInstructorSearch(e.target.value)}
+                style={{ paddingLeft: '1.9rem', width: '100%', fontSize: '0.82rem' }}
+              />
+            </div>
+
+            {filterInstructor !== 'all' && (
+              <button
+                onClick={() => { setFilterInstructor('all'); setPage(1); }}
+                style={{
+                  alignSelf: 'flex-start', fontSize: '0.72rem', color: 'var(--primary-blue)',
+                  background: 'transparent', border: 'none', cursor: 'pointer', padding: 0,
+                  display: 'inline-flex', alignItems: 'center', gap: '0.25rem',
+                }}
+              >
+                <X size={12} /> Clear filter ({filterInstructor})
+              </button>
+            )}
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem', maxHeight: '340px', overflowY: 'auto' }}>
+              {sortedTeachers
+                .filter((t) => t.toLowerCase().includes(instructorSearch.trim().toLowerCase()))
+                .map((name) => {
+                  const active = filterInstructor === name;
+                  return (
+                    <button
+                      key={name}
+                      onClick={() => { setFilterInstructor(active ? 'all' : name); setPage(1); }}
+                      style={{
+                        display: 'flex', alignItems: 'center', gap: '0.45rem', width: '100%', textAlign: 'left',
+                        padding: '0.4rem 0.55rem', borderRadius: '8px', fontSize: '0.82rem', cursor: 'pointer',
+                        border: active ? '1.5px solid var(--primary-blue)' : '1px solid transparent',
+                        background: active ? 'var(--primary-blue-light)' : 'transparent',
+                        color: active ? 'var(--primary-blue)' : 'var(--text-main)',
+                        fontWeight: active ? 600 : 400,
+                      }}
+                    >
+                      <User size={13} style={{ flexShrink: 0, color: active ? 'var(--primary-blue)' : 'var(--text-muted)' }} />
+                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{name}</span>
+                    </button>
+                  );
+                })}
+              {sortedTeachers.filter((t) => t.toLowerCase().includes(instructorSearch.trim().toLowerCase())).length === 0 && (
+                <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', margin: '0.25rem 0' }}>No instructors match.</p>
+              )}
+            </div>
+          </div>
+        </div>
+
         </div>
 
       <div className="panel full-schedule-panel">
