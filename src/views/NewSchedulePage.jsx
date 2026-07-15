@@ -9,23 +9,9 @@ import {
   updateInternalClass, 
   deleteInternalClass 
 } from '../services/internalScheduleService';
-import { DAY_NAMES, SCHEDULE_PAGE_SIZE, getWorkingDaysForBranch } from '../utils/constants';
-import { resolveBranchWorkingDays } from './NewOperationalsPage';
+import { DAY_NAMES, SCHEDULE_PAGE_SIZE } from '../utils/constants';
 import Pagination from '../components/ui/Pagination';
 import { Plus, Pencil, Trash2, Search, X, Calendar, MapPin, User, BookOpen, Clock, AlertTriangle } from 'lucide-react';
-
-// Common lesson time slots offered as one-tap presets in the Quick Add sidebar.
-const TIME_PRESETS = [
-  '09.00 - 10.00 am',
-  '10.00 - 11.00 am',
-  '11.00 - 12.00 pm',
-  '1.00 - 2.00 pm',
-  '2.00 - 3.00 pm',
-  '3.00 - 4.00 pm',
-  '4.00 - 5.00 pm',
-  '5.00 - 6.00 pm',
-  '6.00 - 7.00 pm',
-];
 
 export default function NewSchedulePage() {
   const { uniqueTeachers, enabledBranches, branches, instructorProfiles } = useSchedule();
@@ -43,11 +29,6 @@ export default function NewSchedulePage() {
   const [filterClassType, setFilterClassType] = useState('all');
   const [page, setPage] = useState(1);
 
-  // Quick Add sidebar state — day → active branches → time → prefilled add.
-  const todayName = new Date().toLocaleDateString('en-US', { weekday: 'long' });
-  const [sideDay, setSideDay] = useState(DAY_NAMES.includes(todayName) ? todayName : 'Monday');
-  const [sideBranch, setSideBranch] = useState('');
-  const [sideTime, setSideTime] = useState('');
   const [instructorSearch, setInstructorSearch] = useState('');
 
   // Modal/Form State
@@ -157,61 +138,6 @@ export default function NewSchedulePage() {
     setShowModal(true);
   };
 
-  // Branches that are operational (open) on the currently selected sidebar day.
-  // Uses the per-branch operational days configured on the Operationals page
-  // (falls back to the legacy defaults when a branch hasn't been configured).
-  const daysForBranchName = (name) => {
-    const branch = (branches || []).find((b) => b.name === name);
-    if (branch) return resolveBranchWorkingDays(branch);
-    return getWorkingDaysForBranch(name === 'All Branches' ? 'default' : name);
-  };
-  const branchesActiveOn = (day) =>
-    branchList.filter((name) => daysForBranchName(name).includes(day));
-  const activeBranchesForDay = branchesActiveOn(sideDay);
-
-  // Pick a day in the sidebar: sync the table filter and drop the selected
-  // branch if it isn't open on the new day.
-  const handleSideDay = (day) => {
-    setSideDay(day);
-    setFilterDay(day);
-    setPage(1);
-    if (sideBranch && !branchesActiveOn(day).includes(sideBranch)) {
-      setSideBranch('');
-      setFilterBranch('all');
-    }
-  };
-
-  // Pick an active branch: focus the table on that day + branch so the list
-  // shows what's already scheduled for that operational slot.
-  const handleSideBranch = (name) => {
-    const next = sideBranch === name ? '' : name;
-    setSideBranch(next);
-    setFilterBranch(next || 'all');
-    setFilterDay(next ? sideDay : filterDay);
-    setPage(1);
-  };
-
-  // Open the Add modal prefilled from the sidebar selections.
-  const openQuickAdd = () => {
-    if (!sideBranch) {
-      showToast({ title: 'Pick an active branch first', variant: 'warning' });
-      return;
-    }
-    setEditingClass(null);
-    setForm({
-      day: sideDay,
-      time: sideTime,
-      program: '',
-      teacher: sortedTeachers[0] || '',
-      student: '',
-      branchName: sideBranch,
-      classType: 'Regular',
-      remarks: ''
-    });
-    setFormErrors({});
-    setShowModal(true);
-  };
-
   const validateForm = () => {
     const errors = {};
     if (!form.time.trim()) errors.time = 'Time slot is required';
@@ -264,115 +190,6 @@ export default function NewSchedulePage() {
 
         {/* Left column: Quick Add + Instructors list */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', position: 'sticky', top: '1rem' }}>
-
-        {/* Quick Add Sidebar — operational schedule by day & branch */}
-        <div className="panel" style={{ margin: 0 }}>
-          <div className="panel-header" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: '0.15rem' }}>
-            <h2 style={{ fontSize: '1rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-              <Plus size={16} /> Quick Add
-            </h2>
-            <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
-              Pick a day, an open branch, and a time.
-            </span>
-          </div>
-
-          <div style={{ padding: '1rem 1.25rem', display: 'flex', flexDirection: 'column', gap: '1.1rem' }}>
-
-            {/* Day picker */}
-            <div>
-              <label style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em', display: 'block', marginBottom: '0.5rem' }}>Day</label>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem' }}>
-                {DAY_NAMES.map((day) => (
-                  <button
-                    key={day}
-                    onClick={() => handleSideDay(day)}
-                    style={{
-                      padding: '0.3rem 0.55rem', borderRadius: '6px', fontSize: '0.75rem', cursor: 'pointer',
-                      border: sideDay === day ? '1.5px solid var(--primary-blue)' : '1px solid var(--border-color)',
-                      background: sideDay === day ? 'var(--primary-blue-light)' : 'transparent',
-                      fontWeight: sideDay === day ? 600 : 400,
-                      color: sideDay === day ? 'var(--primary-blue)' : 'var(--text-secondary)',
-                    }}
-                  >
-                    {day.slice(0, 3)}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Active branches for the selected day */}
-            <div>
-              <label style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em', display: 'block', marginBottom: '0.5rem' }}>
-                Open on {sideDay}
-              </label>
-              {activeBranchesForDay.length === 0 ? (
-                <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', margin: 0 }}>No branches operate on {sideDay}.</p>
-              ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
-                  {activeBranchesForDay.map((name) => (
-                    <button
-                      key={name}
-                      onClick={() => handleSideBranch(name)}
-                      style={{
-                        display: 'flex', alignItems: 'center', gap: '0.45rem', width: '100%', textAlign: 'left',
-                        padding: '0.45rem 0.6rem', borderRadius: '8px', fontSize: '0.82rem', cursor: 'pointer',
-                        border: sideBranch === name ? '1.5px solid var(--primary-blue)' : '1px solid var(--border-color)',
-                        background: sideBranch === name ? 'var(--primary-blue-light)' : 'transparent',
-                        color: sideBranch === name ? 'var(--primary-blue)' : 'var(--text-main)',
-                        fontWeight: sideBranch === name ? 600 : 400,
-                      }}
-                    >
-                      <MapPin size={13} style={{ flexShrink: 0 }} /> {name}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            {/* Time picker */}
-            <div>
-              <label style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em', display: 'block', marginBottom: '0.5rem' }}>Time</label>
-              <input
-                type="text"
-                placeholder="e.g. 1.00 - 2.00 pm"
-                value={sideTime}
-                onChange={(e) => setSideTime(e.target.value)}
-                style={{ width: '100%', marginBottom: '0.5rem' }}
-              />
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.3rem' }}>
-                {TIME_PRESETS.map((t) => (
-                  <button
-                    key={t}
-                    onClick={() => setSideTime(t)}
-                    title={t}
-                    style={{
-                      padding: '0.2rem 0.45rem', borderRadius: '5px', fontSize: '0.68rem', cursor: 'pointer',
-                      border: sideTime === t ? '1.5px solid var(--primary-blue)' : '1px solid var(--border-color)',
-                      background: sideTime === t ? 'var(--primary-blue-light)' : 'transparent',
-                      color: sideTime === t ? 'var(--primary-blue)' : 'var(--text-secondary)',
-                      whiteSpace: 'nowrap',
-                    }}
-                  >
-                    {t.replace(/\s/g, '')}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <button
-              onClick={openQuickAdd}
-              disabled={!sideBranch}
-              className="btn btn-primary"
-              style={{
-                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem',
-                borderRadius: '10px', padding: '0.55rem', fontSize: '0.85rem',
-                opacity: sideBranch ? 1 : 0.55, cursor: sideBranch ? 'pointer' : 'not-allowed',
-              }}
-            >
-              <Plus size={16} /> Add to {sideBranch || 'schedule'}
-            </button>
-          </div>
-        </div>
 
         {/* Instructors list — click to filter the schedule by instructor */}
         <div className="panel" style={{ margin: 0 }}>
