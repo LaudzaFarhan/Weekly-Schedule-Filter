@@ -9,18 +9,99 @@ import {
   updateInternalClass, 
   deleteInternalClass 
 } from '../services/internalScheduleService';
+import { subscribeToInternalStudents } from '../services/internalStudentService';
+import { subscribeToInternalInstructors } from '../services/internalInstructorService';
 import { DAY_NAMES, SCHEDULE_PAGE_SIZE } from '../utils/constants';
 import Pagination from '../components/ui/Pagination';
-import { Plus, Pencil, Trash2, Search, X, Calendar, MapPin, User, BookOpen, Clock, AlertTriangle } from 'lucide-react';
+import { Plus, Pencil, Trash2, Search, X, Calendar, MapPin, User, UserX, BookOpen, Clock, AlertTriangle } from 'lucide-react';
+
+/** Normalise a student name for allocation matching (case/space/punct-insensitive). */
+const normalizeStudentName = (s) => String(s || '').toLowerCase().replace(/\([^)]*\)/g, '').replace(/[^a-z0-9]/g, '');
+
+// Program catalogue. Kinder & Junior programs each have 10 lessons; Coder has
+// no lesson number. Codes: KF1/KF2 (Kinder Foundation), K1-K4 (Kinder Core),
+// JF1/JF2 (Junior Foundation), J1-J4 (Junior Core), Coder.
+const PROGRAM_GROUPS = [
+  { label: 'Kinder Foundation', codes: ['KF1', 'KF2'] },
+  { label: 'Kinder Core (Term 1–4)', codes: ['K1', 'K2', 'K3', 'K4'] },
+  { label: 'Junior Foundation', codes: ['JF1', 'JF2'] },
+  { label: 'Junior Core (Term 1–4)', codes: ['J1', 'J2', 'J3', 'J4'] },
+  {
+    label: 'Coder',
+    codes: [
+      'Coder Foundation 1', 'Coder Foundation 2', 'Coder Foundation 3', 'Coder Foundation 4',
+      'Coder Basic 1', 'Coder Basic 2',
+      'Coder Intermediate 1', 'Coder Intermediate 2',
+      'Coder Advance 1', 'Coder Advance 2', 'Coder Advance 3',
+    ],
+  },
+];
+const LESSON_COUNT = 10;
+// Kinder & Junior codes carry a lesson number; Coder programs do not.
+const codeHasLessons = (code) => !!code && !/^coder/i.test(code);
+
+/** Is this program a Kinder program? (Kinder Foundation KF*, Kinder Core K*.) */
+const isKinderProgram = (program) => {
+  const p = String(program || '').trim();
+  // Kinder codes start with K (KF1, KF2, K1..K4) or the literal word "Kinder".
+  return /^k/i.test(p);
+};
+
+/**
+ * Program duration rule: every program runs 2 hours, except Kinder which runs
+ * 1.5 hours. Returns minutes.
+ */
+const programDurationMin = (program) => (isKinderProgram(program) ? 90 : 120);
+
+/** Parse a stored program value ("JF1.5", "Coder", "K2") into code + lesson. */
+const parseProgramValue = (p) => {
+  const val = String(p || '').trim();
+  if (!val) return { code: '', lesson: '1' };
+  // Coder programs store their full level as the code (e.g. "Coder Advance 1").
+  if (/^coder/i.test(val)) return { code: val, lesson: '1' };
+  const m = val.match(/^([A-Za-z]{1,3}\d+)(?:[.\s]+(\d+))?$/);
+  if (m) return { code: m[1].toUpperCase(), lesson: m[2] || '1' };
+  return { code: '', lesson: '1' };
+};
+
+/** Format minutes-since-midnight as "h.mm am/pm" (e.g. 13:00 -> "1.00 pm"). */
+const formatClock = (mins) => {
+  const h24 = Math.floor(mins / 60) % 24;
+  const m = mins % 60;
+  const ampm = h24 >= 12 ? 'pm' : 'am';
+  let hr = h24 % 12;
+  if (hr === 0) hr = 12;
+  return `${hr}.${String(m).padStart(2, '0')} ${ampm}`;
+};
+
+/**
+ * Build the "start - end pm" slot string from an HH:MM start and a program,
+ * applying the duration rule. Returns '' when no start time.
+ */
+const buildTimeSlot = (startHHMM, program) => {
+  if (!startHHMM) return '';
+  const [hh, mm] = startHHMM.split(':').map((n) => parseInt(n, 10));
+  if (Number.isNaN(hh) || Number.isNaN(mm)) return '';
+  const start = hh * 60 + mm;
+  const end = start + programDurationMin(program);
+  return `${formatClock(start)} - ${formatClock(end)}`;
+};
 
 export default function NewSchedulePage() {
-  const { uniqueTeachers, enabledBranches, branches, instructorProfiles } = useSchedule();
+  const { enabledBranches, branches } = useSchedule();
   const { showToast } = useToast();
 
   // State
   const [classes, setClasses] = useState([]);
+  const [students, setStudents] = useState([]);
+  const [instructors, setInstructors] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(null);
+  const [showUnallocated, setShowUnallocated] = useState(true);
+  const [startTime, setStartTime] = useState(''); // HH:MM for the class start
+  const [programCode, setProgramCode] = useState('');
+  const [lessonNo, setLessonNo] = useState('1');
+  const [allocChooser, setAllocChooser] = useState(null); // student pending class-type choice
   
   const [search, setSearch] = useState('');
   const [filterDay, setFilterDay] = useState('all');
@@ -29,7 +110,6 @@ export default function NewSchedulePage() {
   const [filterClassType, setFilterClassType] = useState('all');
   const [page, setPage] = useState(1);
 
-  const [instructorSearch, setInstructorSearch] = useState('');
 
   // Modal/Form State
   const [showModal, setShowModal] = useState(false);
@@ -64,8 +144,55 @@ export default function NewSchedulePage() {
     return () => unsubscribe();
   }, []);
 
-  const sortedTeachers = [...new Set([...uniqueTeachers, ...(instructorProfiles || []).map(p => p.fullname || p.nickname)])].filter(Boolean).sort();
+  // Subscribe to the New Operations students list so we can flag which of them
+  // haven't been allocated to a class yet.
+  useEffect(() => {
+    const unsubscribe = subscribeToInternalStudents((data) => setStudents(data));
+    return () => unsubscribe();
+  }, []);
+
+  // Subscribe to the New Operations instructors list — the instructor dropdown
+  // must use New Operations data, not the old schedule's teachers.
+  useEffect(() => {
+    const unsubscribe = subscribeToInternalInstructors((data) => setInstructors(data));
+    return () => unsubscribe();
+  }, []);
+
+  // Derive the program value ("JF1.5", "Coder", ...) from the code + lesson.
+  useEffect(() => {
+    if (!programCode) return;
+    const val = codeHasLessons(programCode) ? `${programCode}.${lessonNo}` : programCode;
+    setForm((prev) => (prev.program === val ? prev : { ...prev, program: val }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [programCode, lessonNo]);
+
+  // Auto-derive the time slot from the chosen start time + program duration
+  // rule (Kinder = 1.5h, everything else = 2h). Only runs once a start time is
+  // picked, so editing an existing class keeps its saved slot untouched.
+  useEffect(() => {
+    if (!startTime) return;
+    const slot = buildTimeSlot(startTime, form.program);
+    setForm((prev) => (prev.time === slot ? prev : { ...prev, time: slot }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [startTime, form.program]);
+
+  const sortedTeachers = [...new Set((instructors || []).map(i => i.name))].filter(Boolean).sort();
   const branchList = [...new Set([...(enabledBranches || []).map(b => b.name), ...(branches || []).map(b => b.name)])].filter(Boolean);
+
+  // Instructors available for a given branch: those whose New Ops profile lists
+  // that branch (or "All Branches"). Used by the Add/Edit modal so the teacher
+  // options are scoped to the branch selected in the form.
+  const instructorsForBranch = (branchName) => {
+    const list = (instructors || [])
+      .filter((i) => {
+        if (!branchName) return true;
+        const brs = Array.isArray(i.branches) ? i.branches : [];
+        return brs.includes(branchName) || brs.includes('All Branches');
+      })
+      .map((i) => i.name);
+    return [...new Set(list)].filter(Boolean).sort();
+  };
+  const modalInstructors = instructorsForBranch(form.branchName);
 
   // Filters & Search
   const filtered = useMemo(() => {
@@ -106,13 +233,34 @@ export default function NewSchedulePage() {
   const totalPages = Math.ceil(sortedFiltered.length / SCHEDULE_PAGE_SIZE);
   const paged = sortedFiltered.slice((page - 1) * SCHEDULE_PAGE_SIZE, page * SCHEDULE_PAGE_SIZE);
 
+  // Students that exist in the Students list but aren't allocated to any class.
+  // A class's `student` field may hold several comma-separated names.
+  const unallocatedStudents = useMemo(() => {
+    const allocated = new Set();
+    classes.forEach((c) => {
+      String(c.student || '')
+        .split(',')
+        .forEach((part) => {
+          const key = normalizeStudentName(part);
+          if (key) allocated.add(key);
+        });
+    });
+    return students.filter((st) => {
+      const key = normalizeStudentName(st.name);
+      return key && !allocated.has(key);
+    });
+  }, [students, classes]);
+
   const openAddModal = () => {
     setEditingClass(null);
+    setStartTime('');
+    setProgramCode('');
+    setLessonNo('1');
     setForm({
       day: 'Monday',
       time: '',
       program: '',
-      teacher: sortedTeachers[0] || '',
+      teacher: '',
       student: '',
       branchName: branchList[0] || '',
       classType: 'Regular',
@@ -122,8 +270,34 @@ export default function NewSchedulePage() {
     setShowModal(true);
   };
 
+  // Open the Add modal prefilled to allocate a specific unallocated student,
+  // with the class type chosen in the pre-step.
+  const openAllocateModal = (student, classType) => {
+    setEditingClass(null);
+    setStartTime('');
+    setProgramCode('');
+    setLessonNo('1');
+    setForm({
+      day: 'Monday',
+      time: '',
+      program: '',
+      teacher: '',
+      student: student.name || '',
+      branchName: student.branchName || branchList[0] || '',
+      classType: classType || 'Regular',
+      remarks: ''
+    });
+    setFormErrors({});
+    setAllocChooser(null);
+    setShowModal(true);
+  };
+
   const openEditModal = (c) => {
     setEditingClass(c);
+    setStartTime('');
+    const parsed = parseProgramValue(c.program);
+    setProgramCode(parsed.code);
+    setLessonNo(parsed.lesson);
     setForm({
       day: c.day || 'Monday',
       time: c.time || '',
@@ -186,77 +360,66 @@ export default function NewSchedulePage() {
 
   return (
     <section className="dashboard-view active">
-      <div style={{ display: 'grid', gridTemplateColumns: '280px minmax(0, 1fr)', gap: '1.5rem', alignItems: 'start' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: showUnallocated ? '280px minmax(0, 1fr)' : 'minmax(0, 1fr)', gap: '1.5rem', alignItems: 'start' }}>
 
-        {/* Left column: Quick Add + Instructors list */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', position: 'sticky', top: '1rem' }}>
-
-        {/* Instructors list — click to filter the schedule by instructor */}
-        <div className="panel" style={{ margin: 0 }}>
-          <div className="panel-header" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: '0.15rem' }}>
-            <h2 style={{ fontSize: '1rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-              <User size={16} /> Instructors
-              <span style={{ fontSize: '0.72rem', fontWeight: 500, color: 'var(--text-muted)' }}>({sortedTeachers.length})</span>
-            </h2>
-            <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Click a name to filter the list.</span>
-          </div>
-
-          <div style={{ padding: '0.85rem 1rem', display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
-            <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
-              <Search size={14} style={{ position: 'absolute', left: '9px', color: 'var(--text-muted)' }} />
-              <input
-                type="text"
-                placeholder="Find instructor…"
-                value={instructorSearch}
-                onChange={(e) => setInstructorSearch(e.target.value)}
-                style={{ paddingLeft: '1.9rem', width: '100%', fontSize: '0.82rem' }}
-              />
+        {/* Unallocated Students sidebar */}
+        {showUnallocated && (
+          <div className="panel" style={{ margin: 0, position: 'sticky', top: '1rem' }}>
+            <div className="panel-header" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: '0.15rem' }}>
+              <h2 style={{ fontSize: '1rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                <UserX size={16} /> Unallocated
+                <span style={{
+                  fontSize: '0.72rem', fontWeight: 700,
+                  color: unallocatedStudents.length > 0 ? 'var(--danger)' : 'var(--success, #10b981)',
+                  background: unallocatedStudents.length > 0 ? 'var(--danger-bg, rgba(239,68,68,0.12))' : 'rgba(16,185,129,0.12)',
+                  padding: '0.05rem 0.45rem', borderRadius: '99px',
+                }}>
+                  {unallocatedStudents.length}
+                </span>
+              </h2>
+              <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                Students not yet assigned to a class. Click to allocate.
+              </span>
             </div>
 
-            {filterInstructor !== 'all' && (
-              <button
-                onClick={() => { setFilterInstructor('all'); setPage(1); }}
-                style={{
-                  alignSelf: 'flex-start', fontSize: '0.72rem', color: 'var(--primary-blue)',
-                  background: 'transparent', border: 'none', cursor: 'pointer', padding: 0,
-                  display: 'inline-flex', alignItems: 'center', gap: '0.25rem',
-                }}
-              >
-                <X size={12} /> Clear filter ({filterInstructor})
-              </button>
-            )}
-
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem', maxHeight: '340px', overflowY: 'auto' }}>
-              {sortedTeachers
-                .filter((t) => t.toLowerCase().includes(instructorSearch.trim().toLowerCase()))
-                .map((name) => {
-                  const active = filterInstructor === name;
-                  return (
+            <div style={{ padding: '0.85rem 1rem' }}>
+              {students.length === 0 ? (
+                <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', margin: 0 }}>
+                  No students in the list yet. Add them under Students.
+                </p>
+              ) : unallocatedStudents.length === 0 ? (
+                <p style={{ fontSize: '0.78rem', color: 'var(--success, #10b981)', margin: 0, fontWeight: 500 }}>
+                  All students are allocated. 🎉
+                </p>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem', maxHeight: '460px', overflowY: 'auto' }}>
+                  {unallocatedStudents.map((st) => (
                     <button
-                      key={name}
-                      onClick={() => { setFilterInstructor(active ? 'all' : name); setPage(1); }}
+                      key={st.id}
+                      onClick={() => setAllocChooser(st)}
+                      title={`Allocate ${st.name} to a class`}
                       style={{
-                        display: 'flex', alignItems: 'center', gap: '0.45rem', width: '100%', textAlign: 'left',
-                        padding: '0.4rem 0.55rem', borderRadius: '8px', fontSize: '0.82rem', cursor: 'pointer',
-                        border: active ? '1.5px solid var(--primary-blue)' : '1px solid transparent',
-                        background: active ? 'var(--primary-blue-light)' : 'transparent',
-                        color: active ? 'var(--primary-blue)' : 'var(--text-main)',
-                        fontWeight: active ? 600 : 400,
+                        display: 'flex', alignItems: 'flex-start', gap: '0.5rem', width: '100%', textAlign: 'left',
+                        padding: '0.5rem 0.6rem', borderRadius: '8px', cursor: 'pointer',
+                        border: '1px solid var(--border-color)', background: 'var(--bg-color)',
                       }}
                     >
-                      <User size={13} style={{ flexShrink: 0, color: active ? 'var(--primary-blue)' : 'var(--text-muted)' }} />
-                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{name}</span>
+                      <User size={14} style={{ flexShrink: 0, marginTop: '0.1rem', color: 'var(--text-muted)' }} />
+                      <span style={{ overflow: 'hidden' }}>
+                        <span style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, color: 'var(--text-main)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {st.name}
+                        </span>
+                        <span style={{ display: 'block', fontSize: '0.68rem', color: 'var(--text-muted)' }}>
+                          {[st.level, st.branchName].filter(Boolean).join(' · ') || '—'}
+                        </span>
+                      </span>
                     </button>
-                  );
-                })}
-              {sortedTeachers.filter((t) => t.toLowerCase().includes(instructorSearch.trim().toLowerCase())).length === 0 && (
-                <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', margin: '0.25rem 0' }}>No instructors match.</p>
+                  ))}
+                </div>
               )}
             </div>
           </div>
-        </div>
-
-        </div>
+        )}
 
       <div className="panel full-schedule-panel">
         <div className="panel-header" style={{ flexWrap: 'wrap', gap: '0.75rem', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -267,13 +430,33 @@ export default function NewSchedulePage() {
             </p>
           </div>
           
-          <button 
-            onClick={openAddModal} 
-            className="btn btn-primary"
-            style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', borderRadius: '10px', padding: '0.5rem 1.2rem', fontSize: '0.85rem' }}
-          >
-            <Plus size={16} /> Add Class
-          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+            <button
+              onClick={() => setShowUnallocated((v) => !v)}
+              className="btn"
+              title="Toggle the unallocated students panel"
+              style={{
+                display: 'flex', alignItems: 'center', gap: '0.4rem', borderRadius: '10px', padding: '0.5rem 0.9rem', fontSize: '0.82rem',
+                border: '1px solid var(--border-color)',
+                background: showUnallocated ? 'var(--primary-blue-light)' : 'transparent',
+                color: showUnallocated ? 'var(--primary-blue)' : 'var(--text-secondary)',
+              }}
+            >
+              <UserX size={15} /> Unallocated
+              {unallocatedStudents.length > 0 && (
+                <span style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--danger)', background: 'var(--danger-bg, rgba(239,68,68,0.12))', padding: '0.02rem 0.4rem', borderRadius: '99px' }}>
+                  {unallocatedStudents.length}
+                </span>
+              )}
+            </button>
+            <button 
+              onClick={openAddModal} 
+              className="btn btn-primary"
+              style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', borderRadius: '10px', padding: '0.5rem 1.2rem', fontSize: '0.85rem' }}
+            >
+              <Plus size={16} /> Add Class
+            </button>
+          </div>
         </div>
 
         {/* Filter Toolbar */}
@@ -507,6 +690,62 @@ export default function NewSchedulePage() {
 
       </div>
 
+      {/* Class-type chooser — shown before the allocate form */}
+      {allocChooser && (
+        <div
+          onClick={() => setAllocChooser(null)}
+          style={{
+            position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', backdropFilter: 'blur(3px)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999, padding: '1rem',
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: 'var(--panel-bg)', width: '100%', maxWidth: '440px', borderRadius: '16px',
+              boxShadow: '0 12px 32px rgba(0,0,0,0.18)', border: '1px solid var(--border-color)', overflow: 'hidden',
+              animation: 'modalAppear 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards',
+            }}
+          >
+            <div style={{ padding: '1.25rem 1.5rem', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--bg-color)' }}>
+              <div>
+                <h2 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 700 }}>Allocate {allocChooser.name}</h2>
+                <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>Choose the class type to continue</span>
+              </div>
+              <button
+                onClick={() => setAllocChooser(null)}
+                style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'flex' }}
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div style={{ padding: '1.5rem', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+              {[
+                { type: 'Regular', title: 'Regular Class', desc: 'Ongoing enrolled class', color: 'var(--primary-blue, #4f46e5)', bg: 'var(--primary-blue-light, rgba(79,70,229,0.1))' },
+                { type: 'Trial', title: 'Trial Class', desc: 'One-off trial session', color: '#ea580c', bg: 'rgba(249,115,22,0.1)' },
+              ].map((opt, i) => (
+                <button
+                  key={opt.type}
+                  className="alloc-type-card"
+                  onClick={() => openAllocateModal(allocChooser, opt.type)}
+                  style={{
+                    display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '0.35rem',
+                    padding: '1.1rem 1rem', borderRadius: '12px', cursor: 'pointer', textAlign: 'left',
+                    border: `1.5px solid ${opt.color}`, background: opt.bg, color: opt.color,
+                    animationDelay: `${i * 0.06}s`,
+                  }}
+                >
+                  <BookOpen size={20} />
+                  <span style={{ fontSize: '0.95rem', fontWeight: 700 }}>{opt.title}</span>
+                  <span style={{ fontSize: '0.72rem', color: 'var(--text-secondary)' }}>{opt.desc}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Add / Edit Class Modal */}
       {showModal && (
         <div style={{
@@ -566,7 +805,17 @@ export default function NewSchedulePage() {
                     <label className="modal-form-label">Branch *</label>
                     <select
                       value={form.branchName}
-                      onChange={(e) => setForm({ ...form, branchName: e.target.value })}
+                      onChange={(e) => {
+                        const nextBranch = e.target.value;
+                        // If the current instructor doesn't belong to the new
+                        // branch, clear it so only valid instructors show.
+                        const validForBranch = instructorsForBranch(nextBranch);
+                        setForm((prev) => ({
+                          ...prev,
+                          branchName: nextBranch,
+                          teacher: validForBranch.includes(prev.teacher) ? prev.teacher : '',
+                        }));
+                      }}
                       className={`modal-select-field ${formErrors.branchName ? 'error' : ''}`}
                     >
                       <option value="">Select Branch</option>
@@ -590,26 +839,56 @@ export default function NewSchedulePage() {
                 {/* Time and Program Row */}
                 <div style={{ display: 'flex', gap: '1rem' }}>
                   <div style={{ flex: 1 }}>
-                    <label className="modal-form-label">Time Slot *</label>
+                    <label className="modal-form-label">Start Time *</label>
                     <input
-                      type="text"
-                      placeholder="e.g. 1.00 - 2.00 pm"
-                      value={form.time}
-                      onChange={(e) => setForm({ ...form, time: e.target.value })}
+                      type="time"
+                      value={startTime}
+                      onChange={(e) => setStartTime(e.target.value)}
                       className={`modal-input-field ${formErrors.time ? 'error' : ''}`}
                     />
+                    <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.2rem', display: 'block' }}>
+                      {form.time
+                        ? `Slot: ${form.time} · ${isKinderProgram(form.program) ? 'Kinder 1.5h' : '2h'}`
+                        : `Duration: ${isKinderProgram(form.program) ? 'Kinder 1.5h' : '2h'} (auto)`}
+                    </span>
                     {formErrors.time && <span style={{ fontSize: '0.72rem', color: 'var(--danger)', marginTop: '0.2rem', display: 'block' }}>{formErrors.time}</span>}
                   </div>
                   
                   <div style={{ flex: 1 }}>
                     <label className="modal-form-label">Program / Lesson *</label>
-                    <input
-                      type="text"
-                      placeholder="e.g. Trial Kinder, KF1.5"
-                      value={form.program}
-                      onChange={(e) => setForm({ ...form, program: e.target.value })}
-                      className={`modal-input-field ${formErrors.program ? 'error' : ''}`}
-                    />
+                    <div style={{ display: 'flex', gap: '0.5rem' }}>
+                      <select
+                        value={programCode}
+                        onChange={(e) => setProgramCode(e.target.value)}
+                        className={`modal-select-field ${formErrors.program ? 'error' : ''}`}
+                        style={{ flex: 2 }}
+                      >
+                        <option value="">Program</option>
+                        {PROGRAM_GROUPS.map((g) => (
+                          <optgroup key={g.label} label={g.label}>
+                            {g.codes.map((code) => <option key={code} value={code}>{code}</option>)}
+                          </optgroup>
+                        ))}
+                      </select>
+                      {codeHasLessons(programCode) && (
+                        <select
+                          value={lessonNo}
+                          onChange={(e) => setLessonNo(e.target.value)}
+                          className="modal-select-field"
+                          style={{ flex: 1 }}
+                          title="Lesson number"
+                        >
+                          {Array.from({ length: LESSON_COUNT }, (_, i) => i + 1).map((n) => (
+                            <option key={n} value={n}>L{n}</option>
+                          ))}
+                        </select>
+                      )}
+                    </div>
+                    {form.program && (
+                      <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.2rem', display: 'block' }}>
+                        Program: {form.program}
+                      </span>
+                    )}
                     {formErrors.program && <span style={{ fontSize: '0.72rem', color: 'var(--danger)', marginTop: '0.2rem', display: 'block' }}>{formErrors.program}</span>}
                   </div>
                 </div>
@@ -634,9 +913,16 @@ export default function NewSchedulePage() {
                     onChange={(e) => setForm({ ...form, teacher: e.target.value })}
                     className={`modal-select-field ${formErrors.teacher ? 'error' : ''}`}
                   >
-                    <option value="">Select Instructor</option>
-                    {sortedTeachers.map((t) => <option key={t} value={t}>{t}</option>)}
+                    <option value="">
+                      {form.branchName ? 'Select Instructor' : 'Select a branch first'}
+                    </option>
+                    {modalInstructors.map((t) => <option key={t} value={t}>{t}</option>)}
                   </select>
+                  {form.branchName && modalInstructors.length === 0 && (
+                    <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '0.2rem', display: 'block' }}>
+                      No instructors assigned to {form.branchName}. Add them under Instructors.
+                    </span>
+                  )}
                   {formErrors.teacher && <span style={{ fontSize: '0.72rem', color: 'var(--danger)', marginTop: '0.2rem', display: 'block' }}>{formErrors.teacher}</span>}
                 </div>
 
@@ -700,6 +986,20 @@ export default function NewSchedulePage() {
           from { opacity: 0; transform: scale(0.96) translateY(10px); }
           to { opacity: 1; transform: scale(1) translateY(0); }
         }
+        @keyframes cardPop {
+          from { opacity: 0; transform: translateY(8px) scale(0.97); }
+          to { opacity: 1; transform: translateY(0) scale(1); }
+        }
+        .alloc-type-card {
+          animation: cardPop 0.28s cubic-bezier(0.16, 1, 0.3, 1) both;
+          transition: transform 0.15s ease, box-shadow 0.15s ease, filter 0.15s ease;
+        }
+        .alloc-type-card:hover {
+          transform: translateY(-3px);
+          box-shadow: 0 8px 20px rgba(0,0,0,0.12);
+          filter: brightness(1.02);
+        }
+        .alloc-type-card:active { transform: translateY(-1px) scale(0.98); }
       `}} />
     </section>
   );

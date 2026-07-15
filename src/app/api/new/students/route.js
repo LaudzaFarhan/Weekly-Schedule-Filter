@@ -34,7 +34,7 @@ export async function POST(req) {
     const body = await req.json();
     const { name, level, branchName, parentName, contact, status, remarks } = body;
 
-    if (!name || !level || !branchName || !contact) {
+    if (!name || !level || !branchName) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
     }
 
@@ -43,7 +43,7 @@ export async function POST(req) {
       VALUES ($1, $2, $3, $4, $5, $6, $7)
       RETURNING *
     `;
-    const params = [name, level, branchName, parentName || null, contact, status || 'Active', remarks || null];
+    const params = [name, level, branchName, parentName || null, contact || '', status || 'Active', remarks || null];
     const res = await query(sql, params);
 
     return NextResponse.json(mapRow(res.rows[0]));
@@ -70,7 +70,7 @@ export async function PUT(req) {
       WHERE id = $8
       RETURNING *
     `;
-    const params = [name, level, branchName, parentName || null, contact, status || 'Active', remarks || null, id];
+    const params = [name, level, branchName, parentName || null, contact || '', status || 'Active', remarks || null, id];
     const res = await query(sql, params);
 
     if (res.rowCount === 0) {

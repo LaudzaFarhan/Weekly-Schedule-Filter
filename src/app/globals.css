@@ -1569,3 +1569,67 @@ body {
 }
 
 
+
+/* ── New Operations micro-animations ─────────────────────
+   Scoped to .new-ops-anim so only the New Operations pages get the extra
+   interaction polish. Respects prefers-reduced-motion. */
+
+/* Panels / cards gently rise in and lift on hover */
+.new-ops-anim .panel {
+  animation: newOpsRise 0.32s cubic-bezier(0.16, 1, 0.3, 1) both;
+  transition: transform 0.18s ease, box-shadow 0.18s ease;
+}
+.new-ops-anim .panel:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
+}
+
+/* Buttons: subtle press + hover feedback */
+.new-ops-anim button {
+  transition: transform 0.12s ease, box-shadow 0.15s ease, background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+.new-ops-anim button:not(:disabled):hover { transform: translateY(-1px); }
+.new-ops-anim button:not(:disabled):active { transform: translateY(0) scale(0.97); }
+
+/* Inputs / selects: focus lift + ring */
+.new-ops-anim input,
+.new-ops-anim select,
+.new-ops-anim textarea {
+  transition: border-color 0.15s ease, box-shadow 0.2s ease, transform 0.12s ease;
+}
+.new-ops-anim input:focus,
+.new-ops-anim select:focus,
+.new-ops-anim textarea:focus {
+  box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.15);
+}
+
+/* Table rows: fade/slide in and highlight on hover */
+.new-ops-anim table tbody tr {
+  transition: background 0.15s ease, transform 0.12s ease;
+}
+.new-ops-anim table tbody tr:hover {
+  background: var(--primary-blue-light, rgba(79, 70, 229, 0.06));
+}
+
+/* Selected/active pills and list buttons pop slightly when chosen */
+.new-ops-anim .panel button:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.18);
+}
+
+@keyframes newOpsRise {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .new-ops-anim .panel,
+  .new-ops-anim button,
+  .new-ops-anim input,
+  .new-ops-anim select,
+  .new-ops-anim textarea,
+  .new-ops-anim table tbody tr {
+    animation: none !important;
+    transition: none !important;
+  }
+}

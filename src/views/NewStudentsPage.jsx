@@ -130,7 +130,6 @@ export default function NewStudentsPage() {
     if (!form.name.trim()) errors.name = 'Student Name is required';
     if (!form.level) errors.level = 'Student Level is required';
     if (!form.branchName) errors.branchName = 'Branch selection is required';
-    if (!form.contact.trim()) errors.contact = 'Parent contact details are required';
     
     setFormErrors(errors);
     return Object.keys(errors).length === 0;
@@ -512,7 +511,7 @@ export default function NewStudentsPage() {
                   </div>
                   
                   <div style={{ flex: 1 }}>
-                    <label className="modal-form-label">Phone Contact *</label>
+                    <label className="modal-form-label">Phone Contact</label>
                     <input
                       type="text"
                       placeholder="e.g. +62 812-3456-789"

@@ -142,7 +142,7 @@ export default function AppShell() {
           />
           <main className="dashboard-container">
             <Header onToggleSearch={() => setIsSearchOpen(true)} opsMode={opsMode} />
-            <div className="dashboard-views">
+            <div className={`dashboard-views ${opsMode === 'new' ? 'new-ops-anim' : ''}`}>
               <PageComponent onNavigate={handleNavigate} params={pageParams} />
             </div>
           </main>
