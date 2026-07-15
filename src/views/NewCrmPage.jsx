@@ -11,6 +11,7 @@ import {
   updateLead,
   deleteLead
 } from '../services/newCrmService';
+import { subscribeToInternalClasses } from '../services/internalScheduleService';
 import { logActivity } from '../services/activityService';
 import { doTimeSlotsOverlap } from '../utils/timeUtils';
 import {
@@ -194,9 +195,13 @@ const crmDatesEqual = (d1, d2) => {
 export default function CrmPage() {
   const { user } = useAuth();
   const { showToast } = useToast();
-  const { branches, activeBranchName, overallClasses = [] } = useSchedule();
+  const { branches, activeBranchName } = useSchedule();
 
   const [leads, setLeads] = useState([]);
+  // New Operations schedule (PostgreSQL internal_classes) — this page must NOT
+  // depend on the old Google Sheets schedule, so instructor lists, slot
+  // availability and lead matching all use this instead of overallClasses.
+  const [internalClasses, setInternalClasses] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedBranchFilter, setSelectedBranchFilter] = useState('all');
@@ -213,7 +218,7 @@ export default function CrmPage() {
   // Extract unique instructor names in the currently filtered branch
   const activeBranchInstructors = useMemo(() => {
     const insts = new Set();
-    overallClasses.forEach(c => {
+    internalClasses.forEach(c => {
       if (selectedBranchFilter === 'all' || c.branchName === selectedBranchFilter) {
         if (c.teacher && c.teacher !== '-') {
           insts.add(c.teacher);
@@ -221,12 +226,12 @@ export default function CrmPage() {
       }
     });
     return Array.from(insts).sort();
-  }, [overallClasses, selectedBranchFilter]);
+  }, [internalClasses, selectedBranchFilter]);
 
   // Extract unique trial dates from schedule
   const availableTrialDates = useMemo(() => {
     const dates = new Set();
-    overallClasses.forEach(c => {
+    internalClasses.forEach(c => {
       if (c.date) {
         dates.add(c.date.trim());
       }
@@ -234,7 +239,7 @@ export default function CrmPage() {
     return Array.from(dates).sort((a, b) => {
       return a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' });
     });
-  }, [overallClasses]);
+  }, [internalClasses]);
 
   // Sync selectedCrmInstructor when the instructor list loads or changes
   useEffect(() => {
@@ -304,7 +309,7 @@ export default function CrmPage() {
     if (!selectedCrmInstructor) return [];
 
     const slots = getStandardSlotsForDay(selectedCrmDay);
-    const dayClasses = overallClasses.filter(c => 
+    const dayClasses = internalClasses.filter(c => 
       c.teacher.toLowerCase() === selectedCrmInstructor.toLowerCase() && 
       c.day === selectedCrmDay &&
       (selectedBranchFilter === 'all' || c.branchName === selectedBranchFilter)
@@ -361,7 +366,7 @@ export default function CrmPage() {
         remaining
       };
     });
-  }, [selectedCrmInstructor, selectedCrmDay, selectedCrmDate, overallClasses, selectedBranchFilter]);
+  }, [selectedCrmInstructor, selectedCrmDay, selectedCrmDate, internalClasses, selectedBranchFilter]);
   
   // Modals state
   const [isAddOpen, setIsAddOpen] = useState(false);
@@ -412,6 +417,15 @@ export default function CrmPage() {
       setLeads(data);
       setLoading(false);
     });
+    return () => unsubscribe();
+  }, []);
+
+  // Subscribe to the New Operations schedule (Postgres) for instructor/slot data.
+  useEffect(() => {
+    const unsubscribe = subscribeToInternalClasses(
+      (data) => setInternalClasses(data),
+      () => setInternalClasses([])
+    );
     return () => unsubscribe();
   }, []);
 
@@ -1043,7 +1057,7 @@ export default function CrmPage() {
               ) : (
                 pagedLeads.map((lead) => {
                   const statusCol = COLUMNS.find(c => c.id === lead.status) || COLUMNS[0];
-                  const matchedClass = getScheduledClass(lead, overallClasses);
+                  const matchedClass = getScheduledClass(lead, internalClasses);
                   return (
                     <tr 
                       key={lead.id} 
@@ -1258,7 +1272,7 @@ export default function CrmPage() {
                     </div>
                   ) : (
                     columnLeads.map((lead) => {
-                      const matchedClass = getScheduledClass(lead, overallClasses);
+                      const matchedClass = getScheduledClass(lead, internalClasses);
                       return (
                         <div
                           key={lead.id}
@@ -1636,7 +1650,7 @@ export default function CrmPage() {
               </div>
 
               {(() => {
-                const matched = getScheduledClass(selectedLead, overallClasses);
+                const matched = getScheduledClass(selectedLead, internalClasses);
                 return matched ? (
                   <div style={{
                     display: 'flex',
@@ -1710,3 +1724,4 @@ export default function CrmPage() {
     </section>
   );
 }
+
