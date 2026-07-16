@@ -1029,7 +1029,7 @@ export default function CrmPage() {
                 <th>Weekly Schedule</th>
                 <th>Trial Date</th>
                 <th>Admin Notes</th>
-                <th>Updated At</th>
+                <th>Received</th>
                 <th style={{ width: 100, textAlign: 'center' }}>Action</th>
               </tr>
             </thead>
@@ -1172,7 +1172,7 @@ export default function CrmPage() {
                         </div>
                       </td>
                       <td style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-                        {formatRelativeTime(lead.updatedAt || lead.createdAt)}
+                        {formatRelativeTime(lead.createdAt || lead.updatedAt)}
                       </td>
                       <td style={{ textAlign: 'center' }} onClick={(e) => e.stopPropagation()}>
                         <div style={{ display: 'flex', justifyContent: 'center', gap: '8px' }}>
