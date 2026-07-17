@@ -84,6 +84,27 @@ export default function NewInstructorsPage() {
   const totalPages = Math.ceil(sortedFiltered.length / INSTRUCTORS_PAGE_SIZE);
   const paged = sortedFiltered.slice((page - 1) * INSTRUCTORS_PAGE_SIZE, page * INSTRUCTORS_PAGE_SIZE);
 
+  // Totals per teaching-level category. Respects the branch/status/search
+  // filters (so you can see per-branch counts) but ignores the level filter
+  // so both category cards stay meaningful.
+  const levelCounts = useMemo(() => {
+    const s = search.toLowerCase();
+    const counts = { 'Kinder and Junior': 0, 'Junior and Coder': 0 };
+    instructors.forEach((inst) => {
+      if (filterBranch !== 'all' && !(inst.branches || []).includes(filterBranch)) return;
+      if (filterStatus !== 'all' && inst.status !== filterStatus) return;
+      if (s) {
+        const match =
+          (inst.name && inst.name.toLowerCase().includes(s)) ||
+          (inst.contact && inst.contact.toLowerCase().includes(s)) ||
+          (inst.remarks && inst.remarks.toLowerCase().includes(s));
+        if (!match) return;
+      }
+      if (counts[inst.level] !== undefined) counts[inst.level] += 1;
+    });
+    return counts;
+  }, [instructors, search, filterBranch, filterStatus]);
+
   const openAddModal = () => {
     setEditingInstructor(null);
     setForm({
@@ -263,6 +284,23 @@ export default function NewInstructorsPage() {
               <option value="Inactive">Inactive</option>
             </select>
           </div>
+        </div>
+
+        {/* Category totals */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0.85rem', padding: '1rem 1.5rem 0' }}>
+          {[
+            { label: 'Kinder and Junior', value: levelCounts['Kinder and Junior'], color: '#ea580c', bg: 'rgba(249,115,22,0.08)' },
+            { label: 'Junior and Coder', value: levelCounts['Junior and Coder'], color: '#4f46e5', bg: 'rgba(79,70,229,0.08)' },
+            { label: 'Total Instructors', value: levelCounts['Kinder and Junior'] + levelCounts['Junior and Coder'], color: '#059669', bg: 'rgba(5,150,105,0.08)' },
+          ].map((c) => (
+            <div key={c.label} style={{ background: c.bg, border: `1px solid ${c.color}22`, borderRadius: '10px', padding: '0.85rem 1rem', display: 'flex', alignItems: 'center', gap: '0.85rem' }}>
+              <Award size={22} style={{ color: c.color }} />
+              <div>
+                <div style={{ fontSize: '1.5rem', fontWeight: 700, color: c.color, lineHeight: 1 }}>{c.value}</div>
+                <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginTop: '0.25rem' }}>{c.label}</div>
+              </div>
+            </div>
+          ))}
         </div>
 
         {/* Table Body */}
