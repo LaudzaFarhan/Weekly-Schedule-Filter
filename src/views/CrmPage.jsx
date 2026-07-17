@@ -204,6 +204,16 @@ const categorizeProgram = (cls) => {
   return null;
 };
 
+/** Whether a loose date string falls within [fromStr, toStr] (open-ended). */
+const dateInRange = (dateStr, fromStr, toStr) => {
+  const d = parseLooseCrmDate(dateStr);
+  if (!d) return false;
+  const t = d.getTime();
+  if (fromStr) { const f = parseLooseCrmDate(fromStr); if (f && t < f.getTime()) return false; }
+  if (toStr) { const to = parseLooseCrmDate(toStr); if (to && t > to.getTime()) return false; }
+  return true;
+};
+
 export default function CrmPage() {
   const { user } = useAuth();
   const { showToast } = useToast();
@@ -216,6 +226,7 @@ export default function CrmPage() {
   const [selectedStatusFilter, setSelectedStatusFilter] = useState('all');
   const [cardFrom, setCardFrom] = useState(''); // summary cards date-range start
   const [cardTo, setCardTo] = useState('');     // summary cards date-range end
+  const [cardFilter, setCardFilter] = useState(null); // 'Kinder'|'Junior'|'Coder'|'notScheduled'|null
   const [viewMode, setViewMode] = useState('table'); // Default to table view
   const [selectedLeadIds, setSelectedLeadIds] = useState(new Set());
   const [page, setPage] = useState(1);
@@ -571,6 +582,18 @@ export default function CrmPage() {
   const filteredLeads = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
     return leads.filter(l => {
+      // 0. Summary-card filter — click a card to show only those booked leads.
+      if (cardFilter) {
+        if (l.status !== 'trial_booked') return false;
+        if ((cardFrom || cardTo) && (!l.trialDate || !dateInRange(l.trialDate, cardFrom, cardTo))) return false;
+        const matched = getScheduledClass(l, overallClasses);
+        if (cardFilter === 'notScheduled') {
+          if (matched) return false;
+        } else {
+          if (!matched || categorizeProgram(matched) !== cardFilter) return false;
+        }
+      }
+
       // 1. Branch filter
       if (selectedBranchFilter !== 'all') {
         const leadBranch = l.branch || '';
@@ -595,7 +618,7 @@ export default function CrmPage() {
         (l.notes && l.notes.toLowerCase().includes(query))
       );
     });
-  }, [leads, searchQuery, selectedBranchFilter, selectedStatusFilter]);
+  }, [leads, searchQuery, selectedBranchFilter, selectedStatusFilter, cardFilter, cardFrom, cardTo, overallClasses]);
 
   // Bulk deletion handler
   const handleBulkDelete = async () => {
@@ -698,16 +721,6 @@ export default function CrmPage() {
     const stats = { Kinder: 0, Junior: 0, Coder: 0, uncategorized: 0, notScheduled: 0, totalBooked: 0 };
 
     const hasRange = !!(cardFrom || cardTo);
-    const fromT = cardFrom ? parseLooseCrmDate(cardFrom)?.getTime() : null;
-    const toT = cardTo ? parseLooseCrmDate(cardTo)?.getTime() : null;
-    const inRange = (dateStr) => {
-      const d = parseLooseCrmDate(dateStr);
-      if (!d) return false;
-      const t = d.getTime();
-      if (fromT != null && t < fromT) return false;
-      if (toT != null && t > toT) return false;
-      return true;
-    };
 
     leads.forEach((lead) => {
       if (lead.status !== 'trial_booked') return;
@@ -715,7 +728,7 @@ export default function CrmPage() {
       // Date-range filter (by the lead's trial date). When a range is set, only
       // count leads whose trial date falls within it.
       if (hasRange) {
-        if (!lead.trialDate || !inRange(lead.trialDate)) return;
+        if (!lead.trialDate || !dateInRange(lead.trialDate, cardFrom, cardTo)) return;
       }
 
       stats.totalBooked += 1;
@@ -1105,17 +1118,47 @@ export default function CrmPage() {
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '0.85rem' }}>
           {[
-            { label: 'Kinder', value: bookingStats.Kinder, color: '#4f46e5', bg: 'rgba(79,70,229,0.08)' },
-            { label: 'Junior', value: bookingStats.Junior, color: '#0891b2', bg: 'rgba(8,145,178,0.08)' },
-            { label: 'Coder', value: bookingStats.Coder, color: '#ea580c', bg: 'rgba(249,115,22,0.08)' },
-            { label: 'Not yet scheduled', value: bookingStats.notScheduled, color: '#b45309', bg: 'rgba(245,158,11,0.1)' },
-          ].map((c) => (
-            <div key={c.label} style={{ background: c.bg, border: `1px solid ${c.color}22`, borderRadius: '10px', padding: '0.85rem 1rem' }}>
-              <div style={{ fontSize: '1.6rem', fontWeight: 700, color: c.color, lineHeight: 1 }}>{c.value}</div>
-              <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginTop: '0.3rem' }}>{c.label}</div>
-            </div>
-          ))}
+            { key: 'Kinder', label: 'Kinder', value: bookingStats.Kinder, color: '#4f46e5', bg: 'rgba(79,70,229,0.08)' },
+            { key: 'Junior', label: 'Junior', value: bookingStats.Junior, color: '#0891b2', bg: 'rgba(8,145,178,0.08)' },
+            { key: 'Coder', label: 'Coder', value: bookingStats.Coder, color: '#ea580c', bg: 'rgba(249,115,22,0.08)' },
+            { key: 'notScheduled', label: 'Not yet scheduled', value: bookingStats.notScheduled, color: '#b45309', bg: 'rgba(245,158,11,0.1)' },
+          ].map((c) => {
+            const active = cardFilter === c.key;
+            return (
+              <button
+                key={c.key}
+                type="button"
+                onClick={() => { setCardFilter(active ? null : c.key); setPage(1); }}
+                title={active ? 'Click to clear filter' : `Show ${c.label} students in the table`}
+                style={{
+                  textAlign: 'left', cursor: 'pointer', width: '100%',
+                  background: c.bg,
+                  border: active ? `2px solid ${c.color}` : `1px solid ${c.color}22`,
+                  borderRadius: '10px', padding: '0.85rem 1rem',
+                  boxShadow: active ? `0 4px 14px ${c.color}33` : 'none',
+                  transform: active ? 'translateY(-1px)' : 'none',
+                  transition: 'transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease',
+                }}
+              >
+                <div style={{ fontSize: '1.6rem', fontWeight: 700, color: c.color, lineHeight: 1 }}>{c.value}</div>
+                <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginTop: '0.3rem', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                  {c.label}
+                  {active && <span style={{ fontSize: '0.66rem', fontWeight: 700, color: c.color }}>• filtering</span>}
+                </div>
+              </button>
+            );
+          })}
         </div>
+        {cardFilter && (
+          <div style={{ marginTop: '0.6rem' }}>
+            <button
+              onClick={() => { setCardFilter(null); setPage(1); }}
+              style={{ background: 'transparent', border: 'none', color: 'var(--primary, #4f46e5)', cursor: 'pointer', fontSize: '0.78rem', display: 'inline-flex', alignItems: 'center', gap: '0.25rem' }}
+            >
+              <X size={13} /> Clear category filter
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Kanban Board / Table View Switcher */}

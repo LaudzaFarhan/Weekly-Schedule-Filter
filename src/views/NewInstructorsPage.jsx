@@ -17,7 +17,7 @@ const INSTRUCTOR_LEVELS = [
   'Junior and Coder'
 ];
 
-const INSTRUCTORS_PAGE_SIZE = 15;
+const INSTRUCTORS_PAGE_SIZE = 8;
 
 export default function NewInstructorsPage() {
   const { enabledBranches, branches } = useSchedule();
