@@ -200,6 +200,7 @@ function computeForInstructor(rows) {
       hoursClipped: 0,
       sessions: 0,
       sessionList: [],   // [{ time, students, durationMin }]
+      leaveSessions: [], // slots where every student is on leave (izin) — not counted
       students: 0,
       studentSet: new Set(),
       programs: new Set(),
@@ -231,10 +232,16 @@ function computeForInstructor(rows) {
     const intervals = [];
 
     for (const [timeStr, { rows: bucket, parsed }] of Object.entries(timeMap)) {
+      // If EVERY student in this time slot is on leave (izin / not arranged),
+      // the class effectively didn't run — it must NOT add hours or count as a
+      // session. We still keep it as a "leave session" so the UI can explain a
+      // FREE TIME cell as izin (vs. genuinely no class).
+      const allOnLeave = bucket.length > 0 && bucket.every((b) => b.notArranged);
+
       const studentsInSlot = new Set();
       bucket.forEach((b) => {
         if (b.student) studentsInSlot.add(b.student);
-        if (b.program) byDay[day].programs.add(b.program);
+        if (!allOnLeave && b.program) byDay[day].programs.add(b.program);
       });
       const durationMin = parsed.end - parsed.start;
       // Capture per-student detail so the heatmap modal can show
@@ -257,7 +264,7 @@ function computeForInstructor(rows) {
       const assistants = Array.from(
         new Set(bucket.map((b) => b.assistant).filter(Boolean))
       );
-      byDay[day].sessionList.push({
+      const sessionEntry = {
         time: timeStr,
         start: parsed.start,
         end: parsed.end,
@@ -268,7 +275,14 @@ function computeForInstructor(rows) {
         branches,
         assistants,
         durationMin,
-      });
+      };
+
+      if (allOnLeave) {
+        byDay[day].leaveSessions.push(sessionEntry);
+        continue; // don't count toward hours / sessions / students
+      }
+
+      byDay[day].sessionList.push(sessionEntry);
       intervals.push([parsed.start, parsed.end]);
       bucket.forEach((b) => {
         if (b.student) byDay[day].studentSet.add(b.student);
@@ -285,6 +299,7 @@ function computeForInstructor(rows) {
     byDay[day].sessions = byDay[day].sessionList.length;
     byDay[day].students = byDay[day].studentSet.size;
     byDay[day].sessionList.sort((a, b) => a.start - b.start);
+    byDay[day].leaveSessions.sort((a, b) => a.start - b.start);
 
     if (merged.length > 0) {
       byDay[day].busiestStartMin = merged[0][0];

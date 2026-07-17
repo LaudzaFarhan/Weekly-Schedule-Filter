@@ -1512,11 +1512,18 @@ function Heatmap({ report, max, thresholds, onCellClick, trialPriorityList, inst
             const isWorkingDay = workingDays.includes(d);
 
             const dayBranches = Array.from(dayData.branches || []);
+            // Leave-only day: no counted hours, but the slot(s) exist with all
+            // students on izin. We keep the cell clickable so the user can see
+            // WHY it's free (izin vs. genuinely no class).
+            const leaveOnly = !hasData && (dayData.leaveSessions?.length || 0) > 0;
+            const clickable = hasData || leaveOnly;
             const cellTitle = hasData
               ? `${r.teacher} · ${d}: ${formatHoursMinutes(hrs)} (${dayData.sessions} sessions) ${dayBranches.length > 0 ? `at ${dayBranches.join(', ')}` : ''} — click for details`
-              : (!isWorkingDay ? `${r.teacher} (HOLIDAY)` : `${r.teacher} · ${d}: FREE TIME`);
+              : leaveOnly
+                ? `${r.teacher} · ${d}: all students on leave (izin) — click for details`
+                : (!isWorkingDay ? `${r.teacher} (HOLIDAY)` : `${r.teacher} · ${d}: FREE TIME`);
 
-            const handleClick = hasData && onCellClick
+            const handleClick = clickable && onCellClick
               ? () => onCellClick(r.teacher, d, dayData)
               : undefined;
             return (
@@ -1524,32 +1531,36 @@ function Heatmap({ report, max, thresholds, onCellClick, trialPriorityList, inst
                 key={d}
                 type="button"
                 onClick={handleClick}
-                disabled={!hasData}
+                disabled={!clickable}
                 title={cellTitle}
                 style={{
                   height: rowHeight,
                   borderRadius: '4px',
-                  background: hasData ? cellColor(hrs) : (isWorkingDay ? 'var(--bg-color)' : 'repeating-linear-gradient(45deg, var(--bg-color), var(--bg-color) 4px, var(--border-color) 4px, var(--border-color) 8px)'),
+                  background: hasData
+                    ? cellColor(hrs)
+                    : leaveOnly
+                      ? 'rgba(245, 158, 11, 0.18)'
+                      : (isWorkingDay ? 'var(--bg-color)' : 'repeating-linear-gradient(45deg, var(--bg-color), var(--bg-color) 4px, var(--border-color) 4px, var(--border-color) 8px)'),
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
                   position: 'relative',
                   fontSize: !hasData ? '0.6rem' : '0.7rem',
                   fontWeight: 600,
-                  color: hrs > thresholds.dailyAmber ? 'white' : (hrs > 0 ? 'white' : (isWorkingDay ? 'var(--text-muted)' : '#9ca3af')),
-                  border: 'none',
+                  color: hrs > thresholds.dailyAmber ? 'white' : (hrs > 0 ? 'white' : (leaveOnly ? '#b45309' : (isWorkingDay ? 'var(--text-muted)' : '#9ca3af'))),
+                  border: leaveOnly ? '1px dashed rgba(245, 158, 11, 0.6)' : 'none',
                   padding: 0,
-                  opacity: isWorkingDay || hasData ? 1 : 0.65,
-                  cursor: hasData ? 'pointer' : 'default',
+                  opacity: isWorkingDay || hasData || leaveOnly ? 1 : 0.65,
+                  cursor: clickable ? 'pointer' : 'default',
                   transition: 'transform 0.12s ease, box-shadow 0.12s ease',
                 }}
                 onMouseEnter={(e) => {
-                  if (!hasData) return;
+                  if (!clickable) return;
                   e.currentTarget.style.transform = 'scale(1.04)';
                   e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.18)';
                 }}
                 onMouseLeave={(e) => {
-                  if (!hasData) return;
+                  if (!clickable) return;
                   e.currentTarget.style.transform = 'none';
                   e.currentTarget.style.boxShadow = 'none';
                 }}
@@ -1567,7 +1578,7 @@ function Heatmap({ report, max, thresholds, onCellClick, trialPriorityList, inst
                     {getBranchCode(dayBranches[0])}
                   </div>
                 )}
-                {hrs > 0 ? formatHoursMinutes(hrs) : (isWorkingDay ? 'FREE TIME' : 'HOLIDAY')}
+                {hrs > 0 ? formatHoursMinutes(hrs) : (leaveOnly ? 'IZIN' : (isWorkingDay ? 'FREE TIME' : 'HOLIDAY'))}
               </button>
             );
           })}
@@ -1604,6 +1615,7 @@ function Legend({ thresholds }) {
  */
 function HeatmapDetailModal({ teacher, day, dayData, onClose }) {
   const sessions = (dayData?.sessionList || []).slice().sort((a, b) => a.start - b.start);
+  const leaveSessions = (dayData?.leaveSessions || []).slice().sort((a, b) => a.start - b.start);
 
   // Close on ESC for keyboard users
   useEffect(() => {
@@ -1696,7 +1708,7 @@ function HeatmapDetailModal({ teacher, day, dayData, onClose }) {
 
         {/* Body */}
         <div style={{ padding: '1rem 1.5rem 1.25rem 1.5rem' }}>
-          {sessions.length === 0 ? (
+          {sessions.length === 0 && leaveSessions.length === 0 ? (
             <div style={{ padding: '1.5rem 0', textAlign: 'center', color: 'var(--text-muted)' }}>
               No sessions recorded for this day.
             </div>
@@ -1705,6 +1717,19 @@ function HeatmapDetailModal({ teacher, day, dayData, onClose }) {
               {sessions.map((s, i) => (
                 <SessionRow key={`${s.time}-${i}`} session={s} />
               ))}
+
+              {leaveSessions.length > 0 && (
+                <div style={{ marginTop: sessions.length > 0 ? '0.5rem' : 0 }}>
+                  <div style={{ fontSize: '0.75rem', fontWeight: 700, color: '#b45309', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                    On leave (izin) — not counted in hours
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.7rem' }}>
+                    {leaveSessions.map((s, i) => (
+                      <SessionRow key={`leave-${s.time}-${i}`} session={s} />
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>
