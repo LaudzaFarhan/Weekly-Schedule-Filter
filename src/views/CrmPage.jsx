@@ -191,6 +191,19 @@ const crmDatesEqual = (d1, d2) => {
   return p1.getTime() === p2.getTime();
 };
 
+/**
+ * Classify a scheduled class into a top-level program category.
+ * Returns 'Kinder' | 'Junior' | 'Coder' | null.
+ */
+const categorizeProgram = (cls) => {
+  if (!cls) return null;
+  const hay = `${cls.fullProgram || ''} ${cls.lessonDetail || ''} ${cls.program || ''}`.toLowerCase();
+  if (/coder/.test(hay)) return 'Coder';
+  if (/junior/.test(hay) || /(^|\s)jf?\d/.test(hay)) return 'Junior';
+  if (/kinder/.test(hay) || /(^|\s)kf?\d/.test(hay)) return 'Kinder';
+  return null;
+};
+
 export default function CrmPage() {
   const { user } = useAuth();
   const { showToast } = useToast();
@@ -201,6 +214,8 @@ export default function CrmPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedBranchFilter, setSelectedBranchFilter] = useState('all');
   const [selectedStatusFilter, setSelectedStatusFilter] = useState('all');
+  const [cardFrom, setCardFrom] = useState(''); // summary cards date-range start
+  const [cardTo, setCardTo] = useState('');     // summary cards date-range end
   const [viewMode, setViewMode] = useState('table'); // Default to table view
   const [selectedLeadIds, setSelectedLeadIds] = useState(new Set());
   const [page, setPage] = useState(1);
@@ -674,6 +689,50 @@ export default function CrmPage() {
     return `${diffDays}d ago`;
   };
 
+  // Summary stats for the cards above the table. Counts BOOKED leads
+  // (status 'trial_booked'), optionally filtered to a chosen trial date:
+  //  - per program category (Kinder / Junior / Coder) for those already
+  //    placed on the weekly schedule (matched to a class), and
+  //  - how many booked leads are NOT yet on the weekly schedule.
+  const bookingStats = useMemo(() => {
+    const stats = { Kinder: 0, Junior: 0, Coder: 0, uncategorized: 0, notScheduled: 0, totalBooked: 0 };
+
+    const hasRange = !!(cardFrom || cardTo);
+    const fromT = cardFrom ? parseLooseCrmDate(cardFrom)?.getTime() : null;
+    const toT = cardTo ? parseLooseCrmDate(cardTo)?.getTime() : null;
+    const inRange = (dateStr) => {
+      const d = parseLooseCrmDate(dateStr);
+      if (!d) return false;
+      const t = d.getTime();
+      if (fromT != null && t < fromT) return false;
+      if (toT != null && t > toT) return false;
+      return true;
+    };
+
+    leads.forEach((lead) => {
+      if (lead.status !== 'trial_booked') return;
+
+      // Date-range filter (by the lead's trial date). When a range is set, only
+      // count leads whose trial date falls within it.
+      if (hasRange) {
+        if (!lead.trialDate || !inRange(lead.trialDate)) return;
+      }
+
+      stats.totalBooked += 1;
+
+      const matched = getScheduledClass(lead, overallClasses);
+      if (!matched) {
+        stats.notScheduled += 1;
+        return;
+      }
+      const cat = categorizeProgram(matched);
+      if (cat) stats[cat] += 1;
+      else stats.uncategorized += 1;
+    });
+
+    return stats;
+  }, [leads, overallClasses, cardFrom, cardTo]);
+
   return (
     <section className="dashboard-view active">
       {/* Header section */}
@@ -1000,6 +1059,64 @@ export default function CrmPage() {
           </div>
         </div>
       )}
+
+      {/* Booking summary cards (filterable by trial date) */}
+      <div style={{
+        background: 'white', padding: '1rem 1.25rem', borderRadius: '12px',
+        boxShadow: '0 1px 3px rgba(0,0,0,0.05)', border: '1px solid var(--border-color)',
+        marginBottom: '1.25rem',
+      }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '0.85rem' }}>
+          <div>
+            <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 600, color: 'var(--text-main)' }}>Booked Students by Category</h3>
+            <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+              {(cardFrom || cardTo)
+                ? `Trial date: ${cardFrom || '…'} → ${cardTo || '…'}`
+                : 'All trial dates'} · {bookingStats.totalBooked} booked
+            </span>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+            <span style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-secondary)' }}>From:</span>
+            <input
+              type="date"
+              value={cardFrom}
+              max={cardTo || undefined}
+              onChange={(e) => setCardFrom(e.target.value)}
+              style={{ padding: '0.4rem 0.6rem', border: '1px solid var(--border-color)', borderRadius: '6px', fontSize: '0.82rem', background: 'white', cursor: 'pointer' }}
+            />
+            <span style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-secondary)' }}>To:</span>
+            <input
+              type="date"
+              value={cardTo}
+              min={cardFrom || undefined}
+              onChange={(e) => setCardTo(e.target.value)}
+              style={{ padding: '0.4rem 0.6rem', border: '1px solid var(--border-color)', borderRadius: '6px', fontSize: '0.82rem', background: 'white', cursor: 'pointer' }}
+            />
+            {(cardFrom || cardTo) && (
+              <button
+                onClick={() => { setCardFrom(''); setCardTo(''); }}
+                style={{ background: 'transparent', border: 'none', color: 'var(--primary, #4f46e5)', cursor: 'pointer', fontSize: '0.78rem', display: 'inline-flex', alignItems: 'center', gap: '0.2rem' }}
+              >
+                <X size={13} /> Clear
+              </button>
+            )}
+          </div>
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '0.85rem' }}>
+          {[
+            { label: 'Kinder', value: bookingStats.Kinder, color: '#4f46e5', bg: 'rgba(79,70,229,0.08)' },
+            { label: 'Junior', value: bookingStats.Junior, color: '#0891b2', bg: 'rgba(8,145,178,0.08)' },
+            { label: 'Coder', value: bookingStats.Coder, color: '#ea580c', bg: 'rgba(249,115,22,0.08)' },
+            { label: 'Not yet scheduled', value: bookingStats.notScheduled, color: '#b45309', bg: 'rgba(245,158,11,0.1)' },
+          ].map((c) => (
+            <div key={c.label} style={{ background: c.bg, border: `1px solid ${c.color}22`, borderRadius: '10px', padding: '0.85rem 1rem' }}>
+              <div style={{ fontSize: '1.6rem', fontWeight: 700, color: c.color, lineHeight: 1 }}>{c.value}</div>
+              <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginTop: '0.3rem' }}>{c.label}</div>
+            </div>
+          ))}
+        </div>
+      </div>
 
       {/* Kanban Board / Table View Switcher */}
       {loading ? (
