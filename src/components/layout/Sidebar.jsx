@@ -107,7 +107,7 @@ export default function Sidebar({ currentPage, onNavigate, onToggleSearch, opsMo
         {opsMode === 'new' && (
           <>
             <button
-              className={`nav-item ${currentPage !== 'operationals' && currentPage !== 'students' && currentPage !== 'instructors' && currentPage !== 'crm' && currentPage !== 'api' ? 'active' : ''}`}
+              className={`nav-item ${currentPage !== 'operationals' && currentPage !== 'students' && currentPage !== 'instructors' && currentPage !== 'crm' && currentPage !== 'workload' && currentPage !== 'api' ? 'active' : ''}`}
               onClick={() => onNavigate('schedule')}
               style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
             >
@@ -154,6 +154,16 @@ export default function Sidebar({ currentPage, onNavigate, onToggleSearch, opsMo
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
                 <Users size={20} />
                 CRM Pipeline
+              </div>
+            </button>
+            <button
+              className={`nav-item ${currentPage === 'workload' ? 'active' : ''}`}
+              onClick={() => onNavigate('workload')}
+              style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                <BarChart3 size={20} />
+                Workload
               </div>
             </button>
             <button
