@@ -29,6 +29,7 @@ import NewOperationalsPage from '@/views/NewOperationalsPage';
 import NewStudentsPage from '@/views/NewStudentsPage';
 import NewInstructorsPage from '@/views/NewInstructorsPage';
 import NewCrmPage from '@/views/NewCrmPage';
+import NewApiDocsPage from '@/views/NewApiDocsPage';
 
 const PAGE_MAP = {
   home: HomePage,
@@ -102,6 +103,8 @@ export default function AppShell() {
       PageComponent = NewInstructorsPage;
     } else if (currentPage === 'crm') {
       PageComponent = NewCrmPage;
+    } else if (currentPage === 'api') {
+      PageComponent = NewApiDocsPage;
     } else {
       PageComponent = NewSchedulePage;
     }
