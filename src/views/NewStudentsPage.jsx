@@ -28,6 +28,27 @@ const STUDENT_LEVELS = [
 
 const STUDENTS_PAGE_SIZE = 15;
 
+// Per-student branch assignment history (localStorage). Keyed by student id.
+const BRANCH_HISTORY_KEY = 'newOpsStudentBranchHistory';
+function readBranchHistoryStore() {
+  try { return JSON.parse(localStorage.getItem(BRANCH_HISTORY_KEY) || '{}'); } catch { return {}; }
+}
+function getStudentBranchHistory(id) {
+  if (!id) return [];
+  const store = readBranchHistoryStore();
+  return Array.isArray(store[id]) ? store[id] : [];
+}
+function appendStudentBranchHistory(id, branch) {
+  if (!id || !branch) return getStudentBranchHistory(id);
+  const store = readBranchHistoryStore();
+  const list = Array.isArray(store[id]) ? store[id] : [];
+  if (list.length && list[list.length - 1].branch === branch) return list; // unchanged
+  const next = [...list, { branch, at: new Date().toISOString() }];
+  store[id] = next;
+  try { localStorage.setItem(BRANCH_HISTORY_KEY, JSON.stringify(store)); } catch { /* ignore */ }
+  return next;
+}
+
 export default function NewStudentsPage() {
   const { enabledBranches, branches } = useSchedule();
   const { showToast } = useToast();
@@ -45,6 +66,7 @@ export default function NewStudentsPage() {
   // Modal/Form State
   const [showModal, setShowModal] = useState(false);
   const [editingStudent, setEditingStudent] = useState(null);
+  const [branchHistory, setBranchHistory] = useState([]);
   
   const [form, setForm] = useState({
     name: '',
@@ -97,6 +119,7 @@ export default function NewStudentsPage() {
 
   const openAddModal = () => {
     setEditingStudent(null);
+    setBranchHistory([]);
     setForm({
       name: '',
       level: STUDENT_LEVELS[0],
@@ -112,6 +135,12 @@ export default function NewStudentsPage() {
 
   const openEditModal = (st) => {
     setEditingStudent(st);
+    // Load branch history; seed with the current branch if none recorded yet.
+    let hist = getStudentBranchHistory(st.id);
+    if (hist.length === 0 && st.branchName) {
+      hist = appendStudentBranchHistory(st.id, st.branchName);
+    }
+    setBranchHistory(hist);
     setForm({
       name: st.name || '',
       level: st.level || STUDENT_LEVELS[0],
@@ -142,9 +171,16 @@ export default function NewStudentsPage() {
     try {
       if (editingStudent) {
         await updateInternalStudent(editingStudent.id, form);
+        // Record a branch-history entry when the branch changes.
+        if (form.branchName && form.branchName !== editingStudent.branchName) {
+          setBranchHistory(appendStudentBranchHistory(editingStudent.id, form.branchName));
+        }
         showToast({ title: 'Student updated successfully', variant: 'success' });
       } else {
-        await createInternalStudent(form);
+        const created = await createInternalStudent(form);
+        if (created?.id && form.branchName) {
+          appendStudentBranchHistory(created.id, form.branchName);
+        }
         showToast({ title: 'Student added successfully', variant: 'success' });
       }
       setShowModal(false);
@@ -420,7 +456,7 @@ export default function NewStudentsPage() {
           <div style={{
             background: 'var(--panel-bg)',
             width: '100%',
-            maxWidth: '500px',
+            maxWidth: editingStudent ? '780px' : '500px',
             maxHeight: '92vh',
             borderRadius: '16px',
             boxShadow: '0 12px 32px rgba(0,0,0,0.18)',
@@ -455,7 +491,8 @@ export default function NewStudentsPage() {
 
             {/* Form Content */}
             <form onSubmit={handleSave} style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-              <div style={{ padding: '1.5rem', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+              <div style={{ display: 'flex', overflow: 'hidden' }}>
+              <div style={{ flex: 1, padding: '1.5rem', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
                 
                 {/* Student Name */}
                 <div>
@@ -546,6 +583,46 @@ export default function NewStudentsPage() {
                     className="modal-textarea-field"
                   />
                 </div>
+              </div>
+
+              {/* Branch history (edit mode only) */}
+              {editingStudent && (
+                <div style={{ width: '260px', flexShrink: 0, borderLeft: '1px solid var(--border-color)', background: 'var(--bg-color)', padding: '1.5rem 1.25rem', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
+                  <div>
+                    <h3 style={{ margin: 0, fontSize: '0.9rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                      <MapPin size={15} /> Branch History
+                    </h3>
+                    <span style={{ fontSize: '0.72rem', color: 'var(--text-secondary)' }}>Branches this student was assigned to.</span>
+                  </div>
+                  {branchHistory.length === 0 ? (
+                    <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', margin: 0 }}>No branch history yet.</p>
+                  ) : (
+                    <div style={{ position: 'relative', display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+                      {[...branchHistory].reverse().map((h, i, arr) => {
+                        const isCurrent = i === 0;
+                        const when = new Date(h.at);
+                        return (
+                          <div key={i} style={{ display: 'flex', gap: '0.6rem', paddingBottom: i === arr.length - 1 ? 0 : '0.7rem', position: 'relative' }}>
+                            {/* timeline dot + line */}
+                            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', flexShrink: 0 }}>
+                              <span style={{ width: '10px', height: '10px', borderRadius: '99px', background: isCurrent ? 'var(--primary-blue, #4f46e5)' : 'var(--border-color)', marginTop: '4px' }} />
+                              {i !== arr.length - 1 && <span style={{ width: '2px', flex: 1, background: 'var(--border-color)', marginTop: '2px' }} />}
+                            </div>
+                            <div style={{ paddingBottom: '0.2rem' }}>
+                              <div style={{ fontSize: '0.82rem', fontWeight: 600, color: isCurrent ? 'var(--primary-blue, #4f46e5)' : 'var(--text-main)' }}>
+                                {h.branch}{isCurrent && <span style={{ fontSize: '0.62rem', fontWeight: 700, marginLeft: '0.35rem', color: 'var(--primary-blue, #4f46e5)' }}>CURRENT</span>}
+                              </div>
+                              <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }}>
+                                {isNaN(when.getTime()) ? '' : when.toLocaleString([], { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
               </div>
 
               {/* Actions Footer */}

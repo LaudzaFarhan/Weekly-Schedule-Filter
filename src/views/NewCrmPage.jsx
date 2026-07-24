@@ -192,6 +192,26 @@ const crmDatesEqual = (d1, d2) => {
   return p1.getTime() === p2.getTime();
 };
 
+/** Classify a scheduled class into Kinder | Junior | Coder | null. */
+const categorizeProgram = (cls) => {
+  if (!cls) return null;
+  const hay = `${cls.fullProgram || ''} ${cls.lessonDetail || ''} ${cls.program || ''}`.toLowerCase();
+  if (/coder/.test(hay)) return 'Coder';
+  if (/junior/.test(hay) || /(^|\s)jf?\d/.test(hay)) return 'Junior';
+  if (/kinder/.test(hay) || /(^|\s)kf?\d/.test(hay)) return 'Kinder';
+  return null;
+};
+
+/** Whether a loose date string falls within [fromStr, toStr] (open-ended). */
+const dateInRange = (dateStr, fromStr, toStr) => {
+  const d = parseLooseCrmDate(dateStr);
+  if (!d) return false;
+  const t = d.getTime();
+  if (fromStr) { const f = parseLooseCrmDate(fromStr); if (f && t < f.getTime()) return false; }
+  if (toStr) { const to = parseLooseCrmDate(toStr); if (to && t > to.getTime()) return false; }
+  return true;
+};
+
 export default function CrmPage() {
   const { user } = useAuth();
   const { showToast } = useToast();
@@ -206,6 +226,9 @@ export default function CrmPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedBranchFilter, setSelectedBranchFilter] = useState('all');
   const [selectedStatusFilter, setSelectedStatusFilter] = useState('all');
+  const [cardFrom, setCardFrom] = useState('');
+  const [cardTo, setCardTo] = useState('');
+  const [cardFilter, setCardFilter] = useState(null); // 'Kinder'|'Junior'|'Coder'|'notScheduled'|null
   const [viewMode, setViewMode] = useState('table'); // Default to table view
   const [selectedLeadIds, setSelectedLeadIds] = useState(new Set());
   const [page, setPage] = useState(1);

@@ -86,7 +86,7 @@ export default function Sidebar({ currentPage, onNavigate, onToggleSearch, opsMo
         <div className="version">SCHOOL OPERATIONS, LIVE</div>
       </div>
       
-      <div className="operations-switcher">
+      <div className={`operations-switcher ${opsMode === 'new' ? 'is-new' : 'is-old'}`}>
         <button 
           className={`switcher-tab ${opsMode === 'old' ? 'active' : ''}`}
           onClick={() => setOpsMode('old')}

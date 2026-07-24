@@ -59,6 +59,23 @@ export default function AppShell() {
   const [pageParams, setPageParams] = useState(null);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [opsMode, setOpsMode] = useState('old');
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+
+  // Restore sidebar collapsed preference
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem('sidebarCollapsed');
+      if (saved != null) setSidebarCollapsed(JSON.parse(saved));
+    } catch { /* ignore */ }
+  }, []);
+
+  const toggleSidebar = () => {
+    setSidebarCollapsed((v) => {
+      const next = !v;
+      try { localStorage.setItem('sidebarCollapsed', JSON.stringify(next)); } catch { /* ignore */ }
+      return next;
+    });
+  };
 
   // Sync state from URL pathname on mount and changes
   useEffect(() => {
@@ -134,6 +151,9 @@ export default function AppShell() {
   };
 
   const handleSetOpsMode = (mode) => {
+    // Update mode optimistically so the switcher pill animates immediately,
+    // instead of waiting for the route change to resolve.
+    setOpsMode(mode);
     if (mode === 'new') {
       router.push('/new/schedule');
     } else {
@@ -144,7 +164,7 @@ export default function AppShell() {
   return (
     <ToastProvider>
       <ScheduleProvider>
-        <div className="app-layout">
+        <div className={`app-layout ${sidebarCollapsed ? 'sidebar-collapsed' : ''}`}>
           <Sidebar 
             currentPage={currentPage} 
             onNavigate={handleNavigate} 
@@ -153,7 +173,7 @@ export default function AppShell() {
             setOpsMode={handleSetOpsMode}
           />
           <main className="dashboard-container">
-            <Header onToggleSearch={() => setIsSearchOpen(true)} opsMode={opsMode} />
+            <Header onToggleSearch={() => setIsSearchOpen(true)} opsMode={opsMode} onToggleSidebar={toggleSidebar} sidebarCollapsed={sidebarCollapsed} />
             <div className={`dashboard-views ${opsMode === 'new' ? 'new-ops-anim' : ''}`}>
               <PageComponent onNavigate={handleNavigate} params={pageParams} />
             </div>

@@ -3,9 +3,9 @@
 import { useState, useEffect } from 'react';
 import { useSchedule } from '../../contexts/ScheduleContext';
 import { useAuth } from '../../contexts/AuthContext';
-import { RefreshCw, Plus, Trash2, Bell, EyeOff, ChevronLeft, ChevronRight, Search } from 'lucide-react';
+import { RefreshCw, Plus, Trash2, Bell, EyeOff, ChevronLeft, ChevronRight, Search, PanelLeft } from 'lucide-react';
 
-export default function Header({ onToggleSearch, opsMode = 'old' }) {
+export default function Header({ onToggleSearch, opsMode = 'old', onToggleSidebar, sidebarCollapsed }) {
   const {
     branches, updateBranches,
     activeBranchId, changeActiveBranch,
@@ -90,12 +90,31 @@ export default function Header({ onToggleSearch, opsMode = 'old' }) {
   return (
     <>
       {/* Header Bar: Title + Sync Status + User */}
-      <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '1rem 1.5rem', background: 'var(--panel-bg)', borderBottom: '1px solid var(--border-color)' }}>
-        <div>
-          <h1 style={{ fontFamily: "'Outfit', sans-serif", fontSize: '1.3rem', color: 'var(--text-main)', margin: 0 }}>The Lab Operation System</h1>
-          <p style={{ color: 'var(--text-muted)', fontSize: '0.75rem', margin: 0 }}>
-            {opsMode === 'new' ? 'New Operations Portal' : 'School Operations, Live'}
-          </p>
+      <header style={{ position: 'sticky', top: 0, zIndex: 50, display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '1rem 1.5rem', background: 'var(--panel-bg)', borderBottom: '1px solid var(--border-color)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.9rem' }}>
+          {onToggleSidebar && (
+            <button
+              onClick={onToggleSidebar}
+              title={sidebarCollapsed ? 'Show sidebar' : 'Hide sidebar'}
+              aria-label={sidebarCollapsed ? 'Show sidebar' : 'Hide sidebar'}
+              style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                width: '38px', height: '38px', borderRadius: '10px', cursor: 'pointer',
+                border: '1px solid var(--border-color)', background: 'transparent', color: 'var(--text-secondary)',
+                transition: 'background 0.15s ease, color 0.15s ease',
+              }}
+              onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-color)'; e.currentTarget.style.color = 'var(--text-main)'; }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--text-secondary)'; }}
+            >
+              <PanelLeft size={18} />
+            </button>
+          )}
+          <div>
+            <h1 style={{ fontFamily: "'Outfit', sans-serif", fontSize: '1.3rem', color: 'var(--text-main)', margin: 0 }}>The Lab Operation System</h1>
+            <p style={{ color: 'var(--text-muted)', fontSize: '0.75rem', margin: 0 }}>
+              {opsMode === 'new' ? 'New Operations Portal' : 'School Operations, Live'}
+            </p>
+          </div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem' }}>
           {opsMode === 'old' && lastSyncTime && (
