@@ -593,6 +593,18 @@ export default function CrmPage() {
   const filteredLeads = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
     return leads.filter(l => {
+      // 0. Summary-card filter — click a card to show only those booked leads.
+      if (cardFilter) {
+        if (l.status !== 'trial_booked') return false;
+        if ((cardFrom || cardTo) && (!l.trialDate || !dateInRange(l.trialDate, cardFrom, cardTo))) return false;
+        const matched = getScheduledClass(l, internalClasses);
+        if (cardFilter === 'notScheduled') {
+          if (matched) return false;
+        } else {
+          if (!matched || categorizeProgram(matched) !== cardFilter) return false;
+        }
+      }
+
       // 1. Branch filter
       if (selectedBranchFilter !== 'all') {
         const leadBranch = l.branch || '';
@@ -617,7 +629,35 @@ export default function CrmPage() {
         (l.notes && l.notes.toLowerCase().includes(query))
       );
     });
-  }, [leads, searchQuery, selectedBranchFilter, selectedStatusFilter]);
+  }, [leads, searchQuery, selectedBranchFilter, selectedStatusFilter, cardFilter, cardFrom, cardTo, internalClasses]);
+
+  // Summary stats for the cards above the table. Counts BOOKED leads
+  // (status 'trial_booked'), optionally filtered to a chosen trial date:
+  //  - per program category (Kinder / Junior / Coder) for those already
+  //    placed on the New Ops schedule (matched to an internal class), and
+  //  - how many booked leads are NOT yet on the schedule.
+  const bookingStats = useMemo(() => {
+    const stats = { Kinder: 0, Junior: 0, Coder: 0, uncategorized: 0, notScheduled: 0, totalBooked: 0 };
+    const hasRange = !!(cardFrom || cardTo);
+
+    leads.forEach((lead) => {
+      if (lead.status !== 'trial_booked') return;
+      if (hasRange) {
+        if (!lead.trialDate || !dateInRange(lead.trialDate, cardFrom, cardTo)) return;
+      }
+      stats.totalBooked += 1;
+      const matched = getScheduledClass(lead, internalClasses);
+      if (!matched) {
+        stats.notScheduled += 1;
+        return;
+      }
+      const cat = categorizeProgram(matched);
+      if (cat) stats[cat] += 1;
+      else stats.uncategorized += 1;
+    });
+
+    return stats;
+  }, [leads, internalClasses, cardFrom, cardTo]);
 
   // Bulk deletion handler
   const handleBulkDelete = async () => {
@@ -1038,6 +1078,94 @@ export default function CrmPage() {
         </div>
       )}
 
+      {/* Booked Students by Category — clickable summary cards with date-range filter */}
+      <div style={{
+        background: 'white', padding: '1rem 1.25rem', borderRadius: '12px',
+        boxShadow: '0 1px 3px rgba(0,0,0,0.05)', border: '1px solid var(--border-color)',
+        marginBottom: '1.25rem',
+      }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '0.85rem' }}>
+          <div>
+            <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 600, color: 'var(--text-main)' }}>Booked Students by Category</h3>
+            <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+              {(cardFrom || cardTo)
+                ? `Trial date: ${cardFrom || '…'} → ${cardTo || '…'}`
+                : 'All trial dates'} · {bookingStats.totalBooked} booked
+            </span>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+            <span style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-secondary)' }}>From:</span>
+            <input
+              type="date"
+              value={cardFrom}
+              max={cardTo || undefined}
+              onChange={(e) => setCardFrom(e.target.value)}
+              style={{ padding: '0.4rem 0.6rem', border: '1px solid var(--border-color)', borderRadius: '6px', fontSize: '0.82rem', background: 'white', cursor: 'pointer' }}
+            />
+            <span style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-secondary)' }}>To:</span>
+            <input
+              type="date"
+              value={cardTo}
+              min={cardFrom || undefined}
+              onChange={(e) => setCardTo(e.target.value)}
+              style={{ padding: '0.4rem 0.6rem', border: '1px solid var(--border-color)', borderRadius: '6px', fontSize: '0.82rem', background: 'white', cursor: 'pointer' }}
+            />
+            {(cardFrom || cardTo) && (
+              <button
+                onClick={() => { setCardFrom(''); setCardTo(''); }}
+                style={{ background: 'transparent', border: 'none', color: 'var(--primary, #4f46e5)', cursor: 'pointer', fontSize: '0.78rem', display: 'inline-flex', alignItems: 'center', gap: '0.2rem' }}
+              >
+                <X size={13} /> Clear
+              </button>
+            )}
+          </div>
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '0.85rem' }}>
+          {[
+            { key: 'Kinder', label: 'Kinder', value: bookingStats.Kinder, color: '#4f46e5', bg: 'rgba(79,70,229,0.08)' },
+            { key: 'Junior', label: 'Junior', value: bookingStats.Junior, color: '#0891b2', bg: 'rgba(8,145,178,0.08)' },
+            { key: 'Coder', label: 'Coder', value: bookingStats.Coder, color: '#ea580c', bg: 'rgba(249,115,22,0.08)' },
+            { key: 'notScheduled', label: 'Not yet scheduled', value: bookingStats.notScheduled, color: '#b45309', bg: 'rgba(245,158,11,0.1)' },
+          ].map((c) => {
+            const active = cardFilter === c.key;
+            return (
+              <button
+                key={c.key}
+                type="button"
+                onClick={() => { setCardFilter(active ? null : c.key); setPage(1); }}
+                title={active ? 'Click to clear filter' : `Show ${c.label} students in the table`}
+                style={{
+                  textAlign: 'left', cursor: 'pointer', width: '100%',
+                  background: c.bg,
+                  border: active ? `2px solid ${c.color}` : `1px solid ${c.color}22`,
+                  borderRadius: '10px', padding: '0.85rem 1rem',
+                  boxShadow: active ? `0 4px 14px ${c.color}33` : 'none',
+                  transform: active ? 'translateY(-1px)' : 'none',
+                  transition: 'transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease',
+                }}
+              >
+                <div style={{ fontSize: '1.6rem', fontWeight: 700, color: c.color, lineHeight: 1 }}>{c.value}</div>
+                <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginTop: '0.3rem', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                  {c.label}
+                  {active && <span style={{ fontSize: '0.66rem', fontWeight: 700, color: c.color }}>• filtering</span>}
+                </div>
+              </button>
+            );
+          })}
+        </div>
+        {cardFilter && (
+          <div style={{ marginTop: '0.6rem' }}>
+            <button
+              onClick={() => { setCardFilter(null); setPage(1); }}
+              style={{ background: 'transparent', border: 'none', color: 'var(--primary, #4f46e5)', cursor: 'pointer', fontSize: '0.78rem', display: 'inline-flex', alignItems: 'center', gap: '0.25rem' }}
+            >
+              <X size={13} /> Clear category filter
+            </button>
+          </div>
+        )}
+      </div>
+
       {/* Kanban Board / Table View Switcher */}
       {loading ? (
         <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '200px' }}>
@@ -1066,7 +1194,7 @@ export default function CrmPage() {
                 <th>Weekly Schedule</th>
                 <th>Trial Date</th>
                 <th>Admin Notes</th>
-                <th>Updated At</th>
+                <th>Received</th>
                 <th style={{ width: 100, textAlign: 'center' }}>Action</th>
               </tr>
             </thead>
@@ -1209,7 +1337,7 @@ export default function CrmPage() {
                         </div>
                       </td>
                       <td style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-                        {formatRelativeTime(lead.updatedAt || lead.createdAt)}
+                        {formatRelativeTime(lead.createdAt || lead.updatedAt)}
                       </td>
                       <td style={{ textAlign: 'center' }} onClick={(e) => e.stopPropagation()}>
                         <div style={{ display: 'flex', justifyContent: 'center', gap: '8px' }}>
@@ -1325,7 +1453,7 @@ export default function CrmPage() {
                           <h4 style={{ margin: 0, fontSize: '0.9rem', fontWeight: 600, color: 'var(--text-main)' }}>{lead.name}</h4>
                           <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '3px' }}>
                             <Clock size={10} />
-                            {formatRelativeTime(lead.updatedAt || lead.createdAt)}
+                            {formatRelativeTime(lead.createdAt || lead.updatedAt)}
                           </span>
                         </div>
 

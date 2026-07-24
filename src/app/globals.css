@@ -375,7 +375,9 @@ body {
 /* ── Dashboard Container ──────────────────────────────── */
 .dashboard-container { flex: 1; overflow-y: auto; display: flex; flex-direction: column; }
 .dashboard-views { padding: 1.5rem; flex: 1; }
-.dashboard-view { animation: fadeIn 0.3s ease; }
+/* Gentle view entrance — no opacity-0 start, so switching routes doesn't blink. */
+.dashboard-view { animation: viewEnter 0.18s ease-out; }
+@keyframes viewEnter { from { opacity: 0.85; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
 
 /* ── Header ───────────────────────────────────────────── */
 .app-header {

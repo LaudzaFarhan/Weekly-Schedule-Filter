@@ -11,6 +11,7 @@ import {
 } from '../services/internalScheduleService';
 import { subscribeToInternalStudents } from '../services/internalStudentService';
 import { subscribeToInternalInstructors } from '../services/internalInstructorService';
+import { resolveBranchWorkingDays } from './NewOperationalsPage';
 import { DAY_NAMES, SCHEDULE_PAGE_SIZE } from '../utils/constants';
 import Pagination from '../components/ui/Pagination';
 import { Plus, Pencil, Trash2, Search, X, Calendar, MapPin, User, UserX, BookOpen, Clock, AlertTriangle, Upload, History, Trash, FileDown } from 'lucide-react';
@@ -345,6 +346,16 @@ export default function NewSchedulePage({ onNavigate }) {
   };
   const modalInstructors = instructorsForBranch(form.branchName);
 
+  // Days a given branch is open, from the Operationals config. Falls back to all
+  // days when no branch is selected or the branch has no saved working days.
+  const branchOpenDays = (branchName) => {
+    if (!branchName) return DAY_NAMES;
+    const branch = (branches || []).find((b) => b.name === branchName) || { name: branchName };
+    const days = resolveBranchWorkingDays(branch);
+    return Array.isArray(days) && days.length ? days : DAY_NAMES;
+  };
+  const modalDays = branchOpenDays(form.branchName);
+
   // Distinct programs & times present in the schedule, for the filter dropdowns.
   const programOptions = useMemo(
     () => [...new Set(classes.map((c) => c.program).filter(Boolean))].sort(),
@@ -440,13 +451,14 @@ export default function NewSchedulePage({ onNavigate }) {
     setStartTime('');
     setProgramCode('');
     setLessonNo('1');
+    const addBranch = branchList[0] || '';
     setForm({
-      day: 'Monday',
+      day: branchOpenDays(addBranch)[0] || 'Monday',
       time: '',
       program: '',
       teacher: '',
       student: '',
-      branchName: branchList[0] || '',
+      branchName: addBranch,
       classType: 'Regular',
       remarks: ''
     });
@@ -461,13 +473,14 @@ export default function NewSchedulePage({ onNavigate }) {
     setStartTime('');
     setProgramCode('');
     setLessonNo('1');
+    const allocBranch = student.branchName || branchList[0] || '';
     setForm({
-      day: 'Monday',
+      day: branchOpenDays(allocBranch)[0] || 'Monday',
       time: '',
       program: '',
       teacher: '',
       student: student.name || '',
-      branchName: student.branchName || branchList[0] || '',
+      branchName: allocBranch,
       classType: classType || 'Regular',
       remarks: ''
     });
@@ -1297,10 +1310,12 @@ export default function NewSchedulePage({ onNavigate }) {
                         // If the current instructor doesn't belong to the new
                         // branch, clear it so only valid instructors show.
                         const validForBranch = instructorsForBranch(nextBranch);
+                        const openDays = branchOpenDays(nextBranch);
                         setForm((prev) => ({
                           ...prev,
                           branchName: nextBranch,
                           teacher: validForBranch.includes(prev.teacher) ? prev.teacher : '',
+                          day: openDays.includes(prev.day) ? prev.day : (openDays[0] || prev.day),
                         }));
                       }}
                       className={`modal-select-field ${formErrors.branchName ? 'error' : ''}`}
@@ -1318,7 +1333,7 @@ export default function NewSchedulePage({ onNavigate }) {
                       onChange={(e) => setForm({ ...form, day: e.target.value })}
                       className="modal-select-field"
                     >
-                      {DAY_NAMES.map(day => <option key={day} value={day}>{day}</option>)}
+                      {modalDays.map(day => <option key={day} value={day}>{day}</option>)}
                     </select>
                   </div>
                 </div>
