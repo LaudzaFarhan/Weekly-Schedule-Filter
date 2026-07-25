@@ -11,7 +11,8 @@ import {
 } from '../services/internalScheduleService';
 import { subscribeToInternalStudents } from '../services/internalStudentService';
 import { subscribeToInternalInstructors } from '../services/internalInstructorService';
-import { resolveBranchWorkingDays } from './NewOperationalsPage';
+import { resolveBranchWorkingDays, resolveBranchHours, resolveBranchClassOps, slotTypeMeta } from './NewOperationalsPage';
+import { doTimeSlotsOverlap } from '../utils/timeUtils';
 import { DAY_NAMES, SCHEDULE_PAGE_SIZE } from '../utils/constants';
 import Pagination from '../components/ui/Pagination';
 import { Plus, Pencil, Trash2, Search, X, Calendar, MapPin, User, UserX, BookOpen, Clock, AlertTriangle, Upload, History, Trash, FileDown } from 'lucide-react';
@@ -193,6 +194,37 @@ const programDurationMin = (program) => (isKinderProgram(program) ? 90 : 120);
 /** Max students per slot: Kinder programs 4, Junior & Coder 6. */
 const maxStudentsForProgram = (program) => (isKinderProgram(program) ? 4 : 6);
 
+/** Classify a level/program string into Kinder | Junior | Coder | null. */
+const categorizeLevel = (str) => {
+  const s = String(str || '').toLowerCase();
+  if (s.includes('kinder')) return 'Kinder';
+  if (s.includes('junior')) return 'Junior';
+  if (s.includes('coder')) return 'Coder';
+  if (/^kf|^k\d/.test(s)) return 'Kinder';
+  if (/^jf|^j\d/.test(s)) return 'Junior';
+  return null;
+};
+
+/** Can a New Ops instructor (level string) teach a given category? */
+const instructorHandles = (instructor, category) => {
+  const lvl = String(instructor?.level || '').toLowerCase();
+  if (!category) return true;
+  if (category === 'Kinder') return lvl.includes('kinder');
+  if (category === 'Junior') return lvl.includes('junior');
+  if (category === 'Coder') return lvl.includes('coder');
+  return true;
+};
+
+/** Parse "HH:MM" (24h) to minutes-from-midnight. */
+const parseHHMMToMin = (hhmm) => {
+  const [h, m] = String(hhmm || '').split(':').map((n) => parseInt(n, 10));
+  if (Number.isNaN(h)) return null;
+  return h * 60 + (m || 0);
+};
+
+/** Minutes-from-midnight to "HH:MM" (24h), for the modal's time input. */
+const minToHHMM = (mins) => `${String(Math.floor(mins / 60)).padStart(2, '0')}:${String(mins % 60).padStart(2, '0')}`;
+
 /** Parse a stored program value ("JF1.5", "Coder", "K2") into code + lesson. */
 const parseProgramValue = (p) => {
   const val = String(p || '').trim();
@@ -242,6 +274,7 @@ export default function NewSchedulePage({ onNavigate }) {
   const [programCode, setProgramCode] = useState('');
   const [lessonNo, setLessonNo] = useState('1');
   const [allocChooser, setAllocChooser] = useState(null); // student pending class-type choice
+  const [dayReco, setDayReco] = useState(null); // { student, classType } — drives the Recommended Days panel
 
   // Bulk import + activity history
   const [showBulk, setShowBulk] = useState(false);
@@ -468,15 +501,16 @@ export default function NewSchedulePage({ onNavigate }) {
 
   // Open the Add modal prefilled to allocate a specific unallocated student,
   // with the class type chosen in the pre-step.
-  const openAllocateModal = (student, classType) => {
+  const openAllocateModal = (student, classType, presetDay, presetStart) => {
     setEditingClass(null);
-    setStartTime('');
+    setStartTime(presetStart || '');
     setProgramCode('');
     setLessonNo('1');
     const allocBranch = student.branchName || branchList[0] || '';
+    const openDays = branchOpenDays(allocBranch);
     setForm({
-      day: branchOpenDays(allocBranch)[0] || 'Monday',
-      time: '',
+      day: (presetDay && openDays.includes(presetDay)) ? presetDay : (openDays[0] || 'Monday'),
+      time: presetStart ? buildTimeSlot(presetStart, '') : '',
       program: '',
       teacher: '',
       student: student.name || '',
@@ -486,8 +520,132 @@ export default function NewSchedulePage({ onNavigate }) {
     });
     setFormErrors({});
     setAllocChooser(null);
+    setDayReco(null);
     setShowModal(true);
   };
+
+  // After the class-type is chosen, surface the Recommended Days panel beside
+  // the Unallocated list instead of opening the full modal immediately.
+  const startDayReco = (student, classType) => {
+    setDayReco({ student, classType, day: null });
+    setAllocChooser(null);
+  };
+
+  // Days recommended for the pending student: the branch's open days, annotated
+  // with how many classes that branch already has on each day (least busy first).
+  const recoDays = useMemo(() => {
+    if (!dayReco || !dayReco.student) return [];
+    const branch = dayReco.student.branchName || '';
+    const branchObj = (branches || []).find((b) => b.name === branch) || { name: branch };
+    const openDays = (branch ? resolveBranchWorkingDays(branchObj) : DAY_NAMES);
+    const days = (Array.isArray(openDays) && openDays.length) ? openDays : DAY_NAMES;
+    return days
+      .map((day) => ({
+        day,
+        count: classes.filter((c) => c.day === day && (!branch || c.branchName === branch)).length,
+      }))
+      .sort((a, b) => a.count - b.count);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dayReco, classes, branches]);
+
+  // Candidate time slots for the chosen day, each annotated with whether a
+  // capable instructor is free and — when not — why. Built from the branch's
+  // operating hours (falling back to 9–6) and the student's program duration.
+  const recoTimes = useMemo(() => {
+    if (!dayReco || !dayReco.day) return { slots: [], hours: null, category: null };
+    const student = dayReco.student;
+    const branch = student.branchName || '';
+    const day = dayReco.day;
+    const branchObj = (branches || []).find((b) => b.name === branch) || {};
+    const hours = resolveBranchHours(branchObj)[day] || null;
+
+    const category = categorizeLevel(student.level);
+    const duration = category === 'Kinder' ? 90 : 120;
+
+    // Instructors physically at this branch that can teach the category.
+    const capable = (instructors || []).filter((i) => {
+      const brs = Array.isArray(i.branches) ? i.branches : [];
+      const atBranch = !branch || brs.includes(branch) || brs.includes('All Branches');
+      return atBranch && instructorHandles(i, category);
+    });
+
+    // Instructors free for a candidate window (no overlapping class that day).
+    const freeFor = (label) => capable.filter((i) => !classes.some((c) =>
+      c.day === day &&
+      c.teacher === i.name &&
+      (!branch || c.branchName === branch) &&
+      c.time && doTimeSlotsOverlap(c.time, label)
+    ));
+
+    // Shared availability verdict for a bookable window.
+    const verdict = (label) => {
+      const free = freeFor(label);
+      if (capable.length === 0) {
+        return { available: false, reason: category ? `No ${category} instructor at this branch` : 'No instructor at this branch', freeCount: 0 };
+      }
+      if (free.length === 0) {
+        return { available: false, reason: 'All capable instructors busy', freeCount: 0 };
+      }
+      return { available: true, reason: `${free.length} instructor${free.length === 1 ? '' : 's'} free`, freeCount: free.length };
+    };
+
+    // ── Preferred path: the branch's manual Class Operation plan for this day.
+    const plan = resolveBranchClassOps(branchObj)[day];
+    if (Array.isArray(plan) && plan.length) {
+      const slots = plan.map((s) => {
+        const meta = slotTypeMeta(s.type);
+        const sMin = parseHHMMToMin(s.start);
+        const eMin = parseHHMMToMin(s.end);
+        const label = `${formatClock(sMin)} - ${formatClock(eMin)}`;
+        const note = s.label ? ` — ${s.label}` : '';
+
+        // Non-class blocks (break / training / meeting) are never bookable.
+        if (!meta.bookable) {
+          return {
+            startMin: sMin, start: s.start, label, planned: true, typeKey: s.type, typeLabel: meta.label,
+            color: meta.color, available: false, reason: `${meta.label}${note}`, freeCount: 0,
+          };
+        }
+        // A typed class slot only accepts its own category.
+        if (meta.category && category && meta.category !== category) {
+          return {
+            startMin: sMin, start: s.start, label, planned: true, typeKey: s.type, typeLabel: meta.label,
+            color: meta.color, available: false, reason: `${meta.label} slot — student is ${category}`, freeCount: 0,
+          };
+        }
+        // Slot shorter than the program needs.
+        if (eMin - sMin < duration) {
+          return {
+            startMin: sMin, start: s.start, label, planned: true, typeKey: s.type, typeLabel: meta.label,
+            color: meta.color, available: false, reason: `Too short — ${category || 'this program'} needs ${duration}m`, freeCount: 0,
+          };
+        }
+        const v = verdict(label);
+        return {
+          startMin: sMin, start: s.start, label, planned: true, typeKey: s.type, typeLabel: meta.label,
+          color: meta.color, ...v, reason: v.available ? `${meta.label}${note} · ${v.reason}` : v.reason,
+        };
+      }).sort((a, b) => a.startMin - b.startMin);
+
+      return { slots, hours, category, duration, capableCount: capable.length, fromPlan: true };
+    }
+
+    // ── Fallback: hourly windows inside the operating hours.
+    const openMin = hours ? parseHHMMToMin(hours.start) : 9 * 60;
+    const closeMin = hours ? parseHHMMToMin(hours.end) : 18 * 60;
+    const step = 60; // generate an option each hour
+
+    const slots = [];
+    if (openMin != null && closeMin != null) {
+      for (let start = openMin; start + duration <= closeMin; start += step) {
+        const end = start + duration;
+        const label = `${formatClock(start)} - ${formatClock(end)}`;
+        slots.push({ startMin: start, start: minToHHMM(start), label, planned: false, ...verdict(label) });
+      }
+    }
+    return { slots, hours, category, duration, capableCount: capable.length, fromPlan: false };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dayReco, classes, instructors, branches]);
 
   const openEditModal = (c) => {
     setEditingClass(c);
@@ -631,12 +789,15 @@ export default function NewSchedulePage({ onNavigate }) {
 
   return (
     <section className="dashboard-view active">
-      {/* Top row: Unallocated + Schedule Activity, side by side */}
+      {/* Top row: [Unallocated + Schedule Activity stacked] beside [Recommended Days] */}
       <div style={{ display: 'grid', gridTemplateColumns: showUnallocated ? '1fr 1fr' : '1fr', gap: '1.5rem', alignItems: 'start', marginBottom: '1.5rem' }}>
+
+        {/* Left column: Unallocated (top) + Schedule Activity (bottom) */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', minWidth: 0 }}>
 
         {/* Unallocated Students sidebar */}
         {showUnallocated && (
-          <div className="panel" style={{ margin: 0, position: 'sticky', top: '1rem' }}>
+          <div className="panel" style={{ margin: 0 }}>
             <div className="panel-header" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: '0.15rem' }}>
               <h2 style={{ fontSize: '1rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
                 <UserX size={16} /> Unallocated
@@ -693,7 +854,7 @@ export default function NewSchedulePage({ onNavigate }) {
           </div>
         )}
 
-        {/* Schedule Activity — side by side with Unallocated */}
+        {/* Schedule Activity — stacked below Unallocated */}
         <div className="panel" style={{ margin: 0 }}>
           <div className="panel-header" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
             <h2 style={{ fontSize: '1rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
@@ -750,6 +911,176 @@ export default function NewSchedulePage({ onNavigate }) {
             )}
           </div>
         </div>
+        {/* end left column */}
+        </div>
+
+        {/* Recommended Days — beside Unallocated. Appears after a student's
+            class type is chosen; clicking a day opens the allocate popup. */}
+        {showUnallocated && (
+          <div className="panel new-ops-anim" style={{ margin: 0, position: 'sticky', top: '1rem' }}>
+            <div className="panel-header" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: '0.15rem' }}>
+              <h2 style={{ fontSize: '1rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                <Calendar size={16} /> Recommended Days
+              </h2>
+              <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                {!dayReco
+                  ? 'Pick a student from Unallocated, choose a class type, then select a day.'
+                  : !dayReco.day
+                    ? `${dayReco.student.name} · ${dayReco.classType} Class — pick a day`
+                    : `${dayReco.student.name} · ${dayReco.day} — pick a time`}
+              </span>
+            </div>
+
+            <div style={{ padding: '0.85rem 1rem' }}>
+              {!dayReco ? (
+                <div style={{
+                  display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+                  gap: '0.5rem', padding: '1.5rem 1rem', textAlign: 'center', color: 'var(--text-muted)',
+                  border: '1px dashed var(--border-color)', borderRadius: '10px',
+                }}>
+                  <Calendar size={22} style={{ opacity: 0.5 }} />
+                  <span style={{ fontSize: '0.8rem' }}>
+                    No student selected. Click an unallocated student to see recommended days for their branch.
+                  </span>
+                </div>
+              ) : (
+                <>
+                  {/* Context row: class type + student meta + cancel */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.75rem', flexWrap: 'wrap' }}>
+                    <span style={{
+                      fontSize: '0.72rem', fontWeight: 700, padding: '0.15rem 0.55rem', borderRadius: '99px',
+                      color: dayReco.classType === 'Trial' ? '#ea580c' : 'var(--primary-blue, #4f46e5)',
+                      background: dayReco.classType === 'Trial' ? 'rgba(249,115,22,0.12)' : 'var(--primary-blue-light, rgba(79,70,229,0.1))',
+                    }}>
+                      {dayReco.classType} Class
+                    </span>
+                    <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                      {[dayReco.student.level, dayReco.student.branchName].filter(Boolean).join(' · ') || '—'}
+                    </span>
+                    <button
+                      onClick={() => setDayReco(null)}
+                      style={{ marginLeft: 'auto', background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', fontSize: '0.75rem', display: 'inline-flex', alignItems: 'center', gap: '0.2rem' }}
+                    >
+                      <X size={13} /> Cancel
+                    </button>
+                  </div>
+
+                  {!dayReco.day ? (
+                    /* Step 1 — day picker */
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                      {recoDays.map((rd, i) => (
+                        <button
+                          key={rd.day}
+                          onClick={() => setDayReco((prev) => ({ ...prev, day: rd.day }))}
+                          title={`See times for ${rd.day}`}
+                          className="new-ops-anim"
+                          style={{
+                            display: 'flex', alignItems: 'center', gap: '0.6rem', width: '100%', textAlign: 'left',
+                            padding: '0.6rem 0.75rem', borderRadius: '10px', cursor: 'pointer',
+                            border: `1px solid ${i === 0 ? 'var(--primary-blue, #4f46e5)' : 'var(--border-color)'}`,
+                            background: i === 0 ? 'var(--primary-blue-light, rgba(79,70,229,0.08))' : 'var(--bg-color)',
+                          }}
+                        >
+                          <Calendar size={15} style={{ flexShrink: 0, color: i === 0 ? 'var(--primary-blue, #4f46e5)' : 'var(--text-muted)' }} />
+                          <span style={{ flex: 1, fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-main)' }}>
+                            {rd.day}
+                          </span>
+                          {i === 0 && (
+                            <span style={{ fontSize: '0.62rem', fontWeight: 700, color: 'var(--primary-blue, #4f46e5)', background: 'rgba(79,70,229,0.12)', padding: '0.1rem 0.4rem', borderRadius: '5px' }}>
+                              BEST
+                            </span>
+                          )}
+                          <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', flexShrink: 0 }}>
+                            {rd.count} class{rd.count === 1 ? '' : 'es'}
+                          </span>
+                        </button>
+                      ))}
+                      {recoDays.length === 0 && (
+                        <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', margin: 0 }}>
+                          No open days configured for this branch. Set them under Operationals.
+                        </p>
+                      )}
+                    </div>
+                  ) : (
+                    /* Step 2 — time picker for the chosen day */
+                    <>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem', marginBottom: '0.6rem' }}>
+                        <button
+                          onClick={() => setDayReco((prev) => ({ ...prev, day: null }))}
+                          style={{ background: 'transparent', border: '1px solid var(--border-color)', borderRadius: '8px', padding: '0.25rem 0.6rem', cursor: 'pointer', color: 'var(--text-secondary)', fontSize: '0.75rem', display: 'inline-flex', alignItems: 'center', gap: '0.25rem' }}
+                        >
+                          ← Days
+                        </button>
+                        <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', textAlign: 'right' }}>
+                          {recoTimes.fromPlan
+                            ? 'Class Operation plan'
+                            : recoTimes.hours
+                              ? `Open ${recoTimes.hours.start}–${recoTimes.hours.end}`
+                              : 'Hours not set (9–6 assumed)'}
+                          {recoTimes.category ? ` · ${recoTimes.category} ${recoTimes.duration}m` : ''}
+                        </span>
+                      </div>
+
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', maxHeight: '260px', overflowY: 'auto' }}>
+                        {recoTimes.slots.map((sl) => (
+                          <button
+                            key={sl.start}
+                            onClick={() => sl.available && openAllocateModal(dayReco.student, dayReco.classType, dayReco.day, sl.start)}
+                            disabled={!sl.available}
+                            title={sl.available ? `Allocate at ${sl.label}` : sl.reason}
+                            className="new-ops-anim"
+                            style={{
+                              display: 'flex', alignItems: 'center', gap: '0.6rem', width: '100%', textAlign: 'left',
+                              padding: '0.55rem 0.75rem', borderRadius: '10px',
+                              cursor: sl.available ? 'pointer' : 'not-allowed',
+                              opacity: sl.available ? 1 : 0.7,
+                              border: `1px solid ${sl.available ? 'rgba(16,185,129,0.5)' : 'var(--border-color)'}`,
+                              background: sl.available ? 'rgba(16,185,129,0.06)' : 'var(--bg-color)',
+                            }}
+                          >
+                            <Clock size={15} style={{ flexShrink: 0, color: sl.available ? 'var(--success, #10b981)' : 'var(--text-muted)' }} />
+                            <span style={{ flex: 1, minWidth: 0 }}>
+                              <span style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.82rem', fontWeight: 600, color: 'var(--text-main)' }}>
+                                {sl.label}
+                                {sl.planned && sl.typeLabel && (
+                                  <span style={{ fontSize: '0.6rem', fontWeight: 700, color: sl.color, background: `${sl.color}1f`, padding: '0.05rem 0.35rem', borderRadius: '5px', whiteSpace: 'nowrap' }}>
+                                    {sl.typeLabel}
+                                  </span>
+                                )}
+                              </span>
+                              <span style={{ display: 'block', fontSize: '0.68rem', color: sl.available ? 'var(--success, #10b981)' : 'var(--danger, #ef4444)' }}>
+                                {sl.available ? `✓ ${sl.reason}` : `✕ ${sl.reason}`}
+                              </span>
+                            </span>
+                          </button>
+                        ))}
+                        {recoTimes.slots.length === 0 && (
+                          <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', margin: 0 }}>
+                            No time slots fit this day. Define a Class Operation plan or widen the operating hours under Operationals.
+                          </p>
+                        )}
+                      </div>
+
+                      {/* Manual time entry — bypass recommendations */}
+                      <button
+                        onClick={() => openAllocateModal(dayReco.student, dayReco.classType, dayReco.day)}
+                        className="new-ops-anim"
+                        style={{
+                          marginTop: '0.7rem', width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          gap: '0.4rem', padding: '0.55rem 0.75rem', borderRadius: '10px', cursor: 'pointer',
+                          border: '1px dashed var(--primary-blue, #4f46e5)', background: 'transparent',
+                          color: 'var(--primary-blue, #4f46e5)', fontSize: '0.8rem', fontWeight: 600,
+                        }}
+                      >
+                        <Pencil size={14} /> Set time manually
+                      </button>
+                    </>
+                  )}
+                </>
+              )}
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="panel full-schedule-panel">
@@ -1228,7 +1559,7 @@ export default function NewSchedulePage({ onNavigate }) {
                 <button
                   key={opt.type}
                   className="alloc-type-card"
-                  onClick={() => openAllocateModal(allocChooser, opt.type)}
+                  onClick={() => startDayReco(allocChooser, opt.type)}
                   style={{
                     display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '0.35rem',
                     padding: '1.1rem 1rem', borderRadius: '12px', cursor: 'pointer', textAlign: 'left',

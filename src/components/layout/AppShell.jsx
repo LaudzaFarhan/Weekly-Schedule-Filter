@@ -1,7 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { useRouter, usePathname } from 'next/navigation';
+import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { ScheduleProvider } from '@/contexts/ScheduleContext';
 import { ToastProvider } from '@/components/ui/Toast';
@@ -51,10 +50,17 @@ const PAGE_MAP = {
   admin: AdminPage,
 };
 
+/** Derive { mode, page } from a URL pathname. */
+function parsePath(pathname) {
+  const parts = String(pathname || '').split('/').filter(Boolean);
+  if (parts[0] === 'new') return { mode: 'new', page: parts[1] || 'schedule' };
+  if (parts[0] === 'old') return { mode: 'old', page: parts[1] || 'home' };
+  if (parts[0]) return { mode: 'old', page: parts[0] };
+  return { mode: 'old', page: 'home' };
+}
+
 export default function AppShell() {
   const { user, loading } = useAuth();
-  const router = useRouter();
-  const pathname = usePathname();
   const [currentPage, setCurrentPage] = useState('home');
   const [pageParams, setPageParams] = useState(null);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
@@ -77,28 +83,21 @@ export default function AppShell() {
     });
   };
 
-  // Sync state from URL pathname on mount and changes
-  useEffect(() => {
-    if (!pathname) return;
-    const parts = pathname.split('/').filter(Boolean);
-
-    let mode = 'old';
-    let page = 'home';
-
-    if (parts[0] === 'new') {
-      mode = 'new';
-      page = parts[1] || 'schedule';
-    } else if (parts[0] === 'old') {
-      mode = 'old';
-      page = parts[1] || 'home';
-    } else if (parts[0]) {
-      mode = 'old';
-      page = parts[0];
-    }
-
+  // Sync the view from the URL on first mount, then only on browser back /
+  // forward. Navigation itself uses history.pushState (see handleNavigate), so
+  // the App Router never re-resolves the route — no segment remount, no auth
+  // re-check, and therefore no loading-screen flash between pages.
+  const syncFromLocation = useCallback(() => {
+    const { mode, page } = parsePath(window.location.pathname);
     setOpsMode(mode);
     setCurrentPage(page);
-  }, [pathname]);
+  }, []);
+
+  useEffect(() => {
+    syncFromLocation();
+    window.addEventListener('popstate', syncFromLocation);
+    return () => window.removeEventListener('popstate', syncFromLocation);
+  }, [syncFromLocation]);
 
   if (loading) {
     return (
@@ -140,10 +139,12 @@ export default function AppShell() {
 
   const handleNavigate = (page, params = null) => {
     setPageParams(params);
-    if (opsMode === 'new') {
-      router.push(`/new/${page}`);
-    } else {
-      router.push(`/${page}`);
+    // Swap the view immediately and update the address bar without going
+    // through the router, so nothing above this component is torn down.
+    setCurrentPage(page);
+    const url = opsMode === 'new' ? `/new/${page}` : `/${page}`;
+    if (window.location.pathname !== url) {
+      window.history.pushState({}, '', url);
     }
     // Smooth scroll to top of dashboard
     const container = document.querySelector('.dashboard-container');
@@ -151,13 +152,12 @@ export default function AppShell() {
   };
 
   const handleSetOpsMode = (mode) => {
-    // Update mode optimistically so the switcher pill animates immediately,
-    // instead of waiting for the route change to resolve.
+    const page = mode === 'new' ? 'schedule' : 'home';
     setOpsMode(mode);
-    if (mode === 'new') {
-      router.push('/new/schedule');
-    } else {
-      router.push('/home');
+    setCurrentPage(page);
+    const url = mode === 'new' ? '/new/schedule' : '/home';
+    if (window.location.pathname !== url) {
+      window.history.pushState({}, '', url);
     }
   };
 

@@ -354,20 +354,61 @@ body {
 
 .sidebar-nav { display: flex; flex-direction: column; padding: 0.75rem 0; gap: 2px; flex: 1; overflow-y: auto; }
 .nav-item {
+  position: relative; overflow: hidden;
   display: flex; align-items: center; gap: 10px; padding: 0.65rem 1.5rem;
   font-size: 0.85rem; color: var(--sidebar-text); text-decoration: none;
   cursor: pointer; border: none; background: none; font-family: inherit;
-  transition: all 0.2s ease; border-left: 3px solid transparent; width: 100%; text-align: left;
+  border-left: 3px solid transparent; width: 100%; text-align: left;
   border-radius: 0;
+  transition: background-color 0.2s ease, color 0.2s ease,
+              transform 0.18s cubic-bezier(0.16, 1, 0.3, 1),
+              border-left-color 0.2s ease;
 }
-.nav-item:hover { background-color: var(--sidebar-active-bg); color: white; }
+.nav-item:hover { background-color: var(--sidebar-active-bg); color: white; transform: translateX(3px); }
+/* Press feedback — a quick nudge + squash while the mouse is down. */
+.nav-item:active { transform: translateX(1px) scale(0.985); }
 .nav-item.active {
   background-color: var(--sidebar-active-bg); color: white;
   font-weight: 600; border-left-color: var(--primary-blue);
+  animation: navItemActivate 0.32s cubic-bezier(0.16, 1, 0.3, 1);
 }
 .nav-item.active::before {
-  content: ''; position: absolute; left: 0; width: 3px; height: 100%;
+  content: ''; position: absolute; left: 0; top: 0; width: 3px; height: 100%;
   background: var(--primary-blue); border-radius: 0 2px 2px 0;
+  transform-origin: center; animation: navBarGrow 0.34s cubic-bezier(0.16, 1, 0.3, 1);
+}
+/* Subtle sheen that sweeps across the row as it becomes active. */
+.nav-item.active::after {
+  content: ''; position: absolute; inset: 0; pointer-events: none;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.07), transparent);
+  animation: navSheen 0.5s ease-out;
+}
+.nav-item.active svg { animation: navIconPop 0.34s cubic-bezier(0.16, 1, 0.3, 1); }
+
+@keyframes navItemActivate {
+  from { transform: translateX(-8px); }
+  60%  { transform: translateX(2px); }
+  to   { transform: translateX(0); }
+}
+@keyframes navBarGrow {
+  from { transform: scaleY(0.15); opacity: 0; }
+  to   { transform: scaleY(1); opacity: 1; }
+}
+@keyframes navSheen {
+  from { transform: translateX(-100%); }
+  to   { transform: translateX(100%); }
+}
+@keyframes navIconPop {
+  from { transform: scale(0.82); }
+  55%  { transform: scale(1.1); }
+  to   { transform: scale(1); }
+}
+
+/* Respect reduced-motion preferences. */
+@media (prefers-reduced-motion: reduce) {
+  .nav-item, .nav-item.active, .nav-item.active::before,
+  .nav-item.active::after, .nav-item.active svg { animation: none; transition: none; }
+  .nav-item:hover, .nav-item:active { transform: none; }
 }
 .logout-btn { margin-top: auto; color: #f87171; }
 .logout-btn:hover { background-color: rgba(239, 68, 68, 0.1); color: #fca5a5; }
