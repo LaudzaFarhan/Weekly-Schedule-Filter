@@ -1,4 +1,5 @@
 import { query } from '@/lib/db';
+import { buildListQuery, withLimit } from '@/lib/listQuery';
 import { NextResponse } from 'next/server';
 
 // Map database snake_case row to frontend camelCase object
@@ -17,13 +18,29 @@ const mapRow = (row) => ({
 });
 
 /**
- * GET: Fetch all internal schedule classes
+ * GET: Fetch internal schedule classes.
+ * Optional: ?search=&day=&branch=&teacher=&classType=&limit=
+ * With no parameters this returns every class, as before.
  */
-export async function GET() {
+export async function GET(req) {
   try {
-    const res = await query('SELECT * FROM internal_classes ORDER BY id DESC');
-    const mapped = res.rows.map(mapRow);
-    return NextResponse.json(mapped);
+    const { searchParams } = new URL(req.url);
+    const { clause, params, limit } = buildListQuery(searchParams, {
+      searchColumns: ['student', 'teacher', 'program', 'branch_name', 'time'],
+      filters: {
+        day: 'day',
+        branch: 'branch_name',
+        teacher: 'teacher',
+        classType: 'class_type',
+      },
+    });
+    const { sql, params: finalParams } = withLimit(
+      `SELECT * FROM internal_classes ${clause} ORDER BY id DESC`,
+      params,
+      limit
+    );
+    const res = await query(sql, finalParams);
+    return NextResponse.json(res.rows.map(mapRow));
   } catch (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }

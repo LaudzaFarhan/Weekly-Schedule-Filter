@@ -23,6 +23,8 @@ import WorkloadPage from '@/views/WorkloadPage';
 import TasksPage from '@/views/TasksPage';
 import CrmPage from '@/views/CrmPage';
 import ComingSoonPage from '@/views/ComingSoonPage';
+import NewHomePage from '@/views/NewHomePage';
+import NewLeavePage from '@/views/NewLeavePage';
 import NewSchedulePage from '@/views/NewSchedulePage';
 import NewOperationalsPage from '@/views/NewOperationalsPage';
 import NewStudentsPage from '@/views/NewStudentsPage';
@@ -53,7 +55,7 @@ const PAGE_MAP = {
 /** Derive { mode, page } from a URL pathname. */
 function parsePath(pathname) {
   const parts = String(pathname || '').split('/').filter(Boolean);
-  if (parts[0] === 'new') return { mode: 'new', page: parts[1] || 'schedule' };
+  if (parts[0] === 'new') return { mode: 'new', page: parts[1] || 'home' };
   if (parts[0] === 'old') return { mode: 'old', page: parts[1] || 'home' };
   if (parts[0]) return { mode: 'old', page: parts[0] };
   return { mode: 'old', page: 'home' };
@@ -114,7 +116,9 @@ export default function AppShell() {
 
   let PageComponent;
   if (opsMode === 'new') {
-    if (currentPage === 'operationals') {
+    if (currentPage === 'home' || currentPage === 'dashboard') {
+      PageComponent = NewHomePage;
+    } else if (currentPage === 'operationals') {
       PageComponent = NewOperationalsPage;
     } else if (currentPage === 'students') {
       PageComponent = NewStudentsPage;
@@ -124,6 +128,8 @@ export default function AppShell() {
       PageComponent = NewCrmPage;
     } else if (currentPage === 'workload') {
       PageComponent = NewWorkloadPage;
+    } else if (currentPage === 'leave') {
+      PageComponent = NewLeavePage;
     } else if (currentPage === 'trial-availability') {
       PageComponent = NewTrialAvailabilityPage;
     } else if (currentPage === 'activity') {
@@ -152,10 +158,10 @@ export default function AppShell() {
   };
 
   const handleSetOpsMode = (mode) => {
-    const page = mode === 'new' ? 'schedule' : 'home';
+    const page = 'home';
     setOpsMode(mode);
     setCurrentPage(page);
-    const url = mode === 'new' ? '/new/schedule' : '/home';
+    const url = mode === 'new' ? '/new/home' : '/home';
     if (window.location.pathname !== url) {
       window.history.pushState({}, '', url);
     }

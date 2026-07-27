@@ -5,7 +5,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useSchedule } from '@/contexts/ScheduleContext';
 import {
   Home, AlertTriangle, Calendar, Activity, Star,
-  Search, FileText, PenLine, Terminal, Settings, LogOut, User, BarChart3, ClipboardList, Users, Building2, PanelLeftClose
+  Search, FileText, PenLine, Terminal, Settings, LogOut, User, BarChart3, ClipboardList, Users, Building2, PanelLeftClose, CalendarOff
 } from 'lucide-react';
 import { listenToMyTasks } from '@/services/taskService';
 
@@ -32,6 +32,15 @@ const navItems = [
   { id: 'profiles', icon: User, label: 'Instructor Profiles', roleKey: 'profiles', globalKey: 'profiles' },
   { id: 'api-docs', icon: Terminal, label: 'API Documentation', roleKey: 'api_docs', globalKey: 'api_docs' },
   { id: 'admin', icon: Settings, label: 'Admin Settings', roleKey: 'admin', globalKey: 'admin' },
+];
+
+/**
+ * New Operations pages that own their own nav entry. Anything not in this list
+ * falls back to the Schedule view, so Schedule is the one that highlights.
+ */
+const NEW_OPS_PAGES = [
+  'home', 'dashboard', 'operationals', 'students', 'instructors',
+  'crm', 'workload', 'leave', 'trial-availability', 'activity', 'api',
 ];
 
 export default function Sidebar({ currentPage, onNavigate, onToggleSearch, opsMode = 'old', setOpsMode, onToggleSidebar }) {
@@ -121,7 +130,17 @@ export default function Sidebar({ currentPage, onNavigate, onToggleSearch, opsMo
         {opsMode === 'new' && (
           <>
             <button
-              className={`nav-item ${currentPage !== 'operationals' && currentPage !== 'students' && currentPage !== 'instructors' && currentPage !== 'crm' && currentPage !== 'workload' && currentPage !== 'trial-availability' && currentPage !== 'activity' && currentPage !== 'api' ? 'active' : ''}`}
+              className={`nav-item ${currentPage === 'home' || currentPage === 'dashboard' ? 'active' : ''}`}
+              onClick={() => onNavigate('home')}
+              style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                <Home size={20} />
+                Dashboard
+              </div>
+            </button>
+            <button
+              className={`nav-item ${NEW_OPS_PAGES.includes(currentPage) ? '' : 'active'}`}
               onClick={() => onNavigate('schedule')}
               style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
             >
@@ -178,6 +197,16 @@ export default function Sidebar({ currentPage, onNavigate, onToggleSearch, opsMo
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
                 <BarChart3 size={20} />
                 Workload
+              </div>
+            </button>
+            <button
+              className={`nav-item ${currentPage === 'leave' ? 'active' : ''}`}
+              onClick={() => onNavigate('leave')}
+              style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                <CalendarOff size={20} />
+                Leave Management
               </div>
             </button>
             <button

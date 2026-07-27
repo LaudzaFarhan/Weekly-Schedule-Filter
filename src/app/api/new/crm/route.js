@@ -1,4 +1,5 @@
 import { query } from '@/lib/db';
+import { buildListQuery, withLimit } from '@/lib/listQuery';
 import { NextResponse } from 'next/server';
 
 const mapRow = (row) => ({
@@ -15,11 +16,23 @@ const mapRow = (row) => ({
 });
 
 /**
- * GET: Fetch all new CRM leads
+ * GET: Fetch new CRM leads.
+ * Optional: ?search=&status=&branch=&limit=
+ * With no parameters this returns every lead, as before.
  */
-export async function GET() {
+export async function GET(req) {
   try {
-    const res = await query('SELECT * FROM new_crm_leads ORDER BY updated_at DESC');
+    const { searchParams } = new URL(req.url);
+    const { clause, params, limit } = buildListQuery(searchParams, {
+      searchColumns: ['name', 'phone', 'message', 'notes'],
+      filters: { status: 'status', branch: 'branch' },
+    });
+    const { sql, params: finalParams } = withLimit(
+      `SELECT * FROM new_crm_leads ${clause} ORDER BY updated_at DESC`,
+      params,
+      limit
+    );
+    const res = await query(sql, finalParams);
     return NextResponse.json(res.rows.map(mapRow));
   } catch (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });

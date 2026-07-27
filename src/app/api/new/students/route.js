@@ -1,4 +1,5 @@
 import { query } from '@/lib/db';
+import { buildListQuery, withLimit } from '@/lib/listQuery';
 import { NextResponse } from 'next/server';
 
 const mapRow = (row) => ({
@@ -15,11 +16,23 @@ const mapRow = (row) => ({
 });
 
 /**
- * GET: Fetch all internal students
+ * GET: Fetch internal students.
+ * Optional: ?search=&branch=&status=&limit=
+ * With no parameters this returns every student, as before.
  */
-export async function GET() {
+export async function GET(req) {
   try {
-    const res = await query('SELECT * FROM internal_students ORDER BY name ASC');
+    const { searchParams } = new URL(req.url);
+    const { clause, params, limit } = buildListQuery(searchParams, {
+      searchColumns: ['name', 'parent_name', 'contact', 'level'],
+      filters: { branch: 'branch_name', status: 'status' },
+    });
+    const { sql, params: finalParams } = withLimit(
+      `SELECT * FROM internal_students ${clause} ORDER BY name ASC`,
+      params,
+      limit
+    );
+    const res = await query(sql, finalParams);
     return NextResponse.json(res.rows.map(mapRow));
   } catch (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
