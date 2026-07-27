@@ -171,6 +171,7 @@ export default function AppShell() {
             onToggleSearch={() => setIsSearchOpen(true)} 
             opsMode={opsMode}
             setOpsMode={handleSetOpsMode}
+            onToggleSidebar={toggleSidebar}
           />
           <main className="dashboard-container">
             <Header onToggleSearch={() => setIsSearchOpen(true)} opsMode={opsMode} onToggleSidebar={toggleSidebar} sidebarCollapsed={sidebarCollapsed} />

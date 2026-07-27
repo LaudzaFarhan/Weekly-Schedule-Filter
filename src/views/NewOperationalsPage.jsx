@@ -3,8 +3,9 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useSchedule } from '../contexts/ScheduleContext';
 import { useToast } from '../components/ui/Toast';
+import { subscribeToInternalInstructors } from '../services/internalInstructorService';
 import { DAY_NAMES, getWorkingDaysForBranch } from '../utils/constants';
-import { MapPin, Save, Building2, Clock, X, Plus, Trash2, Copy, CalendarClock } from 'lucide-react';
+import { MapPin, Save, Building2, Clock, X, Plus, Trash2, Copy, CalendarClock, AlertTriangle, Wand2 } from 'lucide-react';
 
 /** Resolve saved per-day operating hours for a branch: { Monday: {start,end}, ... } */
 export function resolveBranchHours(branch) {
@@ -36,6 +37,103 @@ export function resolveBranchClassOps(branch) {
   return (branch && branch.classOperations) || {};
 }
 
+/** Can a New Ops instructor level string cover a slot category? */
+function levelCovers(level, category) {
+  const l = String(level || '').toLowerCase();
+  if (!category) return true; // "Any Class" — anyone can take it
+  if (category === 'Kinder') return l.includes('kinder');
+  if (category === 'Junior') return l.includes('junior');
+  if (category === 'Coder') return l.includes('coder');
+  return true;
+}
+
+/** Instructors assigned to a branch (explicitly, or via "All Branches"). */
+function instructorsAtBranch(instructors, branchName) {
+  return (instructors || []).filter((i) => {
+    const brs = Array.isArray(i.branches) ? i.branches : [];
+    return brs.includes(branchName) || brs.includes('All Branches');
+  });
+}
+
+/**
+ * Maximum number of the given slots that can run at once, given the available
+ * instructors. Each instructor teaches at most one slot at a time, and can only
+ * take a slot whose category their level covers — a bipartite matching.
+ */
+function maxConcurrentAssignable(slots, instructors) {
+  const options = slots.map((s) =>
+    instructors.reduce((acc, inst, idx) => {
+      if (levelCovers(inst.level, slotTypeMeta(s.type).category)) acc.push(idx);
+      return acc;
+    }, [])
+  );
+  const takenBy = new Array(instructors.length).fill(-1);
+
+  const assign = (slotIdx, seen) => {
+    for (const instIdx of options[slotIdx]) {
+      if (seen[instIdx]) continue;
+      seen[instIdx] = true;
+      if (takenBy[instIdx] === -1 || assign(takenBy[instIdx], seen)) {
+        takenBy[instIdx] = slotIdx;
+        return true;
+      }
+    }
+    return false;
+  };
+
+  let matched = 0;
+  for (let s = 0; s < slots.length; s += 1) {
+    if (assign(s, new Array(instructors.length).fill(false))) matched += 1;
+  }
+  return matched;
+}
+
+const toMin = (hhmm) => {
+  const [h, m] = String(hhmm || '').split(':').map((n) => parseInt(n, 10));
+  return Number.isNaN(h) ? null : h * 60 + (m || 0);
+};
+
+const minToHHMM = (mins) =>
+  `${String(Math.floor(mins / 60)).padStart(2, '0')}:${String(mins % 60).padStart(2, '0')}`;
+
+/**
+ * Find slots in a day's plan that exceed the branch's instructor capacity.
+ * Walks every slot start time, collects the class slots running at that moment,
+ * and checks they can all be staffed at once. Returns Map(index -> reason).
+ */
+function findCapacityConflicts(daySlots, instructors) {
+  const conflicts = new Map();
+  const classSlots = daySlots
+    .map((slot, idx) => ({ slot, idx, start: toMin(slot.start), end: toMin(slot.end) }))
+    .filter((r) => slotTypeMeta(r.slot.type).bookable && r.start != null && r.end != null && r.end > r.start);
+
+  if (classSlots.length === 0) return conflicts;
+
+  for (const probe of classSlots) {
+    // Everything running at this instant.
+    const group = classSlots.filter((r) => r.start <= probe.start && r.end > probe.start);
+    if (group.length <= 1 && instructors.length >= 1) {
+      // A lone slot still needs at least one instructor who can teach it.
+      const solo = maxConcurrentAssignable(group.map((g) => g.slot), instructors);
+      if (solo < group.length) {
+        for (const g of group) {
+          const cat = slotTypeMeta(g.slot.type).category;
+          conflicts.set(g.idx, `No ${cat || 'available'} instructor at this branch`);
+        }
+      }
+      continue;
+    }
+    const capacity = maxConcurrentAssignable(group.map((g) => g.slot), instructors);
+    if (capacity < group.length) {
+      const reason = instructors.length === 0
+        ? 'No instructors assigned to this branch'
+        : `${group.length} classes overlap but only ${capacity} can be staffed (${instructors.length} instructor${instructors.length === 1 ? '' : 's'} at this branch)`;
+      for (const g of group) conflicts.set(g.idx, reason);
+    }
+  }
+  return conflicts;
+}
+
 /**
  * Resolve a branch's operational days: prefer the explicit `workingDays`
  * saved on the branch, otherwise fall back to the legacy per-branch default.
@@ -56,6 +154,7 @@ export default function NewOperationalsPage() {
   const [draftOps, setDraftOps] = useState({});      // branchId -> { day: [ {type,start,end,label} ] }
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
+  const [instructors, setInstructors] = useState([]);
 
   // Day setup editor state (operating hours + class operation slots)
   const [editor, setEditor] = useState(null);        // { branchId, day, branchName }
@@ -66,6 +165,27 @@ export default function NewOperationalsPage() {
   const [slotBranchFilter, setSlotBranchFilter] = useState('all');
   const [slotDayFilter, setSlotDayFilter] = useState('all');
   const [slotTypeFilter, setSlotTypeFilter] = useState('all');
+
+  // Quick builder — generate a whole day's slots in one go
+  const [qbOpen, setQbOpen] = useState(false);
+  const [qbBranchId, setQbBranchId] = useState('');
+  const [qbDays, setQbDays] = useState(() => new Set());
+  const [qbStart, setQbStart] = useState('13:00');
+  const [qbType, setQbType] = useState('any');
+  const [qbDuration, setQbDuration] = useState(120);
+  const [qbGap, setQbGap] = useState(0);
+  const [qbGapAsBreak, setQbGapAsBreak] = useState(false);
+  const [qbCount, setQbCount] = useState('fill'); // 'fill' | number of slots
+  const [qbReplace, setQbReplace] = useState(true);
+
+  // Manual single-slot add
+  const [maOpen, setMaOpen] = useState(false);
+  const [maBranchId, setMaBranchId] = useState('');
+  const [maDay, setMaDay] = useState('Monday');
+  const [maType, setMaType] = useState('any');
+  const [maStart, setMaStart] = useState('13:00');
+  const [maEnd, setMaEnd] = useState('15:00');
+  const [maLabel, setMaLabel] = useState('');
 
   // Sync the drafts from context branches. When there are no unsaved edits we
   // fully re-sync (so a cloud-config load after mount is reflected); when the
@@ -94,6 +214,12 @@ export default function NewOperationalsPage() {
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [branches]);
+
+  // New Ops instructors drive how many classes a branch can run at once.
+  useEffect(() => {
+    const unsubscribe = subscribeToInternalInstructors((data) => setInstructors(data || []));
+    return () => unsubscribe();
+  }, []);
 
   const openHoursEditor = (branch, day) => {
     const h = draftHours[branch.id]?.[day];
@@ -150,23 +276,6 @@ export default function NewOperationalsPage() {
     });
   };
 
-  const addSlot = (branchId, day) => {
-    setDirty(true);
-    setDraftOps((prev) => {
-      const branchOps = { ...(prev[branchId] || {}) };
-      const list = [...(branchOps[day] || [])];
-      // Continue from the last slot's end, else the day's opening time.
-      const last = list[list.length - 1];
-      const start = last?.end || draftHours[branchId]?.[day]?.start || '13:00';
-      const [h, m] = start.split(':').map((n) => parseInt(n, 10) || 0);
-      const endMin = Math.min(h * 60 + m + 120, 23 * 60 + 59);
-      const end = `${String(Math.floor(endMin / 60)).padStart(2, '0')}:${String(endMin % 60).padStart(2, '0')}`;
-      list.push({ type: 'any', start, end, label: '' });
-      branchOps[day] = list;
-      return { ...prev, [branchId]: branchOps };
-    });
-  };
-
   // Copy one day's slot plan to every other open day of the same branch.
   const copyDayPlan = (branchId, day) => {
     const source = draftOps[branchId]?.[day] || [];
@@ -193,6 +302,180 @@ export default function NewOperationalsPage() {
     });
   };
 
+  // ── Manual single-slot add ──────────────────────────────────────────────
+  const openManualAdd = () => {
+    const branch = branches.find((b) => b.id === slotBranchFilter) || branches[0];
+    if (!branch) return;
+    if (instructorsAtBranch(instructors, branch.name).length === 0) {
+      showToast({
+        title: 'No instructors at this branch',
+        message: `Assign at least one instructor to ${branch.name} under Instructors before planning class slots.`,
+        variant: 'warning',
+        duration: 6000,
+      });
+      return;
+    }
+    const openDays = DAY_NAMES.filter((d) => draft[branch.id]?.has(d));
+    const day = slotDayFilter !== 'all' ? slotDayFilter : (openDays[0] || 'Monday');
+    // Continue after the day's last slot when there is one.
+    const list = draftOps[branch.id]?.[day] || [];
+    const hrs = draftHours[branch.id]?.[day];
+    const openMin = toMin(hrs?.start) ?? 13 * 60;
+    const closeMin = toMin(hrs?.end) ?? 18 * 60;
+    let startMin = toMin(list[list.length - 1]?.end) ?? openMin;
+    if (startMin + 120 > closeMin) startMin = openMin;
+
+    setMaBranchId(branch.id);
+    setMaDay(day);
+    setMaType('any');
+    setMaStart(minToHHMM(startMin));
+    setMaEnd(minToHHMM(Math.min(startMin + 120, 23 * 60 + 59)));
+    setMaLabel('');
+    setMaOpen(true);
+  };
+
+  // Keep the end time in step with the type's standard length.
+  const changeMaType = (type) => {
+    setMaType(type);
+    const dur = type === 'kinder' ? 90 : 120;
+    const s = toMin(maStart);
+    if (s != null && slotTypeMeta(type).bookable) {
+      setMaEnd(minToHHMM(Math.min(s + dur, 23 * 60 + 59)));
+    }
+  };
+
+  const changeMaStart = (value) => {
+    setMaStart(value);
+    const s = toMin(value);
+    const e = toMin(maEnd);
+    // Shift the end along, preserving the current length.
+    if (s != null && e != null) {
+      const prev = toMin(maStart);
+      const dur = prev != null && e > prev ? e - prev : (maType === 'kinder' ? 90 : 120);
+      setMaEnd(minToHHMM(Math.min(s + dur, 23 * 60 + 59)));
+    }
+  };
+
+  const applyManualAdd = () => {
+    if (!maBranchId || !maStart || !maEnd || maEnd <= maStart) return;
+    setDirty(true);
+    setDraftOps((prev) => {
+      const branchOps = { ...(prev[maBranchId] || {}) };
+      const list = [...(branchOps[maDay] || []), { type: maType, start: maStart, end: maEnd, label: maLabel.trim() }];
+      branchOps[maDay] = list.sort((a, b) => a.start.localeCompare(b.start));
+      return { ...prev, [maBranchId]: branchOps };
+    });
+    setMaOpen(false);
+    // Show the row that was just created.
+    setSlotBranchFilter(maBranchId);
+    setSlotDayFilter(maDay);
+    setSlotTypeFilter('all');
+    showToast({ title: 'Slot added', message: `${slotTypeMeta(maType).label} ${maStart}–${maEnd} on ${maDay}.`, variant: 'success' });
+  };
+
+  // ── Quick builder ───────────────────────────────────────────────────────
+  const openQuickBuild = () => {
+    const branch = branches.find((b) => b.id === slotBranchFilter) || branches[0];
+    if (!branch) return;
+    setQbBranchId(branch.id);
+    // Default to the branch's open days (or the filtered day when one is set).
+    const openDays = DAY_NAMES.filter((d) => draft[branch.id]?.has(d));
+    setQbDays(new Set(slotDayFilter !== 'all' ? [slotDayFilter] : openDays));
+    setQbStart(draftHours[branch.id]?.[openDays[0]]?.start || '13:00');
+    setQbType('any');
+    setQbDuration(120);
+    setQbGap(0);
+    setQbGapAsBreak(false);
+    setQbCount('fill');
+    setQbReplace(true);
+    setQbOpen(true);
+  };
+
+  // When the builder's branch changes, re-seed the day selection and start time.
+  const changeQbBranch = (branchId) => {
+    setQbBranchId(branchId);
+    const openDays = DAY_NAMES.filter((d) => draft[branchId]?.has(d));
+    setQbDays(new Set(openDays));
+    setQbStart(draftHours[branchId]?.[openDays[0]]?.start || '13:00');
+  };
+
+  // Picking a class type sets the matching duration (Kinder 1.5h, others 2h).
+  const changeQbType = (type) => {
+    setQbType(type);
+    if (type === 'kinder') setQbDuration(90);
+    else if (type === 'junior' || type === 'coder' || type === 'any') setQbDuration(120);
+  };
+
+  const qbBranch = branches.find((b) => b.id === qbBranchId) || null;
+
+  /** Build the slot list for one day, stopping at the day's closing time. */
+  const buildDaySlots = (branchId, day) => {
+    const hrs = draftHours[branchId]?.[day];
+    const closeMin = toMin(hrs?.end) ?? 18 * 60;
+    const firstStart = toMin(qbStart) ?? 13 * 60;
+    const dur = Math.max(15, parseInt(qbDuration, 10) || 120);
+    const gap = Math.max(0, parseInt(qbGap, 10) || 0);
+    const limit = qbCount === 'fill' ? 24 : Math.max(1, parseInt(qbCount, 10) || 1);
+
+    const out = [];
+    let cursor = firstStart;
+    while (out.filter((s) => s.type !== 'break').length < limit) {
+      const end = cursor + dur;
+      // Never run past closing when filling; an explicit count stops too.
+      if (qbCount === 'fill' && end > closeMin) break;
+      if (end > 24 * 60) break;
+      out.push({ type: qbType, start: minToHHMM(cursor), end: minToHHMM(end), label: '' });
+      cursor = end;
+      if (gap > 0) {
+        const gapEnd = cursor + gap;
+        if (qbGapAsBreak && gapEnd <= 24 * 60 && (qbCount !== 'fill' || gapEnd <= closeMin)) {
+          out.push({ type: 'break', start: minToHHMM(cursor), end: minToHHMM(gapEnd), label: 'Break' });
+        }
+        cursor = gapEnd;
+      }
+    }
+    return out;
+  };
+
+  const qbPreview = useMemo(() => {
+    if (!qbOpen || !qbBranchId) return [];
+    const day = DAY_NAMES.find((d) => qbDays.has(d));
+    if (!day) return [];
+    return buildDaySlots(qbBranchId, day);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [qbOpen, qbBranchId, qbDays, qbStart, qbType, qbDuration, qbGap, qbGapAsBreak, qbCount, draftHours]);
+
+  const applyQuickBuild = () => {
+    const days = DAY_NAMES.filter((d) => qbDays.has(d));
+    if (!qbBranchId || days.length === 0) {
+      showToast({ title: 'Pick at least one day', variant: 'warning' });
+      return;
+    }
+    let added = 0;
+    setDirty(true);
+    setDraftOps((prev) => {
+      const branchOps = { ...(prev[qbBranchId] || {}) };
+      for (const day of days) {
+        const generated = buildDaySlots(qbBranchId, day);
+        if (!generated.length) continue;
+        const merged = qbReplace ? generated : [...(branchOps[day] || []), ...generated];
+        branchOps[day] = merged.sort((a, b) => a.start.localeCompare(b.start));
+        added += generated.length;
+      }
+      return { ...prev, [qbBranchId]: branchOps };
+    });
+    setQbOpen(false);
+    // Focus the table on what was just built.
+    setSlotBranchFilter(qbBranchId);
+    setSlotDayFilter(days.length === 1 ? days[0] : 'all');
+    setSlotTypeFilter('all');
+    showToast({
+      title: `Built ${added} slot${added === 1 ? '' : 's'}`,
+      message: `${days.length} day${days.length === 1 ? '' : 's'} updated at ${qbBranch?.name || 'branch'}.`,
+      variant: added ? 'success' : 'warning',
+    });
+  };
+
   const toggleDay = (branchId, day) => {
     setDirty(true);
     setDraft((prev) => {
@@ -209,6 +492,17 @@ export default function NewOperationalsPage() {
   };
 
   const handleSave = async () => {
+    // Refuse to persist a plan that asks for more simultaneous classes than the
+    // branch has instructors to staff.
+    if (capacity.totalConflicts > 0) {
+      showToast({
+        title: 'Fix instructor capacity first',
+        message: `${capacity.totalConflicts} class slot${capacity.totalConflicts === 1 ? '' : 's'} exceed the instructor capacity of their branch. See the highlighted rows in Class Operation Time Slots.`,
+        variant: 'error',
+        duration: 7000,
+      });
+      return;
+    }
     setSaving(true);
     try {
       const cleanHours = (obj) => {
@@ -262,6 +556,31 @@ export default function NewOperationalsPage() {
     }
   };
 
+  // Instructor headcount per branch, and the capacity conflicts it implies for
+  // every branch/day plan. A branch with one instructor can only run one class
+  // at a time, so overlapping Kinder + Junior slots at 1pm is invalid.
+  const capacity = useMemo(() => {
+    const staffByBranch = new Map();
+    const conflictsByKey = new Map(); // `${branchId}||${day}` -> Map(idx -> reason)
+    let totalConflicts = 0;
+
+    for (const b of branches) {
+      const staff = instructorsAtBranch(instructors, b.name);
+      staffByBranch.set(b.id, staff);
+      const byDay = draftOps[b.id] || {};
+      for (const day of DAY_NAMES) {
+        const list = byDay[day] || [];
+        if (!list.length) continue;
+        const found = findCapacityConflicts(list, staff);
+        if (found.size) {
+          conflictsByKey.set(`${b.id}||${day}`, found);
+          totalConflicts += found.size;
+        }
+      }
+    }
+    return { staffByBranch, conflictsByKey, totalConflicts };
+  }, [branches, instructors, draftOps]);
+
   // Flatten every branch/day slot into rows for the Class Operation table,
   // then apply the branch / day / type filters.
   const slotRows = useMemo(() => {
@@ -269,16 +588,21 @@ export default function NewOperationalsPage() {
     for (const b of branches) {
       if (slotBranchFilter !== 'all' && b.id !== slotBranchFilter) continue;
       const byDay = draftOps[b.id] || {};
+      const staffCount = (capacity.staffByBranch.get(b.id) || []).length;
       for (const day of DAY_NAMES) {
         if (slotDayFilter !== 'all' && day !== slotDayFilter) continue;
+        const dayConflicts = capacity.conflictsByKey.get(`${b.id}||${day}`);
         (byDay[day] || []).forEach((slot, idx) => {
           if (slotTypeFilter !== 'all' && (slot.type || 'any') !== slotTypeFilter) return;
-          rows.push({ branchId: b.id, branchName: b.name, day, idx, slot });
+          rows.push({
+            branchId: b.id, branchName: b.name, day, idx, slot, staffCount,
+            conflict: dayConflicts?.get(idx) || null,
+          });
         });
       }
     }
     return rows;
-  }, [branches, draftOps, slotBranchFilter, slotDayFilter, slotTypeFilter]);
+  }, [branches, draftOps, slotBranchFilter, slotDayFilter, slotTypeFilter, capacity]);
 
   // Adding a slot needs an unambiguous branch + day, so only offer it when
   // both filters are narrowed to a single value.
@@ -303,7 +627,8 @@ export default function NewOperationalsPage() {
           </div>
           <button
             onClick={handleSave}
-            disabled={saving}
+            disabled={saving || capacity.totalConflicts > 0}
+            title={capacity.totalConflicts > 0 ? 'Resolve the instructor capacity conflicts below first' : 'Save operational settings'}
             className="btn btn-primary"
             style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', borderRadius: '10px', padding: '0.5rem 1.2rem', fontSize: '0.85rem' }}
           >
@@ -454,10 +779,45 @@ export default function NewOperationalsPage() {
               Set the exact slots per branch and day — Kinder / Junior / Coder classes plus breaks, training and meetings. These drive the time recommendations on the Schedule page.
             </p>
           </div>
-          <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)' }}>
-            {slotRows.length} slot{slotRows.length === 1 ? '' : 's'} shown
-          </span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
+            <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)' }}>
+              {slotRows.length} slot{slotRows.length === 1 ? '' : 's'} shown
+            </span>
+            <button
+              type="button"
+              onClick={openManualAdd}
+              disabled={branches.length === 0}
+              className="btn"
+              title="Add a single slot by hand"
+              style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', borderRadius: '10px', padding: '0.5rem 1.1rem', fontSize: '0.82rem', border: '1px solid var(--border-color)', background: 'transparent', color: 'var(--text-secondary)', cursor: 'pointer' }}
+            >
+              <Plus size={15} /> Add Slot Manually
+            </button>
+            <button
+              type="button"
+              onClick={openQuickBuild}
+              disabled={branches.length === 0}
+              className="btn btn-primary"
+              style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', borderRadius: '10px', padding: '0.5rem 1.1rem', fontSize: '0.82rem' }}
+            >
+              <Wand2 size={15} /> Quick Build Slots
+            </button>
+          </div>
         </div>
+
+        {capacity.totalConflicts > 0 && (
+          <div style={{
+            margin: '0 1.5rem', marginTop: '0.9rem', padding: '0.7rem 0.9rem', borderRadius: '10px',
+            background: 'var(--danger-bg, rgba(239,68,68,0.1))', border: '1px solid rgba(239,68,68,0.35)',
+            display: 'flex', alignItems: 'flex-start', gap: '0.5rem',
+          }}>
+            <AlertTriangle size={16} style={{ color: 'var(--danger)', flexShrink: 0, marginTop: '0.1rem' }} />
+            <span style={{ fontSize: '0.78rem', color: 'var(--danger)' }}>
+              {capacity.totalConflicts} slot{capacity.totalConflicts === 1 ? '' : 's'} need more instructors than the branch has.
+              A branch can only run as many classes at once as it has instructors able to teach them — with one instructor, a 1pm slot can be Kinder <em>or</em> Junior <em>or</em> Coder, not several. Saving is blocked until this is resolved.
+            </span>
+          </div>
+        )}
 
         {/* Filters */}
         <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', alignItems: 'flex-end', padding: '0.9rem 1.5rem', borderBottom: '1px solid var(--border-color)' }}>
@@ -465,8 +825,9 @@ export default function NewOperationalsPage() {
             <label className="modal-form-label" style={{ fontSize: '0.72rem' }}>Branch</label>
             <select
               value={slotBranchFilter}
+              className="modal-select-field field-compact"
               onChange={(e) => setSlotBranchFilter(e.target.value)}
-              style={{ fontSize: '0.8rem', padding: '0.35rem 0.5rem', borderRadius: '8px', border: '1px solid var(--border-color)', minWidth: '160px' }}
+              style={{ minWidth: '170px' }}
             >
               <option value="all">All Branches</option>
               {branches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
@@ -476,8 +837,9 @@ export default function NewOperationalsPage() {
             <label className="modal-form-label" style={{ fontSize: '0.72rem' }}>Day</label>
             <select
               value={slotDayFilter}
+              className="modal-select-field field-compact"
               onChange={(e) => setSlotDayFilter(e.target.value)}
-              style={{ fontSize: '0.8rem', padding: '0.35rem 0.5rem', borderRadius: '8px', border: '1px solid var(--border-color)', minWidth: '130px' }}
+              style={{ minWidth: '140px' }}
             >
               <option value="all">All Days</option>
               {DAY_NAMES.map((d) => <option key={d} value={d}>{d}</option>)}
@@ -487,8 +849,9 @@ export default function NewOperationalsPage() {
             <label className="modal-form-label" style={{ fontSize: '0.72rem' }}>Type</label>
             <select
               value={slotTypeFilter}
+              className="modal-select-field field-compact"
               onChange={(e) => setSlotTypeFilter(e.target.value)}
-              style={{ fontSize: '0.8rem', padding: '0.35rem 0.5rem', borderRadius: '8px', border: '1px solid var(--border-color)', minWidth: '140px' }}
+              style={{ minWidth: '150px' }}
             >
               <option value="all">All Types</option>
               {SLOT_TYPES.map((t) => <option key={t.key} value={t.key}>{t.label}</option>)}
@@ -506,14 +869,9 @@ export default function NewOperationalsPage() {
           <div style={{ marginLeft: 'auto', display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
             {addTarget ? (
               <>
-                <button
-                  type="button"
-                  onClick={() => addSlot(addTarget.branchId, addTarget.day)}
-                  className="btn"
-                  style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.78rem', border: '1px solid var(--primary-blue)', color: 'var(--primary-blue)', background: 'transparent', borderRadius: '8px', padding: '0.4rem 0.8rem', cursor: 'pointer' }}
-                >
-                  <Plus size={14} /> Add slot to {addTarget.branchName} · {addTarget.day}
-                </button>
+                <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)' }}>
+                  {addTarget.branchName} · {addTarget.day}:
+                </span>
                 <button
                   type="button"
                   onClick={() => copyDayPlan(addTarget.branchId, addTarget.day)}
@@ -534,7 +892,7 @@ export default function NewOperationalsPage() {
               </>
             ) : (
               <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                Pick a single branch and day above to add slots.
+                Narrow to one branch and day for copy / clear actions.
               </span>
             )}
           </div>
@@ -555,6 +913,7 @@ export default function NewOperationalsPage() {
                   <th style={{ minWidth: '110px' }}>Start</th>
                   <th style={{ minWidth: '110px' }}>End</th>
                   <th style={{ minWidth: '150px' }}>Note</th>
+                  <th style={{ minWidth: '150px' }}>Staffing</th>
                   <th style={{ width: '70px', textAlign: 'center' }}>Action</th>
                 </tr>
               </thead>
@@ -563,7 +922,7 @@ export default function NewOperationalsPage() {
                   const meta = slotTypeMeta(r.slot.type);
                   const invalid = r.slot.start && r.slot.end && r.slot.end <= r.slot.start;
                   return (
-                    <tr key={`${r.branchId}||${r.day}||${r.idx}`} style={invalid ? { background: 'rgba(239,68,68,0.05)' } : undefined}>
+                    <tr key={`${r.branchId}||${r.day}||${r.idx}`} style={(invalid || r.conflict) ? { background: 'rgba(239,68,68,0.05)' } : undefined}>
                       <td style={{ fontWeight: 600, fontSize: '0.82rem' }}>
                         <span style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
                           <MapPin size={13} style={{ color: 'var(--text-muted)' }} /> {r.branchName}
@@ -573,8 +932,9 @@ export default function NewOperationalsPage() {
                       <td>
                         <select
                           value={r.slot.type || 'any'}
+                          className="modal-select-field field-compact"
                           onChange={(e) => updateSlot(r.branchId, r.day, r.idx, { type: e.target.value })}
-                          style={{ fontSize: '0.78rem', padding: '0.28rem 0.4rem', borderRadius: '7px', border: `1px solid ${meta.color}55`, background: meta.bg, color: meta.color, fontWeight: 600, width: '100%' }}
+                          style={{ borderColor: `${meta.color}55`, background: meta.bg, color: meta.color, fontWeight: 600 }}
                         >
                           {SLOT_TYPES.map((t) => <option key={t.key} value={t.key}>{t.label}</option>)}
                         </select>
@@ -582,17 +942,17 @@ export default function NewOperationalsPage() {
                       <td>
                         <input
                           type="time"
+                          className="modal-input-field field-compact"
                           value={r.slot.start || ''}
                           onChange={(e) => updateSlot(r.branchId, r.day, r.idx, { start: e.target.value })}
-                          style={{ fontSize: '0.78rem', padding: '0.26rem 0.4rem', width: '100%' }}
                         />
                       </td>
                       <td>
                         <input
                           type="time"
+                          className={`modal-input-field field-compact ${invalid ? 'error' : ''}`}
                           value={r.slot.end || ''}
                           onChange={(e) => updateSlot(r.branchId, r.day, r.idx, { end: e.target.value })}
-                          style={{ fontSize: '0.78rem', padding: '0.26rem 0.4rem', width: '100%', borderColor: invalid ? 'var(--danger)' : undefined }}
                         />
                         {invalid && (
                           <span style={{ fontSize: '0.62rem', color: 'var(--danger)', display: 'block' }}>
@@ -603,11 +963,25 @@ export default function NewOperationalsPage() {
                       <td>
                         <input
                           type="text"
+                          className="modal-input-field field-compact"
                           value={r.slot.label || ''}
                           onChange={(e) => updateSlot(r.branchId, r.day, r.idx, { label: e.target.value })}
                           placeholder="Optional note"
-                          style={{ fontSize: '0.78rem', padding: '0.26rem 0.5rem', width: '100%' }}
                         />
+                      </td>
+                      <td>
+                        {!meta.bookable ? (
+                          <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Blocks the time</span>
+                        ) : r.conflict ? (
+                          <span style={{ display: 'flex', alignItems: 'flex-start', gap: '0.3rem', fontSize: '0.7rem', color: 'var(--danger)', fontWeight: 600 }}>
+                            <AlertTriangle size={12} style={{ flexShrink: 0, marginTop: '0.1rem' }} />
+                            {r.conflict}
+                          </span>
+                        ) : (
+                          <span style={{ fontSize: '0.72rem', color: 'var(--success, #10b981)', fontWeight: 600 }}>
+                            ✓ Staffable · {r.staffCount} instructor{r.staffCount === 1 ? '' : 's'}
+                          </span>
+                        )}
                       </td>
                       <td style={{ textAlign: 'center' }}>
                         <button
@@ -627,6 +1001,370 @@ export default function NewOperationalsPage() {
           )}
         </div>
       </div>
+
+      {/* Add Slot Manually — one slot, full control */}
+      {maOpen && (
+        <div
+          onClick={() => setMaOpen(false)}
+          style={{
+            position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', backdropFilter: 'blur(3px)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999, padding: '1rem',
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: 'var(--panel-bg)', width: '100%', maxWidth: '460px', borderRadius: '16px',
+              boxShadow: '0 12px 32px rgba(0,0,0,0.18)', border: '1px solid var(--border-color)', overflow: 'hidden',
+              animation: 'modalAppear 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards',
+            }}
+          >
+            <div style={{ padding: '1rem 1.25rem', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--bg-color)' }}>
+              <div>
+                <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                  <Plus size={16} /> Add Slot Manually
+                </h3>
+                <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>One slot, exactly the times you want.</span>
+              </div>
+              <button onClick={() => setMaOpen(false)} style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'flex' }}>
+                <X size={18} />
+              </button>
+            </div>
+
+            <div style={{ padding: '1.25rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+              <div style={{ display: 'flex', gap: '0.85rem', flexWrap: 'wrap' }}>
+                <div style={{ flex: '1 1 170px' }}>
+                  <label className="modal-form-label">Branch</label>
+                  <select
+                    value={maBranchId}
+                    onChange={(e) => setMaBranchId(e.target.value)}
+                    className="modal-select-field"
+                    style={{ width: '100%' }}
+                  >
+                    {branches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+                  </select>
+                </div>
+                <div style={{ flex: '1 1 130px' }}>
+                  <label className="modal-form-label">Day</label>
+                  <select
+                    value={maDay}
+                    onChange={(e) => setMaDay(e.target.value)}
+                    className="modal-select-field"
+                    style={{ width: '100%' }}
+                  >
+                    {DAY_NAMES.map((d) => (
+                      <option key={d} value={d}>
+                        {d}{draft[maBranchId]?.has(d) ? '' : ' (closed)'}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="modal-form-label">Type</label>
+                <select
+                  value={maType}
+                  onChange={(e) => changeMaType(e.target.value)}
+                  className="modal-select-field"
+                  style={{ width: '100%' }}
+                >
+                  {SLOT_TYPES.map((t) => <option key={t.key} value={t.key}>{t.label}</option>)}
+                </select>
+              </div>
+
+              <div style={{ display: 'flex', gap: '0.85rem' }}>
+                <div style={{ flex: 1 }}>
+                  <label className="modal-form-label">Start</label>
+                  <input type="time" className="modal-input-field" value={maStart} onChange={(e) => changeMaStart(e.target.value)} />
+                </div>
+                <div style={{ flex: 1 }}>
+                  <label className="modal-form-label">End</label>
+                  <input
+                    type="time"
+                    className={`modal-input-field ${maStart && maEnd && maEnd <= maStart ? 'error' : ''}`}
+                    value={maEnd}
+                    onChange={(e) => setMaEnd(e.target.value)}
+                  />
+                </div>
+              </div>
+              {maStart && maEnd && maEnd <= maStart && (
+                <span style={{ fontSize: '0.72rem', color: 'var(--danger)' }}>End time should be after the start time.</span>
+              )}
+
+              <div>
+                <label className="modal-form-label">Note (optional)</label>
+                <input
+                  type="text"
+                  className="modal-input-field"
+                  value={maLabel}
+                  onChange={(e) => setMaLabel(e.target.value)}
+                  placeholder="e.g. Weekly sync, staff training"
+                />
+              </div>
+
+              {!draft[maBranchId]?.has(maDay) && (
+                <span style={{ fontSize: '0.72rem', color: 'var(--warning, #b45309)' }}>
+                  This branch is marked closed on {maDay}. The slot will be saved but won&apos;t be offered until you open the day above.
+                </span>
+              )}
+            </div>
+
+            <div style={{ padding: '1rem 1.25rem', borderTop: '1px solid var(--border-color)', display: 'flex', justifyContent: 'flex-end', gap: '0.6rem', background: 'var(--bg-color)' }}>
+              <button
+                type="button"
+                onClick={() => setMaOpen(false)}
+                className="btn"
+                style={{ background: 'transparent', border: '1px solid var(--border-color)', color: 'var(--text-secondary)', borderRadius: '10px', padding: '0.5rem 1rem', fontSize: '0.82rem' }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={applyManualAdd}
+                disabled={!maStart || !maEnd || maEnd <= maStart}
+                className="btn btn-primary"
+                style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', borderRadius: '10px', padding: '0.5rem 1.25rem', fontSize: '0.82rem' }}
+              >
+                <Plus size={15} /> Add Slot
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Quick Build Slots — generate a whole day's plan in one pass */}
+      {qbOpen && (
+        <div
+          onClick={() => setQbOpen(false)}
+          style={{
+            position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', backdropFilter: 'blur(3px)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999, padding: '1rem',
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: 'var(--panel-bg)', width: '100%', maxWidth: '640px', maxHeight: '92vh', borderRadius: '16px',
+              boxShadow: '0 12px 32px rgba(0,0,0,0.18)', border: '1px solid var(--border-color)',
+              display: 'flex', flexDirection: 'column', overflow: 'hidden',
+              animation: 'modalAppear 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards',
+            }}
+          >
+            <div style={{ padding: '1rem 1.25rem', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--bg-color)' }}>
+              <div>
+                <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                  <Wand2 size={16} /> Quick Build Slots
+                </h3>
+                <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                  Set it once, apply to as many days as you like.
+                </span>
+              </div>
+              <button onClick={() => setQbOpen(false)} style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'flex' }}>
+                <X size={18} />
+              </button>
+            </div>
+
+            <div style={{ padding: '1.25rem', display: 'flex', flexDirection: 'column', gap: '1.1rem', overflowY: 'auto' }}>
+              {/* Branch */}
+              <div>
+                <label className="modal-form-label">Branch</label>
+                <select
+                  value={qbBranchId}
+                  onChange={(e) => changeQbBranch(e.target.value)}
+                  className="modal-select-field"
+                  style={{ width: '100%' }}
+                >
+                  {branches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+                </select>
+              </div>
+
+              {/* Days */}
+              <div>
+                {(() => {
+                  const openDays = DAY_NAMES.filter((d) => draft[qbBranchId]?.has(d));
+                  const allSelected = openDays.length > 0 && openDays.every((d) => qbDays.has(d));
+                  return (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap', marginBottom: '0.35rem' }}>
+                      <label className="modal-form-label" style={{ margin: 0 }}>Days</label>
+                      <span style={{
+                        fontSize: '0.7rem', fontWeight: 700, padding: '0.05rem 0.45rem', borderRadius: '99px',
+                        color: qbDays.size > 0 ? 'var(--primary-blue)' : 'var(--text-muted)',
+                        background: qbDays.size > 0 ? 'var(--primary-blue-light, rgba(79,70,229,0.12))' : 'var(--bg-color)',
+                      }}>
+                        {qbDays.size} of {openDays.length} selected
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setQbDays(allSelected ? new Set() : new Set(openDays))}
+                        style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--primary-blue)', fontSize: '0.74rem', fontWeight: 600, marginLeft: 'auto' }}
+                      >
+                        {allSelected ? 'Clear all' : 'Select all open days'}
+                      </button>
+                    </div>
+                  );
+                })()}
+                <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
+                  {DAY_NAMES.map((d) => {
+                    const isOpen = !!draft[qbBranchId]?.has(d);
+                    const on = qbDays.has(d);
+                    return (
+                      <button
+                        key={d}
+                        type="button"
+                        disabled={!isOpen}
+                        title={isOpen ? d : `${d} — branch is closed`}
+                        onClick={() => setQbDays((prev) => {
+                          const next = new Set(prev);
+                          if (next.has(d)) next.delete(d); else next.add(d);
+                          return next;
+                        })}
+                        style={{
+                          padding: '0.35rem 0.7rem', borderRadius: '99px', fontSize: '0.78rem', fontWeight: 600,
+                          cursor: isOpen ? 'pointer' : 'not-allowed', opacity: isOpen ? 1 : 0.4,
+                          border: on ? '1.5px solid var(--primary-blue)' : '1px solid var(--border-color)',
+                          background: on ? 'var(--primary-blue-light)' : 'transparent',
+                          color: on ? 'var(--primary-blue)' : 'var(--text-secondary)',
+                          transition: 'all 0.15s',
+                        }}
+                      >
+                        {d.slice(0, 3)}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Type + start + duration */}
+              <div style={{ display: 'flex', gap: '0.85rem', flexWrap: 'wrap' }}>
+                <div style={{ flex: '1 1 150px' }}>
+                  <label className="modal-form-label">Slot type</label>
+                  <select
+                    value={qbType}
+                    onChange={(e) => changeQbType(e.target.value)}
+                    className="modal-select-field"
+                    style={{ width: '100%' }}
+                  >
+                    {SLOT_TYPES.filter((t) => t.bookable).map((t) => (
+                      <option key={t.key} value={t.key}>{t.label}</option>
+                    ))}
+                  </select>
+                </div>
+                <div style={{ flex: '1 1 130px' }}>
+                  <label className="modal-form-label">First class starts</label>
+                  <input type="time" className="modal-input-field" value={qbStart} onChange={(e) => setQbStart(e.target.value)} />
+                </div>
+                <div style={{ flex: '1 1 130px' }}>
+                  <label className="modal-form-label">Each lasts</label>
+                  <div className="field-with-suffix">
+                    <input
+                      type="number" min="15" step="15"
+                      className="modal-input-field"
+                      value={qbDuration}
+                      onChange={(e) => setQbDuration(e.target.value)}
+                    />
+                    <span className="field-suffix">min</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Gap + count */}
+              <div style={{ display: 'flex', gap: '0.85rem', flexWrap: 'wrap' }}>
+                <div style={{ flex: '1 1 130px' }}>
+                  <label className="modal-form-label">Gap between</label>
+                  <div className="field-with-suffix">
+                    <input
+                      type="number" min="0" step="5"
+                      className="modal-input-field"
+                      value={qbGap}
+                      onChange={(e) => setQbGap(e.target.value)}
+                    />
+                    <span className="field-suffix">min</span>
+                  </div>
+                  {parseInt(qbGap, 10) > 0 && (
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.74rem', color: 'var(--text-secondary)', marginTop: '0.35rem', cursor: 'pointer' }}>
+                      <input type="checkbox" checked={qbGapAsBreak} onChange={(e) => setQbGapAsBreak(e.target.checked)} />
+                      Add the gap as a Break slot
+                    </label>
+                  )}
+                </div>
+                <div style={{ flex: '1 1 190px' }}>
+                  <label className="modal-form-label">How many</label>
+                  <select
+                    value={qbCount}
+                    onChange={(e) => setQbCount(e.target.value)}
+                    className="modal-select-field"
+                    style={{ width: '100%' }}
+                  >
+                    <option value="fill">Fill until closing time</option>
+                    {[1, 2, 3, 4, 5, 6, 7, 8].map((n) => (
+                      <option key={n} value={String(n)}>{n} class{n === 1 ? '' : 'es'}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {/* Replace or append */}
+              <label style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', fontSize: '0.8rem', color: 'var(--text-secondary)', cursor: 'pointer' }}>
+                <input type="checkbox" checked={qbReplace} onChange={(e) => setQbReplace(e.target.checked)} />
+                Replace any existing slots on the selected days
+              </label>
+
+              {/* Preview */}
+              <div>
+                <label className="modal-form-label">
+                  Preview {qbPreview.length > 0 && `(${qbPreview.length} slot${qbPreview.length === 1 ? '' : 's'} per day)`}
+                </label>
+                {qbPreview.length === 0 ? (
+                  <div style={{ padding: '0.9rem', border: '1px dashed var(--border-color)', borderRadius: '10px', fontSize: '0.78rem', color: 'var(--text-muted)', textAlign: 'center' }}>
+                    Nothing fits yet — check the start time against the branch&apos;s closing hours, or pick a day.
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem', maxHeight: '140px', overflowY: 'auto' }}>
+                    {qbPreview.map((s, i) => {
+                      const m = slotTypeMeta(s.type);
+                      return (
+                        <span key={i} style={{
+                          fontSize: '0.74rem', fontWeight: 600, padding: '0.3rem 0.6rem', borderRadius: '8px',
+                          background: m.bg, color: m.color, border: `1px solid ${m.color}33`, whiteSpace: 'nowrap',
+                        }}>
+                          {s.start}–{s.end} · {m.label}
+                        </span>
+                      );
+                    })}
+                  </div>
+                )}
+                {qbBranch && (
+                  <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '0.4rem', display: 'block' }}>
+                    {(capacity.staffByBranch.get(qbBranchId) || []).length} instructor
+                    {(capacity.staffByBranch.get(qbBranchId) || []).length === 1 ? '' : 's'} at {qbBranch.name} — back-to-back slots never overlap, so they always stay staffable.
+                  </span>
+                )}
+              </div>
+            </div>
+
+            <div style={{ padding: '1rem 1.25rem', borderTop: '1px solid var(--border-color)', display: 'flex', justifyContent: 'flex-end', gap: '0.6rem', background: 'var(--bg-color)' }}>
+              <button
+                type="button"
+                onClick={() => setQbOpen(false)}
+                className="btn"
+                style={{ background: 'transparent', border: '1px solid var(--border-color)', color: 'var(--text-secondary)', borderRadius: '10px', padding: '0.5rem 1rem', fontSize: '0.82rem' }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={applyQuickBuild}
+                disabled={qbPreview.length === 0 || qbDays.size === 0}
+                className="btn btn-primary"
+                style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', borderRadius: '10px', padding: '0.5rem 1.25rem', fontSize: '0.82rem' }}
+              >
+                <Wand2 size={15} /> Build {qbDays.size > 0 ? `${qbDays.size} day${qbDays.size === 1 ? '' : 's'}` : ''}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Operating hours editor */}
       {editor && (
@@ -662,18 +1400,18 @@ export default function NewOperationalsPage() {
                   <label className="modal-form-label">Start</label>
                   <input
                     type="time"
+                    className="modal-input-field"
                     value={editStart}
                     onChange={(e) => setEditStart(e.target.value)}
-                    style={{ width: '100%' }}
                   />
                 </div>
                 <div style={{ flex: 1 }}>
                   <label className="modal-form-label">End</label>
                   <input
                     type="time"
+                    className={`modal-input-field ${editStart && editEnd && editEnd <= editStart ? 'error' : ''}`}
                     value={editEnd}
                     onChange={(e) => setEditEnd(e.target.value)}
-                    style={{ width: '100%' }}
                   />
                 </div>
               </div>

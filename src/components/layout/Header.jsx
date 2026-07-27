@@ -92,11 +92,13 @@ export default function Header({ onToggleSearch, opsMode = 'old', onToggleSideba
       {/* Header Bar: Title + Sync Status + User */}
       <header style={{ position: 'sticky', top: 0, zIndex: 50, display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '1rem 1.5rem', background: 'var(--panel-bg)', borderBottom: '1px solid var(--border-color)' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.9rem' }}>
-          {onToggleSidebar && (
+          {/* Only a "show" affordance lives here — hiding is done from the
+              button inside the sidebar itself. */}
+          {onToggleSidebar && sidebarCollapsed && (
             <button
               onClick={onToggleSidebar}
-              title={sidebarCollapsed ? 'Show sidebar' : 'Hide sidebar'}
-              aria-label={sidebarCollapsed ? 'Show sidebar' : 'Hide sidebar'}
+              title="Show sidebar"
+              aria-label="Show sidebar"
               style={{
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
                 width: '38px', height: '38px', borderRadius: '10px', cursor: 'pointer',

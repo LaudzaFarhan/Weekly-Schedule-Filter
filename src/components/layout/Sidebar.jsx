@@ -5,7 +5,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useSchedule } from '@/contexts/ScheduleContext';
 import {
   Home, AlertTriangle, Calendar, Activity, Star,
-  Search, FileText, PenLine, Terminal, Settings, LogOut, User, BarChart3, ClipboardList, Users, Building2
+  Search, FileText, PenLine, Terminal, Settings, LogOut, User, BarChart3, ClipboardList, Users, Building2, PanelLeftClose
 } from 'lucide-react';
 import { listenToMyTasks } from '@/services/taskService';
 
@@ -34,7 +34,7 @@ const navItems = [
   { id: 'admin', icon: Settings, label: 'Admin Settings', roleKey: 'admin', globalKey: 'admin' },
 ];
 
-export default function Sidebar({ currentPage, onNavigate, onToggleSearch, opsMode = 'old', setOpsMode }) {
+export default function Sidebar({ currentPage, onNavigate, onToggleSearch, opsMode = 'old', setOpsMode, onToggleSidebar }) {
   const { user, logout } = useAuth();
   const { roleToggles, users, featureToggles } = useSchedule();
 
@@ -82,8 +82,22 @@ export default function Sidebar({ currentPage, onNavigate, onToggleSearch, opsMo
   return (
     <aside className="sidebar">
       <div className="sidebar-header">
-        <h2>The Lab Operation System</h2>
-        <div className="version">SCHOOL OPERATIONS, LIVE</div>
+        <div className="sidebar-header-row">
+          <div>
+            <h2>The Lab Operation System</h2>
+            <div className="version">SCHOOL OPERATIONS, LIVE</div>
+          </div>
+          {onToggleSidebar && (
+            <button
+              className="sidebar-collapse-btn"
+              onClick={onToggleSidebar}
+              title="Hide sidebar"
+              aria-label="Hide sidebar"
+            >
+              <PanelLeftClose size={18} />
+            </button>
+          )}
+        </div>
       </div>
       
       <div className={`operations-switcher ${opsMode === 'new' ? 'is-new' : 'is-old'}`}>

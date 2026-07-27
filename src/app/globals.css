@@ -300,6 +300,16 @@ body {
   display: flex; flex-direction: column; padding: 1.5rem 0;
 }
 .sidebar-header { padding: 0 1.5rem 1.5rem; border-bottom: 1px solid rgba(255,255,255,0.08); }
+.sidebar-header-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 0.6rem; }
+.sidebar-collapse-btn {
+  flex-shrink: 0; display: flex; align-items: center; justify-content: center;
+  width: 32px; height: 32px; border-radius: 9px; cursor: pointer;
+  border: 1px solid rgba(255, 255, 255, 0.14); background: rgba(255, 255, 255, 0.05);
+  color: var(--sidebar-text);
+  transition: background 0.16s ease, color 0.16s ease, transform 0.16s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.sidebar-collapse-btn:hover { background: rgba(255, 255, 255, 0.13); color: #fff; transform: translateX(-2px); }
+.sidebar-collapse-btn:active { transform: translateX(-2px) scale(0.94); }
 .sidebar-header h2 { font-family: 'Outfit', sans-serif; font-size: 1.2rem; color: white; line-height: 1.3; }
 .sidebar-header .version { font-size: 0.7rem; color: var(--sidebar-text); opacity: 0.6; margin-top: 0.2rem; }
 
@@ -360,17 +370,19 @@ body {
   cursor: pointer; border: none; background: none; font-family: inherit;
   border-left: 3px solid transparent; width: 100%; text-align: left;
   border-radius: 0;
+  /* The nudge is done with padding, not transform: moving the element itself
+     can slide it out from under the cursor, which makes hover flicker on and
+     off (a "shaking" row). Padding shifts the content inside a box that never
+     moves, so the hit area stays put. */
   transition: background-color 0.2s ease, color 0.2s ease,
-              transform 0.18s cubic-bezier(0.16, 1, 0.3, 1),
+              padding-left 0.18s cubic-bezier(0.16, 1, 0.3, 1),
               border-left-color 0.2s ease;
 }
-.nav-item:hover { background-color: var(--sidebar-active-bg); color: white; transform: translateX(3px); }
-/* Press feedback — a quick nudge + squash while the mouse is down. */
-.nav-item:active { transform: translateX(1px) scale(0.985); }
+.nav-item:hover { background-color: var(--sidebar-active-bg); color: white; padding-left: calc(1.5rem + 4px); }
 .nav-item.active {
   background-color: var(--sidebar-active-bg); color: white;
   font-weight: 600; border-left-color: var(--primary-blue);
-  animation: navItemActivate 0.32s cubic-bezier(0.16, 1, 0.3, 1);
+  animation: navItemActivate 0.34s cubic-bezier(0.16, 1, 0.3, 1);
 }
 .nav-item.active::before {
   content: ''; position: absolute; left: 0; top: 0; width: 3px; height: 100%;
@@ -385,10 +397,12 @@ body {
 }
 .nav-item.active svg { animation: navIconPop 0.34s cubic-bezier(0.16, 1, 0.3, 1); }
 
+/* Content slides in from the left on activation. Animating padding keeps the
+   button's own box static, so the cursor never loses the row mid-animation. */
 @keyframes navItemActivate {
-  from { transform: translateX(-8px); }
-  60%  { transform: translateX(2px); }
-  to   { transform: translateX(0); }
+  from { padding-left: 0.9rem; }
+  60%  { padding-left: 1.65rem; }
+  to   { padding-left: 1.5rem; }
 }
 @keyframes navBarGrow {
   from { transform: scaleY(0.15); opacity: 0; }
@@ -408,7 +422,7 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .nav-item, .nav-item.active, .nav-item.active::before,
   .nav-item.active::after, .nav-item.active svg { animation: none; transition: none; }
-  .nav-item:hover, .nav-item:active { transform: none; }
+  .nav-item:hover { padding-left: 1.5rem; }
 }
 .logout-btn { margin-top: auto; color: #f87171; }
 .logout-btn:hover { background-color: rgba(239, 68, 68, 0.1); color: #fca5a5; }
@@ -754,6 +768,7 @@ body {
 @media (max-width: 768px) {
   .sidebar { width: 60px; min-width: 60px; }
   .sidebar-header h2, .sidebar-header .version, .nav-item span { display: none; }
+  .sidebar-header-row { justify-content: center; }
   .results-grid-3 { grid-template-columns: 1fr; }
   .finder-cards-track { grid-template-columns: 1fr; }
   .form-grid { grid-template-columns: 1fr; }
@@ -1629,6 +1644,47 @@ body {
   border-color: var(--primary-blue);
   box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.12);
   background: #ffffff;
+}
+
+/* Time / number inputs: use the app font instead of the browser's monospace
+   default, and keep the native picker icon aligned and tinted. */
+.modal-input-field[type='time'],
+.modal-input-field[type='number'] {
+  font-family: inherit;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.01em;
+}
+.modal-input-field[type='time']::-webkit-calendar-picker-indicator {
+  opacity: 0.45;
+  cursor: pointer;
+  transition: opacity 0.15s ease;
+}
+.modal-input-field[type='time']:hover::-webkit-calendar-picker-indicator,
+.modal-input-field[type='time']:focus::-webkit-calendar-picker-indicator {
+  opacity: 0.85;
+}
+/* Hide the number spinners — the step buttons are too small to be useful and
+   they crowd the unit suffix. */
+.modal-input-field[type='number'] { -moz-appearance: textfield; appearance: textfield; }
+.modal-input-field[type='number']::-webkit-outer-spin-button,
+.modal-input-field[type='number']::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+
+/* Compact variant for table cells and filter bars */
+.modal-input-field.field-compact,
+.modal-select-field.field-compact {
+  padding: 0.42rem 0.6rem;
+  font-size: 0.8rem;
+  border-radius: 8px;
+}
+.modal-select-field.field-compact { padding-right: 1.9rem; background-size: 0.95rem; }
+
+/* Input paired with a trailing unit label (min, hrs, …) */
+.field-with-suffix { position: relative; display: block; }
+.field-with-suffix .modal-input-field { padding-right: 3.1rem; }
+.field-suffix {
+  position: absolute; right: 0.85rem; top: 50%; transform: translateY(-50%);
+  font-size: 0.78rem; font-weight: 600; color: var(--text-muted);
+  pointer-events: none; user-select: none;
 }
 
 
