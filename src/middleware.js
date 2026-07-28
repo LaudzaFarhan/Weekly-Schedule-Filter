@@ -22,6 +22,13 @@ export function middleware(request) {
   // No key configured — behave exactly as before.
   if (!apiKey) return NextResponse.next();
 
+  // The OpenAPI document stays public so an agent platform can discover the
+  // available operations before it has been given a token. It describes the
+  // shape of the API only — no records are exposed.
+  if (request.nextUrl.pathname.endsWith('/openapi.json')) {
+    return NextResponse.next();
+  }
+
   // Requests originating from our own pages.
   const fetchSite = request.headers.get('sec-fetch-site');
   if (fetchSite === 'same-origin') return NextResponse.next();
