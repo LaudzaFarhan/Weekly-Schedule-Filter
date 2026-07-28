@@ -5,7 +5,7 @@ import { useSchedule } from '../contexts/ScheduleContext';
 import { subscribeToInternalClasses } from '../services/internalScheduleService';
 import { subscribeToInternalStudents } from '../services/internalStudentService';
 import { subscribeToInternalInstructors } from '../services/internalInstructorService';
-import { resolveBranchWorkingDays } from './NewOperationalsPage';
+import { useNewOperationals } from '../hooks/useNewOperationals';
 import { doTimeSlotsOverlap, parseTimeSlot } from '../utils/timeUtils';
 import { DAY_NAMES } from '../utils/constants';
 import KpiCard from '../components/ui/KpiCard';
@@ -48,6 +48,8 @@ const formatHours = (mins) => {
 
 export default function NewHomePage({ onNavigate }) {
   const { branches, enabledBranches } = useSchedule();
+  // Branch open days come from PostgreSQL, not the Sheets config.
+  const { openDaysFor } = useNewOperationals();
 
   const [classes, setClasses] = useState([]);
   const [students, setStudents] = useState([]);
@@ -230,8 +232,7 @@ export default function NewHomePage({ onNavigate }) {
     const bClasses = classes.filter((c) => c.branchName === name);
     const bSlots = new Set(bClasses.map((c) => `${c.day}||${c.time}||${c.teacher}`)).size;
     const bInstructors = instructors.filter((i) => (i.status ? i.status === 'Active' : true) && atBranch(i, name));
-    const branchObj = (branches || []).find((b) => b.name === name) || { name };
-    const openDays = resolveBranchWorkingDays(branchObj) || [];
+    const openDays = openDaysFor(name);
     return {
       name,
       openDays: Array.isArray(openDays) ? openDays.length : 0,
@@ -240,7 +241,7 @@ export default function NewHomePage({ onNavigate }) {
       slots: bSlots,
       enrollments: bClasses.length,
     };
-  }), [branchList, classes, instructors, students, branches]);
+  }), [branchList, classes, instructors, students, openDaysFor]);
 
   // ── Slots at or over capacity ─────────────────────────────────────────
   const fullSlots = useMemo(() => slots

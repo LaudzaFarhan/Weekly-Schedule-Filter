@@ -4,7 +4,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { useSchedule } from '../contexts/ScheduleContext';
 import { subscribeToInternalClasses } from '../services/internalScheduleService';
 import { subscribeToInternalInstructors } from '../services/internalInstructorService';
-import { resolveBranchWorkingDays } from './NewOperationalsPage';
+import { useNewOperationals } from '../hooks/useNewOperationals';
 import { DAY_NAMES } from '../utils/constants';
 import {
   buildWorkloadReport,
@@ -35,6 +35,9 @@ export default function NewWorkloadPage() {
   const [branchFilter, setBranchFilter] = useState('all');
   const [detail, setDetail] = useState(null); // { teacher, day, dayData }
 
+  // Branch open days come from PostgreSQL, not the Sheets config.
+  const { openDaysFor } = useNewOperationals();
+
   const thresholds = DEFAULT_THRESHOLDS;
 
   useEffect(() => {
@@ -52,20 +55,16 @@ export default function NewWorkloadPage() {
 
   const branchList = [...new Set((branches || []).map((b) => b.name))].filter(Boolean);
 
-  // Working days per instructor, derived from the Operationals config of the
-  // branch(es) they teach at. Falls back to the default branch calendar.
+  // Working days per instructor, taken from the branch rules in PostgreSQL for
+  // whichever branch(es) they teach at. With no rules configured we treat every
+  // day as workable rather than showing an instructor as unavailable all week.
   const workingDaysFor = (teacher) => {
     const inst = instructors.find((i) => i.name === teacher);
     const brs = inst?.branches || [];
     const days = new Set();
-    if (brs.length === 0) {
-      resolveBranchWorkingDays({ name: 'default' }).forEach((d) => days.add(d));
-    } else {
-      brs.forEach((bn) => {
-        const branch = (branches || []).find((b) => b.name === bn) || { name: bn };
-        resolveBranchWorkingDays(branch).forEach((d) => days.add(d));
-      });
-    }
+    const sources = brs.length ? brs : branchList;
+    sources.forEach((bn) => openDaysFor(bn).forEach((d) => days.add(d)));
+    if (days.size === 0) DAY_NAMES.forEach((d) => days.add(d));
     return days;
   };
 

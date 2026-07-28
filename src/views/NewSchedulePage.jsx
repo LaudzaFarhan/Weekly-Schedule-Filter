@@ -11,7 +11,8 @@ import {
 } from '../services/internalScheduleService';
 import { subscribeToInternalStudents } from '../services/internalStudentService';
 import { subscribeToInternalInstructors } from '../services/internalInstructorService';
-import { resolveBranchWorkingDays, resolveBranchHours, resolveBranchClassOps, slotTypeMeta } from './NewOperationalsPage';
+import { slotTypeMeta } from './NewOperationalsPage';
+import { useNewOperationals } from '../hooks/useNewOperationals';
 import { doTimeSlotsOverlap } from '../utils/timeUtils';
 import { DAY_NAMES, SCHEDULE_PAGE_SIZE } from '../utils/constants';
 import Pagination from '../components/ui/Pagination';
@@ -261,6 +262,8 @@ const buildTimeSlot = (startHHMM, program) => {
 
 export default function NewSchedulePage({ onNavigate }) {
   const { enabledBranches, branches } = useSchedule();
+  // Branch open days / hours / slot plan come from PostgreSQL, not the Sheets config.
+  const { openDaysFor, hoursFor, slotsFor } = useNewOperationals();
   const { showToast } = useToast();
 
   // State
@@ -383,9 +386,9 @@ export default function NewSchedulePage({ onNavigate }) {
   // days when no branch is selected or the branch has no saved working days.
   const branchOpenDays = (branchName) => {
     if (!branchName) return DAY_NAMES;
-    const branch = (branches || []).find((b) => b.name === branchName) || { name: branchName };
-    const days = resolveBranchWorkingDays(branch);
-    return Array.isArray(days) && days.length ? days : DAY_NAMES;
+    const days = openDaysFor(branchName);
+    // No rules configured for this branch yet — don't block the user.
+    return days.length ? days : DAY_NAMES;
   };
   const modalDays = branchOpenDays(form.branchName);
 
@@ -536,9 +539,8 @@ export default function NewSchedulePage({ onNavigate }) {
   const recoDays = useMemo(() => {
     if (!dayReco || !dayReco.student) return [];
     const branch = dayReco.student.branchName || '';
-    const branchObj = (branches || []).find((b) => b.name === branch) || { name: branch };
-    const openDays = (branch ? resolveBranchWorkingDays(branchObj) : DAY_NAMES);
-    const days = (Array.isArray(openDays) && openDays.length) ? openDays : DAY_NAMES;
+    const openDays = branch ? openDaysFor(branch) : DAY_NAMES;
+    const days = openDays.length ? openDays : DAY_NAMES;
     return days
       .map((day) => ({
         day,
@@ -546,7 +548,7 @@ export default function NewSchedulePage({ onNavigate }) {
       }))
       .sort((a, b) => a.count - b.count);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dayReco, classes, branches]);
+  }, [dayReco, classes, openDaysFor]);
 
   // Candidate time slots for the chosen day, each annotated with whether a
   // capable instructor is free and — when not — why. Built from the branch's
@@ -556,8 +558,7 @@ export default function NewSchedulePage({ onNavigate }) {
     const student = dayReco.student;
     const branch = student.branchName || '';
     const day = dayReco.day;
-    const branchObj = (branches || []).find((b) => b.name === branch) || {};
-    const hours = resolveBranchHours(branchObj)[day] || null;
+    const hours = hoursFor(branch, day);
 
     const category = categorizeLevel(student.level);
     const duration = category === 'Kinder' ? 90 : 120;
@@ -590,7 +591,7 @@ export default function NewSchedulePage({ onNavigate }) {
     };
 
     // ── Preferred path: the branch's manual Class Operation plan for this day.
-    const plan = resolveBranchClassOps(branchObj)[day];
+    const plan = slotsFor(branch, day);
     if (Array.isArray(plan) && plan.length) {
       const slots = plan.map((s) => {
         const meta = slotTypeMeta(s.type);
@@ -645,7 +646,7 @@ export default function NewSchedulePage({ onNavigate }) {
     }
     return { slots, hours, category, duration, capableCount: capable.length, fromPlan: false };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dayReco, classes, instructors, branches]);
+  }, [dayReco, classes, instructors, hoursFor, slotsFor]);
 
   const openEditModal = (c) => {
     setEditingClass(c);

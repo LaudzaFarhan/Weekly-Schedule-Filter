@@ -4,7 +4,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useSchedule } from '../contexts/ScheduleContext';
 import { subscribeToInternalClasses } from '../services/internalScheduleService';
 import { subscribeToInternalInstructors } from '../services/internalInstructorService';
-import { resolveBranchWorkingDays } from './NewOperationalsPage';
+import { useNewOperationals } from '../hooks/useNewOperationals';
 import { DAY_NAMES } from '../utils/constants';
 import { doTimeSlotsOverlap } from '../utils/timeUtils';
 import { Star, X } from 'lucide-react';
@@ -37,6 +37,9 @@ export default function NewTrialAvailabilityPage() {
   const [overviewBranch, setOverviewBranch] = useState('all');
   const [slotDetail, setSlotDetail] = useState(null); // { day, time, available, unavailable }
 
+  // Branch open days come from PostgreSQL, not the Sheets config.
+  const { openDaysFor } = useNewOperationals();
+
   useEffect(() => {
     const unsub = subscribeToInternalClasses(
       (data) => { setClasses(data); setLoading(false); },
@@ -52,18 +55,14 @@ export default function NewTrialAvailabilityPage() {
 
   const branchList = [...new Set((branches || []).map((b) => b.name))].filter(Boolean);
 
-  // Working days per instructor from the Operationals branch calendar.
+  // Working days per instructor, from the branch rules in PostgreSQL. With no
+  // rules configured, treat every day as workable rather than hiding everyone.
   const workingDaysFor = (inst) => {
     const brs = inst?.branches || [];
     const days = new Set();
-    if (brs.length === 0) {
-      resolveBranchWorkingDays({ name: 'default' }).forEach((d) => days.add(d));
-    } else {
-      brs.forEach((bn) => {
-        const branch = (branches || []).find((b) => b.name === bn) || { name: bn };
-        resolveBranchWorkingDays(branch).forEach((d) => days.add(d));
-      });
-    }
+    const sources = brs.length ? brs : branchList;
+    sources.forEach((bn) => openDaysFor(bn).forEach((d) => days.add(d)));
+    if (days.size === 0) DAY_NAMES.forEach((d) => days.add(d));
     return days;
   };
 

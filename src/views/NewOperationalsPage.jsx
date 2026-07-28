@@ -4,6 +4,8 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useSchedule } from '../contexts/ScheduleContext';
 import { useToast } from '../components/ui/Toast';
 import { subscribeToInternalInstructors } from '../services/internalInstructorService';
+import { saveOperationals, deleteOperational } from '../services/newOperationalsService';
+import { useNewOperationals } from '../hooks/useNewOperationals';
 import { DAY_NAMES, getWorkingDaysForBranch } from '../utils/constants';
 import { MapPin, Save, Building2, Clock, X, Plus, Trash2, Copy, CalendarClock, AlertTriangle, Wand2 } from 'lucide-react';
 
@@ -145,8 +147,12 @@ export function resolveBranchWorkingDays(branch) {
 }
 
 export default function NewOperationalsPage() {
-  const { branches, updateBranches } = useSchedule();
+  // `branches` supplies the branch names/ids only. All operational values —
+  // open days, hours and class slots — come from PostgreSQL, because New
+  // Operations does not use the Google Sheets config that Old Operations reads.
+  const { branches } = useSchedule();
   const { showToast } = useToast();
+  const { rules, loading: rulesLoading, error: rulesError, isEmpty } = useNewOperationals();
 
   // Editable drafts: open days per branch, and operating hours per branch/day.
   const [draft, setDraft] = useState({});            // branchId -> Set(dayName)
@@ -187,33 +193,92 @@ export default function NewOperationalsPage() {
   const [maEnd, setMaEnd] = useState('15:00');
   const [maLabel, setMaLabel] = useState('');
 
-  // Sync the drafts from context branches. When there are no unsaved edits we
-  // fully re-sync (so a cloud-config load after mount is reflected); when the
-  // user has pending edits we keep those and only add any new branches.
+  // Build the editable drafts from the PostgreSQL rules, matched to branches by
+  // name. While the user has unsaved edits we leave their drafts alone so a
+  // background poll can't wipe work in progress.
   useEffect(() => {
-    setDraft((prev) => {
-      const next = {};
-      for (const b of branches) {
-        next[b.id] = dirty && prev[b.id] ? prev[b.id] : new Set(resolveBranchWorkingDays(b));
+    if (rulesLoading || dirty) return;
+
+    const byBranchDay = new Map(); // "branchName||day" -> rule
+    for (const r of rules) byBranchDay.set(`${r.branchName}||${r.day}`, r);
+
+    const nextDays = {};
+    const nextHours = {};
+    const nextOps = {};
+
+    for (const b of branches) {
+      const days = new Set();
+      const hours = {};
+      const ops = {};
+      for (const day of DAY_NAMES) {
+        const rule = byBranchDay.get(`${b.name}||${day}`);
+        if (!rule) continue;
+        if (rule.isOpen) days.add(day);
+        if (rule.openTime && rule.closeTime) {
+          hours[day] = { start: rule.openTime, end: rule.closeTime };
+        }
+        if (Array.isArray(rule.slots) && rule.slots.length) {
+          ops[day] = rule.slots.map((s) => ({ ...s }));
+        }
       }
-      return next;
-    });
-    setDraftHours((prev) => {
-      const next = {};
-      for (const b of branches) {
-        next[b.id] = dirty && prev[b.id] ? prev[b.id] : { ...resolveBranchHours(b) };
-      }
-      return next;
-    });
-    setDraftOps((prev) => {
-      const next = {};
-      for (const b of branches) {
-        next[b.id] = dirty && prev[b.id] ? prev[b.id] : { ...resolveBranchClassOps(b) };
-      }
-      return next;
-    });
+      nextDays[b.id] = days;
+      nextHours[b.id] = hours;
+      nextOps[b.id] = ops;
+    }
+
+    setDraft(nextDays);
+    setDraftHours(nextHours);
+    setDraftOps(nextOps);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [branches]);
+  }, [rules, rulesLoading, branches]);
+
+  /**
+   * One-time import of the legacy Google Sheets branch settings into Postgres,
+   * so switching the source of truth doesn't lose existing configuration.
+   */
+  const importFromLegacyConfig = async () => {
+    const payload = [];
+    for (const b of branches) {
+      const legacyDays = resolveBranchWorkingDays(b) || [];
+      const legacyHours = resolveBranchHours(b) || {};
+      const legacyOps = resolveBranchClassOps(b) || {};
+      for (const day of DAY_NAMES) {
+        const isOpen = legacyDays.includes(day);
+        const h = legacyHours[day];
+        const slots = legacyOps[day];
+        // Skip days with nothing recorded at all.
+        if (!isOpen && !h && !slots) continue;
+        payload.push({
+          branchName: b.name,
+          day,
+          isOpen,
+          openTime: h?.start || null,
+          closeTime: h?.end || null,
+          slots: Array.isArray(slots) ? slots : [],
+        });
+      }
+    }
+
+    if (payload.length === 0) {
+      showToast({ title: 'Nothing to import', message: 'No legacy branch settings were found.', variant: 'warning' });
+      return;
+    }
+
+    setSaving(true);
+    try {
+      await saveOperationals(payload);
+      showToast({
+        title: `Imported ${payload.length} branch/day rule${payload.length === 1 ? '' : 's'}`,
+        message: 'New Operations now reads these from the database.',
+        variant: 'success',
+      });
+      setDirty(false);
+    } catch (err) {
+      showToast({ title: 'Import failed', message: err.message, variant: 'error' });
+    } finally {
+      setSaving(false);
+    }
+  };
 
   // New Ops instructors drive how many classes a branch can run at once.
   useEffect(() => {
@@ -505,48 +570,50 @@ export default function NewOperationalsPage() {
     }
     setSaving(true);
     try {
-      const cleanHours = (obj) => {
-        const out = {};
-        for (const d of DAY_NAMES) {
-          const h = obj?.[d];
-          if (h && h.start && h.end) out[d] = { start: h.start, end: h.end };
+      // Drop any slot whose end isn't after its start — those can't be used.
+      const cleanSlots = (list) => (Array.isArray(list) ? list : [])
+        .filter((s) => s && s.start && s.end && s.end > s.start)
+        .map((s) => ({ type: s.type || 'any', start: s.start, end: s.end, label: (s.label || '').trim() }))
+        .sort((a, b) => a.start.localeCompare(b.start));
+
+      // One row per branch/day. POST upserts on (branchName, day).
+      const payload = [];
+      for (const b of branches) {
+        for (const day of DAY_NAMES) {
+          const isOpen = !!draft[b.id]?.has(day);
+          const hrs = draftHours[b.id]?.[day];
+          const slots = cleanSlots(draftOps[b.id]?.[day]);
+          // Skip days that are closed and hold nothing — no point storing them.
+          if (!isOpen && !hrs && slots.length === 0) continue;
+          payload.push({
+            branchName: b.name,
+            day,
+            isOpen,
+            openTime: hrs?.start || null,
+            closeTime: hrs?.end || null,
+            slots,
+          });
         }
-        return out;
-      };
-      const cleanOps = (obj) => {
-        const out = {};
-        for (const d of DAY_NAMES) {
-          const list = obj?.[d];
-          if (Array.isArray(list) && list.length) {
-            const rows = list
-              .filter((s) => s && s.start && s.end && s.end > s.start)
-              .map((s) => ({ type: s.type || 'any', start: s.start, end: s.end, label: (s.label || '').trim() }));
-            if (rows.length) out[d] = rows;
-          }
-        }
-        return out;
-      };
-      const updated = branches.map((b) => ({
-        ...b,
-        workingDays: DAY_NAMES.filter((d) => draft[b.id]?.has(d)),
-        operatingHours: cleanHours(draftHours[b.id]),
-        classOperations: cleanOps(draftOps[b.id]),
-      }));
-      // Await the durable (Google Sheets) write before confirming, so a quick
-      // refresh can't cancel an in-flight save and lose the change.
-      const res = await updateBranches(updated);
-      if (res && res.configured === false) {
-        showToast({
-          title: 'Saved on this device only',
-          message: res.error
-            ? `Cloud sync failed: ${res.error}`
-            : 'Cloud config is not connected, so this will not sync to other devices or the deployment.',
-          variant: 'warning',
-          duration: 7000,
-        });
-      } else {
-        showToast({ title: 'Operational settings saved', variant: 'success' });
       }
+
+      await saveOperationals(payload);
+
+      // Remove rows the user has since emptied, so the database matches the UI.
+      const wanted = new Set(payload.map((p) => `${p.branchName}||${p.day}`));
+      const stale = rules.filter((r) => !wanted.has(`${r.branchName}||${r.day}`));
+      for (const r of stale) {
+        try {
+          await deleteOperational({ id: r.id });
+        } catch {
+          /* a leftover row is harmless — don't fail the save over it */
+        }
+      }
+
+      showToast({
+        title: 'Operational settings saved',
+        message: `${payload.length} branch/day rule${payload.length === 1 ? '' : 's'} stored in the database.`,
+        variant: 'success',
+      });
       setDirty(false);
     } catch (err) {
       console.error('Failed to save operationals:', err);
@@ -622,7 +689,7 @@ export default function NewOperationalsPage() {
               <Building2 size={20} /> Operationals
             </h2>
             <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', margin: '0.2rem 0 0' }}>
-              Set which branches are open on each day, and use the clock icon to set that day&apos;s operating hours. Exact class slots are managed in the Class Operation table below.
+              Set which branches are open on each day, and use the clock icon to set that day&apos;s operating hours. Exact class slots are managed in the Class Operation table below. Stored in PostgreSQL and served by <code>/api/new/operationals</code>.
             </p>
           </div>
           <button
@@ -636,8 +703,46 @@ export default function NewOperationalsPage() {
           </button>
         </div>
 
+        {rulesError && (
+          <div style={{
+            margin: '0.9rem 1.5rem 0', padding: '0.7rem 0.9rem', borderRadius: '10px',
+            background: 'var(--danger-bg, rgba(239,68,68,0.1))', border: '1px solid rgba(239,68,68,0.35)',
+            display: 'flex', alignItems: 'flex-start', gap: '0.5rem',
+          }}>
+            <AlertTriangle size={16} style={{ color: 'var(--danger)', flexShrink: 0, marginTop: '0.1rem' }} />
+            <span style={{ fontSize: '0.78rem', color: 'var(--danger)' }}>{rulesError}</span>
+          </div>
+        )}
+
+        {isEmpty && (
+          <div style={{
+            margin: '0.9rem 1.5rem 0', padding: '0.8rem 1rem', borderRadius: '10px',
+            background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.35)',
+            display: 'flex', alignItems: 'flex-start', gap: '0.6rem', flexWrap: 'wrap',
+          }}>
+            <AlertTriangle size={16} style={{ color: '#b45309', flexShrink: 0, marginTop: '0.1rem' }} />
+            <span style={{ fontSize: '0.78rem', color: '#92400e', flex: '1 1 320px' }}>
+              No rules in the database yet, so the API and Trial Availability have nothing to work with.
+              If you previously configured branches under Old Operations, import those settings once to carry them over.
+            </span>
+            <button
+              type="button"
+              onClick={importFromLegacyConfig}
+              disabled={saving}
+              className="btn"
+              style={{ border: '1px solid #b45309', color: '#b45309', background: 'transparent', borderRadius: '9px', padding: '0.45rem 0.9rem', fontSize: '0.8rem', cursor: 'pointer', whiteSpace: 'nowrap' }}
+            >
+              {saving ? 'Importing…' : 'Import previous settings'}
+            </button>
+          </div>
+        )}
+
         <div className="panel-body table-wrapper">
-          {branches.length === 0 ? (
+          {rulesLoading ? (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.75rem', padding: '2.5rem', color: 'var(--text-secondary)' }}>
+              <div className="loading-spinner" /> Loading operational rules…
+            </div>
+          ) : branches.length === 0 ? (
             <div style={{ textAlign: 'center', padding: '3rem 1.5rem', color: 'var(--text-muted)' }}>
               No branches configured. Add branches in Admin Settings first.
             </div>

@@ -6,7 +6,7 @@ import { useToast } from '../components/ui/Toast';
 import { subscribeToInternalClasses } from '../services/internalScheduleService';
 import { subscribeToInternalInstructors } from '../services/internalInstructorService';
 import { subscribeToLeaves, createLeave, deleteLeave, updateLeave } from '../services/newLeaveService';
-import { resolveBranchWorkingDays } from './NewOperationalsPage';
+import { useNewOperationals } from '../hooks/useNewOperationals';
 import { doTimeSlotsOverlap } from '../utils/timeUtils';
 import { DAY_NAMES } from '../utils/constants';
 import Pagination from '../components/ui/Pagination';
@@ -105,6 +105,8 @@ const atBranch = (instructor, branchName) => {
 export default function NewLeavePage({ params }) {
   const { branches, enabledBranches } = useSchedule();
   const { showToast } = useToast();
+  // Branch open days come from PostgreSQL, not the Sheets config.
+  const { openDaysFor } = useNewOperationals();
 
   const [leaves, setLeaves] = useState([]);
   const [classes, setClasses] = useState([]);
@@ -570,7 +572,7 @@ export default function NewLeavePage({ params }) {
         </div>
       </div>
 
-      <LeaveCalendar leaves={visibleLeaves} instructorByName={instructorByName} branches={branches} />
+      <LeaveCalendar leaves={visibleLeaves} instructorByName={instructorByName} openDaysFor={openDaysFor} />
     </section>
   );
 }
@@ -579,7 +581,7 @@ export default function NewLeavePage({ params }) {
 
 const WEEKDAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
-function LeaveCalendar({ leaves, instructorByName, branches }) {
+function LeaveCalendar({ leaves, instructorByName, openDaysFor }) {
   const [viewDate, setViewDate] = useState(() => {
     const d = new Date();
     return new Date(d.getFullYear(), d.getMonth(), 1);
@@ -610,11 +612,12 @@ function LeaveCalendar({ leaves, instructorByName, branches }) {
       if (to < from) continue;
 
       // Working days come from the instructor's first branch, if we know it.
+      // Null means "show every date" — used when the branch has no rules yet.
       const inst = instructorByName.get(l.name);
       const branchName = (Array.isArray(inst?.branches) ? inst.branches : [])
         .find((b) => b && b !== 'All Branches');
-      const branchObj = (branches || []).find((b) => b.name === branchName);
-      const workingDays = branchObj ? resolveBranchWorkingDays(branchObj) : null;
+      const configured = branchName ? openDaysFor(branchName) : [];
+      const workingDays = configured.length ? configured : null;
 
       const cursor = new Date(from);
       while (cursor <= to) {
@@ -629,7 +632,7 @@ function LeaveCalendar({ leaves, instructorByName, branches }) {
       }
     }
     return map;
-  }, [leaves, year, month, instructorByName, branches]);
+  }, [leaves, year, month, instructorByName, openDaysFor]);
 
   const weeks = useMemo(() => {
     const startWeekday = new Date(year, month, 1).getDay();
