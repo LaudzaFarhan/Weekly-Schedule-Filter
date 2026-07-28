@@ -709,7 +709,11 @@ export default function NewOperationalsPage() {
         if (slotDayFilter !== 'all' && day !== slotDayFilter) continue;
         const dayConflicts = capacity.conflictsByKey.get(`${b.id}||${day}`);
         (byDay[day] || []).forEach((slot, idx) => {
-          if (slotTypeFilter !== 'all' && (slot.type || 'any') !== slotTypeFilter) return;
+          const type = slot.type || 'any';
+          // Breaks are set per day in the Hours & Break popover, so listing one
+          // per day here just floods the table. Only show them when asked for.
+          if (type === 'break' && slotTypeFilter !== 'break') return;
+          if (slotTypeFilter !== 'all' && type !== slotTypeFilter) return;
           rows.push({
             branchId: b.id, branchName: b.name, day, idx, slot, staffCount,
             conflict: dayConflicts?.get(idx) || null,
@@ -801,7 +805,7 @@ export default function NewOperationalsPage() {
                 <tr>
                   <th style={{ minWidth: '180px' }}>Branch</th>
                   {DAY_NAMES.map((d) => (
-                    <th key={d} style={{ textAlign: 'center', minWidth: '112px' }}>{d.slice(0, 3)}</th>
+                    <th key={d} style={{ textAlign: 'center', width: '70px' }}>{d.slice(0, 3)}</th>
                   ))}
                   <th style={{ textAlign: 'center', width: '120px' }}>Quick set</th>
                 </tr>
@@ -827,8 +831,8 @@ export default function NewOperationalsPage() {
                         const on = set.has(d);
                         const hrs = draftHours[b.id]?.[d];
                         const hasHours = !!(hrs && hrs.start && hrs.end);
-                        const opsCount = (draftOps[b.id]?.[d] || []).length;
-                        const dayBreak = findBreakSlot(draftOps[b.id]?.[d]);
+                        // Breaks live in the popover, so don't count them here.
+                        const opsCount = (draftOps[b.id]?.[d] || []).filter((s) => s.type !== 'break').length;
                         return (
                           <td key={d} style={{ textAlign: 'center' }}>
                             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.25rem' }}>
@@ -852,22 +856,6 @@ export default function NewOperationalsPage() {
                                 >
                                   {on ? '✓' : ''}
                                 </button>
-                                {on && dayBreak && (
-                                  <button
-                                    type="button"
-                                    onClick={() => openHoursEditor(b, d)}
-                                    title={`Break ${dayBreak.start}–${dayBreak.end}${dayBreak.label ? ` · ${dayBreak.label}` : ''} — click to edit`}
-                                    style={{
-                                      display: 'inline-flex', alignItems: 'center', gap: '0.1rem',
-                                      height: '26px', padding: '0 0.3rem', borderRadius: '6px', cursor: 'pointer',
-                                      fontSize: '0.56rem', fontWeight: 700, whiteSpace: 'nowrap',
-                                      border: '1px solid rgba(245,158,11,0.45)',
-                                      background: 'rgba(245,158,11,0.14)', color: '#b45309',
-                                    }}
-                                  >
-                                    <Coffee size={10} /> {dayBreak.start}
-                                  </button>
-                                )}
                                 <button
                                   type="button"
                                   onClick={() => openHoursEditor(b, d)}
@@ -948,7 +936,7 @@ export default function NewOperationalsPage() {
               <CalendarClock size={19} /> Class Operation Time Slots
             </h2>
             <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', margin: '0.2rem 0 0' }}>
-              Set the exact slots per branch and day — Kinder / Junior / Coder classes plus breaks, training and meetings. These drive the time recommendations on the Schedule page.
+              Set the exact class slots per branch and day — Kinder / Junior / Coder, plus training and meetings. These drive the time recommendations on the Schedule page. Daily breaks are set with the clock icon above and are hidden here; choose Type &rarr; Break to see them.
             </p>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
