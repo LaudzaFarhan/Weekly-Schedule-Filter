@@ -1,127 +1,105 @@
-# New Operations API — Integration Guide
+# New Operations API — Integration Guide for Hermes
 
-Everything an agent (Hermes) needs to call The Lab Operation System.
-Backed by PostgreSQL. All requests and responses are JSON.
+Live REST API for The Lab Operation System. Backed by PostgreSQL, JSON in and
+JSON out.
 
-> Old Operations (`/api/old/*`, Google Sheets) is a **separate** API over
-> **different data**. A student here is not the same record as a student there.
-> Never mix them. See `/api/old/openapi.json` if you need it.
+**Base URL** `https://weekly-schedule-filter.vercel.app`
+**OpenAPI spec** `https://weekly-schedule-filter.vercel.app/api/new/openapi.json`
+**Auth** `Authorization: Bearer <API_KEY>` on every `/api/new/*` call
+
+> There is a second API at `/api/old/*` backed by Google Sheets. It holds
+> **different data** and is not part of this integration. Ignore it.
 
 ---
 
-## 1. Connection
+## 1. Quick start
 
-| | Value |
-|---|---|
-| Base URL | `https://weekly-schedule-filter.vercel.app` |
-| Spec (auto-discovery) | `https://weekly-schedule-filter.vercel.app/api/new/openapi.json` |
-| Auth header | `Authorization: Bearer <NEW_OPS_API_KEY>` |
-| Alternative header | `x-api-key: <NEW_OPS_API_KEY>` |
-
-The spec is public so discovery works before authenticating.
-
-### Live status — verified
-
-All 10 endpoints respond `200` in production and are serving real data:
-
-| Check | Result |
-|---|---|
-| `/api/new/openapi.json` | 200 — spec published |
-| Instructors | 15 records |
-| Classes | 21 records |
-| Students | 26 records |
-| `/api/new/workload` | 3 instructors, 27 hours |
-| `/api/new/operationals` | **0 rules — see §8** |
-| `/api/new/trial-availability` | **0 slots, blocked by the above** |
-
-### ⚠️ The API is currently unauthenticated
-
-`NEW_OPS_API_KEY` is **not set on Vercel**. Every endpoint answers without a
-token, so anyone with the URL can read all student and instructor data and issue
-`DELETE`. Fix this before giving the URL to anything:
-
-1. Generate a key:
-   ```bash
-   node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
-   ```
-2. Vercel → Project → Settings → Environment Variables → add
-   `NEW_OPS_API_KEY` for Production.
-3. Redeploy (env changes need a new deployment to take effect).
-4. Confirm the gate is live — step 2 below must return `401`.
-
-The browser UI keeps working after this; same-origin requests are exempt.
-
-**Environment variables on Vercel:**
-
-| Variable | Status | Purpose |
-|---|---|---|
-| `DATABASE_URL` | set (API returns data) | PostgreSQL connection |
-| `NEW_OPS_API_KEY` | **missing** | The token Hermes sends |
-| `DATABASE_SSL` | not needed | Only if Postgres requires SSL |
-
-### Smoke test
+Point Hermes at the spec URL — it lists every operation, parameter and schema,
+so no tool definitions need writing by hand. The spec is public; everything else
+needs the key.
 
 ```bash
-KEY=your-key-here
 BASE=https://weekly-schedule-filter.vercel.app
+KEY=<your key>
 
-# 1. Spec reachable without a key
+# Discovery — no auth
 curl $BASE/api/new/openapi.json
 
-# 2. Key enforced — must return 401
-curl -i $BASE/api/new/instructors
-
-# 3. Key accepted — returns JSON
-curl -H "Authorization: Bearer $KEY" \
-  "$BASE/api/new/instructors?limit=5"
+# Any data call — auth required
+curl -H "Authorization: Bearer $KEY" "$BASE/api/new/instructors?limit=5"
 ```
 
-If step 2 returns data instead of `401`, the key is not set and the API is open.
+If a client cannot set `Authorization`, send `x-api-key: <API_KEY>` instead.
+
+**Responses:** `200` with a JSON array or object. Errors return
+`{ "error": "..." }` with a 4xx/5xx status. `401` means the key is missing or
+wrong.
 
 ---
 
-## 2. Conventions
+## 2. Live data snapshot
 
-- **Days**: full English names — `Monday` … `Sunday`.
-- **Operating hours and slot times**: 24-hour `"HH:MM"` — `"13:00"`.
-- **Class time slots**: human strings — `"1.00 pm - 3.00 pm"`.
-- **Dates**: `"YYYY-MM-DD"`.
-- **Methods**: `GET` list · `POST` create · `PUT` update (body needs `id`) ·
-  `DELETE ?id=`.
-- Send `Content-Type: application/json` on writes.
-- Errors return `{ "error": "..." }` with a 4xx/5xx status.
+Verified against production:
 
-### Business rules the API enforces
+| Resource | Records |
+|---|---|
+| Instructors | 15 (9 Kinder and Junior · 6 Junior and Coder) |
+| Classes | 21 |
+| Students | 26 |
+| CRM leads | 2 |
+| Leave records | 0 |
+| Operational rules | **0 — see §7** |
+
+Classes currently run Tuesday, Wednesday, Friday, Saturday and Sunday, almost
+all at Bekasi. Workload reports 3 active instructors totalling 27 hours.
+
+---
+
+## 3. Data conventions
+
+| Thing | Format | Example |
+|---|---|---|
+| Day | Full English name | `"Monday"` |
+| Class time slot | Human string | `"1.00 pm - 3.00 pm"` |
+| Operating hours / slot times | 24-hour `HH:MM` | `"13:00"` |
+| Date | ISO | `"2026-08-03"` |
+
+### Business rules
 
 | Rule | Detail |
 |---|---|
 | Class length | Kinder 90 min · Junior and Coder 120 min |
-| Students per slot | Kinder 4 · Junior and Coder 6 |
-| Instructor levels | `"Kinder and Junior"` or `"Junior and Coder"` |
+| Students per class | Kinder 4 · Junior and Coder 6 |
+| Instructor level | Exactly `"Kinder and Junior"` or `"Junior and Coder"` |
 | Capability | An instructor may only teach a category named in their level |
-| Leave | A slot where *every* student is on leave (`izin`) does not count as taught hours |
+| Leave | A class where *every* student is on leave (`izin`) is excluded from taught hours |
+
+### Program codes
+
+Kinder and Junior use a code plus a lesson number (1–10) after a dot:
+
+- Kinder Foundation `KF1`, `KF2` → `KF1.9`
+- Kinder Core `K1`–`K4` → `K1.1`
+- Junior Foundation `JF1`, `JF2` → `JF1.1`
+- Junior Core `J1`–`J4` → `J1.1`
+
+Coder uses level names with no lesson number: `Coder Foundation 1`–`4`,
+`Coder Basic 1`–`2`, `Coder Intermediate 1`–`2`, `Coder Advance 1`–`3`.
 
 ### Branches
 
-Live configuration, all open 6 days a week:
-
 | Branch | Open days |
 |---|---|
-| Gading Serpong | Mon–Sat |
-| Puri Indah | Mon–Sat |
-| Pluit Village | Mon–Sat |
-| Kelapa Gading | Mon–Sat |
-| Pondok Indah | Mon–Sat |
-| Bintaro | **Tue–Sun** |
-| Bekasi | **Tue–Sun** |
+| Gading Serpong · Puri Indah · Pluit Village · Kelapa Gading · Pondok Indah | Mon–Sat |
+| Bintaro · Bekasi | **Tue–Sun** |
 
-Bintaro and Bekasi are closed Monday and open Sunday; the other five are the
-reverse. An instructor may be assigned `"All Branches"` instead of named ones.
-There is also a `Default Branch` placeholder with no open days — ignore it.
+Bintaro and Bekasi close Monday and open Sunday; the other five are the reverse.
+An instructor may be assigned `"All Branches"`. Ignore the `Default Branch`
+placeholder.
 
 ---
 
-## 3. Endpoints
+## 4. Endpoints
 
 | Endpoint | Methods | Purpose |
 |---|---|---|
@@ -136,17 +114,13 @@ There is also a `Default Branch` placeholder with no open days — ignore it.
 | `/api/new/workload` | GET | **Derived** — instructor hours |
 | `/api/new/trial-availability` | GET | **Derived** — bookable slots + reasons |
 
-### List parameters
+Method convention: `GET` list · `POST` create · `PUT` update (body needs `id`) ·
+`DELETE ?id=`. Send `Content-Type: application/json` on writes.
 
-All list endpoints accept:
+### Query parameters
 
-- `search` — partial, case-insensitive match across the main text columns
-- `limit` — max rows, capped at 500
-
-**Always send `limit`.** Omitting it returns every match, which is slow and
-expensive in a chat context.
-
-Per-endpoint filters:
+Every list endpoint accepts `search` (partial, case-insensitive) and `limit`
+(max 500). **Always send `limit`** — omitting it returns every match.
 
 | Endpoint | Filters |
 |---|---|
@@ -156,76 +130,66 @@ Per-endpoint filters:
 | `crm` | `status`, `branch` |
 | `leave` | `instructor`, `from`, `to`, `status` |
 | `operationals` | `branch`, `day`, `openOnly` |
-| `activity` | `source`, `action`, `limit` |
+| `activity` | `source`, `action` |
 | `workload` | `branch`, `day`, `instructor` |
 | `trial-availability` | `branch`, `day`, `category` |
 
 ---
 
-## 4. Prefer the derived endpoints
+## 5. Use the derived endpoints for questions
 
-These answer a whole question in one call, with the business rules already
-applied. Do **not** reconstruct this logic by joining raw tables — it will be
-wrong.
+These apply all the business rules for you. Do **not** try to work capacity or
+availability out by joining raw tables — the result will be wrong.
 
-### `GET /api/new/workload`
-
-"Who is overloaded?" Returns per-instructor hours, hours per day, and the
-session list. Slots where every student is on leave appear as `leaveSessions`
-and are excluded from `totalHours`.
+### `GET /api/new/workload` — "who is overloaded?"
 
 ```bash
-curl -H "Authorization: Bearer $KEY" \
-  "https://weekly-schedule-filter.vercel.app/api/new/workload?branch=Bekasi"
+curl -H "Authorization: Bearer $KEY" "$BASE/api/new/workload?branch=Bekasi"
 ```
 
 ```json
 {
-  "instructorCount": 2,
-  "totalHours": 25.5,
-  "data": [
-    {
-      "instructor": "Angel",
-      "branches": ["Gading Serpong"],
-      "totalSessions": 6,
-      "leaveSessions": 1,
-      "totalHours": 12,
-      "hoursByDay": { "Saturday": 6, "Friday": 6 },
-      "sessions": [ /* … */ ]
-    }
-  ]
+  "instructorCount": 3,
+  "totalHours": 27,
+  "data": [{
+    "instructor": "Angel",
+    "branches": ["Bekasi"],
+    "totalSessions": 6,
+    "leaveSessions": 1,
+    "totalHours": 12,
+    "hoursByDay": { "Saturday": 6, "Friday": 6 },
+    "sessions": []
+  }]
 }
 ```
 
-### `GET /api/new/trial-availability`
+`leaveSessions` are classes where everyone was on leave; they are already
+excluded from `totalHours`.
 
-"When can a new student come in?" Returns each planned slot with whether it can
-take a student and, when it cannot, **why**.
+### `GET /api/new/trial-availability` — "when can a new student come in?"
 
 ```bash
 curl -H "Authorization: Bearer $KEY" \
-  "https://weekly-schedule-filter.vercel.app/api/new/trial-availability?branch=Bekasi&category=Coder"
+  "$BASE/api/new/trial-availability?branch=Bekasi&category=Coder"
 ```
 
 ```json
 {
   "total": 12,
   "availableCount": 4,
-  "data": [
-    {
-      "branchName": "Bekasi", "day": "Monday",
-      "start": "13:00", "end": "15:00",
-      "slotType": "coder",
-      "available": true,
-      "reason": "Coder Class · 2 instructors free",
-      "freeInstructors": [{ "name": "Yovi", "level": "Junior and Coder" }],
-      "joinableClasses": []
-    }
-  ]
+  "data": [{
+    "branchName": "Bekasi", "day": "Tuesday",
+    "start": "13:00", "end": "15:00",
+    "slotType": "coder",
+    "available": true,
+    "reason": "Coder Class · 2 instructors free",
+    "freeInstructors": [{ "name": "Yovi", "level": "Junior and Coder" }],
+    "joinableClasses": []
+  }]
 }
 ```
 
-Reasons you may see when `available` is `false`:
+When `available` is `false`, `reason` explains why:
 
 - `Reserved for break` / `training` / `meeting`
 - `No Coder instructor at this branch`
@@ -233,37 +197,31 @@ Reasons you may see when `available` is `false`:
 - `Kinder Class slot — student is Coder`
 - `Too short — Coder needs 120m`
 
-`joinableClasses` lists existing lessons that still have seats, respecting the
-4/6 limits — often the right answer instead of creating a new slot.
+`joinableClasses` lists existing classes that still have seats within the 4/6
+limits. Joining one is often better than creating a new class.
 
 ---
 
-## 5. Record shapes
+## 6. Record shapes
 
 ### Class — `/api/new/schedule`
 
 ```json
 {
-  "day": "Monday",
+  "day": "Tuesday",
   "time": "1.00 pm - 3.00 pm",
   "program": "JF1.5",
   "student": "Dave Kingsley",
   "teacher": "Angel",
-  "branchName": "Gading Serpong",
+  "branchName": "Bekasi",
   "classType": "Regular",
   "remarks": ""
 }
 ```
 
 Required: `day`, `time`, `program`, `student`, `teacher`, `branchName`.
-`classType` is `Regular` or `Trial`. Put `izin` in `remarks` when a student is
-on leave for that session.
-
-**Program codes**: Kinder Foundation `KF1`–`KF2`, Kinder Core `K1`–`K4`,
-Junior Foundation `JF1`–`JF2`, Junior Core `J1`–`J4`, each with a lesson number
-1–10 appended after a dot (`JF1.5`). Coder uses level names:
-`Coder Foundation 1`–`4`, `Coder Basic 1`–`2`, `Coder Intermediate 1`–`2`,
-`Coder Advance 1`–`3` (no lesson number).
+`classType` is `Regular` or `Trial`. Put `izin` in `remarks` when a student is on
+leave for that session.
 
 ### Student — `/api/new/students`
 
@@ -271,7 +229,7 @@ Junior Foundation `JF1`–`JF2`, Junior Core `J1`–`J4`, each with a lesson num
 {
   "name": "Dave Kingsley",
   "level": "Coder Advance 1",
-  "branchName": "Gading Serpong",
+  "branchName": "Bekasi",
   "parentName": "Jane Doe",
   "contact": "+62 812-3456-789",
   "status": "Active",
@@ -295,7 +253,6 @@ Required: `name`, `level`, `branchName`.
 ```
 
 Required: `name`, `level`, `branches`, `contact`.
-`level` must be exactly `"Kinder and Junior"` or `"Junior and Coder"`.
 
 ### Lead — `/api/new/crm`
 
@@ -303,40 +260,16 @@ Required: `name`, `level`, `branches`, `contact`.
 {
   "name": "Mom Eny (Parent of Budi)",
   "phone": "628123456789",
-  "message": "WhatsApp lead",
+  "message": "asking about Coder trial",
   "status": "interest_trial",
   "branch": "Bekasi",
-  "trialDate": "2026-07-18",
+  "trialDate": "2026-08-18",
   "notes": ""
 }
 ```
 
-Required: `name`, `phone`. Status values: `interest_trial`, `trial_booked`,
+Required: `name`, `phone`. Status: `interest_trial`, `trial_booked`,
 `trial_done`, `closed`.
-
-### Operational rule — `/api/new/operationals`
-
-One row per branch + day. `POST` upserts on `(branchName, day)`.
-
-```json
-{
-  "branchName": "Bekasi",
-  "day": "Monday",
-  "isOpen": true,
-  "openTime": "11:00",
-  "closeTime": "18:30",
-  "slots": [
-    { "type": "kinder",  "start": "11:00", "end": "12:30", "label": "" },
-    { "type": "break",   "start": "12:30", "end": "13:00", "label": "Lunch" },
-    { "type": "junior",  "start": "13:00", "end": "15:00", "label": "" },
-    { "type": "coder",   "start": "15:00", "end": "17:00", "label": "" }
-  ]
-}
-```
-
-Slot types: `kinder`, `junior`, `coder`, `any` (any class),
-`break`, `training`, `meeting`. The last three block the time instead of
-holding a class. A slot whose `end` is not after `start` is rejected with 400.
 
 ### Leave — `/api/new/leave`
 
@@ -351,75 +284,70 @@ holding a class. A slot whose `end` is not after `start` is rejected with 400.
 ```
 
 Required: `name`, `startDate`, `endDate`. Status: `Approved`, `Pending`,
-`Rejected`. Posting an identical range for the same instructor returns `409`.
+`Rejected`. An identical range for the same instructor returns `409`.
 
-`from`/`to` on GET match any leave **overlapping** the window, not only leave
-fully inside it:
+`from`/`to` on GET match any leave **overlapping** the window:
 
 ```bash
 curl -H "Authorization: Bearer $KEY" \
-  "https://weekly-schedule-filter.vercel.app/api/new/leave?from=2026-08-01&to=2026-08-31"
+  "$BASE/api/new/leave?from=2026-08-01&to=2026-08-31"
 ```
+
+### Operational rule — `/api/new/operationals`
+
+One row per branch + day. `POST` upserts on `(branchName, day)`.
+
+```json
+{
+  "branchName": "Bekasi",
+  "day": "Tuesday",
+  "isOpen": true,
+  "openTime": "11:00",
+  "closeTime": "18:30",
+  "slots": [
+    { "type": "kinder", "start": "11:00", "end": "12:30", "label": "" },
+    { "type": "break",  "start": "12:30", "end": "13:00", "label": "Lunch" },
+    { "type": "junior", "start": "13:00", "end": "15:00", "label": "" },
+    { "type": "coder",  "start": "15:00", "end": "17:00", "label": "" }
+  ]
+}
+```
+
+Slot types: `kinder`, `junior`, `coder`, `any`, `break`, `training`, `meeting`.
+The last three block the time instead of holding a class. A slot whose `end` is
+not after `start` is rejected with `400`.
 
 ---
 
-## 6. Common tasks
+## 7. Current limitation — read this first
 
-**Find a student and their classes**
+**`trial-availability` returns `total: 0` right now** because
+`/api/new/operationals` has no rules yet. Until the branch hours and slot plans
+are configured in the app (New Operations → Operationals → *Import previous
+settings*), that endpoint has nothing to reason about.
 
-```bash
-curl -H "Authorization: Bearer $KEY" \
-  "https://weekly-schedule-filter.vercel.app/api/new/students?search=Dave&limit=5"
+Everything else — schedule, students, instructors, CRM, leave, workload — is
+live and returning real data.
 
-curl -H "Authorization: Bearer $KEY" \
-  "https://weekly-schedule-filter.vercel.app/api/new/schedule?search=Dave%20Kingsley&limit=10"
-```
+Other limits:
 
-**Who teaches on Saturday at Bekasi**
-
-```bash
-curl -H "Authorization: Bearer $KEY" \
-  "https://weekly-schedule-filter.vercel.app/api/new/schedule?day=Saturday&branch=Bekasi&limit=20"
-```
-
-**Who is away next week**
-
-```bash
-curl -H "Authorization: Bearer $KEY" \
-  "https://weekly-schedule-filter.vercel.app/api/new/leave?from=2026-08-03&to=2026-08-09"
-```
-
-**Log an inbound WhatsApp enquiry**
-
-```bash
-curl -X POST -H "Authorization: Bearer $KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"name":"Mom Eny","phone":"628123456789","message":"asking about Coder trial","branch":"Bekasi"}' \
-  https://weekly-schedule-filter.vercel.app/api/new/crm
-```
-
-**Book a trial** — check availability first, then create the class:
-
-```bash
-curl -H "Authorization: Bearer $KEY" \
-  "https://weekly-schedule-filter.vercel.app/api/new/trial-availability?branch=Bekasi&category=Coder"
-
-curl -X POST -H "Authorization: Bearer $KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"day":"Monday","time":"1.00 pm - 3.00 pm","program":"Coder Basic 1","student":"Budi","teacher":"Yovi","branchName":"Bekasi","classType":"Trial"}' \
-  https://weekly-schedule-filter.vercel.app/api/new/schedule
-```
+- **No dates on classes.** The schedule is a recurring weekly pattern, so you
+  can answer "what happens on Tuesdays" but not "what happens on the 12th".
+  `classType: "Trial"` marks one-off sessions.
+- **Activity and student-history** are written by the app to browser storage as
+  well, so those two endpoints may not match what the web UI displays.
+- **The key is a single shared secret** with full read and write access,
+  including delete.
 
 ---
 
-## 7. Agent instructions
+## 8. System prompt for Hermes
 
 Paste this into the Hermes system prompt.
 
 ```text
-You have tools for The Lab Operation System — a multi-branch coding school.
-Authenticate every call with the bearer token; the OpenAPI spec is at
-/api/new/openapi.json.
+You have tools for The Lab Operation System, a multi-branch coding school
+(Kinder, Junior and Coder programs). Data comes from its New Operations API.
 
 DATA RULES
 - Days are full names ("Monday"). Dates are YYYY-MM-DD.
@@ -427,96 +355,44 @@ DATA RULES
 - Seats per class: Kinder 4, Junior and Coder 6.
 - Instructor level is "Kinder and Junior" or "Junior and Coder". An instructor
   can only teach a category named in their level.
+- Program codes: Kinder/Junior use a code plus lesson number (KF1.9, K1.1,
+  JF1.1, J1.1). Coder uses level names (Coder Basic 1) with no lesson number.
+- Branches: Gading Serpong, Puri Indah, Pluit Village, Kelapa Gading and
+  Pondok Indah run Mon-Sat. Bintaro and Bekasi run Tue-Sun.
 
 HOW TO ANSWER
-- For "who is free / when can a student come in", call trial-availability.
-  It already accounts for branch hours, breaks, capability and seat limits, and
-  returns a reason when a slot is unavailable. Do not work this out yourself.
-- For "who is busy / overloaded", call workload.
-- Always pass limit (5-20 is usually enough). Never fetch a whole table.
-- Use search= to find people by name rather than listing everything.
-- If a name matches several records, ask which one before acting.
+- "Who is free" / "when can a new student start": call trial-availability. It
+  already accounts for branch hours, breaks, instructor capability, existing
+  bookings and seat limits, and returns a reason when a slot is unavailable.
+  Do not work this out yourself from the schedule.
+- "Who is busy" / "who is overloaded": call workload.
+- Always pass limit (5-20 is plenty). Never fetch a whole table.
+- Use search= to find people by name instead of listing everything.
+- If a name matches more than one record, ask which one before acting.
+- The schedule is a weekly pattern with no calendar dates. If asked about a
+  specific date, answer for that weekday and say so.
 
 WRITES
 - You may create CRM leads for new enquiries without asking.
-- Confirm with the user before creating, changing or deleting a class,
-  student, instructor, or leave record. State exactly what will change.
+- Before creating, changing or deleting a class, student, instructor or leave
+  record, state exactly what will change and get confirmation.
 - Never call DELETE unless the user explicitly asks and confirms.
 
 WHEN UNSURE
-- Report what the API returned. Do not guess schedule, availability or capacity.
+- Report what the API returned. Never guess schedule, availability or capacity.
+- If trial-availability returns zero slots, say the branch operating rules have
+  not been configured yet rather than reporting no availability.
 ```
 
 ---
 
-## 8. Known gaps — read before testing
+## 9. Recommended tool restrictions
 
-### `trial-availability` returns nothing until Operationals is seeded
+The key allows full write access, so restrict what Hermes can call:
 
-Confirmed in production: `GET /api/new/operationals` returns `0` rules, so
-`trial-availability` returns `total: 0` with the note
-`"No operational rules found"`.
+**Allow:** all `GET` endpoints, plus `POST /api/new/crm`.
+**Block:** every `DELETE`, and `PUT`/`POST` on schedule, students, instructors,
+operationals and leave unless an admin workflow needs them.
 
-The cause: the Operationals page writes its open days, hours and class slot plan
-to the **shared branch config** (Google Sheets), not to the
-`internal_operationals` table the API reads. The page looks correctly filled in
-while the API sees nothing.
-
-Seed it by POSTing each branch/day. `POST` upserts on `(branchName, day)`, so
-re-running is safe:
-
-```bash
-BASE=https://weekly-schedule-filter.vercel.app
-
-curl -X POST -H "Content-Type: application/json" \
-  -H "Authorization: Bearer $KEY" \
-  -d '{
-    "branchName": "Bekasi",
-    "day": "Tuesday",
-    "isOpen": true,
-    "openTime": "11:00",
-    "closeTime": "18:30",
-    "slots": [
-      { "type": "kinder", "start": "11:00", "end": "12:30" },
-      { "type": "junior", "start": "13:00", "end": "15:00" },
-      { "type": "coder",  "start": "15:00", "end": "17:00" }
-    ]
-  }' \
-  $BASE/api/new/operationals
-```
-
-Repeat per open day. Remember Bintaro and Bekasi run Tue–Sun while the other
-five run Mon–Sat.
-
-### Activity and student-history are UI-local
-
-Both endpoints work, but the Schedule and Students pages still write their
-history to browser `localStorage`. So `GET /api/new/activity` will be empty even
-though the Activity page shows entries. Anything POSTed to the API is stored
-properly and shared; it just won't appear in the UI yet, and vice versa.
-
-### Other limits
-
-- **The token is a single shared secret.** Anyone holding it has full read and
-  write access, including delete. Restrict the agent's tool list rather than
-  relying on the model to behave.
-- **`internal_classes` has no date column.** The schedule is a recurring weekly
-  pattern, so per-date or per-week filtering is not possible — you can ask
-  "what's on Tuesdays", not "what's on the 12th". `classType: Trial` marks
-  one-off sessions.
-- Tables are created automatically on first request, so no manual migration is
-  needed.
-- `/api/old/*` is a different API over Google Sheets with its own keys
-  (`CHATBOT_API_KEY`, `CRM_API_KEY`). Three of those endpoints have no auth at
-  all, including `/api/old/config`, which can write branch settings.
-
----
-
-## 9. Setup checklist
-
-- [ ] Set `NEW_OPS_API_KEY` on Vercel and redeploy — **the API is open right now**
-- [ ] Confirm `curl -i $BASE/api/new/instructors` returns `401`
-- [ ] Seed `/api/new/operationals` so `trial-availability` works
-- [ ] Give Hermes the base URL, the spec URL, and the key
-- [ ] Paste the §7 prompt into the Hermes system prompt
-- [ ] Restrict Hermes to the read endpoints plus `POST /api/new/crm`
+This keeps a misread message from deleting records while still letting the bot
+log enquiries and answer questions.
