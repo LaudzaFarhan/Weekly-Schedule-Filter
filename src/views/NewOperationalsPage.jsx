@@ -7,7 +7,7 @@ import { subscribeToInternalInstructors } from '../services/internalInstructorSe
 import { saveOperationals, deleteOperational } from '../services/newOperationalsService';
 import { useNewOperationals } from '../hooks/useNewOperationals';
 import { DAY_NAMES, getWorkingDaysForBranch } from '../utils/constants';
-import { MapPin, Save, Building2, Clock, X, Plus, Trash2, Copy, CalendarClock, AlertTriangle, Wand2 } from 'lucide-react';
+import { MapPin, Save, Building2, Clock, X, Plus, Trash2, Copy, CalendarClock, AlertTriangle, Wand2, Coffee } from 'lucide-react';
 
 /** Resolve saved per-day operating hours for a branch: { Monday: {start,end}, ... } */
 export function resolveBranchHours(branch) {
@@ -98,6 +98,10 @@ const toMin = (hhmm) => {
 const minToHHMM = (mins) =>
   `${String(Math.floor(mins / 60)).padStart(2, '0')}:${String(mins % 60).padStart(2, '0')}`;
 
+/** The break entry in a day's slot list, if one has been set. */
+const findBreakSlot = (slots) =>
+  (Array.isArray(slots) ? slots : []).find((s) => s.type === 'break') || null;
+
 /**
  * Find slots in a day's plan that exceed the branch's instructor capacity.
  * Walks every slot start time, collects the class slots running at that moment,
@@ -166,6 +170,11 @@ export default function NewOperationalsPage() {
   const [editor, setEditor] = useState(null);        // { branchId, day, branchName }
   const [editStart, setEditStart] = useState('');
   const [editEnd, setEditEnd] = useState('');
+  // Break within the day's hours, stored as a `break` slot in the plan.
+  const [editBreakOn, setEditBreakOn] = useState(false);
+  const [editBreakStart, setEditBreakStart] = useState('12:30');
+  const [editBreakMins, setEditBreakMins] = useState(60);
+  const [editBreakLabel, setEditBreakLabel] = useState('');
 
   // Class Operation table filters
   const [slotBranchFilter, setSlotBranchFilter] = useState('all');
@@ -290,12 +299,20 @@ export default function NewOperationalsPage() {
     const h = draftHours[branch.id]?.[day];
     setEditStart(h?.start || '09:00');
     setEditEnd(h?.end || '18:00');
+    // Load any existing break for this day so it can be edited in place.
+    const existing = findBreakSlot(draftOps[branch.id]?.[day]);
+    setEditBreakOn(!!existing);
+    setEditBreakStart(existing?.start || '12:30');
+    setEditBreakMins(existing ? (toMin(existing.end) - toMin(existing.start)) : 60);
+    setEditBreakLabel(existing?.label || '');
+
     setEditor({ branchId: branch.id, day, branchName: branch.name });
   };
 
   const saveHours = () => {
     if (!editor) return;
     setDirty(true);
+
     setDraftHours((prev) => ({
       ...prev,
       [editor.branchId]: {
@@ -303,6 +320,30 @@ export default function NewOperationalsPage() {
         [editor.day]: { start: editStart, end: editEnd },
       },
     }));
+
+    // The break is stored as a `break` slot in the day's plan, so the API and
+    // the schedule recommendations already treat it as blocked time.
+    setDraftOps((prev) => {
+      const branchOps = { ...(prev[editor.branchId] || {}) };
+      const list = (branchOps[editor.day] || []).filter((s) => s.type !== 'break');
+
+      if (editBreakOn && editBreakStart) {
+        const startMin = toMin(editBreakStart);
+        const mins = Math.max(15, parseInt(editBreakMins, 10) || 60);
+        const endMin = Math.min(startMin + mins, 23 * 60 + 59);
+        list.push({
+          type: 'break',
+          start: minToHHMM(startMin),
+          end: minToHHMM(endMin),
+          label: editBreakLabel.trim(),
+        });
+      }
+
+      if (list.length) branchOps[editor.day] = list.sort((a, b) => a.start.localeCompare(b.start));
+      else delete branchOps[editor.day];
+      return { ...prev, [editor.branchId]: branchOps };
+    });
+
     setEditor(null);
   };
 
@@ -313,6 +354,14 @@ export default function NewOperationalsPage() {
       const branchHours = { ...(prev[editor.branchId] || {}) };
       delete branchHours[editor.day];
       return { ...prev, [editor.branchId]: branchHours };
+    });
+    // Drop the break too, but keep any class slots the user defined.
+    setDraftOps((prev) => {
+      const branchOps = { ...(prev[editor.branchId] || {}) };
+      const list = (branchOps[editor.day] || []).filter((s) => s.type !== 'break');
+      if (list.length) branchOps[editor.day] = list;
+      else delete branchOps[editor.day];
+      return { ...prev, [editor.branchId]: branchOps };
     });
     setEditor(null);
   };
@@ -779,6 +828,7 @@ export default function NewOperationalsPage() {
                         const hrs = draftHours[b.id]?.[d];
                         const hasHours = !!(hrs && hrs.start && hrs.end);
                         const opsCount = (draftOps[b.id]?.[d] || []).length;
+                        const dayBreak = findBreakSlot(draftOps[b.id]?.[d]);
                         return (
                           <td key={d} style={{ textAlign: 'center' }}>
                             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.25rem' }}>
@@ -838,6 +888,19 @@ export default function NewOperationalsPage() {
                               {on && hasHours && (
                                 <span style={{ fontSize: '0.6rem', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
                                   {hrs.start}–{hrs.end}
+                                </span>
+                              )}
+                              {on && dayBreak && (
+                                <span
+                                  title={`Break ${dayBreak.start}–${dayBreak.end}${dayBreak.label ? ` · ${dayBreak.label}` : ''}`}
+                                  style={{
+                                    display: 'inline-flex', alignItems: 'center', gap: '0.15rem',
+                                    fontSize: '0.58rem', fontWeight: 700, whiteSpace: 'nowrap',
+                                    color: '#b45309', background: 'rgba(245,158,11,0.14)',
+                                    padding: '0.02rem 0.3rem', borderRadius: '4px',
+                                  }}
+                                >
+                                  <Coffee size={9} /> {dayBreak.start}
                                 </span>
                               )}
                             </div>
@@ -1490,7 +1553,7 @@ export default function NewOperationalsPage() {
             <div style={{ padding: '1rem 1.25rem', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--bg-color)' }}>
               <div>
                 <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                  <Clock size={16} /> Operating Hours
+                  <Clock size={16} /> Hours &amp; Break
                 </h3>
                 <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>{editor.branchName} · {editor.day}</span>
               </div>
@@ -1525,6 +1588,91 @@ export default function NewOperationalsPage() {
                   End time should be after the start time.
                 </span>
               )}
+
+              {/* Break inside the operating hours */}
+              <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '0.9rem' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', cursor: 'pointer', marginBottom: editBreakOn ? '0.7rem' : 0 }}>
+                  <input
+                    type="checkbox"
+                    checked={editBreakOn}
+                    onChange={(e) => setEditBreakOn(e.target.checked)}
+                  />
+                  <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-main)', display: 'inline-flex', alignItems: 'center', gap: '0.3rem' }}>
+                    <Coffee size={14} /> Break during the day
+                  </span>
+                </label>
+
+                {editBreakOn && (
+                  <>
+                    <div style={{ display: 'flex', gap: '0.75rem' }}>
+                      <div style={{ flex: 1 }}>
+                        <label className="modal-form-label">Starts at</label>
+                        <input
+                          type="time"
+                          className="modal-input-field"
+                          value={editBreakStart}
+                          onChange={(e) => setEditBreakStart(e.target.value)}
+                        />
+                      </div>
+                      <div style={{ flex: 1 }}>
+                        <label className="modal-form-label">Length</label>
+                        <div className="field-with-suffix">
+                          <input
+                            type="number" min="15" step="15"
+                            className="modal-input-field"
+                            value={editBreakMins}
+                            onChange={(e) => setEditBreakMins(e.target.value)}
+                          />
+                          <span className="field-suffix">min</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div style={{ marginTop: '0.6rem' }}>
+                      <label className="modal-form-label">Note (optional)</label>
+                      <input
+                        type="text"
+                        className="modal-input-field"
+                        value={editBreakLabel}
+                        onChange={(e) => setEditBreakLabel(e.target.value)}
+                        placeholder="e.g. Lunch"
+                      />
+                    </div>
+
+                    {/* Live preview + sanity checks against the day's hours */}
+                    {(() => {
+                      const bs = toMin(editBreakStart);
+                      const mins = Math.max(15, parseInt(editBreakMins, 10) || 60);
+                      if (bs == null) return null;
+                      const be = bs + mins;
+                      const open = toMin(editStart);
+                      const close = toMin(editEnd);
+                      const outside = open != null && close != null && (bs < open || be > close);
+                      return (
+                        <div style={{ marginTop: '0.6rem', display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
+                          <span style={{
+                            display: 'inline-flex', alignItems: 'center', gap: '0.35rem', alignSelf: 'flex-start',
+                            fontSize: '0.75rem', fontWeight: 600, padding: '0.25rem 0.6rem', borderRadius: '99px',
+                            color: '#b45309', background: 'rgba(245,158,11,0.14)', border: '1px solid rgba(245,158,11,0.4)',
+                          }}>
+                            <Coffee size={12} />
+                            {minToHHMM(bs)}–{minToHHMM(be)}
+                            {editBreakLabel.trim() ? ` · ${editBreakLabel.trim()}` : ''}
+                          </span>
+                          {outside && (
+                            <span style={{ fontSize: '0.72rem', color: 'var(--danger)' }}>
+                              This break falls outside {editStart}–{editEnd}. Widen the hours or move the break.
+                            </span>
+                          )}
+                          <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                            No class can be booked in this window, and it is excluded from trial availability.
+                          </span>
+                        </div>
+                      );
+                    })()}
+                  </>
+                )}
+              </div>
             </div>
 
             <div style={{ padding: '1rem 1.25rem', borderTop: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', gap: '0.75rem', background: 'var(--bg-color)' }}>

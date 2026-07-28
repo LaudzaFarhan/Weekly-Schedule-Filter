@@ -326,6 +326,11 @@ Slot types: `kinder`, `junior`, `coder`, `any`, `break`, `training`, `meeting`.
 The last three block the time instead of holding a class. A slot whose `end` is
 not after `start` is rejected with `400`.
 
+**Breaks.** A daily break is just a `break` slot, so it needs no special
+handling. `trial-availability` reports it as unavailable with the reason
+`Reserved for break — Lunch`, and no class can be booked inside it. Each day has
+at most one break when set from the app, though the API accepts more.
+
 ---
 
 ## 7. Limitations
