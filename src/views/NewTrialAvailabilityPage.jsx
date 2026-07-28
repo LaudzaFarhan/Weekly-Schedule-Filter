@@ -101,7 +101,22 @@ export default function NewTrialAvailabilityPage() {
           else unavailable.push({ ...inst, reason });
         });
 
-        row[day] = { available, unavailable };
+        // When nothing is free, say why rather than showing a blank cell.
+        let reason = null;
+        if (available.length === 0) {
+          if (unavailable.length === 0) {
+            reason = overviewBranch === 'all'
+              ? 'No instructors'
+              : `No instructor assigned to ${overviewBranch}`;
+          } else {
+            const closed = unavailable.filter((u) => u.reason.startsWith('Branch closed')).length;
+            if (closed === unavailable.length) reason = 'Branch closed';
+            else if (closed === 0) reason = `All ${unavailable.length} teaching`;
+            else reason = `${unavailable.length - closed} teaching, ${closed} closed`;
+          }
+        }
+
+        row[day] = { available, unavailable, reason };
       });
       return row;
     });
@@ -161,7 +176,30 @@ export default function NewTrialAvailabilityPage() {
                       {DAY_NAMES.map((day) => {
                         const avail = row[day].available;
                         if (avail.length === 0) {
-                          return <td key={day} style={{ padding: 10, color: 'var(--text-muted)', fontSize: '0.75rem' }}>—</td>;
+                          // Show explicit zeros plus the reason, so an empty
+                          // cell is never ambiguous.
+                          const cell = row[day];
+                          return (
+                            <td key={day} style={{ padding: 8 }}>
+                              <div
+                                onClick={cell.unavailable.length ? () => setSlotDetail({ day, time: row.time, ...cell }) : undefined}
+                                title={cell.unavailable.length ? 'Click to see who is unavailable and why' : cell.reason}
+                                style={{
+                                  display: 'inline-flex', flexDirection: 'column', alignItems: 'center', gap: '0.2rem',
+                                  cursor: cell.unavailable.length ? 'pointer' : 'default',
+                                }}
+                              >
+                                <span style={{ display: 'inline-flex', gap: '0.25rem', opacity: 0.45 }}>
+                                  <span style={chipStyle('#64748b', 'rgba(100,116,139,0.12)')}>0</span>
+                                  <span style={chipStyle('#64748b', 'rgba(100,116,139,0.12)')}>0</span>
+                                  <span style={chipStyle('#64748b', 'rgba(100,116,139,0.12)')}>0</span>
+                                </span>
+                                <span style={{ fontSize: '0.6rem', color: 'var(--text-muted)', whiteSpace: 'nowrap', lineHeight: 1.2 }}>
+                                  {cell.reason}
+                                </span>
+                              </div>
+                            </td>
+                          );
                         }
                         const kinder = avail.filter((p) => canKinder(p.level)).length;
                         const junior = avail.filter((p) => canJunior(p.level)).length;
