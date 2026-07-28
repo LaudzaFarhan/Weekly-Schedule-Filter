@@ -801,7 +801,7 @@ export default function NewOperationalsPage() {
                 <tr>
                   <th style={{ minWidth: '180px' }}>Branch</th>
                   {DAY_NAMES.map((d) => (
-                    <th key={d} style={{ textAlign: 'center', width: '70px' }}>{d.slice(0, 3)}</th>
+                    <th key={d} style={{ textAlign: 'center', minWidth: '112px' }}>{d.slice(0, 3)}</th>
                   ))}
                   <th style={{ textAlign: 'center', width: '120px' }}>Quick set</th>
                 </tr>
@@ -852,6 +852,22 @@ export default function NewOperationalsPage() {
                                 >
                                   {on ? '✓' : ''}
                                 </button>
+                                {on && dayBreak && (
+                                  <button
+                                    type="button"
+                                    onClick={() => openHoursEditor(b, d)}
+                                    title={`Break ${dayBreak.start}–${dayBreak.end}${dayBreak.label ? ` · ${dayBreak.label}` : ''} — click to edit`}
+                                    style={{
+                                      display: 'inline-flex', alignItems: 'center', gap: '0.1rem',
+                                      height: '26px', padding: '0 0.3rem', borderRadius: '6px', cursor: 'pointer',
+                                      fontSize: '0.56rem', fontWeight: 700, whiteSpace: 'nowrap',
+                                      border: '1px solid rgba(245,158,11,0.45)',
+                                      background: 'rgba(245,158,11,0.14)', color: '#b45309',
+                                    }}
+                                  >
+                                    <Coffee size={10} /> {dayBreak.start}
+                                  </button>
+                                )}
                                 <button
                                   type="button"
                                   onClick={() => openHoursEditor(b, d)}
@@ -890,19 +906,7 @@ export default function NewOperationalsPage() {
                                   {hrs.start}–{hrs.end}
                                 </span>
                               )}
-                              {on && dayBreak && (
-                                <span
-                                  title={`Break ${dayBreak.start}–${dayBreak.end}${dayBreak.label ? ` · ${dayBreak.label}` : ''}`}
-                                  style={{
-                                    display: 'inline-flex', alignItems: 'center', gap: '0.15rem',
-                                    fontSize: '0.58rem', fontWeight: 700, whiteSpace: 'nowrap',
-                                    color: '#b45309', background: 'rgba(245,158,11,0.14)',
-                                    padding: '0.02rem 0.3rem', borderRadius: '4px',
-                                  }}
-                                >
-                                  <Coffee size={9} /> {dayBreak.start}
-                                </span>
-                              )}
+
                             </div>
                           </td>
                         );
