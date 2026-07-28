@@ -102,6 +102,28 @@ export function rangesOverlap(a, b) {
 }
 
 /**
+ * The standard one-hour trial windows, 1:00pm to 6:30pm on the half hour.
+ * Used when a branch has no Class Operation plan for a day, so availability can
+ * still be reported. Mirrors the fixed list the Trial Availability page shows.
+ */
+export function standardTrialWindows() {
+  const out = [];
+  for (let start = 13 * 60; start + 60 <= 18 * 60 + 30; start += 30) {
+    out.push({ start, end: start + 60 });
+  }
+  return out;
+}
+
+/** Hourly windows of `duration` minutes that fit inside [open, close). */
+export function hourlyWindows(openMin, closeMin, duration) {
+  const out = [];
+  for (let start = openMin; start + duration <= closeMin; start += 60) {
+    out.push({ start, end: start + duration });
+  }
+  return out;
+}
+
+/**
  * Group classes into teaching slots keyed by day + time + teacher + branch.
  * A slot is one lesson an instructor runs, however many students are in it.
  */

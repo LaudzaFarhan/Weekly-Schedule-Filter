@@ -48,7 +48,7 @@ Verified against production:
 | Students | 26 |
 | CRM leads | 2 |
 | Leave records | 0 |
-| Operational rules | **0 — see §7** |
+| Operational rules | 0 — trial windows fall back to the standard grid, see §7 |
 
 Classes currently run Tuesday, Wednesday, Friday, Saturday and Sunday, almost
 all at Bekasi. Workload reports 3 active instructors totalling 27 hours.
@@ -173,29 +173,38 @@ curl -H "Authorization: Bearer $KEY" \
   "$BASE/api/new/trial-availability?branch=Bekasi&category=Coder"
 ```
 
+Real response from production (`?branch=Bekasi&day=Saturday&category=Kinder`):
+
 ```json
 {
-  "total": 12,
-  "availableCount": 4,
+  "windowSources": ["standard"],
+  "configuredRules": 0,
+  "total": 10,
+  "availableCount": 7,
   "data": [{
-    "branchName": "Bekasi", "day": "Tuesday",
-    "start": "13:00", "end": "15:00",
-    "slotType": "coder",
-    "available": true,
-    "reason": "Coder Class · 2 instructors free",
-    "freeInstructors": [{ "name": "Yovi", "level": "Junior and Coder" }],
-    "joinableClasses": []
+    "branchName": "Bekasi", "day": "Saturday", "source": "standard",
+    "start": "13:00", "end": "14:00",
+    "slotType": "any",
+    "available": false,
+    "reason": "All qualified instructors busy and no open seats",
+    "freeInstructors": [],
+    "joinableClasses": [],
+    "existingSlots": [{ "teacher": "Angel", "time": "1.00 pm - 3.00 pm", "program": "KF1.9", "studentCount": 4, "maxStudents": 4, "seatsLeft": 0 }]
   }]
 }
 ```
 
 When `available` is `false`, `reason` explains why:
 
-- `Reserved for break` / `training` / `meeting`
+- `No instructors assigned to this branch`
 - `No Coder instructor at this branch`
 - `All qualified instructors busy and no open seats`
+- `Reserved for break` / `training` / `meeting`
 - `Kinder Class slot — student is Coder`
-- `Too short — Coder needs 120m`
+
+`joinableClasses` lists existing classes that still have seats within the 4/6
+limits. Joining one is often better than creating a new class — the reason reads
+`Can join an existing class (5 seats left)` in that case.
 
 `joinableClasses` lists existing classes that still have seats within the 4/6
 limits. Joining one is often better than creating a new class.
@@ -319,17 +328,33 @@ not after `start` is rejected with `400`.
 
 ---
 
-## 7. Current limitation — read this first
+## 7. Limitations
 
-**`trial-availability` returns `total: 0` right now** because
-`/api/new/operationals` has no rules yet. Until the branch hours and slot plans
-are configured in the app (New Operations → Operationals → *Import previous
-settings*), that endpoint has nothing to reason about.
+### Where trial windows come from
 
-Everything else — schedule, students, instructors, CRM, leave, workload — is
-live and returning real data.
+`trial-availability` works whether or not Operationals has been configured. Each
+result carries a `source` telling you which was used, and the response lists
+`windowSources` plus `configuredRules`:
 
-Other limits:
+| `source` | Meaning |
+|---|---|
+| `plan` | The branch's Class Operation slot plan — typed slots, breaks, training and meetings all respected |
+| `hours` | Hourly windows inside the branch's operating hours |
+| `standard` | Default 1:00pm–6:30pm one-hour trial windows |
+
+Availability itself always comes from live instructors and classes, so it is
+accurate regardless of source. Configuring Operationals makes the *windows* match
+your real timetable; without it you get the standard trial grid.
+
+### Other limits
+
+- **No dates on classes.** The schedule is a recurring weekly pattern, so you
+  can answer "what happens on Tuesdays" but not "what happens on the 12th".
+  `classType: "Trial"` marks one-off sessions.
+- **Activity and student-history** are written by the app to browser storage as
+  well, so those two endpoints may not match what the web UI displays.
+- **The key is a single shared secret** with full read and write access,
+  including delete.
 
 - **No dates on classes.** The schedule is a recurring weekly pattern, so you
   can answer "what happens on Tuesdays" but not "what happens on the 12th".
@@ -380,8 +405,9 @@ WRITES
 
 WHEN UNSURE
 - Report what the API returned. Never guess schedule, availability or capacity.
-- If trial-availability returns zero slots, say the branch operating rules have
-  not been configured yet rather than reporting no availability.
+- trial-availability results carry a "source" field. When it is "standard" the
+  branch has no timetable configured, so the windows are the default 1pm-6:30pm
+  grid. Availability is still accurate; mention the times are indicative.
 ```
 
 ---
