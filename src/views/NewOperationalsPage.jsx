@@ -6,8 +6,10 @@ import { useToast } from '../components/ui/Toast';
 import { subscribeToInternalInstructors } from '../services/internalInstructorService';
 import { saveOperationals, deleteOperational } from '../services/newOperationalsService';
 import { useNewOperationals } from '../hooks/useNewOperationals';
+import { useScheduleRules } from '../hooks/useScheduleRules';
+import { CATEGORIES } from '../lib/programRules';
 import { DAY_NAMES, getWorkingDaysForBranch } from '../utils/constants';
-import { MapPin, Save, Building2, Clock, X, Plus, Trash2, Copy, CalendarClock, AlertTriangle, Wand2, Coffee } from 'lucide-react';
+import { MapPin, Save, Building2, Clock, X, Plus, Trash2, Copy, CalendarClock, AlertTriangle, Wand2, Coffee, ShieldCheck } from 'lucide-react';
 
 /** Resolve saved per-day operating hours for a branch: { Monday: {start,end}, ... } */
 export function resolveBranchHours(branch) {
@@ -928,6 +930,8 @@ export default function NewOperationalsPage() {
         </div>
       </div>
 
+      <ScheduleRulesPanel />
+
       {/* ── Class Operation time slots — all branches in one filterable table ── */}
       <div className="panel" style={{ margin: '1.5rem 0 0' }}>
         <div className="panel-header" style={{ flexWrap: 'wrap', gap: '0.75rem', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -1690,5 +1694,189 @@ export default function NewOperationalsPage() {
         </div>
       )}
     </section>
+  );
+}
+
+/* ─── Schedule Rules ─────────────────────────────────────────────────────
+   Which programs may share one teaching slot. Kinder is the strict case:
+   Kinder Foundation and Kinder Core cannot be combined. Junior may combine
+   Foundation with Core, and Coder has no restriction. All of it is editable
+   here rather than hardcoded. */
+
+const CATEGORY_META = {
+  Kinder: { color: '#ea580c', bg: 'rgba(249,115,22,0.1)', families: 'Kinder Foundation (KF1–KF2) · Kinder Core (K1–K4)' },
+  Junior: { color: '#0891b2', bg: 'rgba(8,145,178,0.1)', families: 'Junior Foundation (JF1–JF2) · Junior Core (J1–J4)' },
+  Coder:  { color: '#4f46e5', bg: 'rgba(79,70,229,0.1)', families: 'All Coder levels count as one family' },
+};
+
+function ScheduleRulesPanel() {
+  const { showToast } = useToast();
+  const { rules, configured, loading, save, reset } = useScheduleRules();
+
+  const [draft, setDraft] = useState(null);
+  const [saving, setSaving] = useState(false);
+
+  // Seed the editable copy once the stored rules arrive.
+  useEffect(() => {
+    if (!loading) setDraft(JSON.parse(JSON.stringify(rules)));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, configured]);
+
+  const current = draft || rules;
+  const dirty = draft && JSON.stringify(draft) !== JSON.stringify(rules);
+
+  const setCat = (cat, patch) =>
+    setDraft((prev) => ({ ...(prev || rules), [cat]: { ...(prev || rules)[cat], ...patch } }));
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      await save(current);
+      showToast({ title: 'Schedule rules saved', variant: 'success' });
+    } catch (err) {
+      showToast({ title: 'Could not save rules', message: err.message, variant: 'error' });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleReset = async () => {
+    if (!window.confirm('Reset schedule rules to the defaults?')) return;
+    setSaving(true);
+    try {
+      const data = await reset();
+      setDraft(JSON.parse(JSON.stringify(data.rules)));
+      showToast({ title: 'Rules reset to defaults', variant: 'success' });
+    } catch (err) {
+      showToast({ title: 'Could not reset rules', message: err.message, variant: 'error' });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="panel" style={{ margin: '1.5rem 0 0' }}>
+      <div className="panel-header" style={{ flexWrap: 'wrap', gap: '0.75rem', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div>
+          <h2 style={{ fontSize: '1.15rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.45rem' }}>
+            <ShieldCheck size={19} /> Schedule Rules
+          </h2>
+          <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', margin: '0.2rem 0 0' }}>
+            Which programs one instructor may teach together in the same slot. Applied when adding or editing a class, and when recommending times.
+          </p>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap' }}>
+          {!configured && (
+            <span style={{ fontSize: '0.72rem', fontWeight: 600, color: 'var(--text-muted)' }}>Using defaults</span>
+          )}
+          <button
+            type="button"
+            onClick={handleReset}
+            disabled={saving || loading}
+            className="btn"
+            style={{ background: 'transparent', border: '1px solid var(--border-color)', color: 'var(--text-secondary)', borderRadius: '10px', padding: '0.5rem 1rem', fontSize: '0.82rem' }}
+          >
+            Reset
+          </button>
+          <button
+            type="button"
+            onClick={handleSave}
+            disabled={saving || loading || !dirty}
+            className="btn btn-primary"
+            style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', borderRadius: '10px', padding: '0.5rem 1.2rem', fontSize: '0.85rem' }}
+          >
+            <Save size={16} /> {saving ? 'Saving…' : 'Save Rules'}
+          </button>
+        </div>
+      </div>
+
+      <div className="panel-body">
+        {loading ? (
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.75rem', padding: '2rem', color: 'var(--text-secondary)' }}>
+            <div className="loading-spinner" /> Loading rules…
+          </div>
+        ) : (
+          <>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '1rem' }}>
+              {CATEGORIES.map((cat) => {
+                const meta = CATEGORY_META[cat];
+                const c = current[cat];
+                return (
+                  <div key={cat} style={{ border: `1px solid ${meta.color}33`, background: meta.bg, borderRadius: '12px', padding: '0.9rem 1rem' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem', marginBottom: '0.5rem' }}>
+                      <strong style={{ fontSize: '0.92rem', color: meta.color }}>{cat}</strong>
+                      <select
+                        value={c.enforcement}
+                        onChange={(e) => setCat(cat, { enforcement: e.target.value })}
+                        className="modal-select-field field-compact"
+                        style={{ width: 'auto', minWidth: '96px' }}
+                      >
+                        <option value="block">Block</option>
+                        <option value="warn">Warn only</option>
+                      </select>
+                    </div>
+
+                    <p style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', margin: '0 0 0.7rem' }}>
+                      {meta.families}
+                    </p>
+
+                    <label style={{ display: 'flex', alignItems: 'flex-start', gap: '0.45rem', cursor: 'pointer', marginBottom: '0.7rem' }}>
+                      <input
+                        type="checkbox"
+                        checked={c.allowMixFamilies}
+                        onChange={(e) => setCat(cat, { allowMixFamilies: e.target.checked })}
+                        style={{ marginTop: '0.15rem' }}
+                      />
+                      <span style={{ fontSize: '0.78rem', color: 'var(--text-main)' }}>
+                        Allow combining different programs
+                        <span style={{ display: 'block', fontSize: '0.68rem', color: 'var(--text-muted)' }}>
+                          {c.allowMixFamilies
+                            ? 'Foundation and Core can share one slot.'
+                            : 'Foundation and Core must be in separate slots.'}
+                        </span>
+                      </span>
+                    </label>
+
+                    <label className="modal-form-label" style={{ fontSize: '0.72rem' }}>Max different lessons per slot</label>
+                    <div className="field-with-suffix">
+                      <input
+                        type="number" min="0" max="10"
+                        className="modal-input-field field-compact"
+                        value={c.maxDistinctLessons}
+                        onChange={(e) => setCat(cat, { maxDistinctLessons: e.target.value })}
+                      />
+                      <span className="field-suffix">{Number(c.maxDistinctLessons) > 0 ? 'lessons' : 'any'}</span>
+                    </div>
+                    <span style={{ fontSize: '0.68rem', color: 'var(--text-muted)', display: 'block', marginTop: '0.25rem' }}>
+                      {Number(c.maxDistinctLessons) > 0
+                        ? `e.g. KF1.1 + KF1.2 counts as 2.`
+                        : 'No limit on how many lessons run together.'}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+
+            <label style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', cursor: 'pointer', marginTop: '1rem' }}>
+              <input
+                type="checkbox"
+                checked={current.allowMixCategories}
+                onChange={() => setDraft((prev) => ({ ...(prev || rules), allowMixCategories: !current.allowMixCategories }))}
+              />
+              <span style={{ fontSize: '0.82rem', color: 'var(--text-main)' }}>
+                Allow mixing categories in one slot
+                <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}> — e.g. a Kinder and a Junior student with the same instructor at the same time</span>
+              </span>
+            </label>
+
+            {dirty && (
+              <div style={{ marginTop: '0.85rem', fontSize: '0.75rem', color: '#b45309', background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.3)', borderRadius: '9px', padding: '0.5rem 0.75rem' }}>
+                Unsaved rule changes.
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    </div>
   );
 }

@@ -13,10 +13,12 @@ import { subscribeToInternalStudents } from '../services/internalStudentService'
 import { subscribeToInternalInstructors } from '../services/internalInstructorService';
 import { slotTypeMeta } from './NewOperationalsPage';
 import { useNewOperationals } from '../hooks/useNewOperationals';
+import { useScheduleRules } from '../hooks/useScheduleRules';
+import { canCombine } from '../lib/programRules';
 import { doTimeSlotsOverlap } from '../utils/timeUtils';
 import { DAY_NAMES, SCHEDULE_PAGE_SIZE } from '../utils/constants';
 import Pagination from '../components/ui/Pagination';
-import { Plus, Pencil, Trash2, Search, X, Calendar, MapPin, User, UserX, BookOpen, Clock, AlertTriangle, Upload, History, Trash, FileDown } from 'lucide-react';
+import { Plus, Pencil, Trash2, Search, X, Calendar, MapPin, User, UserX, BookOpen, Clock, AlertTriangle, Upload, History, Trash, FileDown, CheckCircle2 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
 const HISTORY_KEY = 'newOpsScheduleHistory';
@@ -264,6 +266,8 @@ export default function NewSchedulePage({ onNavigate }) {
   const { enabledBranches, branches } = useSchedule();
   // Branch open days / hours / slot plan come from PostgreSQL, not the Sheets config.
   const { openDaysFor, hoursFor, slotsFor } = useNewOperationals();
+  // Configurable rules for which programs may share one slot.
+  const { rules } = useScheduleRules();
   const { showToast } = useToast();
 
   // State
@@ -668,6 +672,30 @@ export default function NewSchedulePage({ onNavigate }) {
     setShowModal(true);
   };
 
+  /**
+   * Programs already taught in the slot this form targets, excluding the class
+   * being edited so it isn't compared against itself.
+   */
+  const slotPrograms = useMemo(() => {
+    if (!form.day || !form.time || !form.teacher || !form.branchName) return [];
+    return classes
+      .filter((c) =>
+        c.day === form.day &&
+        c.time === form.time &&
+        c.teacher === form.teacher &&
+        c.branchName === form.branchName &&
+        (!editingClass || c.id !== editingClass.id)
+      )
+      .map((c) => c.program)
+      .filter(Boolean);
+  }, [classes, form.day, form.time, form.teacher, form.branchName, editingClass]);
+
+  // Live verdict from the configurable Schedule Rules.
+  const ruleCheck = useMemo(() => {
+    if (!form.program || slotPrograms.length === 0) return null;
+    return canCombine(slotPrograms, form.program, rules);
+  }, [slotPrograms, form.program, rules]);
+
   const validateForm = () => {
     const errors = {};
     if (!form.time.trim()) errors.time = 'Time slot is required';
@@ -675,7 +703,10 @@ export default function NewSchedulePage({ onNavigate }) {
     if (!form.teacher) errors.teacher = 'Instructor is required';
     if (!form.student.trim()) errors.student = 'Student name is required';
     if (!form.branchName) errors.branchName = 'Branch is required';
-    
+
+    // Slot-combination rules. A 'warn' verdict is advisory and still saves.
+    if (ruleCheck && !ruleCheck.ok) errors.program = ruleCheck.reason;
+
     setFormErrors(errors);
     return Object.keys(errors).length === 0;
   };
@@ -1724,6 +1755,30 @@ export default function NewSchedulePage({ onNavigate }) {
                       </span>
                     )}
                     {formErrors.program && <span style={{ fontSize: '0.72rem', color: 'var(--danger)', marginTop: '0.2rem', display: 'block' }}>{formErrors.program}</span>}
+
+                    {/* Slot-combination verdict against the Schedule Rules */}
+                    {ruleCheck && !formErrors.program && (
+                      <div style={{
+                        marginTop: '0.4rem', padding: '0.45rem 0.6rem', borderRadius: '8px',
+                        display: 'flex', alignItems: 'flex-start', gap: '0.4rem', fontSize: '0.72rem',
+                        color: ruleCheck.severity === 'ok' ? 'var(--success, #059669)'
+                          : ruleCheck.severity === 'warn' ? '#b45309' : 'var(--danger)',
+                        background: ruleCheck.severity === 'ok' ? 'rgba(16,185,129,0.08)'
+                          : ruleCheck.severity === 'warn' ? 'rgba(245,158,11,0.1)' : 'var(--danger-bg, rgba(239,68,68,0.08))',
+                        border: `1px solid ${ruleCheck.severity === 'ok' ? 'rgba(16,185,129,0.3)'
+                          : ruleCheck.severity === 'warn' ? 'rgba(245,158,11,0.35)' : 'rgba(239,68,68,0.3)'}`,
+                      }}>
+                        {ruleCheck.severity === 'ok'
+                          ? <CheckCircle2 size={13} style={{ flexShrink: 0, marginTop: '0.05rem' }} />
+                          : <AlertTriangle size={13} style={{ flexShrink: 0, marginTop: '0.05rem' }} />}
+                        <span>
+                          {ruleCheck.reason}
+                          <span style={{ display: 'block', color: 'var(--text-muted)', marginTop: '0.1rem' }}>
+                            Slot already has: {slotPrograms.join(', ')}
+                          </span>
+                        </span>
+                      </div>
+                    )}
                   </div>
                 </div>
 

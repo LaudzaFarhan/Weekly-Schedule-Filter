@@ -71,6 +71,16 @@ const DEFINITIONS = {
         ON internal_activity (created_at DESC)`,
   ],
 
+  // Single-row table holding the configurable slot-combination rules.
+  internal_schedule_rules: [
+    `CREATE TABLE IF NOT EXISTS internal_schedule_rules (
+        id INTEGER PRIMARY KEY DEFAULT 1,
+        rules JSONB NOT NULL DEFAULT '{}'::jsonb,
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT internal_schedule_rules_single_row CHECK (id = 1)
+    )`,
+  ],
+
   internal_student_history: [
     `CREATE TABLE IF NOT EXISTS internal_student_history (
         id SERIAL PRIMARY KEY,
