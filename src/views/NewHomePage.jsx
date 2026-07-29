@@ -6,6 +6,7 @@ import { subscribeToInternalClasses } from '../services/internalScheduleService'
 import { subscribeToInternalStudents } from '../services/internalStudentService';
 import { subscribeToInternalInstructors } from '../services/internalInstructorService';
 import { useNewOperationals } from '../hooks/useNewOperationals';
+import { subscribeToActivity, displayUser } from '../services/newActivityService';
 import { doTimeSlotsOverlap, parseTimeSlot } from '../utils/timeUtils';
 import { DAY_NAMES } from '../utils/constants';
 import KpiCard from '../components/ui/KpiCard';
@@ -13,8 +14,6 @@ import {
   Users, User, GraduationCap, BookOpen, UserX, CheckCircle, CalendarX,
   TrendingUp, Calendar, MapPin, History, Building2, Star, X
 } from 'lucide-react';
-
-const HISTORY_KEY = 'newOpsScheduleHistory';
 
 /** Kinder programs run 90 minutes; everything else 120. */
 const isKinder = (program) => {
@@ -85,12 +84,14 @@ export default function NewHomePage({ onNavigate }) {
     return () => unsub();
   }, []);
 
-  // Schedule activity history (same store the Schedule page writes to)
+  // Activity log from PostgreSQL, so it matches what other devices see.
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem(HISTORY_KEY);
-      setHistory(raw ? JSON.parse(raw) : []);
-    } catch { setHistory([]); }
+    const unsub = subscribeToActivity(
+      (data) => setHistory(data || []),
+      () => setHistory([]),
+      { limit: 12 }
+    );
+    return () => unsub();
   }, []);
 
   const branchList = useMemo(
@@ -552,14 +553,14 @@ export default function NewHomePage({ onNavigate }) {
                   edit: { color: '#d97706', label: 'EDIT' },
                   delete: { color: '#dc2626', label: 'DELETE' },
                 }[h.action] || { color: 'var(--text-muted)', label: (h.action || '').toUpperCase() };
-                const when = new Date(h.at);
+                const when = new Date(h.createdAt || h.at);
                 return (
-                  <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem', fontSize: '0.8rem' }}>
+                  <div key={h.id ?? i} style={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem', fontSize: '0.8rem' }}>
                     <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: meta.color, marginTop: '0.42rem', flexShrink: 0 }} />
                     <div style={{ minWidth: 0 }}>
                       <div style={{ color: 'var(--text-main)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{h.summary}</div>
                       <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', marginTop: '0.1rem' }}>
-                        {meta.label} · {isNaN(when.getTime()) ? '' : when.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                        {meta.label} · {displayUser(h.userEmail)} · {isNaN(when.getTime()) ? '' : when.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
                       </div>
                     </div>
                   </div>

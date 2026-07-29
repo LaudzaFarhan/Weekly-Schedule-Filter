@@ -1,9 +1,9 @@
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { History, Search, Trash, X } from 'lucide-react';
-
-const HISTORY_KEY = 'newOpsScheduleHistory';
+import { History, Search, Trash, X, User, AlertTriangle } from 'lucide-react';
+import { subscribeToActivity, deleteActivity, displayUser } from '../services/newActivityService';
+import { useToast } from '../components/ui/Toast';
 
 const ACTION_META = {
   add: { color: '#059669', bg: 'rgba(5,150,105,0.12)', label: 'ADD' },
@@ -13,42 +13,54 @@ const ACTION_META = {
 };
 
 export default function NewActivityPage() {
+  const { showToast } = useToast();
   const [history, setHistory] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(null);
   const [actionFilter, setActionFilter] = useState('all');
+  const [userFilter, setUserFilter] = useState('all');
   const [search, setSearch] = useState('');
   const [searchFocused, setSearchFocused] = useState(false);
 
-  const load = () => {
+  // Read from PostgreSQL so the log is shared and carries the acting user.
+  useEffect(() => {
+    const unsub = subscribeToActivity(
+      (data) => { setHistory(data || []); setLoadError(null); setLoading(false); },
+      (err) => { setLoadError(err?.message || 'Unable to load activity.'); setLoading(false); },
+      { limit: 500 }
+    );
+    return () => unsub();
+  }, []);
+
+  const clearAll = async () => {
+    if (!window.confirm('Clear the entire activity log? This affects everyone, not just this device.')) return;
     try {
-      const raw = localStorage.getItem(HISTORY_KEY);
-      setHistory(raw ? JSON.parse(raw) : []);
-    } catch {
+      await deleteActivity({ all: true });
       setHistory([]);
+      showToast({ title: 'Activity log cleared', variant: 'success' });
+    } catch (err) {
+      showToast({ title: 'Could not clear the log', message: err.message, variant: 'error' });
     }
   };
 
-  useEffect(() => {
-    load();
-    // Refresh if activity is logged in another tab.
-    const onStorage = (e) => { if (e.key === HISTORY_KEY) load(); };
-    window.addEventListener('storage', onStorage);
-    return () => window.removeEventListener('storage', onStorage);
-  }, []);
-
-  const clearAll = () => {
-    if (!window.confirm('Clear all schedule activity history?')) return;
-    setHistory([]);
-    try { localStorage.removeItem(HISTORY_KEY); } catch { /* ignore */ }
-  };
+  // Everyone who appears in the log, for the user filter.
+  const users = useMemo(
+    () => [...new Set(history.map((h) => h.userEmail).filter(Boolean))].sort(),
+    [history]
+  );
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     return history.filter((h) => {
       if (actionFilter !== 'all' && h.action !== actionFilter) return false;
-      if (q && !String(h.summary || '').toLowerCase().includes(q)) return false;
+      if (userFilter !== 'all' && (h.userEmail || '') !== userFilter) return false;
+      if (q) {
+        const haystack = `${h.summary || ''} ${h.userEmail || ''}`.toLowerCase();
+        if (!haystack.includes(q)) return false;
+      }
       return true;
     });
-  }, [history, actionFilter, search]);
+  }, [history, actionFilter, userFilter, search]);
 
   // Per-action totals for the quick chips.
   const counts = useMemo(() => {
@@ -66,7 +78,7 @@ export default function NewActivityPage() {
               <History size={20} /> Schedule Activity
             </h2>
             <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', margin: '0.2rem 0 0' }}>
-              Full log of schedule changes (add, bulk import, edit, delete) on this device.
+              Full log of schedule changes (add, bulk import, edit, delete), with who made each one. Shared across devices.
             </p>
           </div>
           {history.length > 0 && (
@@ -136,11 +148,36 @@ export default function NewActivityPage() {
               );
             })}
           </div>
+          {users.length > 0 && (
+            <select
+              value={userFilter}
+              onChange={(e) => setUserFilter(e.target.value)}
+              className="modal-select-field field-compact"
+              style={{ minWidth: '160px' }}
+            >
+              <option value="all">Everyone</option>
+              {users.map((u) => <option key={u} value={u}>{displayUser(u)}</option>)}
+            </select>
+          )}
         </div>
 
         {/* List */}
         <div style={{ padding: '1rem 1.5rem' }}>
-          {history.length === 0 ? (
+          {loadError && (
+            <div style={{
+              display: 'flex', alignItems: 'flex-start', gap: '0.5rem', marginBottom: '1rem',
+              padding: '0.7rem 0.9rem', borderRadius: '10px',
+              background: 'var(--danger-bg, rgba(239,68,68,0.1))', border: '1px solid rgba(239,68,68,0.35)',
+            }}>
+              <AlertTriangle size={16} style={{ color: 'var(--danger)', flexShrink: 0, marginTop: '0.1rem' }} />
+              <span style={{ fontSize: '0.78rem', color: 'var(--danger)' }}>{loadError}</span>
+            </div>
+          )}
+          {loading ? (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.75rem', padding: '2rem', color: 'var(--text-secondary)' }}>
+              <div className="loading-spinner" /> Loading activity…
+            </div>
+          ) : history.length === 0 ? (
             <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', textAlign: 'center', padding: '2rem 0' }}>
               No activity yet. Adding, editing, importing, or deleting classes on the Schedule page will be logged here.
             </p>
@@ -152,10 +189,24 @@ export default function NewActivityPage() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
               {filtered.map((h, i) => {
                 const meta = ACTION_META[h.action] || { color: 'var(--text-muted)', bg: 'var(--bg-color)', label: (h.action || '').toUpperCase() };
-                const when = new Date(h.at);
+                const when = new Date(h.createdAt || h.at);
+                const who = displayUser(h.userEmail);
                 return (
-                  <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '0.7rem', padding: '0.6rem 0.75rem', borderRadius: '8px', background: 'var(--bg-color)', border: '1px solid var(--border-color)' }}>
+                  <div key={h.id ?? i} style={{ display: 'flex', alignItems: 'center', gap: '0.7rem', padding: '0.6rem 0.75rem', borderRadius: '8px', background: 'var(--bg-color)', border: '1px solid var(--border-color)' }}>
                     <span style={{ fontSize: '0.64rem', fontWeight: 700, color: meta.color, background: meta.bg, padding: '0.12rem 0.45rem', borderRadius: '5px', flexShrink: 0, minWidth: '52px', textAlign: 'center' }}>{meta.label}</span>
+                    <span
+                      title={h.userEmail || 'No user recorded'}
+                      style={{
+                        display: 'inline-flex', alignItems: 'center', gap: '0.25rem', flexShrink: 0,
+                        fontSize: '0.7rem', fontWeight: 600, padding: '0.12rem 0.45rem', borderRadius: '99px',
+                        color: h.userEmail ? 'var(--primary-blue, #4f46e5)' : 'var(--text-muted)',
+                        background: h.userEmail ? 'var(--primary-blue-light, rgba(79,70,229,0.1))' : 'transparent',
+                        border: h.userEmail ? 'none' : '1px dashed var(--border-color)',
+                        maxWidth: '140px', overflow: 'hidden', whiteSpace: 'nowrap',
+                      }}
+                    >
+                      <User size={10} /> {who}
+                    </span>
                     <span style={{ fontSize: '0.86rem', color: 'var(--text-main)', flex: 1 }}>{h.summary}</span>
                     <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', flexShrink: 0, whiteSpace: 'nowrap' }}>
                       {isNaN(when.getTime()) ? '' : when.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}

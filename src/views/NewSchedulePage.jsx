@@ -15,13 +15,15 @@ import { slotTypeMeta } from './NewOperationalsPage';
 import { useNewOperationals } from '../hooks/useNewOperationals';
 import { useScheduleRules } from '../hooks/useScheduleRules';
 import { canCombine } from '../lib/programRules';
+import { subscribeToActivity, logActivity, deleteActivity, displayUser } from '../services/newActivityService';
+import { useAuth } from '../contexts/AuthContext';
 import { doTimeSlotsOverlap } from '../utils/timeUtils';
 import { DAY_NAMES, SCHEDULE_PAGE_SIZE } from '../utils/constants';
 import Pagination from '../components/ui/Pagination';
 import { Plus, Pencil, Trash2, Search, X, Calendar, MapPin, User, UserX, BookOpen, Clock, AlertTriangle, Upload, History, Trash, FileDown, CheckCircle2 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
-const HISTORY_KEY = 'newOpsScheduleHistory';
+
 
 /** Parse bulk-import text into class rows. Accepts comma OR tab separated:
  *  Day, Time, Program, Student, Teacher, Branch, [ClassType]  (one per line). */
@@ -268,6 +270,8 @@ export default function NewSchedulePage({ onNavigate }) {
   const { openDaysFor, hoursFor, slotsFor } = useNewOperationals();
   // Configurable rules for which programs may share one slot.
   const { rules } = useScheduleRules();
+  // Who is making the change — recorded on every activity entry.
+  const { user } = useAuth();
   const { showToast } = useToast();
 
   // State
@@ -711,25 +715,31 @@ export default function NewSchedulePage({ onNavigate }) {
     return Object.keys(errors).length === 0;
   };
 
-  // Load activity history once on mount.
+  // Activity log lives in PostgreSQL so it records who made each change and is
+  // shared across devices, rather than sitting in this browser's storage.
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem(HISTORY_KEY);
-      if (raw) setHistory(JSON.parse(raw));
-    } catch { /* ignore */ }
+    const unsub = subscribeToActivity(
+      (data) => setHistory(data || []),
+      () => { /* the panel simply stays empty if the log is unreachable */ },
+      { source: 'schedule', limit: 30 }
+    );
+    return () => unsub();
   }, []);
 
-  const addHistory = (entry) => {
-    setHistory((prev) => {
-      const next = [{ at: new Date().toISOString(), ...entry }, ...prev].slice(0, 30);
-      try { localStorage.setItem(HISTORY_KEY, JSON.stringify(next)); } catch { /* ignore */ }
-      return next;
-    });
+  const addHistory = async (entry) => {
+    const created = await logActivity({ ...entry, source: 'schedule', userEmail: user?.email || null });
+    // Show it immediately rather than waiting for the next poll.
+    if (created) setHistory((prev) => [created, ...prev].slice(0, 30));
   };
 
-  const clearHistory = () => {
-    setHistory([]);
-    try { localStorage.removeItem(HISTORY_KEY); } catch { /* ignore */ }
+  const clearHistory = async () => {
+    if (!window.confirm('Clear the schedule activity log for everyone?')) return;
+    try {
+      await deleteActivity({ source: 'schedule' });
+      setHistory([]);
+    } catch (err) {
+      showToast({ title: 'Could not clear activity', message: err.message, variant: 'error' });
+    }
   };
 
   const handleSave = async (e) => {
@@ -928,11 +938,16 @@ export default function NewSchedulePage({ onNavigate }) {
                     edit: { color: '#d97706', bg: 'rgba(217,119,6,0.12)', label: 'EDIT' },
                     delete: { color: '#dc2626', bg: 'rgba(220,38,38,0.12)', label: 'DELETE' },
                   }[h.action] || { color: 'var(--text-muted)', bg: 'var(--bg-color)', label: (h.action || '').toUpperCase() };
-                  const when = new Date(h.at);
+                  const when = new Date(h.createdAt || h.at);
                   return (
-                    <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', padding: '0.45rem 0.6rem', borderRadius: '8px', background: 'var(--bg-color)', border: '1px solid var(--border-color)' }}>
+                    <div key={h.id ?? i} style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', padding: '0.45rem 0.6rem', borderRadius: '8px', background: 'var(--bg-color)', border: '1px solid var(--border-color)' }}>
                       <span style={{ fontSize: '0.62rem', fontWeight: 700, color: meta.color, background: meta.bg, padding: '0.1rem 0.4rem', borderRadius: '5px', flexShrink: 0, minWidth: '48px', textAlign: 'center' }}>{meta.label}</span>
-                      <span style={{ fontSize: '0.82rem', color: 'var(--text-main)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{h.summary}</span>
+                      <span style={{ flex: 1, minWidth: 0 }}>
+                        <span style={{ display: 'block', fontSize: '0.82rem', color: 'var(--text-main)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{h.summary}</span>
+                        <span style={{ display: 'block', fontSize: '0.66rem', color: 'var(--text-muted)' }}>
+                          by {displayUser(h.userEmail)}
+                        </span>
+                      </span>
                       <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', flexShrink: 0 }}>
                         {isNaN(when.getTime()) ? '' : when.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
                       </span>
