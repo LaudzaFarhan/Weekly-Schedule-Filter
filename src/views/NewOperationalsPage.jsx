@@ -196,7 +196,7 @@ export default function NewOperationalsPage() {
   const [qbGap, setQbGap] = useState(0);
   const [qbGapAsBreak, setQbGapAsBreak] = useState(false);
   const [qbCount, setQbCount] = useState('fill'); // 'fill' | number of slots
-  const [qbReplace, setQbReplace] = useState(true);
+  const [qbReplace, setQbReplace] = useState(false);
 
   // Manual single-slot add
   const [maOpen, setMaOpen] = useState(false);
@@ -586,20 +586,41 @@ export default function NewOperationalsPage() {
   };
 
   // ── Quick builder ───────────────────────────────────────────────────────
+
+  /**
+   * Sensible first start time for a day: continue after whatever class slots
+   * already exist, so appending doesn't overlap them. Falls back to the
+   * branch's opening time.
+   */
+  const defaultQbStart = (branchId, day) => {
+    const opening = draftHours[branchId]?.[day]?.start || '13:00';
+    if (!day) return opening;
+    const existing = (draftOps[branchId]?.[day] || []).filter((s) => s.type !== 'break');
+    if (!existing.length) return opening;
+    const lastEnd = existing.reduce((max, s) => (s.end > max ? s.end : max), '00:00');
+    const closing = draftHours[branchId]?.[day]?.end;
+    // If the day is already booked to closing, fall back to the opening time.
+    if (closing && lastEnd >= closing) return opening;
+    return lastEnd;
+  };
+
   const openQuickBuild = () => {
     const branch = branches.find((b) => b.id === slotBranchFilter) || branches[0];
     if (!branch) return;
     setQbBranchId(branch.id);
     // Default to the branch's open days (or the filtered day when one is set).
     const openDays = DAY_NAMES.filter((d) => draft[branch.id]?.has(d));
-    setQbDays(new Set(slotDayFilter !== 'all' ? [slotDayFilter] : openDays));
-    setQbStart(draftHours[branch.id]?.[openDays[0]]?.start || '13:00');
+    const days = slotDayFilter !== 'all' ? [slotDayFilter] : openDays;
+    setQbDays(new Set(days));
+    setQbStart(defaultQbStart(branch.id, days[0]));
     setQbType('any');
     setQbDuration(120);
     setQbGap(0);
     setQbGapAsBreak(false);
     setQbCount('fill');
-    setQbReplace(true);
+    // Default to adding alongside what's already there. Replacing is
+    // destructive, so it has to be chosen deliberately.
+    setQbReplace(false);
     setQbOpen(true);
   };
 
@@ -608,7 +629,7 @@ export default function NewOperationalsPage() {
     setQbBranchId(branchId);
     const openDays = DAY_NAMES.filter((d) => draft[branchId]?.has(d));
     setQbDays(new Set(openDays));
-    setQbStart(draftHours[branchId]?.[openDays[0]]?.start || '13:00');
+    setQbStart(defaultQbStart(branchId, openDays[0]));
   };
 
   // Picking a class type sets the matching duration (Kinder 1.5h, others 2h).
@@ -1602,10 +1623,47 @@ export default function NewOperationalsPage() {
               </div>
 
               {/* Replace or append */}
-              <label style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', fontSize: '0.8rem', color: 'var(--text-secondary)', cursor: 'pointer' }}>
-                <input type="checkbox" checked={qbReplace} onChange={(e) => setQbReplace(e.target.checked)} />
-                Replace any existing slots on the selected days
-              </label>
+              {(() => {
+                // How many class slots already exist on the chosen days, so the
+                // consequence of replacing is visible before it happens.
+                const days = DAY_NAMES.filter((d) => qbDays.has(d));
+                const existingCount = days.reduce(
+                  (n, d) => n + (draftOps[qbBranchId]?.[d] || []).filter((s) => s.type !== 'break').length,
+                  0
+                );
+                return (
+                  <div style={{
+                    border: `1px solid ${qbReplace && existingCount > 0 ? 'rgba(239,68,68,0.4)' : 'var(--border-color)'}`,
+                    background: qbReplace && existingCount > 0 ? 'var(--danger-bg, rgba(239,68,68,0.07))' : 'var(--bg-color)',
+                    borderRadius: '10px', padding: '0.7rem 0.85rem',
+                  }}>
+                    <label style={{ display: 'flex', alignItems: 'flex-start', gap: '0.45rem', cursor: 'pointer' }}>
+                      <input
+                        type="checkbox"
+                        checked={qbReplace}
+                        onChange={(e) => setQbReplace(e.target.checked)}
+                        style={{ marginTop: '0.15rem' }}
+                      />
+                      <span style={{ fontSize: '0.82rem', color: 'var(--text-main)' }}>
+                        Replace existing slots on these days
+                        <span style={{ display: 'block', fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '0.1rem' }}>
+                          {existingCount === 0
+                            ? 'These days have no class slots yet, so nothing would be replaced.'
+                            : qbReplace
+                              ? `Deletes the ${existingCount} existing class slot${existingCount === 1 ? '' : 's'} on these days.`
+                              : `Keeps the ${existingCount} existing class slot${existingCount === 1 ? '' : 's'} and adds the new ones alongside.`}
+                        </span>
+                      </span>
+                    </label>
+                    {qbReplace && existingCount > 0 && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', marginTop: '0.5rem', fontSize: '0.74rem', color: 'var(--danger)', fontWeight: 600 }}>
+                        <AlertTriangle size={13} style={{ flexShrink: 0 }} />
+                        {existingCount} slot{existingCount === 1 ? '' : 's'} will be removed. Breaks are kept.
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
 
               {/* Preview */}
               <div>
