@@ -811,10 +811,11 @@ export default function CrmPage() {
               lineHeight: '1.2'
             }}
           >
-            <option value="all">All Branches</option>
+            {/* Individual branches first, with "All Branches" as the last option. */}
             {branches.map(b => (
               <option key={b.id} value={b.name}>{b.name}</option>
             ))}
+            <option value="all">All Branches</option>
           </select>
 
           <select
