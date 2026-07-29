@@ -1902,119 +1902,194 @@ function ScheduleRulesPanel() {
    real data. Useful for checking a rule change before saving it, and for
    settling "can these two share a slot?" questions. */
 
-const SIM_PRESETS = [
-  { label: 'Kinder Foundation ×4', programs: ['KF1.1', 'KF1.1', 'KF1.2', 'KF1.2'] },
-  { label: 'Kinder over capacity ×5', programs: ['KF1.1', 'KF1.1', 'KF1.2', 'KF1.2', 'KF1.2'] },
-  { label: 'Kinder Foundation + Core', programs: ['KF2.5', 'K2.3'] },
-  { label: 'Junior Foundation + Core', programs: ['JF1.1', 'J1.1'] },
-  { label: 'Junior ×6', programs: ['J1.1', 'J1.1', 'J1.2', 'J1.2', 'J1.1', 'J1.2'] },
-  { label: 'Coder mixed levels ×6', programs: ['Coder Basic 1', 'Coder Advance 3', 'Coder Foundation 2', 'Coder Basic 2', 'Coder Advance 1', 'Coder Intermediate 1'] },
-];
+/** Program codes offered per category in the simulator. */
+const SIM_CODES = {
+  Kinder: ['KF1', 'KF2', 'K1', 'K2', 'K3', 'K4'],
+  Junior: ['JF1', 'JF2', 'J1', 'J2', 'J3', 'J4'],
+  Coder: [
+    'Coder Foundation 1', 'Coder Foundation 2', 'Coder Foundation 3', 'Coder Foundation 4',
+    'Coder Basic 1', 'Coder Basic 2',
+    'Coder Intermediate 1', 'Coder Intermediate 2',
+    'Coder Advance 1', 'Coder Advance 2', 'Coder Advance 3',
+  ],
+};
+
+const LESSONS = Array.from({ length: 10 }, (_, i) => String(i + 1));
+
+/** Combine a code and lesson into a stored program value. Coder has no lesson. */
+const buildSimProgram = (category, code, lesson) =>
+  category === 'Coder' ? code : `${code}.${lesson}`;
 
 function ClassSimulator({ rules }) {
-  const [input, setInput] = useState('KF1.1, KF1.1, KF1.2, KF1.2, K2.3');
+  const [category, setCategory] = useState('Kinder');
+  // One row per student: { code, lesson }
+  const [students, setStudents] = useState([
+    { code: 'KF1', lesson: '1' },
+    { code: 'K2', lesson: '3' },
+  ]);
+
+  const codes = SIM_CODES[category];
+
+  const changeCategory = (next) => {
+    setCategory(next);
+    // Reset to two sensible defaults for the new category.
+    const list = SIM_CODES[next];
+    setStudents([
+      { code: list[0], lesson: '1' },
+      { code: list[2] || list[1] || list[0], lesson: '1' },
+    ]);
+  };
+
+  const setStudent = (idx, patch) =>
+    setStudents((prev) => prev.map((s, i) => (i === idx ? { ...s, ...patch } : s)));
+
+  const addStudent = () =>
+    setStudents((prev) => [...prev, { code: codes[0], lesson: '1' }]);
+
+  const removeStudent = (idx) =>
+    setStudents((prev) => prev.filter((_, i) => i !== idx));
 
   const programs = useMemo(
-    () => input.split(',').map((s) => s.trim()).filter(Boolean),
-    [input]
+    () => students.map((s) => buildSimProgram(category, s.code, s.lesson)),
+    [students, category]
   );
 
   const result = useMemo(() => simulateSlot(programs, rules), [programs, rules]);
+  const doable = result.steps.length > 0 && result.steps.every((s) => s.admitted);
+  // The first thing that fails is the useful explanation.
+  const blocker = result.steps.find((s) => !s.admitted);
 
   return (
     <div style={{ marginTop: '1.25rem', borderTop: '1px solid var(--border-color)', paddingTop: '1.1rem' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '0.75rem', flexWrap: 'wrap', marginBottom: '0.7rem' }}>
-        <div>
-          <h3 style={{ margin: 0, fontSize: '0.92rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '0.35rem', color: 'var(--text-main)' }}>
-            <FlaskConical size={15} /> Simulate a class
-          </h3>
-          <span style={{ fontSize: '0.74rem', color: 'var(--text-secondary)' }}>
-            Enter programs separated by commas — one per student — to see who would be admitted under the rules above. Nothing is saved.
-          </span>
-        </div>
-        {result.capacity != null && (
-          <span style={{
-            fontSize: '0.75rem', fontWeight: 700, padding: '0.25rem 0.7rem', borderRadius: '99px', whiteSpace: 'nowrap',
-            color: result.accepted.length >= result.capacity ? '#b45309' : 'var(--success, #059669)',
-            background: result.accepted.length >= result.capacity ? 'rgba(245,158,11,0.14)' : 'rgba(16,185,129,0.12)',
-          }}>
-            {result.accepted.length}/{result.capacity} seats
-            {result.category ? ` · ${result.category}` : ''}
-          </span>
-        )}
+      <div style={{ marginBottom: '0.75rem' }}>
+        <h3 style={{ margin: 0, fontSize: '0.92rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '0.35rem', color: 'var(--text-main)' }}>
+          <FlaskConical size={15} /> Can this class run?
+        </h3>
+        <span style={{ fontSize: '0.74rem', color: 'var(--text-secondary)' }}>
+          Pick the programs one instructor would teach together and check it against the rules above. Nothing is saved.
+        </span>
       </div>
 
-      <input
-        type="text"
-        className="modal-input-field"
-        value={input}
-        onChange={(e) => setInput(e.target.value)}
-        placeholder="e.g. KF1.1, KF1.2, K2.3"
-      />
-
-      <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap', margin: '0.6rem 0 0.85rem' }}>
-        {SIM_PRESETS.map((p) => (
-          <button
-            key={p.label}
-            type="button"
-            onClick={() => setInput(p.programs.join(', '))}
-            style={{
-              fontSize: '0.72rem', padding: '0.28rem 0.6rem', borderRadius: '99px', cursor: 'pointer',
-              border: '1px solid var(--border-color)', background: 'transparent', color: 'var(--text-secondary)',
-            }}
-          >
-            {p.label}
-          </button>
-        ))}
+      {/* Category picker */}
+      <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap', marginBottom: '0.85rem' }}>
+        {CATEGORIES.map((cat) => {
+          const active = category === cat;
+          const meta = CATEGORY_META[cat];
+          return (
+            <button
+              key={cat}
+              type="button"
+              onClick={() => changeCategory(cat)}
+              style={{
+                fontSize: '0.78rem', fontWeight: 600, padding: '0.35rem 0.9rem', borderRadius: '99px', cursor: 'pointer',
+                border: active ? `1.5px solid ${meta.color}` : '1px solid var(--border-color)',
+                background: active ? meta.bg : 'transparent',
+                color: active ? meta.color : 'var(--text-secondary)',
+              }}
+            >
+              {cat}
+            </button>
+          );
+        })}
       </div>
 
-      {result.steps.length === 0 ? (
-        <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', margin: 0 }}>
-          Enter at least one program to simulate.
-        </p>
-      ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
-          {result.steps.map((s, i) => {
-            const color = s.admitted
-              ? (s.severity === 'warn' ? '#b45309' : 'var(--success, #059669)')
-              : 'var(--danger)';
-            const bg = s.admitted
-              ? (s.severity === 'warn' ? 'rgba(245,158,11,0.1)' : 'rgba(16,185,129,0.08)')
-              : 'var(--danger-bg, rgba(239,68,68,0.08))';
-            return (
-              <div
-                key={i}
-                style={{
-                  display: 'flex', alignItems: 'center', gap: '0.6rem',
-                  padding: '0.45rem 0.7rem', borderRadius: '9px',
-                  background: bg, border: `1px solid ${color}33`,
-                }}
+      {/* Student rows */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+        {students.map((s, i) => {
+          const step = result.steps[i];
+          const bad = step && !step.admitted;
+          return (
+            <div
+              key={i}
+              style={{
+                display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap',
+                padding: '0.45rem 0.6rem', borderRadius: '9px',
+                border: `1px solid ${bad ? 'rgba(239,68,68,0.4)' : 'var(--border-color)'}`,
+                background: bad ? 'var(--danger-bg, rgba(239,68,68,0.06))' : 'var(--bg-color)',
+              }}
+            >
+              <span style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-muted)', minWidth: '58px' }}>
+                Student {i + 1}
+              </span>
+
+              <select
+                value={s.code}
+                onChange={(e) => setStudent(i, { code: e.target.value })}
+                className="modal-select-field field-compact"
+                style={{ minWidth: category === 'Coder' ? '190px' : '90px' }}
               >
-                <span style={{ fontSize: '0.68rem', fontWeight: 700, color: 'var(--text-muted)', minWidth: '54px' }}>
-                  Student {i + 1}
-                </span>
-                <span style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--text-main)', minWidth: '110px' }}>
-                  {s.program}
-                </span>
-                <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.75rem', color, flex: 1 }}>
-                  {s.admitted
-                    ? <CheckCircle2 size={13} style={{ flexShrink: 0 }} />
-                    : <X size={13} style={{ flexShrink: 0 }} />}
-                  {s.admitted ? (s.severity === 'warn' ? s.reason : 'Admitted') : s.reason}
-                </span>
-                {s.admitted && (
-                  <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', flexShrink: 0 }}>
-                    seat {s.seatsUsed}
-                  </span>
-                )}
-              </div>
-            );
-          })}
+                {codes.map((c) => <option key={c} value={c}>{c}</option>)}
+              </select>
 
-          <div style={{ marginTop: '0.4rem', fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
-            <strong style={{ color: 'var(--text-main)' }}>Result:</strong>{' '}
-            {result.accepted.length} of {result.steps.length} admitted
-            {result.accepted.length > 0 && ` — ${result.accepted.join(', ')}`}
+              {category !== 'Coder' && (
+                <select
+                  value={s.lesson}
+                  onChange={(e) => setStudent(i, { lesson: e.target.value })}
+                  className="modal-select-field field-compact"
+                  style={{ minWidth: '96px' }}
+                >
+                  {LESSONS.map((l) => <option key={l} value={l}>Lesson {l}</option>)}
+                </select>
+              )}
+
+              {step && (
+                <span style={{
+                  display: 'inline-flex', alignItems: 'center', gap: '0.25rem', flex: 1, minWidth: '160px',
+                  fontSize: '0.74rem',
+                  color: step.admitted ? 'var(--success, #059669)' : 'var(--danger)',
+                }}>
+                  {step.admitted ? <CheckCircle2 size={13} /> : <X size={13} />}
+                  {step.admitted ? 'OK' : step.reason}
+                </span>
+              )}
+
+              {students.length > 1 && (
+                <button
+                  type="button"
+                  onClick={() => removeStudent(i)}
+                  title="Remove student"
+                  style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--danger)', display: 'flex', padding: '0.2rem' }}
+                >
+                  <Trash2 size={14} />
+                </button>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      <button
+        type="button"
+        onClick={addStudent}
+        style={{
+          marginTop: '0.55rem', display: 'inline-flex', alignItems: 'center', gap: '0.3rem',
+          fontSize: '0.76rem', padding: '0.35rem 0.75rem', borderRadius: '8px', cursor: 'pointer',
+          border: '1px dashed var(--border-color)', background: 'transparent', color: 'var(--primary-blue)',
+        }}
+      >
+        <Plus size={13} /> Add student
+      </button>
+
+      {/* Verdict */}
+      {result.steps.length > 0 && (
+        <div style={{
+          marginTop: '0.85rem', padding: '0.7rem 0.9rem', borderRadius: '10px',
+          display: 'flex', alignItems: 'flex-start', gap: '0.55rem',
+          background: doable ? 'rgba(16,185,129,0.1)' : 'var(--danger-bg, rgba(239,68,68,0.08))',
+          border: `1px solid ${doable ? 'rgba(16,185,129,0.4)' : 'rgba(239,68,68,0.35)'}`,
+        }}>
+          {doable
+            ? <CheckCircle2 size={17} style={{ color: 'var(--success, #059669)', flexShrink: 0, marginTop: '0.05rem' }} />
+            : <X size={17} style={{ color: 'var(--danger)', flexShrink: 0, marginTop: '0.05rem' }} />}
+          <div>
+            <strong style={{ fontSize: '0.88rem', color: doable ? 'var(--success, #059669)' : 'var(--danger)' }}>
+              {doable ? 'Doable' : 'Not doable'}
+            </strong>
+            <span style={{ display: 'block', fontSize: '0.76rem', color: 'var(--text-secondary)', marginTop: '0.15rem' }}>
+              {doable
+                ? `${result.accepted.length} student${result.accepted.length === 1 ? '' : 's'} in one ${category} slot${result.capacity ? ` — ${result.accepted.length}/${result.capacity} seats used` : ''}.`
+                : blocker?.reason}
+            </span>
           </div>
         </div>
       )}
