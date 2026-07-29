@@ -4,7 +4,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useSchedule } from '../contexts/ScheduleContext';
 import { useToast } from '../components/ui/Toast';
 import { subscribeToInternalInstructors } from '../services/internalInstructorService';
-import { saveOperationals, deleteOperational } from '../services/newOperationalsService';
+import { saveOperational, saveOperationals, deleteOperational } from '../services/newOperationalsService';
 import { useNewOperationals } from '../hooks/useNewOperationals';
 import { useScheduleRules } from '../hooks/useScheduleRules';
 import { CATEGORIES, simulateSlot } from '../lib/programRules';
@@ -177,6 +177,9 @@ export default function NewOperationalsPage() {
   const [editBreakStart, setEditBreakStart] = useState('12:30');
   const [editBreakMins, setEditBreakMins] = useState(60);
   const [editBreakLabel, setEditBreakLabel] = useState('');
+
+  // branch/day keys with unsaved inline slot edits
+  const [pendingDays, setPendingDays] = useState(() => new Set());
 
   // Class Operation table filters
   const [slotBranchFilter, setSlotBranchFilter] = useState('all');
@@ -370,8 +373,14 @@ export default function NewOperationalsPage() {
 
   // ── Class Operation time slots (separate table) ─────────────────────────
   // Mutate one slot in place, addressed by branchId + day + index.
+  /**
+   * Inline edits are held locally and saved on demand — persisting on every
+   * keystroke of a time field would fire a request per digit. The affected
+   * branch/day is tracked so the panel can show a save bar.
+   */
   const updateSlot = (branchId, day, idx, patch) => {
     setDirty(true);
+    setPendingDays((prev) => new Set(prev).add(`${branchId}||${day}`));
     setDraftOps((prev) => {
       const branchOps = { ...(prev[branchId] || {}) };
       const list = [...(branchOps[day] || [])];
@@ -381,41 +390,89 @@ export default function NewOperationalsPage() {
     });
   };
 
-  const removeSlot = (branchId, day, idx) => {
-    setDirty(true);
+  /** Persist the branch/days touched by inline editing. */
+  const saveSlotEdits = async () => {
+    setSaving(true);
+    try {
+      for (const key of pendingDays) {
+        const [branchId, day] = key.split('||');
+        await persistDay(branchId, day, draftOps[branchId]?.[day] || []);
+      }
+      setPendingDays(new Set());
+      setDirty(false);
+      showToast({ title: 'Slot changes saved', variant: 'success' });
+    } catch (err) {
+      showToast({ title: 'Could not save changes', message: err.message, variant: 'error' });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const removeSlot = async (branchId, day, idx) => {
+    const list = (draftOps[branchId]?.[day] || []).filter((_, i) => i !== idx);
     setDraftOps((prev) => {
       const branchOps = { ...(prev[branchId] || {}) };
-      const list = (branchOps[day] || []).filter((_, i) => i !== idx);
       if (list.length) branchOps[day] = list;
       else delete branchOps[day];
       return { ...prev, [branchId]: branchOps };
     });
+    // Deleting persists straight away, same as adding.
+    try {
+      await persistDay(branchId, day, list);
+    } catch (err) {
+      showToast({ title: 'Could not remove the slot', message: err.message, variant: 'error' });
+    }
   };
 
   // Copy one day's slot plan to every other open day of the same branch.
-  const copyDayPlan = (branchId, day) => {
-    const source = draftOps[branchId]?.[day] || [];
+  const copyDayPlan = async (branchId, day) => {
+    const source = (draftOps[branchId]?.[day] || []).filter((s) => s.type !== 'break');
     if (!source.length) {
-      showToast({ title: 'Nothing to copy', message: `${day} has no slots yet.`, variant: 'warning' });
+      showToast({ title: 'Nothing to copy', message: `${day} has no class slots yet.`, variant: 'warning' });
       return;
     }
-    setDirty(true);
     const targets = DAY_NAMES.filter((d) => d !== day && draft[branchId]?.has(d));
-    setDraftOps((prev) => {
-      const branchOps = { ...(prev[branchId] || {}) };
-      targets.forEach((d) => { branchOps[d] = source.map((s) => ({ ...s })); });
-      return { ...prev, [branchId]: branchOps };
-    });
-    showToast({ title: `Copied ${day} to ${targets.length} other open day${targets.length === 1 ? '' : 's'}`, variant: 'success' });
+    if (!targets.length) {
+      showToast({ title: 'No other open days', message: 'Open more days for this branch first.', variant: 'warning' });
+      return;
+    }
+
+    // Each target keeps its own break; only the class slots are copied over.
+    const perDay = {};
+    for (const d of targets) {
+      const keptBreak = (draftOps[branchId]?.[d] || []).filter((s) => s.type === 'break');
+      perDay[d] = [...keptBreak, ...source.map((s) => ({ ...s }))]
+        .sort((a, b) => a.start.localeCompare(b.start));
+    }
+
+    setSaving(true);
+    try {
+      for (const [d, slots] of Object.entries(perDay)) {
+        await persistDay(branchId, d, slots);
+      }
+      setDraftOps((prev) => ({ ...prev, [branchId]: { ...(prev[branchId] || {}), ...perDay } }));
+      showToast({ title: `Copied ${day} to ${targets.length} other open day${targets.length === 1 ? '' : 's'}`, variant: 'success' });
+    } catch (err) {
+      showToast({ title: 'Could not copy the plan', message: err.message, variant: 'error' });
+    } finally {
+      setSaving(false);
+    }
   };
 
-  const clearDayPlan = (branchId, day) => {
-    setDirty(true);
+  const clearDayPlan = async (branchId, day) => {
+    // Keep the break — it belongs to the Hours & Break popover.
+    const keptBreak = (draftOps[branchId]?.[day] || []).filter((s) => s.type === 'break');
     setDraftOps((prev) => {
       const branchOps = { ...(prev[branchId] || {}) };
-      delete branchOps[day];
+      if (keptBreak.length) branchOps[day] = keptBreak;
+      else delete branchOps[day];
       return { ...prev, [branchId]: branchOps };
     });
+    try {
+      await persistDay(branchId, day, keptBreak);
+    } catch (err) {
+      showToast({ title: 'Could not clear the day', message: err.message, variant: 'error' });
+    }
   };
 
   // ── Manual single-slot add ──────────────────────────────────────────────
@@ -472,21 +529,60 @@ export default function NewOperationalsPage() {
     }
   };
 
-  const applyManualAdd = () => {
-    if (!maBranchId || !maStart || !maEnd || maEnd <= maStart) return;
-    setDirty(true);
-    setDraftOps((prev) => {
-      const branchOps = { ...(prev[maBranchId] || {}) };
-      const list = [...(branchOps[maDay] || []), { type: maType, start: maStart, end: maEnd, label: maLabel.trim() }];
-      branchOps[maDay] = list.sort((a, b) => a.start.localeCompare(b.start));
-      return { ...prev, [maBranchId]: branchOps };
+  /**
+   * Write one branch/day rule straight to PostgreSQL.
+   *
+   * Adding a slot persists immediately rather than waiting for Save Changes:
+   * the Save button sits in the panel above, so an unsaved row here looked
+   * saved and was then overwritten by the next background poll.
+   */
+  const persistDay = async (branchId, day, slots) => {
+    const branch = branches.find((b) => b.id === branchId);
+    if (!branch) return;
+    const hrs = draftHours[branchId]?.[day];
+    await saveOperational({
+      branchName: branch.name,
+      day,
+      isOpen: !!draft[branchId]?.has(day),
+      openTime: hrs?.start || null,
+      closeTime: hrs?.end || null,
+      slots: (slots || [])
+        .filter((s) => s && s.start && s.end && s.end > s.start)
+        .map((s) => ({ type: s.type || 'any', start: s.start, end: s.end, label: (s.label || '').trim() }))
+        .sort((a, b) => a.start.localeCompare(b.start)),
     });
-    setMaOpen(false);
-    // Show the row that was just created.
-    setSlotBranchFilter(maBranchId);
-    setSlotDayFilter(maDay);
-    setSlotTypeFilter('all');
-    showToast({ title: 'Slot added', message: `${slotTypeMeta(maType).label} ${maStart}–${maEnd} on ${maDay}.`, variant: 'success' });
+  };
+
+  const applyManualAdd = async () => {
+    if (!maBranchId || !maStart || !maEnd || maEnd <= maStart) return;
+
+    const nextList = [
+      ...(draftOps[maBranchId]?.[maDay] || []),
+      { type: maType, start: maStart, end: maEnd, label: maLabel.trim() },
+    ].sort((a, b) => a.start.localeCompare(b.start));
+
+    setSaving(true);
+    try {
+      await persistDay(maBranchId, maDay, nextList);
+      setDraftOps((prev) => ({
+        ...prev,
+        [maBranchId]: { ...(prev[maBranchId] || {}), [maDay]: nextList },
+      }));
+      setMaOpen(false);
+      // Show the row that was just created.
+      setSlotBranchFilter(maBranchId);
+      setSlotDayFilter(maDay);
+      setSlotTypeFilter('all');
+      showToast({
+        title: 'Slot added and saved',
+        message: `${slotTypeMeta(maType).label} ${maStart}–${maEnd} on ${maDay}.`,
+        variant: 'success',
+      });
+    } catch (err) {
+      showToast({ title: 'Could not save the slot', message: err.message, variant: 'error' });
+    } finally {
+      setSaving(false);
+    }
   };
 
   // ── Quick builder ───────────────────────────────────────────────────────
@@ -561,35 +657,50 @@ export default function NewOperationalsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [qbOpen, qbBranchId, qbDays, qbStart, qbType, qbDuration, qbGap, qbGapAsBreak, qbCount, draftHours]);
 
-  const applyQuickBuild = () => {
+  const applyQuickBuild = async () => {
     const days = DAY_NAMES.filter((d) => qbDays.has(d));
     if (!qbBranchId || days.length === 0) {
       showToast({ title: 'Pick at least one day', variant: 'warning' });
       return;
     }
+
+    // Work out the new plan per day first, then persist it.
+    const perDay = {};
     let added = 0;
-    setDirty(true);
-    setDraftOps((prev) => {
-      const branchOps = { ...(prev[qbBranchId] || {}) };
-      for (const day of days) {
-        const generated = buildDaySlots(qbBranchId, day);
-        if (!generated.length) continue;
-        const merged = qbReplace ? generated : [...(branchOps[day] || []), ...generated];
-        branchOps[day] = merged.sort((a, b) => a.start.localeCompare(b.start));
-        added += generated.length;
+    for (const day of days) {
+      const generated = buildDaySlots(qbBranchId, day);
+      if (!generated.length) continue;
+      const existing = draftOps[qbBranchId]?.[day] || [];
+      // Replacing keeps any break, which is owned by the hours popover.
+      const kept = qbReplace ? existing.filter((s) => s.type === 'break') : existing;
+      perDay[day] = [...kept, ...generated].sort((a, b) => a.start.localeCompare(b.start));
+      added += generated.length;
+    }
+
+    setSaving(true);
+    try {
+      for (const [day, slots] of Object.entries(perDay)) {
+        await persistDay(qbBranchId, day, slots);
       }
-      return { ...prev, [qbBranchId]: branchOps };
-    });
-    setQbOpen(false);
-    // Focus the table on what was just built.
-    setSlotBranchFilter(qbBranchId);
-    setSlotDayFilter(days.length === 1 ? days[0] : 'all');
-    setSlotTypeFilter('all');
-    showToast({
-      title: `Built ${added} slot${added === 1 ? '' : 's'}`,
-      message: `${days.length} day${days.length === 1 ? '' : 's'} updated at ${qbBranch?.name || 'branch'}.`,
-      variant: added ? 'success' : 'warning',
-    });
+      setDraftOps((prev) => ({
+        ...prev,
+        [qbBranchId]: { ...(prev[qbBranchId] || {}), ...perDay },
+      }));
+      setQbOpen(false);
+      // Focus the table on what was just built.
+      setSlotBranchFilter(qbBranchId);
+      setSlotDayFilter(days.length === 1 ? days[0] : 'all');
+      setSlotTypeFilter('all');
+      showToast({
+        title: `Built and saved ${added} slot${added === 1 ? '' : 's'}`,
+        message: `${Object.keys(perDay).length} day${Object.keys(perDay).length === 1 ? '' : 's'} updated at ${qbBranch?.name || 'branch'}.`,
+        variant: added ? 'success' : 'warning',
+      });
+    } catch (err) {
+      showToast({ title: 'Could not save the slots', message: err.message, variant: 'error' });
+    } finally {
+      setSaving(false);
+    }
   };
 
   const toggleDay = (branchId, day) => {
@@ -968,6 +1079,28 @@ export default function NewOperationalsPage() {
             </button>
           </div>
         </div>
+
+        {pendingDays.size > 0 && (
+          <div style={{
+            margin: '0.9rem 1.5rem 0', padding: '0.65rem 0.9rem', borderRadius: '10px',
+            background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.35)',
+            display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap',
+          }}>
+            <AlertTriangle size={16} style={{ color: '#b45309', flexShrink: 0 }} />
+            <span style={{ fontSize: '0.78rem', color: '#92400e', flex: '1 1 240px' }}>
+              Unsaved edits on {pendingDays.size} day{pendingDays.size === 1 ? '' : 's'}. Adding and removing slots saves automatically, but edited times and notes need saving.
+            </span>
+            <button
+              type="button"
+              onClick={saveSlotEdits}
+              disabled={saving}
+              className="btn btn-primary"
+              style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', borderRadius: '9px', padding: '0.45rem 0.9rem', fontSize: '0.8rem' }}
+            >
+              <Save size={14} /> {saving ? 'Saving…' : 'Save slot changes'}
+            </button>
+          </div>
+        )}
 
         {capacity.totalConflicts > 0 && (
           <div style={{
