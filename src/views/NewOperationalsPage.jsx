@@ -7,9 +7,9 @@ import { subscribeToInternalInstructors } from '../services/internalInstructorSe
 import { saveOperationals, deleteOperational } from '../services/newOperationalsService';
 import { useNewOperationals } from '../hooks/useNewOperationals';
 import { useScheduleRules } from '../hooks/useScheduleRules';
-import { CATEGORIES } from '../lib/programRules';
+import { CATEGORIES, simulateSlot } from '../lib/programRules';
 import { DAY_NAMES, getWorkingDaysForBranch } from '../utils/constants';
-import { MapPin, Save, Building2, Clock, X, Plus, Trash2, Copy, CalendarClock, AlertTriangle, Wand2, Coffee, ShieldCheck } from 'lucide-react';
+import { MapPin, Save, Building2, Clock, X, Plus, Trash2, Copy, CalendarClock, AlertTriangle, Wand2, Coffee, ShieldCheck, FlaskConical, CheckCircle2 } from 'lucide-react';
 
 /** Resolve saved per-day operating hours for a branch: { Monday: {start,end}, ... } */
 export function resolveBranchHours(branch) {
@@ -1837,6 +1837,20 @@ function ScheduleRulesPanel() {
                       </span>
                     </label>
 
+                    <label className="modal-form-label" style={{ fontSize: '0.72rem' }}>Max students per class</label>
+                    <div className="field-with-suffix">
+                      <input
+                        type="number" min="1" max="20"
+                        className="modal-input-field field-compact"
+                        value={c.maxStudents}
+                        onChange={(e) => setCat(cat, { maxStudents: e.target.value })}
+                      />
+                      <span className="field-suffix">seats</span>
+                    </div>
+                    <span style={{ fontSize: '0.68rem', color: 'var(--text-muted)', display: 'block', margin: '0.25rem 0 0.7rem' }}>
+                      A slot is full at {c.maxStudents} {cat} student{Number(c.maxStudents) === 1 ? '' : 's'}.
+                    </span>
+
                     <label className="modal-form-label" style={{ fontSize: '0.72rem' }}>Max different lessons per slot</label>
                     <div className="field-with-suffix">
                       <input
@@ -1874,9 +1888,136 @@ function ScheduleRulesPanel() {
                 Unsaved rule changes.
               </div>
             )}
+
+            <ClassSimulator rules={current} />
           </>
         )}
       </div>
+    </div>
+  );
+}
+
+/* ─── Class Simulator ────────────────────────────────────────────────────
+   Try a combination of programs against the current rules without touching
+   real data. Useful for checking a rule change before saving it, and for
+   settling "can these two share a slot?" questions. */
+
+const SIM_PRESETS = [
+  { label: 'Kinder Foundation ×4', programs: ['KF1.1', 'KF1.1', 'KF1.2', 'KF1.2'] },
+  { label: 'Kinder over capacity ×5', programs: ['KF1.1', 'KF1.1', 'KF1.2', 'KF1.2', 'KF1.2'] },
+  { label: 'Kinder Foundation + Core', programs: ['KF2.5', 'K2.3'] },
+  { label: 'Junior Foundation + Core', programs: ['JF1.1', 'J1.1'] },
+  { label: 'Junior ×6', programs: ['J1.1', 'J1.1', 'J1.2', 'J1.2', 'J1.1', 'J1.2'] },
+  { label: 'Coder mixed levels ×6', programs: ['Coder Basic 1', 'Coder Advance 3', 'Coder Foundation 2', 'Coder Basic 2', 'Coder Advance 1', 'Coder Intermediate 1'] },
+];
+
+function ClassSimulator({ rules }) {
+  const [input, setInput] = useState('KF1.1, KF1.1, KF1.2, KF1.2, K2.3');
+
+  const programs = useMemo(
+    () => input.split(',').map((s) => s.trim()).filter(Boolean),
+    [input]
+  );
+
+  const result = useMemo(() => simulateSlot(programs, rules), [programs, rules]);
+
+  return (
+    <div style={{ marginTop: '1.25rem', borderTop: '1px solid var(--border-color)', paddingTop: '1.1rem' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '0.75rem', flexWrap: 'wrap', marginBottom: '0.7rem' }}>
+        <div>
+          <h3 style={{ margin: 0, fontSize: '0.92rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '0.35rem', color: 'var(--text-main)' }}>
+            <FlaskConical size={15} /> Simulate a class
+          </h3>
+          <span style={{ fontSize: '0.74rem', color: 'var(--text-secondary)' }}>
+            Enter programs separated by commas — one per student — to see who would be admitted under the rules above. Nothing is saved.
+          </span>
+        </div>
+        {result.capacity != null && (
+          <span style={{
+            fontSize: '0.75rem', fontWeight: 700, padding: '0.25rem 0.7rem', borderRadius: '99px', whiteSpace: 'nowrap',
+            color: result.accepted.length >= result.capacity ? '#b45309' : 'var(--success, #059669)',
+            background: result.accepted.length >= result.capacity ? 'rgba(245,158,11,0.14)' : 'rgba(16,185,129,0.12)',
+          }}>
+            {result.accepted.length}/{result.capacity} seats
+            {result.category ? ` · ${result.category}` : ''}
+          </span>
+        )}
+      </div>
+
+      <input
+        type="text"
+        className="modal-input-field"
+        value={input}
+        onChange={(e) => setInput(e.target.value)}
+        placeholder="e.g. KF1.1, KF1.2, K2.3"
+      />
+
+      <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap', margin: '0.6rem 0 0.85rem' }}>
+        {SIM_PRESETS.map((p) => (
+          <button
+            key={p.label}
+            type="button"
+            onClick={() => setInput(p.programs.join(', '))}
+            style={{
+              fontSize: '0.72rem', padding: '0.28rem 0.6rem', borderRadius: '99px', cursor: 'pointer',
+              border: '1px solid var(--border-color)', background: 'transparent', color: 'var(--text-secondary)',
+            }}
+          >
+            {p.label}
+          </button>
+        ))}
+      </div>
+
+      {result.steps.length === 0 ? (
+        <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', margin: 0 }}>
+          Enter at least one program to simulate.
+        </p>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+          {result.steps.map((s, i) => {
+            const color = s.admitted
+              ? (s.severity === 'warn' ? '#b45309' : 'var(--success, #059669)')
+              : 'var(--danger)';
+            const bg = s.admitted
+              ? (s.severity === 'warn' ? 'rgba(245,158,11,0.1)' : 'rgba(16,185,129,0.08)')
+              : 'var(--danger-bg, rgba(239,68,68,0.08))';
+            return (
+              <div
+                key={i}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: '0.6rem',
+                  padding: '0.45rem 0.7rem', borderRadius: '9px',
+                  background: bg, border: `1px solid ${color}33`,
+                }}
+              >
+                <span style={{ fontSize: '0.68rem', fontWeight: 700, color: 'var(--text-muted)', minWidth: '54px' }}>
+                  Student {i + 1}
+                </span>
+                <span style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--text-main)', minWidth: '110px' }}>
+                  {s.program}
+                </span>
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.75rem', color, flex: 1 }}>
+                  {s.admitted
+                    ? <CheckCircle2 size={13} style={{ flexShrink: 0 }} />
+                    : <X size={13} style={{ flexShrink: 0 }} />}
+                  {s.admitted ? (s.severity === 'warn' ? s.reason : 'Admitted') : s.reason}
+                </span>
+                {s.admitted && (
+                  <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', flexShrink: 0 }}>
+                    seat {s.seatsUsed}
+                  </span>
+                )}
+              </div>
+            );
+          })}
+
+          <div style={{ marginTop: '0.4rem', fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
+            <strong style={{ color: 'var(--text-main)' }}>Result:</strong>{' '}
+            {result.accepted.length} of {result.steps.length} admitted
+            {result.accepted.length > 0 && ` — ${result.accepted.join(', ')}`}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

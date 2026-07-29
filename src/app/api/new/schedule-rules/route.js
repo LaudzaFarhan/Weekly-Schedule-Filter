@@ -41,6 +41,7 @@ export async function PUT(req) {
     for (const cat of CATEGORIES) {
       const src = body[cat] || {};
       const max = parseInt(src.maxDistinctLessons, 10);
+      const seats = parseInt(src.maxStudents, 10);
       const enforcement = src.enforcement === 'warn' ? 'warn' : 'block';
       if (Number.isFinite(max) && (max < 0 || max > 10)) {
         return NextResponse.json(
@@ -48,9 +49,16 @@ export async function PUT(req) {
           { status: 400 }
         );
       }
+      if (Number.isFinite(seats) && (seats < 1 || seats > 20)) {
+        return NextResponse.json(
+          { error: `${cat}.maxStudents must be between 1 and 20` },
+          { status: 400 }
+        );
+      }
       clean[cat] = {
         allowMixFamilies: !!src.allowMixFamilies,
         maxDistinctLessons: Number.isFinite(max) ? max : DEFAULT_RULES[cat].maxDistinctLessons,
+        maxStudents: Number.isFinite(seats) ? seats : DEFAULT_RULES[cat].maxStudents,
         enforcement,
       };
     }

@@ -55,12 +55,23 @@ export function parseProgram(value) {
 
 /** Default rules, matching how the school actually operates today. */
 export const DEFAULT_RULES = {
-  Kinder: { allowMixFamilies: false, maxDistinctLessons: 2, enforcement: 'block' },
-  Junior: { allowMixFamilies: true,  maxDistinctLessons: 2, enforcement: 'block' },
-  Coder:  { allowMixFamilies: true,  maxDistinctLessons: 0, enforcement: 'block' },
+  Kinder: { allowMixFamilies: false, maxDistinctLessons: 2, maxStudents: 4, enforcement: 'block' },
+  Junior: { allowMixFamilies: true,  maxDistinctLessons: 2, maxStudents: 6, enforcement: 'block' },
+  Coder:  { allowMixFamilies: true,  maxDistinctLessons: 0, maxStudents: 6, enforcement: 'block' },
   // Applies across categories, e.g. a Kinder student joining a Junior slot.
   allowMixCategories: false,
 };
+
+/**
+ * Seats available in a class running this program, per the configured rules.
+ * Falls back to the Kinder 4 / others 6 convention for unknown programs.
+ */
+export function maxStudentsFor(program, rules) {
+  const cfg = withDefaults(rules);
+  const { category } = parseProgram(program);
+  if (!category) return 6;
+  return Number(cfg[category]?.maxStudents) || DEFAULT_RULES[category].maxStudents;
+}
 
 /** Merge stored rules over the defaults so missing keys stay sane. */
 export function withDefaults(rules) {
@@ -113,7 +124,17 @@ export function canCombine(existing, candidate, rules) {
   const rule = cfg[next.category] || DEFAULT_RULES[next.category];
   const severity = rule.enforcement === 'warn' ? 'warn' : 'block';
 
-  // 2. Family mixing within the category.
+  // 2. Seat capacity. One entry in `existing` is one enrolled student.
+  const capacity = Number(rule.maxStudents) || DEFAULT_RULES[next.category].maxStudents;
+  if (current.length >= capacity) {
+    return {
+      ok: severity === 'warn',
+      severity,
+      reason: `Slot is full — ${current.length}/${capacity} students for ${next.category}`,
+    };
+  }
+
+  // 3. Family mixing within the category.
   if (!rule.allowMixFamilies) {
     const otherFamily = [...families].find((f) => f && f !== next.family);
     if (otherFamily) {
@@ -125,7 +146,7 @@ export function canCombine(existing, candidate, rules) {
     }
   }
 
-  // 3. Distinct lesson cap (0 or less means unlimited).
+  // 4. Distinct lesson cap (0 or less means unlimited).
   const max = Number(rule.maxDistinctLessons) || 0;
   if (max > 0) {
     const lessons = new Set(current.map((p) => p.lessonKey));
@@ -157,4 +178,39 @@ export function validateSlot(programs, rules) {
     }
   }
   return { ok: true, reason: '' };
+}
+
+/**
+ * Walk a list of programs into a slot one at a time, reporting the verdict for
+ * each. Powers the "simulate a class" tool so the rules can be tried out
+ * without touching real data.
+ *
+ * @returns {{ steps: Array, accepted: string[], capacity: number|null, category: string|null }}
+ */
+export function simulateSlot(programs, rules) {
+  const accepted = [];
+  const steps = [];
+
+  for (const program of (programs || []).filter(Boolean)) {
+    const verdict = canCombine(accepted, program, rules);
+    const admitted = verdict.ok;
+    if (admitted) accepted.push(program);
+    steps.push({
+      program,
+      admitted,
+      severity: verdict.severity,
+      reason: verdict.reason,
+      seatsUsed: accepted.length,
+    });
+  }
+
+  // Report capacity for whichever category ended up in the slot.
+  const first = accepted[0] || (programs || [])[0];
+  const parsed = first ? parseProgram(first) : null;
+  return {
+    steps,
+    accepted,
+    category: parsed?.category || null,
+    capacity: first ? maxStudentsFor(first, rules) : null,
+  };
 }

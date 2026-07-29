@@ -14,7 +14,7 @@ import { subscribeToInternalInstructors } from '../services/internalInstructorSe
 import { slotTypeMeta } from './NewOperationalsPage';
 import { useNewOperationals } from '../hooks/useNewOperationals';
 import { useScheduleRules } from '../hooks/useScheduleRules';
-import { canCombine } from '../lib/programRules';
+import { canCombine, maxStudentsFor } from '../lib/programRules';
 import { subscribeToActivity, logActivity, deleteActivity, displayUser } from '../services/newActivityService';
 import { useAuth } from '../contexts/AuthContext';
 import { doTimeSlotsOverlap } from '../utils/timeUtils';
@@ -196,8 +196,7 @@ const isKinderProgram = (program) => {
  */
 const programDurationMin = (program) => (isKinderProgram(program) ? 90 : 120);
 
-/** Max students per slot: Kinder programs 4, Junior & Coder 6. */
-const maxStudentsForProgram = (program) => (isKinderProgram(program) ? 4 : 6);
+
 
 /** Classify a level/program string into Kinder | Junior | Coder | null. */
 const categorizeLevel = (str) => {
@@ -1401,7 +1400,7 @@ export default function NewSchedulePage({ onNavigate }) {
                       <td style={{ textAlign: 'center' }}>
                         {(() => {
                           const used = slotOccupancy.get(`${c.day}||${c.time}||${c.teacher}||${c.branchName}`) || 0;
-                          const max = maxStudentsForProgram(c.program);
+                          const max = maxStudentsFor(c.program, rules);
                           const full = used >= max;
                           const over = used > max;
                           const color = over ? '#dc2626' : full ? '#d97706' : '#059669';
