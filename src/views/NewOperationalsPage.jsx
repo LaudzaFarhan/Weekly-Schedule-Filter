@@ -4,34 +4,28 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useSchedule } from '../contexts/ScheduleContext';
 import { useToast } from '../components/ui/Toast';
 import { subscribeToInternalInstructors } from '../services/internalInstructorService';
+import { subscribeToInternalClasses, updateInternalClass } from '../services/internalScheduleService';
+import { subscribeToLeaves } from '../services/newLeaveService';
+import { logActivity } from '../services/newActivityService';
+import { useAuth } from '../contexts/AuthContext';
 import { saveOperational, saveOperationals, deleteOperational } from '../services/newOperationalsService';
 import { useNewOperationals } from '../hooks/useNewOperationals';
 import { useScheduleRules } from '../hooks/useScheduleRules';
 import { CATEGORIES, simulateSlot } from '../lib/programRules';
+import { SLOT_TYPES, slotTypeMeta } from '../lib/slotTypes';
+import { groupClasses, levelCovers, instructorsAtBranch, overlaps } from '../lib/instructorAvailability';
+import ScheduleGrid from '../components/operations/ScheduleGrid';
 import { DAY_NAMES, getWorkingDaysForBranch } from '../utils/constants';
-import { MapPin, Save, Building2, Clock, X, Plus, Trash2, Copy, CalendarClock, AlertTriangle, Wand2, Coffee, ShieldCheck, FlaskConical, CheckCircle2 } from 'lucide-react';
+import { MapPin, Save, Building2, Clock, X, Plus, Trash2, Copy, CalendarClock, AlertTriangle, Wand2, Coffee, ShieldCheck, FlaskConical, CheckCircle2, LayoutGrid } from 'lucide-react';
 
 /** Resolve saved per-day operating hours for a branch: { Monday: {start,end}, ... } */
 export function resolveBranchHours(branch) {
   return (branch && branch.operatingHours) || {};
 }
 
-/**
- * Slot kinds usable in a day's class operation plan. Class kinds are bookable;
- * the rest (break / training / meeting) block the time for everyone.
- */
-export const SLOT_TYPES = [
-  { key: 'kinder',   label: 'Kinder Class',   category: 'Kinder', bookable: true,  color: '#ea580c', bg: 'rgba(249,115,22,0.1)' },
-  { key: 'junior',   label: 'Junior Class',   category: 'Junior', bookable: true,  color: '#0891b2', bg: 'rgba(8,145,178,0.1)' },
-  { key: 'coder',    label: 'Coder Class',    category: 'Coder',  bookable: true,  color: '#4f46e5', bg: 'rgba(79,70,229,0.1)' },
-  { key: 'any',      label: 'Any Class',      category: null,     bookable: true,  color: '#059669', bg: 'rgba(5,150,105,0.1)' },
-  { key: 'break',    label: 'Break',          category: null,     bookable: false, color: '#b45309', bg: 'rgba(245,158,11,0.12)' },
-  { key: 'training', label: 'Training',       category: null,     bookable: false, color: '#7c3aed', bg: 'rgba(124,58,237,0.12)' },
-  { key: 'meeting',  label: 'Meeting',        category: null,     bookable: false, color: '#dc2626', bg: 'rgba(220,38,38,0.12)' },
-];
-
-export const slotTypeMeta = (key) =>
-  SLOT_TYPES.find((t) => t.key === key) || SLOT_TYPES[SLOT_TYPES.length - 1];
+// Slot kinds live in their own module so the schedule grid can read them
+// without importing this page. Re-exported here for existing callers.
+export { SLOT_TYPES, slotTypeMeta };
 
 /**
  * Resolve a branch's manual class operation plan:
@@ -39,24 +33,6 @@ export const slotTypeMeta = (key) =>
  */
 export function resolveBranchClassOps(branch) {
   return (branch && branch.classOperations) || {};
-}
-
-/** Can a New Ops instructor level string cover a slot category? */
-function levelCovers(level, category) {
-  const l = String(level || '').toLowerCase();
-  if (!category) return true; // "Any Class" — anyone can take it
-  if (category === 'Kinder') return l.includes('kinder');
-  if (category === 'Junior') return l.includes('junior');
-  if (category === 'Coder') return l.includes('coder');
-  return true;
-}
-
-/** Instructors assigned to a branch (explicitly, or via "All Branches"). */
-function instructorsAtBranch(instructors, branchName) {
-  return (instructors || []).filter((i) => {
-    const brs = Array.isArray(i.branches) ? i.branches : [];
-    return brs.includes(branchName) || brs.includes('All Branches');
-  });
 }
 
 /**
@@ -109,7 +85,8 @@ const findBreakSlot = (slots) =>
  * Walks every slot start time, collects the class slots running at that moment,
  * and checks they can all be staffed at once. Returns Map(index -> reason).
  */
-function findCapacityConflicts(daySlots, instructors) {
+function findCapacityConflicts(daySlots, instructors, context = {}) {
+  const { classGroups = [], day = null, branchName = null } = context;
   const conflicts = new Map();
   const classSlots = daySlots
     .map((slot, idx) => ({ slot, idx, start: toMin(slot.start), end: toMin(slot.end) }))
@@ -117,25 +94,57 @@ function findCapacityConflicts(daySlots, instructors) {
 
   if (classSlots.length === 0) return conflicts;
 
+  /**
+   * Instructors genuinely available at this instant.
+   *
+   * A class at ANOTHER branch takes them out — that was the gap that let a
+   * plan pass validation with nobody left to teach it. Classes at this branch
+   * are left in, because those are the realisation of these very slots.
+   */
+  const availableAt = (start, end) => {
+    if (!day || classGroups.length === 0) return { free: instructors, busy: [] };
+    const busy = [];
+    const free = instructors.filter((inst) => {
+      const clash = classGroups.find((g) =>
+        g.teacher === inst.name &&
+        g.day === day &&
+        g.branchName && g.branchName !== branchName &&
+        overlaps(start, end, g.startMin, g.endMin)
+      );
+      if (clash) { busy.push({ inst, clash }); return false; }
+      return true;
+    });
+    return { free, busy };
+  };
+
   for (const probe of classSlots) {
     // Everything running at this instant.
     const group = classSlots.filter((r) => r.start <= probe.start && r.end > probe.start);
-    if (group.length <= 1 && instructors.length >= 1) {
+    const groupEnd = Math.max(...group.map((g) => g.end));
+    const { free, busy } = availableAt(probe.start, groupEnd);
+
+    const elsewhere = busy.length
+      ? ` — ${busy.map((b) => `${b.inst.name} is at ${b.clash.branchName}`).join(', ')}`
+      : '';
+
+    if (group.length <= 1 && free.length >= 1) {
       // A lone slot still needs at least one instructor who can teach it.
-      const solo = maxConcurrentAssignable(group.map((g) => g.slot), instructors);
+      const solo = maxConcurrentAssignable(group.map((g) => g.slot), free);
       if (solo < group.length) {
         for (const g of group) {
           const cat = slotTypeMeta(g.slot.type).category;
-          conflicts.set(g.idx, `No ${cat || 'available'} instructor at this branch`);
+          conflicts.set(g.idx, `No ${cat || 'available'} instructor free at this branch${elsewhere}`);
         }
       }
       continue;
     }
-    const capacity = maxConcurrentAssignable(group.map((g) => g.slot), instructors);
+    const capacity = maxConcurrentAssignable(group.map((g) => g.slot), free);
     if (capacity < group.length) {
       const reason = instructors.length === 0
         ? 'No instructors assigned to this branch'
-        : `${group.length} classes overlap but only ${capacity} can be staffed (${instructors.length} instructor${instructors.length === 1 ? '' : 's'} at this branch)`;
+        : free.length === 0
+          ? `No instructor free at this time${elsewhere}`
+          : `${group.length} classes overlap but only ${capacity} can be staffed (${free.length} of ${instructors.length} instructor${instructors.length === 1 ? '' : 's'} free)${elsewhere}`;
       for (const g of group) conflicts.set(g.idx, reason);
     }
   }
@@ -158,7 +167,11 @@ export default function NewOperationalsPage() {
   // Operations does not use the Google Sheets config that Old Operations reads.
   const { branches } = useSchedule();
   const { showToast } = useToast();
+  // Moving a class is logged against whoever did it.
+  const { user } = useAuth();
   const { rules, loading: rulesLoading, error: rulesError, isEmpty } = useNewOperationals();
+  // Program combination + seat capacity rules, for the grid's occupancy chips.
+  const { rules: scheduleRules } = useScheduleRules();
 
   // Editable drafts: open days per branch, and operating hours per branch/day.
   const [draft, setDraft] = useState({});            // branchId -> Set(dayName)
@@ -167,6 +180,9 @@ export default function NewOperationalsPage() {
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [instructors, setInstructors] = useState([]);
+  // Real bookings and leave, so the grid can tell who is genuinely free.
+  const [classes, setClasses] = useState([]);
+  const [leaves, setLeaves] = useState([]);
 
   // Day setup editor state (operating hours + class operation slots)
   const [editor, setEditor] = useState(null);        // { branchId, day, branchName }
@@ -299,6 +315,28 @@ export default function NewOperationalsPage() {
     const unsubscribe = subscribeToInternalInstructors((data) => setInstructors(data || []));
     return () => unsubscribe();
   }, []);
+
+  // Existing classes and leave — an instructor teaching elsewhere or away is
+  // not available, however many people the branch has on paper.
+  useEffect(() => {
+    const unsub = subscribeToInternalClasses(
+      (data) => setClasses(data || []),
+      () => { /* the grid falls back to plan-only knowledge */ }
+    );
+    return () => unsub();
+  }, []);
+
+  useEffect(() => {
+    const unsub = subscribeToLeaves(
+      (data) => setLeaves(data || []),
+      () => { /* leave is optional context */ }
+    );
+    return () => unsub();
+  }, []);
+
+  // internal_classes stores one row per enrolled student; collapse them into
+  // actual classes so seat occupancy and conflicts are counted correctly.
+  const classGroups = useMemo(() => groupClasses(classes), [classes]);
 
   const openHoursEditor = (branch, day) => {
     const h = draftHours[branch.id]?.[day];
@@ -537,6 +575,96 @@ export default function NewOperationalsPage() {
     }
   };
 
+  /**
+   * Move a planned slot to another time, and possibly another instructor
+   * column. The grid has already checked the destination is free.
+   */
+  const moveSlotTo = async (branchId, day, idx, patch) => {
+    const list = (draftOps[branchId]?.[day] || []).map((s, i) => (i === idx ? { ...s, ...patch } : s));
+    const sorted = [...list].sort((a, b) => a.start.localeCompare(b.start));
+
+    setSaving(true);
+    try {
+      await persistDay(branchId, day, sorted);
+      setDraftOps((prev) => ({
+        ...prev,
+        [branchId]: { ...(prev[branchId] || {}), [day]: sorted },
+      }));
+      showToast({
+        title: 'Slot moved',
+        message: `Now ${patch.start}–${patch.end} with ${patch.instructor}.`,
+        variant: 'success',
+      });
+    } catch (err) {
+      showToast({ title: 'Could not move the slot', message: err.message, variant: 'error' });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  /**
+   * Move a real class to another time or instructor. Every enrolled student is
+   * one row in `internal_classes`, so the whole group has to move together —
+   * this is live student schedule data, hence the confirmation.
+   */
+  const moveClassTo = async (group, patch) => {
+    const count = group.ids.length;
+    const changes = [
+      patch.time !== group.time ? `Time: ${group.time} → ${patch.time}` : null,
+      patch.teacher !== group.teacher ? `Instructor: ${group.teacher} → ${patch.teacher}` : null,
+    ].filter(Boolean);
+    if (!changes.length) return;
+
+    // A resize keeps the start and the instructor, so call it what it is.
+    const sameStart = patch.time.split(' - ')[0] === group.time.split(' - ')[0];
+    const verb = sameStart && patch.teacher === group.teacher ? 'Change this class\'s length' : 'Move this class';
+
+    if (!window.confirm(
+      `${verb}?\n\n${changes.join('\n')}\n\n` +
+      `${count} student${count === 1 ? '' : 's'} on ${group.day} at ${group.branchName} will be rescheduled.`
+    )) return;
+
+    setSaving(true);
+    try {
+      // PUT /api/new/schedule replaces the whole row, so every field has to be
+      // sent — a partial body would blank out the student, program and branch.
+      for (const id of group.ids) {
+        const row = classes.find((c) => c.id === id);
+        if (!row) continue;
+        await updateInternalClass(id, {
+          day: row.day,
+          time: patch.time,
+          program: row.program,
+          student: row.student,
+          teacher: patch.teacher,
+          branchName: row.branchName,
+          classType: row.classType,
+          remarks: row.remarks,
+        });
+      }
+      // Reflect it immediately rather than waiting for the next poll.
+      setClasses((prev) => prev.map((c) =>
+        group.ids.includes(c.id) ? { ...c, time: patch.time, teacher: patch.teacher } : c
+      ));
+      await logActivity({
+        action: 'edit',
+        summary: `Moved class on ${group.day} at ${group.branchName}: ${changes.join(', ')}`,
+        count,
+        source: 'schedule',
+        userEmail: user?.email || null,
+      });
+      showToast({
+        title: 'Class moved',
+        message: `${count} student${count === 1 ? '' : 's'} rescheduled.`,
+        variant: 'success',
+      });
+    } catch (err) {
+      showToast({ title: 'Could not move the class', message: err.message, variant: 'error' });
+    } finally {
+      setSaving(false);
+    }
+  };
+
   // ── Manual single-slot add ──────────────────────────────────────────────
   const openManualAdd = () => {
     const branch = branches.find((b) => b.id === slotBranchFilter) || branches[0];
@@ -610,9 +738,45 @@ export default function NewOperationalsPage() {
       closeTime: hrs?.end || null,
       slots: (slots || [])
         .filter((s) => s && s.start && s.end && s.end > s.start)
-        .map((s) => ({ type: s.type || 'any', start: s.start, end: s.end, label: (s.label || '').trim() }))
+        .map((s) => ({
+          type: s.type || 'any',
+          start: s.start,
+          end: s.end,
+          label: (s.label || '').trim(),
+          // Optional. Set when the slot was opened from the schedule grid,
+          // where a cell already identifies an instructor. Slots without one
+          // stay valid and simply count as unassigned.
+          ...(s.instructor ? { instructor: s.instructor } : {}),
+        }))
         .sort((a, b) => a.start.localeCompare(b.start)),
     });
+  };
+
+  /**
+   * Create a slot from a grid cell. The cell already knows the branch, day,
+   * time and instructor, so this only has to persist it.
+   */
+  const addSlotFromGrid = async (branchId, day, slot) => {
+    const nextList = [...(draftOps[branchId]?.[day] || []), slot]
+      .sort((a, b) => a.start.localeCompare(b.start));
+
+    setSaving(true);
+    try {
+      await persistDay(branchId, day, nextList);
+      setDraftOps((prev) => ({
+        ...prev,
+        [branchId]: { ...(prev[branchId] || {}), [day]: nextList },
+      }));
+      showToast({
+        title: 'Slot opened',
+        message: `${slotTypeMeta(slot.type).label} ${slot.start}–${slot.end} for ${slot.instructor} on ${day}.`,
+        variant: 'success',
+      });
+    } catch (err) {
+      showToast({ title: 'Could not open the slot', message: err.message, variant: 'error' });
+    } finally {
+      setSaving(false);
+    }
   };
 
   const applyManualAdd = async () => {
@@ -883,7 +1047,9 @@ export default function NewOperationalsPage() {
       for (const day of DAY_NAMES) {
         const list = byDay[day] || [];
         if (!list.length) continue;
-        const found = findCapacityConflicts(list, staff);
+        const found = findCapacityConflicts(list, staff, {
+          classGroups, day, branchName: b.name,
+        });
         if (found.size) {
           conflictsByKey.set(`${b.id}||${day}`, found);
           totalConflicts += found.size;
@@ -891,7 +1057,7 @@ export default function NewOperationalsPage() {
       }
     }
     return { staffByBranch, conflictsByKey, totalConflicts };
-  }, [branches, instructors, draftOps]);
+  }, [branches, instructors, draftOps, classGroups]);
 
   // Flatten every branch/day slot into rows for the Class Operation table,
   // then apply the branch / day / type filters.
@@ -1126,6 +1292,36 @@ export default function NewOperationalsPage() {
 
       <ScheduleRulesPanel />
 
+      {/* ── Schedule grid — plan from instructor availability ─────────────── */}
+      <div className="panel" style={{ margin: '1.5rem 0 0' }}>
+        <div className="panel-header" style={{ flexWrap: 'wrap', gap: '0.75rem', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div>
+            <h2 style={{ fontSize: '1.15rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.45rem' }}>
+              <LayoutGrid size={19} /> Schedule Grid
+            </h2>
+            <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', margin: '0.2rem 0 0' }}>
+              Plan from who is actually free. Columns are instructors, rows are times. Click an empty cell to open a class for that instructor — only the categories their level covers are offered. Cells that can&apos;t take a class say why, including classes at other branches and leave.
+            </p>
+          </div>
+        </div>
+
+        <ScheduleGrid
+          branches={branches}
+          instructors={instructors}
+          classGroups={classGroups}
+          leaves={leaves}
+          draft={draft}
+          draftOps={draftOps}
+          draftHours={draftHours}
+          rules={scheduleRules}
+          saving={saving}
+          onAddSlot={addSlotFromGrid}
+          onRemoveSlot={removeSlot}
+          onMoveSlot={moveSlotTo}
+          onMoveClass={moveClassTo}
+        />
+      </div>
+
       {/* ── Class Operation time slots — all branches in one filterable table ── */}
       <div className="panel" style={{ margin: '1.5rem 0 0' }}>
         <div className="panel-header" style={{ flexWrap: 'wrap', gap: '0.75rem', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -1304,6 +1500,7 @@ export default function NewOperationalsPage() {
                   <th style={{ minWidth: '135px' }}>Type</th>
                   <th style={{ minWidth: '110px' }}>Start</th>
                   <th style={{ minWidth: '110px' }}>End</th>
+                  <th style={{ minWidth: '150px' }}>Instructor</th>
                   <th style={{ minWidth: '150px' }}>Note</th>
                   <th style={{ minWidth: '150px' }}>Staffing</th>
                   <th style={{ width: '70px', textAlign: 'center' }}>Action</th>
@@ -1350,6 +1547,23 @@ export default function NewOperationalsPage() {
                           <span style={{ fontSize: '0.62rem', color: 'var(--danger)', display: 'block' }}>
                             Must be after start
                           </span>
+                        )}
+                      </td>
+                      <td>
+                        {!meta.bookable ? (
+                          <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>—</span>
+                        ) : (
+                          <select
+                            value={r.slot.instructor || ''}
+                            className="modal-select-field field-compact"
+                            onChange={(e) => updateSlot(r.branchId, r.day, r.idx, { instructor: e.target.value })}
+                            title="Optional. Set automatically when the slot is opened from the schedule grid."
+                          >
+                            <option value="">Unassigned</option>
+                            {instructorsAtBranch(instructors, r.branchName)
+                              .filter((i) => levelCovers(i.level, meta.category))
+                              .map((i) => <option key={i.id || i.name} value={i.name}>{i.name}</option>)}
+                          </select>
                         )}
                       </td>
                       <td>

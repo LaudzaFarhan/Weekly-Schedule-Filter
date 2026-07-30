@@ -14,7 +14,8 @@ import { subscribeToInternalInstructors } from '../services/internalInstructorSe
 import { slotTypeMeta } from './NewOperationalsPage';
 import { useNewOperationals } from '../hooks/useNewOperationals';
 import { useScheduleRules } from '../hooks/useScheduleRules';
-import { canCombine, maxStudentsFor } from '../lib/programRules';
+import { canCombine, maxStudentsFor, parseProgram } from '../lib/programRules';
+import { availabilityFor, groupClasses, classWindow } from '../lib/instructorAvailability';
 import { subscribeToActivity, logActivity, deleteActivity, displayUser } from '../services/newActivityService';
 import { useAuth } from '../contexts/AuthContext';
 import { doTimeSlotsOverlap } from '../utils/timeUtils';
@@ -577,22 +578,47 @@ export default function NewSchedulePage({ onNavigate }) {
       return atBranch && instructorHandles(i, category);
     });
 
-    // Instructors free for a candidate window (no overlapping class that day).
-    const freeFor = (label) => capable.filter((i) => !classes.some((c) =>
-      c.day === day &&
-      c.teacher === i.name &&
-      (!branch || c.branchName === branch) &&
-      c.time && doTimeSlotsOverlap(c.time, label)
-    ));
+    // Every existing class, as groups. Not filtered by branch — an instructor
+    // teaching at another branch is not free here, which this panel used to miss.
+    const groups = groupClasses(classes);
 
-    // Shared availability verdict for a bookable window.
+    /**
+     * Availability verdict for a bookable window, from the shared engine so a
+     * recommended time can never be one the save step would then reject.
+     */
     const verdict = (label) => {
-      const free = freeFor(label);
       if (capable.length === 0) {
         return { available: false, reason: category ? `No ${category} instructor at this branch` : 'No instructor at this branch', freeCount: 0 };
       }
+      const win = classWindow(label);
+      if (!win) return { available: false, reason: 'Could not read this time', freeCount: 0 };
+
+      const verdicts = capable.map((i) => ({
+        name: i.name,
+        v: availabilityFor(i, {
+          branchName: branch,
+          day,
+          startMin: win.start,
+          endMin: win.end,
+          category,
+          classGroups: groups,
+          leaves: [],
+          date: null,
+          blocks: [],
+          hours: null,
+          requireBranch: false,
+        }),
+      }));
+
+      const free = verdicts.filter((x) => x.v.free);
       if (free.length === 0) {
-        return { available: false, reason: 'All capable instructors busy', freeCount: 0 };
+        // Say what is actually in the way rather than a generic "all busy".
+        const reasons = [...new Set(verdicts.map((x) => x.v.reason))];
+        return {
+          available: false,
+          reason: reasons.length === 1 ? reasons[0] : `No instructor free — ${reasons.slice(0, 2).join('; ')}`,
+          freeCount: 0,
+        };
       }
       return { available: true, reason: `${free.length} instructor${free.length === 1 ? '' : 's'} free`, freeCount: free.length };
     };
@@ -699,11 +725,71 @@ export default function NewSchedulePage({ onNavigate }) {
     return canCombine(slotPrograms, form.program, rules);
   }, [slotPrograms, form.program, rules]);
 
+  /**
+   * Classes that count against the form's instructor, as actual class groups.
+   *
+   * The slot the form is legitimately filling is excluded: adding a second
+   * student to the same branch + day + time + instructor is joining a class,
+   * not double-booking one. The Schedule Rules govern whether the programs may
+   * share it. The row being edited is excluded so it can't clash with itself.
+   */
+  const conflictGroups = useMemo(() => {
+    const rows = editingClass ? classes.filter((c) => c.id !== editingClass.id) : classes;
+    return groupClasses(rows).filter((g) => !(
+      g.teacher === form.teacher &&
+      g.day === form.day &&
+      g.time === form.time &&
+      g.branchName === form.branchName
+    ));
+  }, [classes, editingClass, form.teacher, form.day, form.time, form.branchName]);
+
+  /**
+   * Availability of every instructor in the dropdown for the window the form
+   * currently targets. Branch assignment is not re-checked here because the
+   * dropdown is already scoped to the branch, and re-checking would block
+   * edits to older rows whose instructor has since moved branch.
+   */
+  const teacherStatus = useMemo(() => {
+    const out = new Map();
+    const win = form.time ? classWindow(form.time) : null;
+    if (!win || !form.day) return out;
+    const category = parseProgram(form.program).category;
+
+    for (const name of modalInstructors) {
+      const inst = (instructors || []).find((i) => i.name === name);
+      if (!inst) continue;
+      out.set(name, availabilityFor(inst, {
+        branchName: form.branchName,
+        day: form.day,
+        startMin: win.start,
+        endMin: win.end,
+        category,
+        classGroups: conflictGroups,
+        leaves: [],
+        date: null,
+        blocks: [],
+        hours: null,
+        requireBranch: false,
+      }));
+    }
+    return out;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [modalInstructors, instructors, form.time, form.day, form.branchName, form.program, conflictGroups]);
+
+  /** The blocking verdict for the instructor actually selected, if any. */
+  const teacherConflict = useMemo(() => {
+    if (!form.teacher) return null;
+    const v = teacherStatus.get(form.teacher);
+    return v && !v.free ? v : null;
+  }, [teacherStatus, form.teacher]);
+
   const validateForm = () => {
     const errors = {};
     if (!form.time.trim()) errors.time = 'Time slot is required';
     if (!form.program.trim()) errors.program = 'Program/Lesson detail is required';
     if (!form.teacher) errors.teacher = 'Instructor is required';
+    // Never let a save double-book an instructor. This check did not exist.
+    else if (teacherConflict) errors.teacher = teacherConflict.reason;
     if (!form.student.trim()) errors.student = 'Student name is required';
     if (!form.branchName) errors.branchName = 'Branch is required';
 
@@ -1819,11 +1905,30 @@ export default function NewSchedulePage({ onNavigate }) {
                     <option value="">
                       {form.branchName ? 'Select Instructor' : 'Select a branch first'}
                     </option>
-                    {modalInstructors.map((t) => <option key={t} value={t}>{t}</option>)}
+                    {modalInstructors.map((t) => {
+                      const v = teacherStatus.get(t);
+                      return (
+                        <option key={t} value={t}>
+                          {v && !v.free ? `${t} — ${v.reason}` : t}
+                        </option>
+                      );
+                    })}
                   </select>
                   {form.branchName && modalInstructors.length === 0 && (
                     <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '0.2rem', display: 'block' }}>
                       No instructors assigned to {form.branchName}. Add them under Instructors.
+                    </span>
+                  )}
+                  {/* Live availability for the chosen instructor, so the reason
+                      is visible before the save is attempted. */}
+                  {form.teacher && form.time && teacherStatus.get(form.teacher) && (
+                    <span style={{
+                      fontSize: '0.72rem', marginTop: '0.25rem', display: 'flex', alignItems: 'flex-start', gap: '0.25rem',
+                      color: teacherStatus.get(form.teacher).free ? 'var(--success, #10b981)' : 'var(--danger)',
+                    }}>
+                      {teacherStatus.get(form.teacher).free
+                        ? `✓ Free at ${form.time}`
+                        : `✕ ${teacherStatus.get(form.teacher).reason}`}
                     </span>
                   )}
                   {formErrors.teacher && <span style={{ fontSize: '0.72rem', color: 'var(--danger)', marginTop: '0.2rem', display: 'block' }}>{formErrors.teacher}</span>}

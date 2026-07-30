@@ -20,6 +20,9 @@ const mapRow = (row) => ({
 /** Slot kinds accepted in a day's Class Operation plan. */
 const SLOT_TYPES = ['kinder', 'junior', 'coder', 'any', 'break', 'training', 'meeting'];
 
+/** Kinds that hold a class, and so can carry an intended instructor. */
+const BOOKABLE_TYPES = ['kinder', 'junior', 'coder', 'any'];
+
 const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
 
 /**
@@ -44,7 +47,21 @@ function normaliseSlots(slots) {
     if (s.end <= s.start) {
       return { error: `slots[${i}].end must be after start` };
     }
-    out.push({ type, start: s.start, end: s.end, label: String(s.label || '').trim() });
+
+    const slot = { type, start: s.start, end: s.end, label: String(s.label || '').trim() };
+
+    // Optional intended instructor, set when the slot was opened from the
+    // schedule grid. Only meaningful for class slots — a break belongs to the
+    // whole branch. Slots without one are simply unassigned.
+    const instructor = String(s.instructor || '').trim();
+    if (instructor) {
+      if (!BOOKABLE_TYPES.includes(type)) {
+        return { error: `slots[${i}].instructor is only valid for class slots, not "${type}"` };
+      }
+      slot.instructor = instructor;
+    }
+
+    out.push(slot);
   }
   out.sort((a, b) => a.start.localeCompare(b.start));
   return { slots: out };
