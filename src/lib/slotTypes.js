@@ -24,3 +24,18 @@ export const slotKeyForCategory = (category) =>
 
 /** Standard length in minutes of a class in this category. */
 export const durationForCategory = (category) => (category === 'Kinder' ? 90 : 120);
+
+/**
+ * Non-class sessions that can be planned into a day: they block the time
+ * rather than taking students.
+ */
+export const SESSION_TYPES = SLOT_TYPES.filter((t) => !t.bookable);
+
+/**
+ * Can this slot kind name a single instructor?
+ *
+ * Training and meetings are often for one person, so they only block that
+ * person's column. A break belongs to the whole branch and is owned by the
+ * day's Hours & Break settings, so it stays unassigned.
+ */
+export const isInstructorScoped = (type) => type === 'training' || type === 'meeting';

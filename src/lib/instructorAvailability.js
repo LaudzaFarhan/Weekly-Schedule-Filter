@@ -180,6 +180,8 @@ export function groupClasses(classes) {
         programs: [],
         students: [],
         ids: [],
+        // One entry per enrolled student, so a roster can be shown and edited.
+        members: [],
         startMin: win?.start ?? null,
         endMin: win?.end ?? null,
       });
@@ -188,8 +190,47 @@ export function groupClasses(classes) {
     group.ids.push(c.id);
     if (c.program) group.programs.push(c.program);
     if (c.student) group.students.push(c.student);
+    group.members.push({
+      id: c.id,
+      student: c.student || '',
+      program: c.program || '',
+      classType: c.classType || 'Regular',
+      sessionDates: Array.isArray(c.sessionDates) ? c.sessionDates : [],
+      remarks: c.remarks || '',
+    });
   }
   return [...map.values()];
+}
+
+/** Attendance kinds a student can hold in a class. */
+export const ATTENDANCE = {
+  REGULAR: 'Regular',
+  REPLACEMENT: 'Replacement',
+  TRIAL: 'Trial',
+};
+
+/**
+ * Does this member attend in the week starting `weekStart`?
+ *
+ * A Regular attends every week, so always yes. Anyone else attends only on
+ * their recorded dates.
+ */
+export function attendsInWeek(member, weekStart) {
+  if (!member) return false;
+  if (member.classType === ATTENDANCE.REGULAR) return true;
+  if (!weekStart) return (member.sessionDates || []).length === 0;
+  const dates = member.sessionDates || [];
+  if (dates.length === 0) return true; // no dates recorded — assume it applies
+  const end = dateForDay('Sunday', weekStart);
+  return dates.some((d) => d >= weekStart && d <= end);
+}
+
+/** Seats taken in a class for a given week: regulars plus that week's guests. */
+export function occupancyForWeek(group, weekStart) {
+  const members = group?.members || [];
+  const regular = members.filter((m) => m.classType === ATTENDANCE.REGULAR);
+  const guests = members.filter((m) => m.classType !== ATTENDANCE.REGULAR && attendsInWeek(m, weekStart));
+  return { regular: regular.length, guests: guests.length, total: regular.length + guests.length };
 }
 
 /** Classes a named instructor teaches on a day, anywhere. */

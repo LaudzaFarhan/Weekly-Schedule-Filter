@@ -210,6 +210,28 @@ const categorizeLevel = (str) => {
   return null;
 };
 
+/**
+ * The program code a student's recorded level points at, so allocating them
+ * starts from what they are actually enrolled in rather than a blank slate.
+ *
+ * Levels read like "Junior Foundation", "Kinder Core" or "Coder Basic 1".
+ */
+const defaultCodeForLevel = (level) => {
+  const s = String(level || '').trim();
+  if (!s) return '';
+  // Coder levels are stored verbatim as the program code.
+  if (/^coder/i.test(s)) {
+    const exact = PROGRAM_GROUPS.find((g) => g.label === 'Coder')
+      ?.codes.find((c) => c.toLowerCase() === s.toLowerCase());
+    return exact || '';
+  }
+  const lower = s.toLowerCase();
+  const foundation = lower.includes('foundation');
+  if (lower.includes('kinder')) return foundation ? 'KF1' : 'K1';
+  if (lower.includes('junior')) return foundation ? 'JF1' : 'J1';
+  return '';
+};
+
 /** Can a New Ops instructor (level string) teach a given category? */
 const instructorHandles = (instructor, category) => {
   const lvl = String(instructor?.level || '').toLowerCase();
@@ -281,9 +303,16 @@ export default function NewSchedulePage({ onNavigate }) {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(null);
   const [showUnallocated, setShowUnallocated] = useState(true);
+  // Search inside the Unallocated panel, separate from the main table search.
+  const [unallocSearch, setUnallocSearch] = useState('');
+  // A time chosen in the recommendation panel, awaiting the instructor pick.
+  const [timePick, setTimePick] = useState(null);
   const [startTime, setStartTime] = useState(''); // HH:MM for the class start
   const [programCode, setProgramCode] = useState('');
   const [lessonNo, setLessonNo] = useState('1');
+  // The program list is normally limited to the student's own category. This
+  // opens it up, for the rare case of a deliberate change.
+  const [programUnlocked, setProgramUnlocked] = useState(false);
   const [allocChooser, setAllocChooser] = useState(null); // student pending class-type choice
   const [dayReco, setDayReco] = useState(null); // { student, classType } — drives the Recommended Days panel
 
@@ -490,11 +519,83 @@ export default function NewSchedulePage({ onNavigate }) {
     });
   }, [students, classes]);
 
+  /**
+   * The enrolled level of whoever is named in the form, looked up in the
+   * Students list. Drives which programs the form offers: a Junior student
+   * should not be quietly assignable to a Kinder program.
+   *
+   * Returns null when the name matches nobody, or when several students with
+   * different categories are named — in both cases there is nothing to lock to.
+   */
+  const formStudentLevel = useMemo(() => {
+    const names = String(form.student || '')
+      .split(',')
+      .map((part) => normalizeStudentName(part))
+      .filter(Boolean);
+    if (names.length === 0) return null;
+
+    const matched = names
+      .map((key) => students.find((st) => normalizeStudentName(st.name) === key))
+      .filter(Boolean);
+    if (matched.length === 0) return null;
+
+    const categories = new Set(matched.map((st) => categorizeLevel(st.level)).filter(Boolean));
+    if (categories.size !== 1) return null;
+
+    return {
+      category: [...categories][0],
+      level: matched[0].level || '',
+      name: matched[0].name,
+      several: matched.length > 1,
+    };
+  }, [form.student, students]);
+
+  /**
+   * Program groups the dropdown offers. Locked to the student's category unless
+   * the user deliberately unlocks it. The currently selected code is always
+   * kept so an existing class never loses its own program.
+   */
+  const programGroups = useMemo(() => {
+    if (programUnlocked || !formStudentLevel) return PROGRAM_GROUPS;
+    const wanted = formStudentLevel.category;
+    const filtered = PROGRAM_GROUPS.filter((g) => categorizeLevel(g.codes[0]) === wanted);
+    if (filtered.length === 0) return PROGRAM_GROUPS;
+    // Keep the current selection visible even if it sits outside the category.
+    if (programCode && !filtered.some((g) => g.codes.includes(programCode))) {
+      const home = PROGRAM_GROUPS.find((g) => g.codes.includes(programCode));
+      if (home) return [...filtered, home];
+    }
+    return filtered;
+  }, [programUnlocked, formStudentLevel, programCode]);
+
+  /** True when the chosen program does not match the student's own category. */
+  const programMismatch = useMemo(() => {
+    if (!formStudentLevel || !programCode) return null;
+    const chosen = categorizeLevel(programCode);
+    if (!chosen || chosen === formStudentLevel.category) return null;
+    return { chosen, expected: formStudentLevel.category };
+  }, [formStudentLevel, programCode]);
+
+  /**
+   * The unallocated list after the panel's own search. Matches on name, level
+   * and branch, so "puri" or "kinder" narrow the list as usefully as a name.
+   */
+  const visibleUnallocated = useMemo(() => {
+    const q = unallocSearch.trim().toLowerCase();
+    if (!q) return unallocatedStudents;
+    return unallocatedStudents.filter((st) =>
+      [st.name, st.level, st.branchName]
+        .filter(Boolean)
+        .some((field) => String(field).toLowerCase().includes(q))
+    );
+  }, [unallocatedStudents, unallocSearch]);
+
   const openAddModal = () => {
     setEditingClass(null);
     setStartTime('');
     setProgramCode('');
     setLessonNo('1');
+    setProgramUnlocked(false);
     const addBranch = branchList[0] || '';
     setForm({
       day: branchOpenDays(addBranch)[0] || 'Monday',
@@ -512,18 +613,23 @@ export default function NewSchedulePage({ onNavigate }) {
 
   // Open the Add modal prefilled to allocate a specific unallocated student,
   // with the class type chosen in the pre-step.
-  const openAllocateModal = (student, classType, presetDay, presetStart) => {
+  const openAllocateModal = (student, classType, presetDay, presetStart, presetTeacher) => {
     setEditingClass(null);
     setStartTime(presetStart || '');
-    setProgramCode('');
+    // Start from the program the student is already enrolled in, rather than an
+    // empty field that could be set to anything.
+    const presetCode = defaultCodeForLevel(student.level);
+    setProgramCode(presetCode);
     setLessonNo('1');
+    setProgramUnlocked(false);
     const allocBranch = student.branchName || branchList[0] || '';
     const openDays = branchOpenDays(allocBranch);
     setForm({
       day: (presetDay && openDays.includes(presetDay)) ? presetDay : (openDays[0] || 'Monday'),
       time: presetStart ? buildTimeSlot(presetStart, '') : '',
-      program: '',
-      teacher: '',
+      program: presetCode ? (codeHasLessons(presetCode) ? `${presetCode}.1` : presetCode) : '',
+      // Prefilled when an available instructor was picked in the panel.
+      teacher: presetTeacher || '',
       student: student.name || '',
       branchName: allocBranch,
       classType: classType || 'Regular',
@@ -540,6 +646,7 @@ export default function NewSchedulePage({ onNavigate }) {
   const startDayReco = (student, classType) => {
     setDayReco({ student, classType, day: null });
     setAllocChooser(null);
+    setTimePick(null);
   };
 
   // Days recommended for the pending student: the branch's open days, annotated
@@ -623,61 +730,90 @@ export default function NewSchedulePage({ onNavigate }) {
       return { available: true, reason: `${free.length} instructor${free.length === 1 ? '' : 's'} free`, freeCount: free.length };
     };
 
-    // ── Preferred path: the branch's manual Class Operation plan for this day.
-    const plan = slotsFor(branch, day);
-    if (Array.isArray(plan) && plan.length) {
-      const slots = plan.map((s) => {
-        const meta = slotTypeMeta(s.type);
-        const sMin = parseHHMMToMin(s.start);
-        const eMin = parseHHMMToMin(s.end);
-        const label = `${formatClock(sMin)} - ${formatClock(eMin)}`;
-        const note = s.label ? ` — ${s.label}` : '';
-
-        // Non-class blocks (break / training / meeting) are never bookable.
-        if (!meta.bookable) {
-          return {
-            startMin: sMin, start: s.start, label, planned: true, typeKey: s.type, typeLabel: meta.label,
-            color: meta.color, available: false, reason: `${meta.label}${note}`, freeCount: 0,
-          };
-        }
-        // A typed class slot only accepts its own category.
-        if (meta.category && category && meta.category !== category) {
-          return {
-            startMin: sMin, start: s.start, label, planned: true, typeKey: s.type, typeLabel: meta.label,
-            color: meta.color, available: false, reason: `${meta.label} slot — student is ${category}`, freeCount: 0,
-          };
-        }
-        // Slot shorter than the program needs.
-        if (eMin - sMin < duration) {
-          return {
-            startMin: sMin, start: s.start, label, planned: true, typeKey: s.type, typeLabel: meta.label,
-            color: meta.color, available: false, reason: `Too short — ${category || 'this program'} needs ${duration}m`, freeCount: 0,
-          };
-        }
-        const v = verdict(label);
-        return {
-          startMin: sMin, start: s.start, label, planned: true, typeKey: s.type, typeLabel: meta.label,
-          color: meta.color, ...v, reason: v.available ? `${meta.label}${note} · ${v.reason}` : v.reason,
-        };
-      }).sort((a, b) => a.startMin - b.startMin);
-
-      return { slots, hours, category, duration, capableCount: capable.length, fromPlan: true };
-    }
-
-    // ── Fallback: hourly windows inside the operating hours.
+    // Every 30 minutes across the operating hours. The Class Operation plan is
+    // used to *describe* a window, never to restrict which windows exist: an
+    // instructor with nothing booked at a time is available at that time, plan
+    // or no plan. Previously only planned slots were offered, so a branch whose
+    // plan held just a break showed no times at all.
     const openMin = hours ? parseHHMMToMin(hours.start) : 9 * 60;
     const closeMin = hours ? parseHHMMToMin(hours.end) : 18 * 60;
-    const step = 60; // generate an option each hour
+    const step = 30;
+
+    const plan = Array.isArray(slotsFor(branch, day)) ? slotsFor(branch, day) : [];
+    // Branch-wide blocked time. A break has no instructor; training and
+    // meetings may name one, in which case they only block that person.
+    const branchBlocks = plan.filter((s) => !slotTypeMeta(s.type).bookable && !s.instructor);
 
     const slots = [];
     if (openMin != null && closeMin != null) {
       for (let start = openMin; start + duration <= closeMin; start += step) {
         const end = start + duration;
         const label = `${formatClock(start)} - ${formatClock(end)}`;
-        slots.push({ startMin: start, start: minToHHMM(start), label, planned: false, ...verdict(label) });
+
+        // What the plan says about this window, for context only.
+        const planned = plan.find((s) => {
+          const sMin = parseHHMMToMin(s.start);
+          const eMin = parseHHMMToMin(s.end);
+          return sMin != null && eMin != null && start < eMin && sMin < end;
+        });
+        const meta = planned ? slotTypeMeta(planned.type) : null;
+
+        const free = capable.filter((i) => availabilityFor(i, {
+          branchName: branch,
+          day,
+          startMin: start,
+          endMin: end,
+          category,
+          classGroups: groups,
+          leaves: [],
+          date: null,
+          // Personal training/meetings block only their own instructor.
+          blocks: [
+            ...branchBlocks,
+            ...plan.filter((s) => !slotTypeMeta(s.type).bookable && s.instructor === i.name),
+          ],
+          hours: null,
+          plannedSlots: plan.filter((s) => slotTypeMeta(s.type).bookable && s.instructor === i.name),
+          requireBranch: false,
+        }).free);
+
+        let reason;
+        if (capable.length === 0) {
+          reason = category ? `No ${category} instructor at this branch` : 'No instructor at this branch';
+        } else if (free.length === 0) {
+          const blocked = branchBlocks.find((s) => {
+            const sMin = parseHHMMToMin(s.start);
+            const eMin = parseHHMMToMin(s.end);
+            return sMin != null && eMin != null && start < eMin && sMin < end;
+          });
+          reason = blocked
+            ? `${blocked.label || slotTypeMeta(blocked.type).label} ${blocked.start}–${blocked.end}`
+            : 'Every capable instructor is busy';
+        } else {
+          reason = `${free.length} instructor${free.length === 1 ? '' : 's'} free`;
+        }
+
+        slots.push({
+          startMin: start,
+          start: minToHHMM(start),
+          label,
+          available: free.length > 0,
+          freeCount: free.length,
+          freeNames: free.map((i) => i.name),
+          reason,
+          // Only tag windows the plan actually earmarked for a class.
+          planned: !!planned && meta?.bookable,
+          typeKey: planned?.type || null,
+          typeLabel: meta?.bookable ? meta.label : null,
+          color: meta?.color || null,
+        });
       }
     }
-    return { slots, hours, category, duration, capableCount: capable.length, fromPlan: false };
+    return {
+      slots, hours, category, duration,
+      capableCount: capable.length,
+      hasPlan: plan.length > 0,
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dayReco, classes, instructors, hoursFor, slotsFor]);
 
@@ -687,6 +823,7 @@ export default function NewSchedulePage({ onNavigate }) {
     const parsed = parseProgramValue(c.program);
     setProgramCode(parsed.code);
     setLessonNo(parsed.lesson);
+    setProgramUnlocked(false);
     setForm({
       day: c.day || 'Monday',
       time: c.time || '',
@@ -952,8 +1089,57 @@ export default function NewSchedulePage({ onNavigate }) {
                   All students are allocated. 🎉
                 </p>
               ) : (
+                <>
+                  {/* Search within the panel. Only worth showing once the list
+                      is long enough that scanning it is the slower option. */}
+                  {unallocatedStudents.length > 3 && (
+                    <div style={{ marginBottom: '0.55rem' }}>
+                      <div style={{ position: 'relative' }}>
+                        <Search
+                          size={14}
+                          aria-hidden="true"
+                          style={{ position: 'absolute', left: '0.6rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', pointerEvents: 'none' }}
+                        />
+                        <input
+                          type="search"
+                          value={unallocSearch}
+                          onChange={(e) => setUnallocSearch(e.target.value)}
+                          placeholder="Search name, level or branch"
+                          aria-label="Search unallocated students"
+                          className="modal-input-field field-compact"
+                          style={{ width: '100%', paddingLeft: '1.9rem', paddingRight: unallocSearch ? '1.9rem' : undefined }}
+                        />
+                        {unallocSearch && (
+                          <button
+                            type="button"
+                            onClick={() => setUnallocSearch('')}
+                            aria-label="Clear search"
+                            title="Clear search"
+                            style={{
+                              position: 'absolute', right: '0.45rem', top: '50%', transform: 'translateY(-50%)',
+                              background: 'transparent', border: 'none', cursor: 'pointer',
+                              color: 'var(--text-muted)', padding: '0.15rem', lineHeight: 0,
+                            }}
+                          >
+                            <X size={13} />
+                          </button>
+                        )}
+                      </div>
+                      {unallocSearch && (
+                        <span style={{ display: 'block', fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.3rem' }}>
+                          {visibleUnallocated.length} of {unallocatedStudents.length} shown
+                        </span>
+                      )}
+                    </div>
+                  )}
+
+                  {visibleUnallocated.length === 0 ? (
+                    <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', margin: 0 }}>
+                      No unallocated student matches &ldquo;{unallocSearch}&rdquo;.
+                    </p>
+                  ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem', maxHeight: '232px', overflowY: 'auto' }}>
-                  {unallocatedStudents.map((st) => (
+                  {visibleUnallocated.map((st) => (
                     <button
                       key={st.id}
                       onClick={() => setAllocChooser(st)}
@@ -976,6 +1162,8 @@ export default function NewSchedulePage({ onNavigate }) {
                     </button>
                   ))}
                 </div>
+                  )}
+                </>
               )}
             </div>
           </div>
@@ -1138,60 +1326,136 @@ export default function NewSchedulePage({ onNavigate }) {
                     <>
                       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem', marginBottom: '0.6rem' }}>
                         <button
-                          onClick={() => setDayReco((prev) => ({ ...prev, day: null }))}
+                          onClick={() => { setTimePick(null); setDayReco((prev) => ({ ...prev, day: null })); }}
                           style={{ background: 'transparent', border: '1px solid var(--border-color)', borderRadius: '8px', padding: '0.25rem 0.6rem', cursor: 'pointer', color: 'var(--text-secondary)', fontSize: '0.75rem', display: 'inline-flex', alignItems: 'center', gap: '0.25rem' }}
                         >
                           ← Days
                         </button>
                         <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', textAlign: 'right' }}>
-                          {recoTimes.fromPlan
-                            ? 'Class Operation plan'
-                            : recoTimes.hours
-                              ? `Open ${recoTimes.hours.start}–${recoTimes.hours.end}`
-                              : 'Hours not set (9–6 assumed)'}
+                          {recoTimes.hours
+                            ? `Open ${recoTimes.hours.start}–${recoTimes.hours.end}`
+                            : 'Hours not set (9–6 assumed)'}
                           {recoTimes.category ? ` · ${recoTimes.category} ${recoTimes.duration}m` : ''}
                         </span>
                       </div>
 
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', maxHeight: '260px', overflowY: 'auto' }}>
-                        {recoTimes.slots.map((sl) => (
-                          <button
-                            key={sl.start}
-                            onClick={() => sl.available && openAllocateModal(dayReco.student, dayReco.classType, dayReco.day, sl.start)}
-                            disabled={!sl.available}
-                            title={sl.available ? `Allocate at ${sl.label}` : sl.reason}
-                            className="new-ops-anim"
-                            style={{
-                              display: 'flex', alignItems: 'center', gap: '0.6rem', width: '100%', textAlign: 'left',
-                              padding: '0.55rem 0.75rem', borderRadius: '10px',
-                              cursor: sl.available ? 'pointer' : 'not-allowed',
-                              opacity: sl.available ? 1 : 0.7,
-                              border: `1px solid ${sl.available ? 'rgba(16,185,129,0.5)' : 'var(--border-color)'}`,
-                              background: sl.available ? 'rgba(16,185,129,0.06)' : 'var(--bg-color)',
-                            }}
-                          >
-                            <Clock size={15} style={{ flexShrink: 0, color: sl.available ? 'var(--success, #10b981)' : 'var(--text-muted)' }} />
-                            <span style={{ flex: 1, minWidth: 0 }}>
-                              <span style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.82rem', fontWeight: 600, color: 'var(--text-main)' }}>
-                                {sl.label}
-                                {sl.planned && sl.typeLabel && (
-                                  <span style={{ fontSize: '0.6rem', fontWeight: 700, color: sl.color, background: `${sl.color}1f`, padding: '0.05rem 0.35rem', borderRadius: '5px', whiteSpace: 'nowrap' }}>
-                                    {sl.typeLabel}
-                                  </span>
-                                )}
+                      {/* No point listing a dozen windows that all fail for the
+                          same reason — say it once. */}
+                      {recoTimes.capableCount === 0 ? (
+                        <div style={{
+                          display: 'flex', gap: '0.5rem', padding: '0.7rem 0.85rem', borderRadius: '10px',
+                          background: 'var(--danger-bg, rgba(239,68,68,0.08))', border: '1px solid rgba(239,68,68,0.3)',
+                        }}>
+                          <AlertTriangle size={15} style={{ color: 'var(--danger)', flexShrink: 0, marginTop: '0.1rem' }} />
+                          <span style={{ fontSize: '0.78rem', color: 'var(--danger)' }}>
+                            No instructor at {dayReco.student.branchName || 'this branch'} can teach{' '}
+                            {recoTimes.category || 'this program'}. Assign a capable instructor to the branch
+                            under Instructors, or set the time manually.
+                          </span>
+                        </div>
+                      ) : (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', maxHeight: '300px', overflowY: 'auto' }}>
+                        {recoTimes.slots.map((sl) => {
+                          const picked = timePick === sl.start;
+                          return (
+                          <div key={sl.start}>
+                            <button
+                              onClick={() => sl.available && setTimePick(picked ? null : sl.start)}
+                              disabled={!sl.available}
+                              title={sl.available ? `${sl.freeCount} instructor(s) free at ${sl.label}` : sl.reason}
+                              className="new-ops-anim"
+                              aria-expanded={picked}
+                              style={{
+                                display: 'flex', alignItems: 'center', gap: '0.6rem', width: '100%', textAlign: 'left',
+                                padding: '0.55rem 0.75rem',
+                                borderRadius: picked ? '10px 10px 0 0' : '10px',
+                                cursor: sl.available ? 'pointer' : 'not-allowed',
+                                opacity: sl.available ? 1 : 0.7,
+                                border: `1px solid ${sl.available ? 'rgba(16,185,129,0.5)' : 'var(--border-color)'}`,
+                                background: sl.available ? 'rgba(16,185,129,0.06)' : 'var(--bg-color)',
+                              }}
+                            >
+                              <Clock size={15} style={{ flexShrink: 0, color: sl.available ? 'var(--success, #10b981)' : 'var(--text-muted)' }} />
+                              <span style={{ flex: 1, minWidth: 0 }}>
+                                <span style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.82rem', fontWeight: 600, color: 'var(--text-main)' }}>
+                                  {sl.label}
+                                  {sl.planned && sl.typeLabel && (
+                                    <span style={{ fontSize: '0.6rem', fontWeight: 700, color: sl.color, background: `${sl.color}1f`, padding: '0.05rem 0.35rem', borderRadius: '5px', whiteSpace: 'nowrap' }}>
+                                      {sl.typeLabel}
+                                    </span>
+                                  )}
+                                </span>
+                                <span style={{ display: 'block', fontSize: '0.68rem', color: sl.available ? 'var(--success, #10b981)' : 'var(--danger, #ef4444)' }}>
+                                  {sl.available ? `✓ ${sl.reason}` : `✕ ${sl.reason}`}
+                                </span>
                               </span>
-                              <span style={{ display: 'block', fontSize: '0.68rem', color: sl.available ? 'var(--success, #10b981)' : 'var(--danger, #ef4444)' }}>
-                                {sl.available ? `✓ ${sl.reason}` : `✕ ${sl.reason}`}
-                              </span>
-                            </span>
-                          </button>
-                        ))}
+                              {sl.available && (
+                                <span style={{ fontSize: '0.68rem', color: 'var(--text-muted)', flexShrink: 0 }}>
+                                  {picked ? 'pick below' : 'choose'}
+                                </span>
+                              )}
+                            </button>
+
+                            {/* Which of the free instructors should take it. */}
+                            {picked && (
+                              <div
+                                className="new-ops-anim"
+                                style={{
+                                  border: '1px solid rgba(16,185,129,0.5)', borderTop: 'none',
+                                  borderRadius: '0 0 10px 10px', padding: '0.5rem 0.6rem',
+                                  background: 'var(--panel-bg)',
+                                  display: 'flex', flexDirection: 'column', gap: '0.3rem',
+                                }}
+                              >
+                                <span style={{ fontSize: '0.68rem', fontWeight: 700, letterSpacing: '0.03em', color: 'var(--text-muted)' }}>
+                                  AVAILABLE INSTRUCTOR
+                                </span>
+                                {sl.freeNames.map((name) => {
+                                  const inst = (instructors || []).find((i) => i.name === name);
+                                  return (
+                                    <button
+                                      key={name}
+                                      onClick={() => openAllocateModal(dayReco.student, dayReco.classType, dayReco.day, sl.start, name)}
+                                      title={`Allocate ${dayReco.student.name} to ${name} at ${sl.label}`}
+                                      style={{
+                                        display: 'flex', alignItems: 'center', gap: '0.5rem', width: '100%', textAlign: 'left',
+                                        padding: '0.45rem 0.6rem', borderRadius: '8px', cursor: 'pointer',
+                                        border: '1px solid var(--border-color)', background: 'var(--bg-color)',
+                                      }}
+                                    >
+                                      <User size={14} style={{ flexShrink: 0, color: 'var(--text-muted)' }} />
+                                      <span style={{ flex: 1, minWidth: 0 }}>
+                                        <span style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-main)' }}>
+                                          {name}
+                                        </span>
+                                        <span style={{ display: 'block', fontSize: '0.66rem', color: 'var(--text-muted)' }}>
+                                          {inst?.level || 'Level not set'}
+                                        </span>
+                                      </span>
+                                      <span style={{ fontSize: '0.66rem', fontWeight: 700, color: 'var(--primary-blue, #4f46e5)', flexShrink: 0 }}>
+                                        Allocate →
+                                      </span>
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            )}
+                          </div>
+                          );
+                        })}
                         {recoTimes.slots.length === 0 && (
                           <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', margin: 0 }}>
-                            No time slots fit this day. Define a Class Operation plan or widen the operating hours under Operationals.
+                            No window long enough for a {recoTimes.duration}m class on this day.
+                            Widen the operating hours under Operationals.
+                          </p>
+                        )}
+                        {recoTimes.slots.length > 0 && recoTimes.slots.every((s) => !s.available) && (
+                          <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', margin: '0.2rem 0 0' }}>
+                            Every window is taken on {dayReco.day}. Try another day, or set the time manually.
                           </p>
                         )}
                       </div>
+                      )}
 
                       {/* Manual time entry — bypass recommendations */}
                       <button
@@ -1829,7 +2093,7 @@ export default function NewSchedulePage({ onNavigate }) {
                         style={{ flex: 2 }}
                       >
                         <option value="">Program</option>
-                        {PROGRAM_GROUPS.map((g) => (
+                        {programGroups.map((g) => (
                           <optgroup key={g.label} label={g.label}>
                             {g.codes.map((code) => <option key={code} value={code}>{code}</option>)}
                           </optgroup>
@@ -1854,6 +2118,53 @@ export default function NewSchedulePage({ onNavigate }) {
                         Program: {form.program}
                       </span>
                     )}
+
+                    {/* The student's own level decides which programs are on
+                        offer. Changing category has to be deliberate. */}
+                    {formStudentLevel && (
+                      <span style={{ display: 'flex', alignItems: 'baseline', gap: '0.35rem', flexWrap: 'wrap', fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.2rem' }}>
+                        {programUnlocked ? (
+                          <>
+                            <span>
+                              All programs shown. {formStudentLevel.name} is enrolled in{' '}
+                              <strong style={{ color: 'var(--text-secondary)' }}>{formStudentLevel.level || formStudentLevel.category}</strong>.
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => setProgramUnlocked(false)}
+                              style={{ background: 'transparent', border: 'none', padding: 0, cursor: 'pointer', color: 'var(--primary-blue, #4f46e5)', fontSize: '0.7rem', fontWeight: 600 }}
+                            >
+                              Limit to {formStudentLevel.category}
+                            </button>
+                          </>
+                        ) : (
+                          <>
+                            <span>
+                              Limited to <strong style={{ color: 'var(--text-secondary)' }}>{formStudentLevel.category}</strong>
+                              {formStudentLevel.several
+                                ? ' — every named student is in that category.'
+                                : ` — ${formStudentLevel.name} is ${formStudentLevel.level || formStudentLevel.category}.`}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => setProgramUnlocked(true)}
+                              style={{ background: 'transparent', border: 'none', padding: 0, cursor: 'pointer', color: 'var(--primary-blue, #4f46e5)', fontSize: '0.7rem', fontWeight: 600 }}
+                            >
+                              Change program anyway
+                            </button>
+                          </>
+                        )}
+                      </span>
+                    )}
+
+                    {programMismatch && (
+                      <span style={{ display: 'flex', alignItems: 'flex-start', gap: '0.3rem', fontSize: '0.72rem', color: '#b45309', marginTop: '0.3rem' }}>
+                        <AlertTriangle size={12} style={{ flexShrink: 0, marginTop: '0.15rem' }} />
+                        This is a {programMismatch.chosen} program but the student is {programMismatch.expected}.
+                        Update their level under Students if they have moved.
+                      </span>
+                    )}
+
                     {formErrors.program && <span style={{ fontSize: '0.72rem', color: 'var(--danger)', marginTop: '0.2rem', display: 'block' }}>{formErrors.program}</span>}
 
                     {/* Slot-combination verdict against the Schedule Rules */}

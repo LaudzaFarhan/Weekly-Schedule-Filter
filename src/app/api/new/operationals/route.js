@@ -20,8 +20,18 @@ const mapRow = (row) => ({
 /** Slot kinds accepted in a day's Class Operation plan. */
 const SLOT_TYPES = ['kinder', 'junior', 'coder', 'any', 'break', 'training', 'meeting'];
 
-/** Kinds that hold a class, and so can carry an intended instructor. */
+/** Kinds that hold a class. */
 const BOOKABLE_TYPES = ['kinder', 'junior', 'coder', 'any'];
+
+/**
+ * Kinds that may name an instructor.
+ *
+ * Classes obviously can. Training and meetings can too, because they are often
+ * for one person and should only block that person's column. A break is the
+ * exception: it belongs to the whole branch and is set from the day's Hours &
+ * Break settings, so it must stay unassigned.
+ */
+const INSTRUCTOR_TYPES = [...BOOKABLE_TYPES, 'training', 'meeting'];
 
 const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
 
@@ -55,8 +65,8 @@ function normaliseSlots(slots) {
     // whole branch. Slots without one are simply unassigned.
     const instructor = String(s.instructor || '').trim();
     if (instructor) {
-      if (!BOOKABLE_TYPES.includes(type)) {
-        return { error: `slots[${i}].instructor is only valid for class slots, not "${type}"` };
+      if (!INSTRUCTOR_TYPES.includes(type)) {
+        return { error: `slots[${i}].instructor is not valid for "${type}" — a break applies to the whole branch` };
       }
       slot.instructor = instructor;
     }

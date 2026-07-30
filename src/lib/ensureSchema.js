@@ -25,6 +25,32 @@ const TIMESTAMP_FN = `
 `;
 
 const DEFINITIONS = {
+  /**
+   * Dates a non-regular student actually attends their class.
+   *
+   * A Regular keeps the same weekly place, so needs no dates. A Replacement
+   * comes once, or a handful of times within a period, so each attendance is a
+   * row here keyed by the class row it belongs to.
+   *
+   * This is a companion table rather than a column on `internal_classes`
+   * because the application's database user does not own that table — an
+   * `ALTER TABLE` on it is refused with "must be owner of table". It can create
+   * new tables, which is how the other tables here came to exist.
+   */
+  internal_class_sessions: [
+    `CREATE TABLE IF NOT EXISTS internal_class_sessions (
+        id SERIAL PRIMARY KEY,
+        class_id INTEGER NOT NULL,
+        session_date DATE NOT NULL,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT internal_class_sessions_unique UNIQUE (class_id, session_date)
+    )`,
+    `CREATE INDEX IF NOT EXISTS internal_class_sessions_class_idx
+        ON internal_class_sessions (class_id)`,
+    `CREATE INDEX IF NOT EXISTS internal_class_sessions_date_idx
+        ON internal_class_sessions (session_date)`,
+  ],
+
   internal_leaves: [
     `CREATE TABLE IF NOT EXISTS internal_leaves (
         id SERIAL PRIMARY KEY,
