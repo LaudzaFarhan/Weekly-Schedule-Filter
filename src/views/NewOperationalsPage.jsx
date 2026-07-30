@@ -390,6 +390,68 @@ export default function NewOperationalsPage() {
     });
   };
 
+  /**
+   * Delete every slot currently listed in the table, honouring the active
+   * filters. Destructive, so it states the exact scope before doing anything.
+   */
+  const removeAllShown = async () => {
+    if (slotRows.length === 0) return;
+
+    // Which indices to drop, grouped per branch/day.
+    const byDay = new Map();
+    for (const r of slotRows) {
+      const key = `${r.branchId}||${r.day}`;
+      if (!byDay.has(key)) byDay.set(key, new Set());
+      byDay.get(key).add(r.idx);
+    }
+
+    const scope = [
+      slotBranchFilter === 'all' ? 'all branches' : (branches.find((b) => b.id === slotBranchFilter)?.name || 'this branch'),
+      slotDayFilter === 'all' ? 'all days' : slotDayFilter,
+      slotTypeFilter === 'all' ? 'all types' : slotTypeMeta(slotTypeFilter).label,
+    ].join(' · ');
+
+    if (!window.confirm(
+      `Delete ${slotRows.length} slot${slotRows.length === 1 ? '' : 's'}?\n\nScope: ${scope}\n\n` +
+      'Only the rows shown in the table are removed. Daily breaks are kept. This cannot be undone.'
+    )) return;
+
+    // Work out what each affected day keeps.
+    const remaining = {};
+    for (const [key, drop] of byDay) {
+      const [branchId, day] = key.split('||');
+      const kept = (draftOps[branchId]?.[day] || []).filter((_, i) => !drop.has(i));
+      remaining[key] = { branchId, day, kept };
+    }
+
+    setSaving(true);
+    try {
+      for (const { branchId, day, kept } of Object.values(remaining)) {
+        await persistDay(branchId, day, kept);
+      }
+      setDraftOps((prev) => {
+        const next = { ...prev };
+        for (const { branchId, day, kept } of Object.values(remaining)) {
+          const branchOps = { ...(next[branchId] || {}) };
+          if (kept.length) branchOps[day] = kept;
+          else delete branchOps[day];
+          next[branchId] = branchOps;
+        }
+        return next;
+      });
+      setPendingDays(new Set());
+      showToast({
+        title: `Removed ${slotRows.length} slot${slotRows.length === 1 ? '' : 's'}`,
+        message: `Scope: ${scope}.`,
+        variant: 'success',
+      });
+    } catch (err) {
+      showToast({ title: 'Could not remove the slots', message: err.message, variant: 'error' });
+    } finally {
+      setSaving(false);
+    }
+  };
+
   /** Persist the branch/days touched by inline editing. */
   const saveSlotEdits = async () => {
     setSaving(true);
@@ -1098,6 +1160,18 @@ export default function NewOperationalsPage() {
             >
               <Wand2 size={15} /> Quick Build Slots
             </button>
+            {slotRows.length > 0 && (
+              <button
+                type="button"
+                onClick={removeAllShown}
+                disabled={saving}
+                title="Delete every slot currently listed below"
+                className="btn"
+                style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', borderRadius: '10px', padding: '0.5rem 1.1rem', fontSize: '0.82rem', border: '1px solid rgba(239,68,68,0.5)', background: 'transparent', color: 'var(--danger)', cursor: 'pointer' }}
+              >
+                <Trash2 size={15} /> Remove all ({slotRows.length})
+              </button>
+            )}
           </div>
         </div>
 
