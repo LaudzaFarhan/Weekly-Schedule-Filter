@@ -144,6 +144,25 @@ export function dateForDay(day, weekStart) {
   return isoOf(date);
 }
 
+/**
+ * The next date a weekday falls on, counting today as valid.
+ *
+ * Booking a dated session must never land in the past. `dateForDay` anchored to
+ * the current week does exactly that whenever the weekday has already gone by:
+ * asked for Wednesday on a Friday it returns the Wednesday two days ago, which
+ * would expire the moment it was saved.
+ */
+export function nextDateForDay(day, from = new Date()) {
+  const idx = DAY_NAMES.indexOf(day);
+  if (idx < 0) return null;
+  const base = from instanceof Date ? from : new Date(from);
+  const start = new Date(base.getFullYear(), base.getMonth(), base.getDate());
+  const todayIdx = (start.getDay() + 6) % 7; // Monday = 0, matching DAY_NAMES
+  const ahead = (idx - todayIdx + 7) % 7;
+  start.setDate(start.getDate() + ahead);
+  return isoOf(start);
+}
+
 /** The leave record blocking this instructor on this date, if any. */
 export function leaveOn(leaves, instructorName, isoDate) {
   if (!isoDate) return null;
@@ -202,12 +221,51 @@ export function groupClasses(classes) {
   return [...map.values()];
 }
 
-/** Attendance kinds a student can hold in a class. */
+/**
+ * Attendance kinds a student can hold in a class.
+ *
+ * Regular is the fixed weekly place. The other three are pinned to specific
+ * dates and are spent once those dates pass:
+ * - Replacement — the student misses their own regular week and sits in this
+ *   class instead, just for the dates listed.
+ * - Additional — an extra session on top of whatever else they attend, so a
+ *   week can hold more than one.
+ * - Trial — a prospective student sampling the class.
+ */
 export const ATTENDANCE = {
   REGULAR: 'Regular',
   REPLACEMENT: 'Replacement',
+  ADDITIONAL: 'Additional',
   TRIAL: 'Trial',
 };
+
+/** Kinds that only ever attend on recorded dates. */
+export const DATED_ATTENDANCE = [
+  ATTENDANCE.REPLACEMENT,
+  ATTENDANCE.ADDITIONAL,
+  ATTENDANCE.TRIAL,
+];
+
+/** Does this kind attend only on recorded dates? */
+export function isDatedKind(classType) {
+  return DATED_ATTENDANCE.includes(String(classType || ''));
+}
+
+/**
+ * Has a dated place been used up?
+ *
+ * A replacement or extra session booked for last Tuesday is over: it should no
+ * longer take a seat or show on the schedule. A Regular never expires, and a
+ * dated member with no dates recorded is treated as still pending rather than
+ * expired, so an incomplete record is never silently dropped.
+ */
+export function isExpired(member, todayISO) {
+  if (!member || !isDatedKind(member.classType)) return false;
+  const dates = member.sessionDates || [];
+  if (dates.length === 0) return false;
+  const today = todayISO || isoOf(new Date());
+  return dates.every((d) => d < today);
+}
 
 /**
  * Does this member attend in the week starting `weekStart`?
@@ -231,6 +289,21 @@ export function occupancyForWeek(group, weekStart) {
   const regular = members.filter((m) => m.classType === ATTENDANCE.REGULAR);
   const guests = members.filter((m) => m.classType !== ATTENDANCE.REGULAR && attendsInWeek(m, weekStart));
   return { regular: regular.length, guests: guests.length, total: regular.length + guests.length };
+}
+
+/**
+ * Members that still hold a place: everyone except spent dated ones.
+ *
+ * Used wherever the question is "who is in this class now", as opposed to
+ * `occupancyForWeek`, which answers it for one particular week.
+ */
+export function activeMembers(group, todayISO) {
+  return (group?.members || []).filter((m) => !isExpired(m, todayISO));
+}
+
+/** Dated places whose dates have all passed, ready to be cleared out. */
+export function expiredMembers(group, todayISO) {
+  return (group?.members || []).filter((m) => isExpired(m, todayISO));
 }
 
 /** Classes a named instructor teaches on a day, anywhere. */

@@ -16,13 +16,16 @@ import ScheduleGridPanel from '../components/operations/ScheduleGridPanel';
 import { useNewOperationals } from '../hooks/useNewOperationals';
 import { useScheduleRules } from '../hooks/useScheduleRules';
 import { canCombine, maxStudentsFor, parseProgram } from '../lib/programRules';
-import { availabilityFor, groupClasses, classWindow, ATTENDANCE } from '../lib/instructorAvailability';
+import {
+  availabilityFor, groupClasses, classWindow, ATTENDANCE, isDatedKind, isExpired, isoOf,
+  nextDateForDay,
+} from '../lib/instructorAvailability';
 import { subscribeToActivity, logActivity, deleteActivity, displayUser } from '../services/newActivityService';
 import { useAuth } from '../contexts/AuthContext';
 import { doTimeSlotsOverlap } from '../utils/timeUtils';
 import { DAY_NAMES, SCHEDULE_PAGE_SIZE } from '../utils/constants';
 import Pagination from '../components/ui/Pagination';
-import { Plus, Pencil, Trash2, Search, X, Calendar, MapPin, User, Users, UserX, BookOpen, Clock, AlertTriangle, Upload, History, Trash, FileDown, CheckCircle2 } from 'lucide-react';
+import { Plus, Pencil, Trash2, Search, X, Calendar, CalendarPlus, MapPin, Repeat, User, Users, UserX, BookOpen, Clock, AlertTriangle, Upload, History, Trash, FileDown, CheckCircle2 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
 
@@ -243,6 +246,26 @@ const instructorHandles = (instructor, category) => {
   return true;
 };
 
+/** One colour per attendance kind, used wherever a kind is labelled. */
+const KIND_TINT = {
+  Regular: '#5f3dc4',
+  Replacement: '#7c3aed',
+  Additional: '#0891b2',
+  Trial: '#ea580c',
+};
+
+/**
+ * Which weekday a "YYYY-MM-DD" date falls on, so a session date can be checked
+ * against the day the class actually runs. Parsed field by field because
+ * `new Date("2026-08-03")` is read as UTC and can shift a day either side.
+ */
+const dayNameOfISO = (iso) => {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(iso || ''));
+  if (!m) return null;
+  const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  return ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][d.getDay()];
+};
+
 /** Parse "HH:MM" (24h) to minutes-from-midnight. */
 const parseHHMMToMin = (hhmm) => {
   const [h, m] = String(hhmm || '').split(':').map((n) => parseInt(n, 10));
@@ -304,6 +327,10 @@ export default function NewSchedulePage({ onNavigate }) {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(null);
   const [showUnallocated, setShowUnallocated] = useState(true);
+  // Which list the students panel shows: just the unallocated, or everyone
+  // across every branch so an extra or replacement session can be booked for a
+  // student who already has a class.
+  const [studentScope, setStudentScope] = useState('unallocated');
   // Search inside the Unallocated panel, separate from the main table search.
   const [unallocSearch, setUnallocSearch] = useState('');
   // A time chosen in the recommendation panel, awaiting the instructor pick.
@@ -313,6 +340,8 @@ export default function NewSchedulePage({ onNavigate }) {
   // slot cannot overwrite it. Cleared the moment the start time is edited by
   // hand, which means the user is no longer joining that class.
   const [joinTime, setJoinTime] = useState(null);
+  // Date being typed into the session-dates list, before it is added.
+  const [sessionDateDraft, setSessionDateDraft] = useState('');
   const [programCode, setProgramCode] = useState('');
   const [lessonNo, setLessonNo] = useState('1');
   // The program list is normally limited to the student's own category. This
@@ -470,6 +499,12 @@ export default function NewSchedulePage({ onNavigate }) {
     return [...new Set(names)].filter(Boolean).sort();
   }, [instructors, filterBranch, sortedTeachers]);
 
+  /**
+   * Today, as "YYYY-MM-DD", for deciding which dated places are spent. Declared
+   * above the filters because they read it during their first render.
+   */
+  const todayISO = useMemo(() => isoOf(new Date()), []);
+
   // Filters & Search
   const filtered = useMemo(() => {
     const s = search.toLowerCase();
@@ -480,7 +515,11 @@ export default function NewSchedulePage({ onNavigate }) {
       if (filterProgram !== 'all' && c.program !== filterProgram) return false;
       if (filterTime !== 'all' && c.time !== filterTime) return false;
       const type = c.classType || 'Regular';
-      if (filterClassType !== 'all' && type !== filterClassType) return false;
+      // "expired" is not a stored type — it selects dated places that are spent,
+      // which is the list worth reviewing before clearing any out.
+      if (filterClassType === 'expired') {
+        if (!isExpired(c, todayISO)) return false;
+      } else if (filterClassType !== 'all' && type !== filterClassType) return false;
       if (s) {
         const match =
           (c.teacher && c.teacher.toLowerCase().includes(s)) ||
@@ -492,7 +531,7 @@ export default function NewSchedulePage({ onNavigate }) {
       }
       return true;
     });
-  }, [classes, search, filterDay, filterBranch, filterInstructor, filterProgram, filterTime, filterClassType]);
+  }, [classes, search, filterDay, filterBranch, filterInstructor, filterProgram, filterTime, filterClassType, todayISO]);
 
   // Sort classes by day order and then time
   const dayOrder = {
@@ -511,23 +550,53 @@ export default function NewSchedulePage({ onNavigate }) {
   const totalPages = Math.ceil(sortedFiltered.length / SCHEDULE_PAGE_SIZE);
   const paged = sortedFiltered.slice((page - 1) * SCHEDULE_PAGE_SIZE, page * SCHEDULE_PAGE_SIZE);
 
-  // Students that exist in the Students list but aren't allocated to any class.
-  // A class's `student` field may hold several comma-separated names.
-  const unallocatedStudents = useMemo(() => {
-    const allocated = new Set();
+  /**
+   * Every class row each student holds, keyed by normalised name.
+   *
+   * A spent replacement or extra session is left out: it is over, so it neither
+   * holds a seat nor makes the student count as allocated. That is what "removed
+   * from the schedule once the date has passed" means in practice.
+   */
+  const placesByStudent = useMemo(() => {
+    const map = new Map();
     classes.forEach((c) => {
+      if (isExpired({ classType: c.classType, sessionDates: c.sessionDates }, todayISO)) return;
       String(c.student || '')
         .split(',')
         .forEach((part) => {
           const key = normalizeStudentName(part);
-          if (key) allocated.add(key);
+          if (!key) return;
+          if (!map.has(key)) map.set(key, []);
+          map.get(key).push(c);
         });
     });
-    return students.filter((st) => {
+    return map;
+  }, [classes, todayISO]);
+
+  // Students that exist in the Students list but aren't allocated to any class.
+  // A class's `student` field may hold several comma-separated names.
+  const unallocatedStudents = useMemo(
+    () => students.filter((st) => {
       const key = normalizeStudentName(st.name);
-      return key && !allocated.has(key);
-    });
-  }, [students, classes]);
+      return key && !placesByStudent.has(key);
+    }),
+    [students, placesByStudent]
+  );
+
+  /**
+   * Everyone, across every branch, annotated with what they already hold. This
+   * is the list used to book a replacement or an extra session, so it has to
+   * show the regular place those bookings relate to.
+   */
+  const allStudentsAnnotated = useMemo(
+    () => students.map((st) => {
+      const places = placesByStudent.get(normalizeStudentName(st.name)) || [];
+      const regulars = places.filter((c) => (c.classType || 'Regular') === ATTENDANCE.REGULAR);
+      const extras = places.filter((c) => (c.classType || 'Regular') !== ATTENDANCE.REGULAR);
+      return { ...st, places, regularCount: regulars.length, extraCount: extras.length, regulars, extras };
+    }),
+    [students, placesByStudent]
+  );
 
   /**
    * The enrolled level of whoever is named in the form, looked up in the
@@ -586,19 +655,22 @@ export default function NewSchedulePage({ onNavigate }) {
     return { chosen, expected: formStudentLevel.category };
   }, [formStudentLevel, programCode]);
 
+  /** The list the panel is currently scoped to, before searching. */
+  const scopedStudents = studentScope === 'all' ? allStudentsAnnotated : unallocatedStudents;
+
   /**
-   * The unallocated list after the panel's own search. Matches on name, level
-   * and branch, so "puri" or "kinder" narrow the list as usefully as a name.
+   * The panel's list after its own search. Matches on name, level and branch,
+   * so "puri" or "kinder" narrow the list as usefully as a name.
    */
   const visibleUnallocated = useMemo(() => {
     const q = unallocSearch.trim().toLowerCase();
-    if (!q) return unallocatedStudents;
-    return unallocatedStudents.filter((st) =>
+    if (!q) return scopedStudents;
+    return scopedStudents.filter((st) =>
       [st.name, st.level, st.branchName]
         .filter(Boolean)
         .some((field) => String(field).toLowerCase().includes(q))
     );
-  }, [unallocatedStudents, unallocSearch]);
+  }, [scopedStudents, unallocSearch]);
 
   const openAddModal = () => {
     setEditingClass(null);
@@ -607,6 +679,7 @@ export default function NewSchedulePage({ onNavigate }) {
     setLessonNo('1');
     setProgramUnlocked(false);
     setJoinTime(null);
+    setSessionDateDraft('');
     const addBranch = branchList[0] || '';
     setForm({
       day: branchOpenDays(addBranch)[0] || 'Monday',
@@ -616,6 +689,7 @@ export default function NewSchedulePage({ onNavigate }) {
       student: '',
       branchName: addBranch,
       classType: 'Regular',
+      sessionDates: [],
       remarks: ''
     });
     setFormErrors({});
@@ -645,10 +719,18 @@ export default function NewSchedulePage({ onNavigate }) {
     setLessonNo(presetLesson);
     setProgramUnlocked(false);
     setJoinTime(presetTime || null);
+    setSessionDateDraft('');
     const allocBranch = student.branchName || branchList[0] || '';
     const openDays = branchOpenDays(allocBranch);
+    const day = (presetDay && openDays.includes(presetDay)) ? presetDay : (openDays[0] || 'Monday');
+    // A replacement, extra session or trial only exists on its dates, so seed
+    // the next occurrence of the chosen day rather than leaving it blank and
+    // saving a dated place that silently applies to every week. It has to be the
+    // *next* one: this week's Wednesday is already gone by Friday, and seeding it
+    // would expire the booking on save.
+    const seedDate = nextDateForDay(day);
     setForm({
-      day: (presetDay && openDays.includes(presetDay)) ? presetDay : (openDays[0] || 'Monday'),
+      day,
       time: presetTime || (presetStart ? buildTimeSlot(presetStart, '') : ''),
       program: presetCode ? (codeHasLessons(presetCode) ? `${presetCode}.${presetLesson}` : presetCode) : '',
       // Prefilled when an available instructor was picked in the panel.
@@ -656,6 +738,7 @@ export default function NewSchedulePage({ onNavigate }) {
       student: student.name || '',
       branchName: allocBranch,
       classType: classType || 'Regular',
+      sessionDates: (isDatedKind(classType) && seedDate) ? [seedDate] : [],
       remarks: ''
     });
     setFormErrors({});
@@ -975,6 +1058,7 @@ export default function NewSchedulePage({ onNavigate }) {
     setLessonNo(parsed.lesson);
     setProgramUnlocked(false);
     setJoinTime(null);
+    setSessionDateDraft('');
     setForm({
       day: c.day || 'Monday',
       time: c.time || '',
@@ -983,6 +1067,7 @@ export default function NewSchedulePage({ onNavigate }) {
       student: c.student || '',
       branchName: c.branchName || '',
       classType: c.classType || 'Regular',
+      sessionDates: Array.isArray(c.sessionDates) ? c.sessionDates : [],
       remarks: c.remarks || ''
     });
     setFormErrors({});
@@ -1080,6 +1165,12 @@ export default function NewSchedulePage({ onNavigate }) {
     else if (teacherConflict) errors.teacher = teacherConflict.reason;
     if (!form.student.trim()) errors.student = 'Student name is required';
     if (!form.branchName) errors.branchName = 'Branch is required';
+
+    // A dated place with no dates would be indistinguishable from a weekly one
+    // and would never expire, so it is not a valid save.
+    if (isDatedKind(form.classType) && (form.sessionDates || []).length === 0) {
+      errors.sessionDates = `A ${String(form.classType).toLowerCase()} needs at least one date`;
+    }
 
     // Slot-combination rules. A 'warn' verdict is advisory and still saves.
     if (ruleCheck && !ruleCheck.ok) errors.program = ruleCheck.reason;
@@ -1204,38 +1295,67 @@ export default function NewSchedulePage({ onNavigate }) {
 
   return (
     <section className="dashboard-view active">
-      {/* Top row: [Unallocated + Schedule Activity stacked] beside [Recommended Days] */}
-      <div style={{ display: 'grid', gridTemplateColumns: showUnallocated ? '1fr 1fr' : '1fr', gap: '1.5rem', alignItems: 'start', marginBottom: '1.5rem' }}>
-
-        {/* Left column: Unallocated (top) + Schedule Activity (bottom) */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', minWidth: 0 }}>
+      {/* Top row: the student list beside the recommendations, matched in
+          height because the two are read together — you pick on the left and
+          the answer appears on the right. `stretch` is what keeps them equal;
+          the panels themselves are columns so their bodies take up the slack. */}
+      {/* Both children are toggled together, so the row collapses to nothing
+          when the panel is hidden — hence the conditional margin. */}
+      <div style={{
+        display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem',
+        alignItems: 'stretch', marginBottom: showUnallocated ? '1.5rem' : 0,
+      }}>
 
         {/* Unallocated Students sidebar */}
         {showUnallocated && (
-          <div className="panel" style={{ margin: 0 }}>
+          <div className="panel" style={{ margin: 0, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
             <div className="panel-header" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: '0.15rem' }}>
               <h2 style={{ fontSize: '1rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                <UserX size={16} /> Unallocated
+                {studentScope === 'all' ? <Users size={16} /> : <UserX size={16} />}
+                {/* The title is the scope switch, so the panel can serve both
+                    "who still needs a class" and "book an extra for anyone". */}
+                <select
+                  value={studentScope}
+                  onChange={(e) => { setStudentScope(e.target.value); setUnallocSearch(''); }}
+                  aria-label="Which students to list"
+                  title="Switch between unallocated students and everyone"
+                  style={{
+                    fontSize: '1rem', fontWeight: 600, color: 'var(--text-main)',
+                    background: 'transparent', border: '1px solid transparent',
+                    borderRadius: '7px', padding: '0.1rem 0.2rem', cursor: 'pointer',
+                  }}
+                  onFocus={(e) => { e.target.style.borderColor = 'var(--border-color)'; }}
+                  onBlur={(e) => { e.target.style.borderColor = 'transparent'; }}
+                >
+                  <option value="unallocated">Unallocated</option>
+                  <option value="all">All Students</option>
+                </select>
                 <span style={{
                   fontSize: '0.72rem', fontWeight: 700,
-                  color: unallocatedStudents.length > 0 ? 'var(--danger)' : 'var(--success, #10b981)',
-                  background: unallocatedStudents.length > 0 ? 'var(--danger-bg, rgba(239,68,68,0.12))' : 'rgba(16,185,129,0.12)',
+                  color: studentScope === 'all'
+                    ? 'var(--text-secondary)'
+                    : (unallocatedStudents.length > 0 ? 'var(--danger)' : 'var(--success, #10b981)'),
+                  background: studentScope === 'all'
+                    ? 'var(--bg-color)'
+                    : (unallocatedStudents.length > 0 ? 'var(--danger-bg, rgba(239,68,68,0.12))' : 'rgba(16,185,129,0.12)'),
                   padding: '0.05rem 0.45rem', borderRadius: '99px',
                 }}>
-                  {unallocatedStudents.length}
+                  {scopedStudents.length}
                 </span>
               </h2>
               <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
-                Students not yet assigned to a class. Click to allocate.
+                {studentScope === 'all'
+                  ? 'Everyone, across all branches. Click to book a replacement or an extra session.'
+                  : 'Students not yet assigned to a class. Click to allocate.'}
               </span>
             </div>
 
-            <div style={{ padding: '0.85rem 1rem' }}>
+            <div style={{ padding: '0.85rem 1rem', flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
               {students.length === 0 ? (
                 <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', margin: 0 }}>
                   No students in the list yet. Add them under Students.
                 </p>
-              ) : unallocatedStudents.length === 0 ? (
+              ) : scopedStudents.length === 0 ? (
                 <p style={{ fontSize: '0.78rem', color: 'var(--success, #10b981)', margin: 0, fontWeight: 500 }}>
                   All students are allocated. 🎉
                 </p>
@@ -1243,7 +1363,7 @@ export default function NewSchedulePage({ onNavigate }) {
                 <>
                   {/* Search within the panel. Only worth showing once the list
                       is long enough that scanning it is the slower option. */}
-                  {unallocatedStudents.length > 3 && (
+                  {scopedStudents.length > 3 && (
                     <div style={{ marginBottom: '0.55rem' }}>
                       <div style={{ position: 'relative' }}>
                         <Search
@@ -1256,7 +1376,7 @@ export default function NewSchedulePage({ onNavigate }) {
                           value={unallocSearch}
                           onChange={(e) => setUnallocSearch(e.target.value)}
                           placeholder="Search name, level or branch"
-                          aria-label="Search unallocated students"
+                          aria-label={studentScope === 'all' ? 'Search all students' : 'Search unallocated students'}
                           className="modal-input-field field-compact"
                           style={{ width: '100%', paddingLeft: '1.9rem', paddingRight: unallocSearch ? '1.9rem' : undefined }}
                         />
@@ -1278,7 +1398,7 @@ export default function NewSchedulePage({ onNavigate }) {
                       </div>
                       {unallocSearch && (
                         <span style={{ display: 'block', fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.3rem' }}>
-                          {visibleUnallocated.length} of {unallocatedStudents.length} shown
+                          {visibleUnallocated.length} of {scopedStudents.length} shown
                         </span>
                       )}
                     </div>
@@ -1286,15 +1406,25 @@ export default function NewSchedulePage({ onNavigate }) {
 
                   {visibleUnallocated.length === 0 ? (
                     <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', margin: 0 }}>
-                      No unallocated student matches &ldquo;{unallocSearch}&rdquo;.
+                      No {studentScope === 'all' ? 'student' : 'unallocated student'} matches &ldquo;{unallocSearch}&rdquo;.
                     </p>
                   ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem', maxHeight: '232px', overflowY: 'auto' }}>
-                  {visibleUnallocated.map((st) => (
+                // Grows into whatever height the row settles at, with a floor so
+                // a short list still gives the panel a sensible size.
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem', flex: 1, minHeight: '232px', maxHeight: '420px', overflowY: 'auto' }}>
+                  {visibleUnallocated.map((st) => {
+                    // In All Students mode the regular place is the thing a
+                    // replacement or extra session is measured against, so it
+                    // has to be on the row.
+                    const showPlaces = studentScope === 'all';
+                    const home = showPlaces ? (st.regulars || [])[0] : null;
+                    return (
                     <button
                       key={st.id}
                       onClick={() => setAllocChooser(st)}
-                      title={`Allocate ${st.name} to a class`}
+                      title={showPlaces
+                        ? `Book a replacement or extra session for ${st.name}`
+                        : `Allocate ${st.name} to a class`}
                       style={{
                         display: 'flex', alignItems: 'flex-start', gap: '0.5rem', width: '100%', textAlign: 'left',
                         padding: '0.5rem 0.6rem', borderRadius: '8px', cursor: 'pointer',
@@ -1302,16 +1432,30 @@ export default function NewSchedulePage({ onNavigate }) {
                       }}
                     >
                       <User size={14} style={{ flexShrink: 0, marginTop: '0.1rem', color: 'var(--text-muted)' }} />
-                      <span style={{ overflow: 'hidden' }}>
+                      <span style={{ overflow: 'hidden', flex: 1, minWidth: 0 }}>
                         <span style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, color: 'var(--text-main)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                           {st.name}
                         </span>
                         <span style={{ display: 'block', fontSize: '0.68rem', color: 'var(--text-muted)' }}>
                           {[st.level, st.branchName].filter(Boolean).join(' · ') || '—'}
                         </span>
+                        {showPlaces && (
+                          <span style={{ display: 'block', fontSize: '0.66rem', color: home ? 'var(--text-secondary)' : 'var(--danger)', marginTop: '0.1rem' }}>
+                            {home
+                              ? `${home.day} ${home.time} · ${home.teacher}`
+                              : 'No regular class yet'}
+                            {st.extraCount > 0 && ` · ${st.extraCount} dated session${st.extraCount === 1 ? '' : 's'}`}
+                          </span>
+                        )}
                       </span>
+                      {showPlaces && st.regularCount > 1 && (
+                        <span style={{ fontSize: '0.62rem', fontWeight: 700, color: 'var(--text-muted)', flexShrink: 0, marginTop: '0.15rem' }}>
+                          {st.regularCount}×
+                        </span>
+                      )}
                     </button>
-                  ))}
+                    );
+                  })}
                 </div>
                   )}
                 </>
@@ -1320,75 +1464,11 @@ export default function NewSchedulePage({ onNavigate }) {
           </div>
         )}
 
-        {/* Schedule Activity — stacked below Unallocated */}
-        <div className="panel" style={{ margin: 0 }}>
-          <div className="panel-header" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
-            <h2 style={{ fontSize: '1rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-              <History size={16} /> Schedule Activity
-              <span style={{ fontSize: '0.72rem', fontWeight: 500, color: 'var(--text-muted)' }}>({history.length})</span>
-            </h2>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-              {onNavigate && (
-                <button
-                  onClick={() => onNavigate('activity')}
-                  className="btn"
-                  style={{ fontSize: '0.75rem', border: '1px solid var(--border-color)', borderRadius: '8px', padding: '0.3rem 0.7rem', color: 'var(--primary-blue, #4f46e5)', background: 'transparent' }}
-                >
-                  View all
-                </button>
-              )}
-              {history.length > 0 && (
-                <button
-                  onClick={clearHistory}
-                  className="btn"
-                  style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.75rem', border: '1px solid var(--border-color)', borderRadius: '8px', padding: '0.3rem 0.7rem', color: 'var(--text-secondary)', background: 'transparent' }}
-                >
-                  <Trash size={13} /> Clear
-                </button>
-              )}
-            </div>
-          </div>
-          <div style={{ padding: '0.5rem 1rem 1rem' }}>
-            {history.length === 0 ? (
-              <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', margin: '0.5rem 0' }}>
-                No activity yet. Adding, editing, importing, or deleting classes will be logged here.
-              </p>
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', maxHeight: '168px', overflowY: 'auto' }}>
-                {history.map((h, i) => {
-                  const meta = {
-                    add: { color: '#059669', bg: 'rgba(5,150,105,0.12)', label: 'ADD' },
-                    bulk: { color: '#4f46e5', bg: 'rgba(79,70,229,0.12)', label: 'BULK' },
-                    edit: { color: '#d97706', bg: 'rgba(217,119,6,0.12)', label: 'EDIT' },
-                    delete: { color: '#dc2626', bg: 'rgba(220,38,38,0.12)', label: 'DELETE' },
-                  }[h.action] || { color: 'var(--text-muted)', bg: 'var(--bg-color)', label: (h.action || '').toUpperCase() };
-                  const when = new Date(h.createdAt || h.at);
-                  return (
-                    <div key={h.id ?? i} style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', padding: '0.45rem 0.6rem', borderRadius: '8px', background: 'var(--bg-color)', border: '1px solid var(--border-color)' }}>
-                      <span style={{ fontSize: '0.62rem', fontWeight: 700, color: meta.color, background: meta.bg, padding: '0.1rem 0.4rem', borderRadius: '5px', flexShrink: 0, minWidth: '48px', textAlign: 'center' }}>{meta.label}</span>
-                      <span style={{ flex: 1, minWidth: 0 }}>
-                        <span style={{ display: 'block', fontSize: '0.82rem', color: 'var(--text-main)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{h.summary}</span>
-                        <span style={{ display: 'block', fontSize: '0.66rem', color: 'var(--text-muted)' }}>
-                          by {displayUser(h.userEmail)}
-                        </span>
-                      </span>
-                      <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', flexShrink: 0 }}>
-                        {isNaN(when.getTime()) ? '' : when.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
-                      </span>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-        </div>
-        {/* end left column */}
-        </div>
 
         {/* Recommended Days — beside Unallocated. Appears after a student's
             class type is chosen; clicking a day opens the allocate popup. */}
         {showUnallocated && (
-          <div className="panel new-ops-anim" style={{ margin: 0, position: 'sticky', top: '1rem' }}>
+          <div className="panel new-ops-anim" style={{ margin: 0, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
             <div className="panel-header" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: '0.15rem' }}>
               <h2 style={{ fontSize: '1rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
                 <Calendar size={16} /> Recommended Days
@@ -1402,16 +1482,21 @@ export default function NewSchedulePage({ onNavigate }) {
               </span>
             </div>
 
-            <div style={{ padding: '0.85rem 1rem' }}>
+            <div style={{ padding: '0.85rem 1rem', flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
               {!dayReco ? (
+                /* The empty state grows to fill the panel, so the two columns
+                   stay the same height before a student is picked. */
                 <div style={{
+                  flex: 1,
                   display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
                   gap: '0.5rem', padding: '1.5rem 1rem', textAlign: 'center', color: 'var(--text-muted)',
                   border: '1px dashed var(--border-color)', borderRadius: '10px',
                 }}>
                   <Calendar size={22} style={{ opacity: 0.5 }} />
                   <span style={{ fontSize: '0.8rem' }}>
-                    No student selected. Click an unallocated student to see recommended days for their branch.
+                    {studentScope === 'all'
+                      ? 'No student selected. Click a student to book a replacement or an extra session.'
+                      : 'No student selected. Click an unallocated student to see recommended days for their branch.'}
                   </span>
                 </div>
               ) : (
@@ -1720,6 +1805,77 @@ export default function NewSchedulePage({ onNavigate }) {
         )}
       </div>
 
+
+      {/* Schedule Activity — its own full-width row. The entries are short,
+          so they tile horizontally rather than forming a narrow column that
+          wastes the width. */}
+      <div className="panel" style={{ margin: '0 0 1.5rem' }}>
+          <div className="panel-header" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
+            <h2 style={{ fontSize: '1rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+              <History size={16} /> Schedule Activity
+              <span style={{ fontSize: '0.72rem', fontWeight: 500, color: 'var(--text-muted)' }}>({history.length})</span>
+            </h2>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+              {onNavigate && (
+                <button
+                  onClick={() => onNavigate('activity')}
+                  className="btn"
+                  style={{ fontSize: '0.75rem', border: '1px solid var(--border-color)', borderRadius: '8px', padding: '0.3rem 0.7rem', color: 'var(--primary-blue, #4f46e5)', background: 'transparent' }}
+                >
+                  View all
+                </button>
+              )}
+              {history.length > 0 && (
+                <button
+                  onClick={clearHistory}
+                  className="btn"
+                  style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.75rem', border: '1px solid var(--border-color)', borderRadius: '8px', padding: '0.3rem 0.7rem', color: 'var(--text-secondary)', background: 'transparent' }}
+                >
+                  <Trash size={13} /> Clear
+                </button>
+              )}
+            </div>
+          </div>
+          <div style={{ padding: '0.5rem 1rem 1rem' }}>
+            {history.length === 0 ? (
+              <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', margin: '0.5rem 0' }}>
+                No activity yet. Adding, editing, importing, or deleting classes will be logged here.
+              </p>
+            ) : (
+              // Entries tile across the width instead of stacking, so the full
+              // row is used and recent activity is visible without scrolling.
+              <div style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))',
+                gap: '0.4rem', maxHeight: '184px', overflowY: 'auto',
+              }}>
+                {history.map((h, i) => {
+                  const meta = {
+                    add: { color: '#059669', bg: 'rgba(5,150,105,0.12)', label: 'ADD' },
+                    bulk: { color: '#4f46e5', bg: 'rgba(79,70,229,0.12)', label: 'BULK' },
+                    edit: { color: '#d97706', bg: 'rgba(217,119,6,0.12)', label: 'EDIT' },
+                    delete: { color: '#dc2626', bg: 'rgba(220,38,38,0.12)', label: 'DELETE' },
+                  }[h.action] || { color: 'var(--text-muted)', bg: 'var(--bg-color)', label: (h.action || '').toUpperCase() };
+                  const when = new Date(h.createdAt || h.at);
+                  return (
+                    <div key={h.id ?? i} style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', padding: '0.45rem 0.6rem', borderRadius: '8px', background: 'var(--bg-color)', border: '1px solid var(--border-color)' }}>
+                      <span style={{ fontSize: '0.62rem', fontWeight: 700, color: meta.color, background: meta.bg, padding: '0.1rem 0.4rem', borderRadius: '5px', flexShrink: 0, minWidth: '48px', textAlign: 'center' }}>{meta.label}</span>
+                      <span style={{ flex: 1, minWidth: 0 }}>
+                        <span style={{ display: 'block', fontSize: '0.82rem', color: 'var(--text-main)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{h.summary}</span>
+                        <span style={{ display: 'block', fontSize: '0.66rem', color: 'var(--text-muted)' }}>
+                          by {displayUser(h.userEmail)}
+                        </span>
+                      </span>
+                      <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', flexShrink: 0 }}>
+                        {isNaN(when.getTime()) ? '' : when.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
       {/* Availability-first planning grid, above the full class table. */}
       <ScheduleGridPanel />
 
@@ -1853,8 +2009,11 @@ export default function NewSchedulePage({ onNavigate }) {
               style={{ width: '100%' }}
             >
               <option value="all">All Types</option>
-              <option value="Regular">Regular Class</option>
-              <option value="Trial">Trial Class</option>
+              <option value={ATTENDANCE.REGULAR}>Regular Class</option>
+              <option value={ATTENDANCE.REPLACEMENT}>Replacement</option>
+              <option value={ATTENDANCE.ADDITIONAL}>Additional Session</option>
+              <option value={ATTENDANCE.TRIAL}>Trial Class</option>
+              <option value="expired">Past dated sessions</option>
             </select>
           </div>
         </div>
@@ -1971,19 +2130,41 @@ export default function NewSchedulePage({ onNavigate }) {
                         </span>
                       </td>
                       <td>
-                        <span style={{ 
-                          background: (c.classType || 'Regular') === 'Trial' ? 'rgba(249, 115, 22, 0.08)' : 'rgba(95, 61, 196, 0.08)',
-                          border: (c.classType || 'Regular') === 'Trial' ? '1px solid rgba(249, 115, 22, 0.2)' : '1px solid rgba(95, 61, 196, 0.2)',
-                          color: (c.classType || 'Regular') === 'Trial' ? '#ea580c' : '#5f3dc4',
-                          padding: '0.15rem 0.5rem',
-                          borderRadius: '6px',
-                          fontSize: '0.72rem',
-                          fontWeight: 600,
-                          display: 'inline-flex',
-                          alignItems: 'center'
-                        }}>
-                          {(c.classType || 'Regular')}
-                        </span>
+                        {(() => {
+                          const kind = c.classType || 'Regular';
+                          const tint = KIND_TINT[kind] || KIND_TINT.Regular;
+                          const dated = isDatedKind(kind);
+                          const spent = isExpired(c, todayISO);
+                          return (
+                            <>
+                              <span style={{
+                                background: `${tint}14`,
+                                border: `1px solid ${tint}33`,
+                                color: tint,
+                                padding: '0.15rem 0.5rem',
+                                borderRadius: '6px',
+                                fontSize: '0.72rem',
+                                fontWeight: 600,
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                opacity: spent ? 0.55 : 1,
+                              }}>
+                                {kind}
+                              </span>
+                              {/* A dated place is only real on its dates, so the
+                                  dates belong next to the label. */}
+                              {dated && (
+                                <span style={{ display: 'block', fontSize: '0.66rem', color: spent ? 'var(--text-muted)' : 'var(--text-secondary)', marginTop: '0.2rem' }}>
+                                  {spent
+                                    ? 'Past — off the schedule'
+                                    : (c.sessionDates || []).length
+                                      ? (c.sessionDates || []).join(', ')
+                                      : 'No date set'}
+                                </span>
+                              )}
+                            </>
+                          );
+                        })()}
                       </td>
                       <td style={{ fontWeight: 600, color: 'var(--text-main)' }}>
                         <span style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
@@ -2181,8 +2362,14 @@ export default function NewSchedulePage({ onNavigate }) {
           >
             <div style={{ padding: '1.25rem 1.5rem', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--bg-color)' }}>
               <div>
-                <h2 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 700 }}>Allocate {allocChooser.name}</h2>
-                <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>Choose the class type to continue</span>
+                <h2 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 700 }}>
+                  {studentScope === 'all' ? `Book for ${allocChooser.name}` : `Allocate ${allocChooser.name}`}
+                </h2>
+                <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
+                  {allocChooser.regularCount > 0 && allocChooser.regulars?.[0]
+                    ? `Regular: ${allocChooser.regulars[0].day} ${allocChooser.regulars[0].time} · ${allocChooser.regulars[0].teacher}`
+                    : 'Choose the class type to continue'}
+                </span>
               </div>
               <button
                 onClick={() => setAllocChooser(null)}
@@ -2194,8 +2381,26 @@ export default function NewSchedulePage({ onNavigate }) {
 
             <div style={{ padding: '1.5rem', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
               {[
-                { type: 'Regular', title: 'Regular Class', desc: 'Ongoing enrolled class', color: 'var(--primary-blue, #4f46e5)', bg: 'var(--primary-blue-light, rgba(79,70,229,0.1))' },
-                { type: 'Trial', title: 'Trial Class', desc: 'One-off trial session', color: '#ea580c', bg: 'rgba(249,115,22,0.1)' },
+                {
+                  type: ATTENDANCE.REGULAR, title: 'Regular Class', Icon: BookOpen,
+                  desc: 'Fixed weekly place, every week at the same time',
+                  color: 'var(--primary-blue, #4f46e5)', bg: 'var(--primary-blue-light, rgba(79,70,229,0.1))',
+                },
+                {
+                  type: ATTENDANCE.REPLACEMENT, title: 'Replacement', Icon: Repeat,
+                  desc: 'Skipping their regular week and sitting in this class instead. Ends once the date passes.',
+                  color: '#7c3aed', bg: 'rgba(124,58,237,0.1)',
+                },
+                {
+                  type: ATTENDANCE.ADDITIONAL, title: 'Additional Session', Icon: CalendarPlus,
+                  desc: 'An extra session on top of their regular one, so a week can hold more than one.',
+                  color: '#0891b2', bg: 'rgba(8,145,178,0.1)',
+                },
+                {
+                  type: ATTENDANCE.TRIAL, title: 'Trial Class', Icon: BookOpen,
+                  desc: 'One-off trial session on a chosen date',
+                  color: '#ea580c', bg: 'rgba(249,115,22,0.1)',
+                },
               ].map((opt, i) => (
                 <button
                   key={opt.type}
@@ -2208,7 +2413,7 @@ export default function NewSchedulePage({ onNavigate }) {
                     animationDelay: `${i * 0.06}s`,
                   }}
                 >
-                  <BookOpen size={20} />
+                  <opt.Icon size={20} />
                   <span style={{ fontSize: '0.95rem', fontWeight: 700 }}>{opt.title}</span>
                   <span style={{ fontSize: '0.72rem', color: 'var(--text-secondary)' }}>{opt.desc}</span>
                 </button>
@@ -2498,13 +2703,119 @@ export default function NewSchedulePage({ onNavigate }) {
                   <label className="modal-form-label">Class Type *</label>
                   <select
                     value={form.classType || 'Regular'}
-                    onChange={(e) => setForm({ ...form, classType: e.target.value })}
+                    onChange={(e) => {
+                      const next = e.target.value;
+                      // Switching to a dated kind seeds the coming occurrence of
+                      // the chosen day; switching back to Regular clears dates,
+                      // which is what the API stores for a weekly place anyway.
+                      const seed = nextDateForDay(form.day);
+                      setForm({
+                        ...form,
+                        classType: next,
+                        sessionDates: isDatedKind(next)
+                          ? ((form.sessionDates || []).length ? form.sessionDates : [seed].filter(Boolean))
+                          : [],
+                      });
+                    }}
                     className="modal-select-field"
                   >
-                    <option value="Regular">Regular Class</option>
-                    <option value="Trial">Trial Class</option>
+                    <option value={ATTENDANCE.REGULAR}>Regular Class — fixed weekly place</option>
+                    <option value={ATTENDANCE.REPLACEMENT}>Replacement — moved from their regular week</option>
+                    <option value={ATTENDANCE.ADDITIONAL}>Additional Session — extra on top of regular</option>
+                    <option value={ATTENDANCE.TRIAL}>Trial Class — one-off sample</option>
                   </select>
                 </div>
+
+                {/* Dates for a non-weekly place. Listed rather than a single
+                    field because a replacement can run over several weeks. */}
+                {isDatedKind(form.classType) && (
+                  <div>
+                    <label className="modal-form-label" htmlFor="session-date-input">
+                      Session Date{(form.sessionDates || []).length === 1 ? '' : 's'} *
+                    </label>
+                    <div style={{ display: 'flex', gap: '0.5rem' }}>
+                      <input
+                        id="session-date-input"
+                        type="date"
+                        value={sessionDateDraft}
+                        onChange={(e) => setSessionDateDraft(e.target.value)}
+                        className={`modal-input-field ${formErrors.sessionDates ? 'error' : ''}`}
+                        style={{ flex: 1 }}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const d = sessionDateDraft;
+                          if (!d || (form.sessionDates || []).includes(d)) return;
+                          setForm({ ...form, sessionDates: [...(form.sessionDates || []), d].sort() });
+                          setSessionDateDraft('');
+                        }}
+                        disabled={!sessionDateDraft}
+                        className="btn"
+                        style={{
+                          border: '1px solid var(--border-color)', borderRadius: '8px',
+                          padding: '0 0.8rem', cursor: sessionDateDraft ? 'pointer' : 'not-allowed',
+                          background: 'transparent', color: 'var(--text-secondary)', fontSize: '0.8rem',
+                          opacity: sessionDateDraft ? 1 : 0.5,
+                        }}
+                      >
+                        Add date
+                      </button>
+                    </div>
+
+                    {(form.sessionDates || []).length > 0 && (
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem', marginTop: '0.5rem' }}>
+                        {form.sessionDates.map((d) => {
+                          const past = d < todayISO;
+                          const wrongDay = dayNameOfISO(d) !== form.day;
+                          return (
+                            <span
+                              key={d}
+                              title={[
+                                past ? 'Already passed — this session drops off the schedule' : null,
+                                wrongDay ? `${d} is a ${dayNameOfISO(d)}, but this class runs on ${form.day}` : null,
+                              ].filter(Boolean).join('. ') || d}
+                              style={{
+                                display: 'inline-flex', alignItems: 'center', gap: '0.3rem',
+                                fontSize: '0.72rem', fontWeight: 600, padding: '0.2rem 0.45rem',
+                                borderRadius: '99px',
+                                color: wrongDay ? 'var(--danger)' : past ? 'var(--text-muted)' : 'var(--text-secondary)',
+                                background: wrongDay ? 'var(--danger-bg, rgba(239,68,68,0.1))' : 'var(--bg-color)',
+                                border: `1px solid ${wrongDay ? 'rgba(239,68,68,0.4)' : 'var(--border-color)'}`,
+                                textDecoration: past ? 'line-through' : 'none',
+                              }}
+                            >
+                              {d}
+                              {wrongDay && <AlertTriangle size={11} />}
+                              <button
+                                type="button"
+                                onClick={() => setForm({ ...form, sessionDates: form.sessionDates.filter((x) => x !== d) })}
+                                aria-label={`Remove ${d}`}
+                                title={`Remove ${d}`}
+                                style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'inherit', padding: 0, lineHeight: 0 }}
+                              >
+                                <X size={11} />
+                              </button>
+                            </span>
+                          );
+                        })}
+                      </div>
+                    )}
+
+                    <span style={{ display: 'block', fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.35rem' }}>
+                      {form.classType === ATTENDANCE.REPLACEMENT
+                        ? 'The student sits in this class on these dates instead of their own regular week. It leaves the schedule once the last date passes.'
+                        : form.classType === ATTENDANCE.ADDITIONAL
+                          ? 'An extra session on top of their regular class, so a week can hold more than one. Add several dates for a run.'
+                          : 'The trial runs only on these dates.'}
+                    </span>
+                    {formErrors.sessionDates && (
+                      <span style={{ fontSize: '0.72rem', color: 'var(--danger)', marginTop: '0.2rem', display: 'block' }}>
+                        {formErrors.sessionDates}
+                      </span>
+                    )}
+                  </div>
+                )}
 
                 {/* Remarks */}
                 <div>

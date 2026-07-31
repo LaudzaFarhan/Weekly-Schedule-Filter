@@ -2,13 +2,13 @@
 
 import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import {
-  Users, Filter, Trash2, X, CalendarDays, AlertTriangle, Clock,
+  Users, Filter, Trash2, X, CalendarDays, CalendarPlus, AlertTriangle, Clock,
   GripVertical, ChevronUp, ChevronDown, Plus, Pencil, Building2, UserPlus, Repeat,
 } from 'lucide-react';
 import {
-  AVAIL, ATTENDANCE, availabilityFor, toMinutes, fromMinutes, clockLabel, slotLabelFor,
-  overlaps, instructorsAtBranch, categoriesFor, levelCovers, weekStartISO, dateForDay, leaveOn,
-  occupancyForWeek, attendsInWeek,
+  AVAIL, ATTENDANCE, isExpired, isoOf, availabilityFor, toMinutes, fromMinutes, clockLabel, slotLabelFor,
+  overlaps, instructorsAtBranch, categoriesFor, levelCovers, weekStartISO, dateForDay,
+  nextDateForDay, leaveOn, occupancyForWeek, attendsInWeek,
 } from '../../lib/instructorAvailability';
 import {
   SLOT_TYPES, SESSION_TYPES, slotTypeMeta, slotKeyForCategory,
@@ -644,6 +644,8 @@ export default function ScheduleGrid({
   const [newKind, setNewKind] = useState(ATTENDANCE.REGULAR);
   const [newDates, setNewDates] = useState([]);
   const [dateDraft, setDateDraft] = useState('');
+  /** Today, for telling a spent dated place from a current one. */
+  const todayISO = useMemo(() => isoOf(new Date()), []);
 
   const openRoster = (group) => {
     setRosterKey(group.key);
@@ -651,8 +653,12 @@ export default function ScheduleGrid({
     setNewProgram(group.programs[0] || '');
     setNewKind(ATTENDANCE.REGULAR);
     setNewDates([]);
-    // A replacement usually lands in the week being planned.
-    setDateDraft(dateForDay(group.day, week) || '');
+    // The occurrence being planned, but never one already gone: this week's
+    // Wednesday is in the past by Friday, and a date-specific place seeded there
+    // would be expired the moment it was saved.
+    const planned = dateForDay(group.day, week);
+    const today = isoOf(new Date());
+    setDateDraft(((planned && planned >= today) ? planned : nextDateForDay(group.day)) || '');
   };
 
   const rosterSeats = roster ? maxStudentsFor(roster.programs[0] || '', rules) : 0;
@@ -1260,9 +1266,13 @@ export default function ScheduleGrid({
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.45rem' }}>
                 {roster.members.map((m) => {
                   const replacement = m.classType === ATTENDANCE.REPLACEMENT;
+                  const additional = m.classType === ATTENDANCE.ADDITIONAL;
                   const trial = m.classType === ATTENDANCE.TRIAL;
-                  const tint = replacement ? '#7c3aed' : trial ? '#0891b2' : '#059669';
+                  const tint = replacement ? '#7c3aed' : additional ? '#0891b2' : trial ? '#ea580c' : '#059669';
                   const thisWeek = attendsInWeek(m, week);
+                  // A dated place whose dates have all passed is over: it is
+                  // shown struck through rather than as a current member.
+                  const spent = isExpired(m, todayISO);
                   return (
                     <div
                       key={m.id}
@@ -1271,12 +1281,15 @@ export default function ScheduleGrid({
                         padding: '0.6rem 0.7rem', borderRadius: '10px',
                         border: '1px solid var(--border-color)',
                         background: thisWeek ? 'transparent' : 'var(--bg-color)',
-                        opacity: thisWeek ? 1 : 0.65,
+                        opacity: spent ? 0.5 : thisWeek ? 1 : 0.65,
                       }}
                     >
                       <span style={{ flex: 1, minWidth: 0 }}>
                         <span style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
-                          <span style={{ fontSize: '0.86rem', fontWeight: 600, color: 'var(--text-main)' }}>
+                          <span style={{
+                            fontSize: '0.86rem', fontWeight: 600, color: 'var(--text-main)',
+                            textDecoration: spent ? 'line-through' : 'none',
+                          }}>
                             {m.student || 'Unnamed'}
                           </span>
                           <span style={{
@@ -1286,6 +1299,7 @@ export default function ScheduleGrid({
                             display: 'inline-flex', alignItems: 'center', gap: '0.2rem',
                           }}>
                             {replacement && <Repeat size={9} />}
+                            {additional && <CalendarPlus size={9} />}
                             {m.classType.toUpperCase()}
                           </span>
                           {m.program && (
@@ -1298,7 +1312,7 @@ export default function ScheduleGrid({
                             : m.sessionDates.length
                               ? `${m.sessionDates.length} session${m.sessionDates.length === 1 ? '' : 's'}: ${m.sessionDates.join(', ')}`
                               : 'No dates recorded yet'}
-                          {!thisWeek && ' · not this week'}
+                          {spent ? ' · past, off the schedule' : !thisWeek ? ' · not this week' : ''}
                         </span>
                       </span>
 
@@ -1377,7 +1391,7 @@ export default function ScheduleGrid({
               </div>
 
               <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap', marginTop: '0.6rem' }}>
-                {[ATTENDANCE.REGULAR, ATTENDANCE.REPLACEMENT, ATTENDANCE.TRIAL].map((kind) => (
+                {[ATTENDANCE.REGULAR, ATTENDANCE.REPLACEMENT, ATTENDANCE.ADDITIONAL, ATTENDANCE.TRIAL].map((kind) => (
                   <button
                     key={kind}
                     type="button"
@@ -1399,7 +1413,11 @@ export default function ScheduleGrid({
               <p style={{ margin: '0.5rem 0 0', fontSize: '0.74rem', color: 'var(--text-secondary)' }}>
                 {newKind === ATTENDANCE.REGULAR
                   ? 'A regular keeps this place every week — no dates needed.'
-                  : `A ${newKind.toLowerCase()} attends only the dates you pick below. Add more than one for a run of sessions.`}
+                  : newKind === ATTENDANCE.REPLACEMENT
+                    ? 'A replacement sits here instead of their own regular week, only on the dates below. It drops off the schedule once the last one passes.'
+                    : newKind === ATTENDANCE.ADDITIONAL
+                      ? 'An extra session on top of whatever else they attend, so a week can hold more than one. Add several dates for a run.'
+                      : 'A trial attends only the dates you pick below.'}
               </p>
 
               {newKind !== ATTENDANCE.REGULAR && (

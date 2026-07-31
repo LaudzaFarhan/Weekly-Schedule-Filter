@@ -26,7 +26,7 @@ const STUDENT_LEVELS = [
   'Coder Advance 3'
 ];
 
-const STUDENTS_PAGE_SIZE = 15;
+const STUDENTS_PAGE_SIZE = 5;
 
 // Per-student branch assignment history (localStorage). Keyed by student id.
 const BRANCH_HISTORY_KEY = 'newOpsStudentBranchHistory';
@@ -114,8 +114,13 @@ export default function NewStudentsPage() {
     return [...filtered].sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
   }, [filtered]);
 
-  const totalPages = Math.ceil(sortedFiltered.length / STUDENTS_PAGE_SIZE);
-  const paged = sortedFiltered.slice((page - 1) * STUDENTS_PAGE_SIZE, page * STUDENTS_PAGE_SIZE);
+  const totalPages = Math.max(1, Math.ceil(sortedFiltered.length / STUDENTS_PAGE_SIZE));
+  // The list updates live, so it can shrink out from under the current page — a
+  // poll removing a student, or a filter narrowing the results. Clamping here
+  // falls back to the last real page instead of rendering an empty table, and
+  // avoids correcting the page from an effect.
+  const safePage = Math.min(Math.max(1, page), totalPages);
+  const paged = sortedFiltered.slice((safePage - 1) * STUDENTS_PAGE_SIZE, safePage * STUDENTS_PAGE_SIZE);
 
   const openAddModal = () => {
     setEditingStudent(null);
@@ -195,8 +200,9 @@ export default function NewStudentsPage() {
     try {
       await deleteInternalStudent(studentId);
       showToast({ title: 'Student deleted successfully', variant: 'success' });
-      if (paged.length === 1 && page > 1) {
-        setPage(page - 1);
+      // Deleting the only row on a page would leave it empty, so step back one.
+      if (paged.length === 1 && safePage > 1) {
+        setPage(safePage - 1);
       }
     } catch (err) {
       console.error('Error deleting student:', err);
@@ -435,7 +441,7 @@ export default function NewStudentsPage() {
             </table>
           )}
           {!loading && totalPages > 1 && (
-            <Pagination currentPage={page} totalPages={totalPages} onPageChange={setPage} />
+            <Pagination currentPage={safePage} totalPages={totalPages} onPageChange={setPage} />
           )}
         </div>
       </div>

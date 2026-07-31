@@ -70,6 +70,24 @@ async function replaceDates(classId, dates) {
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
 /**
+ * The attendance kinds this column accepts. Whitelisted because the column is
+ * free text: a typo would otherwise create a kind that no screen knows how to
+ * render and that nothing would ever expire.
+ */
+const CLASS_TYPES = ['Regular', 'Replacement', 'Additional', 'Trial'];
+
+/** Reject anything outside the known kinds, defaulting a missing one. */
+function normaliseClassType(value) {
+  const raw = String(value ?? '').trim();
+  if (!raw) return { classType: 'Regular' };
+  const match = CLASS_TYPES.find((t) => t.toLowerCase() === raw.toLowerCase());
+  if (!match) {
+    return { error: `classType must be one of ${CLASS_TYPES.join(', ')} — got "${raw}"` };
+  }
+  return { classType: match };
+}
+
+/**
  * Validate and normalise the attendance dates.
  * Regular students attend weekly, so any dates on them are dropped.
  */
@@ -132,7 +150,10 @@ export async function POST(req) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
     }
 
-    const { dates, error } = normaliseSessionDates(body.sessionDates, classType);
+    const kind = normaliseClassType(classType);
+    if (kind.error) return NextResponse.json({ error: kind.error }, { status: 400 });
+
+    const { dates, error } = normaliseSessionDates(body.sessionDates, kind.classType);
     if (error) return NextResponse.json({ error }, { status: 400 });
 
     const sql = `
@@ -142,7 +163,7 @@ export async function POST(req) {
     `;
     const params = [
       day, time, program, student, teacher, branchName,
-      classType || 'Regular', remarks || null,
+      kind.classType, remarks || null,
     ];
     const res = await query(sql, params);
     const created = res.rows[0];
@@ -167,7 +188,10 @@ export async function PUT(req) {
       return NextResponse.json({ error: 'Missing class ID' }, { status: 400 });
     }
 
-    const { dates, error } = normaliseSessionDates(body.sessionDates, classType);
+    const kind = normaliseClassType(classType);
+    if (kind.error) return NextResponse.json({ error: kind.error }, { status: 400 });
+
+    const { dates, error } = normaliseSessionDates(body.sessionDates, kind.classType);
     if (error) return NextResponse.json({ error }, { status: 400 });
 
     const sql = `
@@ -179,7 +203,7 @@ export async function PUT(req) {
     `;
     const params = [
       day, time, program, student, teacher, branchName,
-      classType || 'Regular', remarks || null, id,
+      kind.classType, remarks || null, id,
     ];
     const res = await query(sql, params);
 
