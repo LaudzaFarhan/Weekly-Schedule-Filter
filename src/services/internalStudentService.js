@@ -4,6 +4,39 @@
 
 const API_PATH = '/api/new/students';
 
+/** Default deadline for a bulk wipe request, in milliseconds (Req 6.9). */
+export const BULK_DELETE_TIMEOUT_MS = 30000;
+
+/**
+ * Raised when no response arrives before the bulk wipe deadline (Req 6.9).
+ *
+ * This is neither a success nor a failure: the transaction may well have
+ * committed after the client stopped listening, so the caller must report the
+ * outcome as unconfirmed and advise a reload rather than claim the wipe failed.
+ *
+ * Carries a recognisable `name` and an `unconfirmed` flag in addition to being
+ * an `Error` subclass, so callers can identify it without relying on
+ * `instanceof` across module instances.
+ */
+export class WipeUnconfirmedError extends Error {
+  constructor(timeoutMs = BULK_DELETE_TIMEOUT_MS) {
+    super(
+      `No response was received within ${Math.round(timeoutMs / 1000)} seconds, so the outcome ` +
+      'of the bulk delete is unconfirmed. Reload the page to see the current student record count.'
+    );
+    this.name = 'WipeUnconfirmedError';
+    this.unconfirmed = true;
+    this.timeoutMs = timeoutMs;
+  }
+}
+
+/** True for the unconfirmed-outcome signal raised by `bulkDeleteAllStudents` (Req 6.9). */
+export function isWipeUnconfirmedError(error) {
+  return Boolean(
+    error && (error instanceof WipeUnconfirmedError || error.name === 'WipeUnconfirmedError' || error.unconfirmed === true)
+  );
+}
+
 /**
  * Fetch all internal students once
  */
@@ -105,5 +138,49 @@ export async function deleteInternalStudent(studentId) {
   } catch (error) {
     console.error('Error deleting internal student:', error);
     throw error;
+  }
+}
+
+/**
+ * Delete every internal student record, plus the branch history and live
+ * progress records keyed to them, in one server-side transaction.
+ *
+ * Sends `DELETE` to the students path with no `?id=` and the confirmation
+ * phrase in the JSON body, which is what the endpoint requires before it will
+ * treat the request as a bulk wipe rather than a malformed single delete.
+ *
+ * @param {string} confirm - The confirmation phrase, sent to the server verbatim.
+ * @param {{ timeoutMs?: number }} [options]
+ * @returns {Promise<{ success: boolean, deletedStudents: number, deletedHistory: number, deletedProgress: number }>}
+ * @throws {WipeUnconfirmedError} When no response arrives before the deadline (Req 6.9).
+ * @throws {Error} Carrying the server's `error` string on a non-ok response.
+ */
+export async function bulkDeleteAllStudents(confirm, { timeoutMs = BULK_DELETE_TIMEOUT_MS } = {}) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(API_PATH, {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ confirm }),
+      signal: controller.signal
+    });
+    if (!res.ok) {
+      // A 500 from a rolled-back wipe may not carry a JSON body at all, so an
+      // unparseable response must not mask the failure with a parse error.
+      const errData = await res.json().catch(() => ({}));
+      throw new Error(errData.error || 'Failed to delete all students');
+    }
+    return await res.json();
+  } catch (error) {
+    if (error?.name === 'AbortError') {
+      const unconfirmed = new WipeUnconfirmedError(timeoutMs);
+      console.warn('Bulk delete of internal students is unconfirmed:', unconfirmed.message);
+      throw unconfirmed;
+    }
+    console.error('Error deleting all internal students:', error);
+    throw error;
+  } finally {
+    clearTimeout(timer);
   }
 }

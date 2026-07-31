@@ -252,6 +252,55 @@ leave for that session.
 
 Required: `name`, `level`, `branchName`.
 
+**Deleting students — two different operations on one method.** A `DELETE` with
+`?id=` removes one record. A `DELETE` with **no** `?id=` and a confirmation
+phrase in the body removes **every** student record, and cannot be undone.
+
+```bash
+# One student. The id wins, so any body sent is ignored.
+curl -X DELETE -H "Authorization: Bearer $KEY" "$BASE/api/new/students?id=42"
+
+# EVERY student. Irreversible — export the registry first.
+curl -X DELETE -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" \
+  -d '{ "confirm": "DELETE ALL STUDENTS" }' "$BASE/api/new/students"
+```
+
+Bulk request body:
+
+```json
+{ "confirm": "DELETE ALL STUDENTS" }
+```
+
+Bulk success response. All three counts are always present, zeros included:
+
+```json
+{ "success": true, "deletedStudents": 26, "deletedHistory": 14, "deletedProgress": 9 }
+```
+
+The wipe clears the student registry, the branch-history rows keyed to those
+students, and the live lesson progress rows whose student name matches one of
+them — in a single transaction, so either all of it goes or none of it does.
+Classes, instructors, leave, operational rules and CRM leads are untouched, and
+class rows keep their student names as plain text, so those names outlive the
+records they came from.
+
+Before calling the bulk form:
+
+- The phrase is **mandatory** and is compared character for character,
+  case-sensitively, after leading and trailing whitespace is trimmed.
+  `"delete all students"` is rejected.
+- `?id=` takes precedence over the body. A request carrying an id is always a
+  single-record delete, even when its body holds a valid phrase, so a
+  one-student delete can never be escalated into a wipe.
+- A wipe against an already-empty registry succeeds and reports zeros.
+
+| Status | When |
+|---|---|
+| `400` | No `?id=`, and the body is missing, unparseable, or holds a blank `confirm` — the error names both legal request shapes |
+| `400` | `confirm` present but not exactly the phrase, including case variants. No database call is made |
+| `404` | The `?id=` given matches no student record |
+| `500` | The wipe failed or passed its 30-second limit. It is rolled back, so nothing is deleted |
+
 ### Instructor — `/api/new/instructors`
 
 ```json
@@ -431,3 +480,18 @@ operationals and leave unless an admin workflow needs them.
 
 This keeps a misread message from deleting records while still letting the bot
 log enquiries and answer questions.
+
+### "Every `DELETE`" includes the bodied bulk form
+
+`DELETE /api/new/students` has two forms (see §6): `?id=` deletes one student,
+and no `?id=` plus `{ "confirm": "DELETE ALL STUDENTS" }` in the body empties the
+entire registry. A rule that only matches `?id=` therefore does **not** cover the
+destructive one. Block the method on the path outright, query string or not.
+
+The confirmation phrase is enforced on **every** caller the API admits — both
+same-origin browser requests and `Authorization`/`x-api-key` callers. There is no
+caller class that gets a bulk delete without it. But that guard only stops a
+*stray* call; it cannot tell an authorised mistake from an intended wipe, so it
+is not a substitute for restricting the tool. If an admin workflow genuinely
+needs the wipe, keep it behind the app's Admin-only screen, which requires an
+`.xlsx` export of the registry and a typed confirmation before it fires.

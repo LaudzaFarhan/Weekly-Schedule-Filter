@@ -40,6 +40,15 @@ const ok = (description, schema) => ({
 
 const arrayOf = (name) => ({ type: 'array', items: { $ref: `#/components/schemas/${name}` } });
 
+const errorResponse = (description) => ({
+  description,
+  content: {
+    'application/json': {
+      schema: { type: 'object', properties: { error: { type: 'string' } } },
+    },
+  },
+});
+
 function crud({ tag, path, schemaName, listDescription, createDescription, extraListParams = [] }) {
   return {
     [path]: {
@@ -83,6 +92,140 @@ function crud({ tag, path, schemaName, listDescription, createDescription, extra
     },
   };
 }
+
+/**
+ * `DELETE /api/new/students` is the one delete in this API that does not take
+ * an id. The generic `crud()` helper marks `?id=` as `required: true`, which is
+ * wrong for this path in two directions: the id is optional, and a request that
+ * omits it deletes the **entire** student registry.
+ *
+ * This override replaces the generated `delete` operation after the `crud()`
+ * spread. It is written for an agent caller: the two forms are named, the
+ * destructive scope is spelled out, the confirmation phrase is given verbatim,
+ * and the precedence rule (`?id=` always wins) is stated so a single-record
+ * delete can never be escalated into a wipe.
+ */
+const studentsDeleteOperation = {
+  tags: ['Students'],
+  operationId: 'deleteStudent',
+  summary:
+    'Delete ONE student by ?id=, or — with no ?id= and the exact phrase '
+    + '"DELETE ALL STUDENTS" in the body — delete EVERY student record. '
+    + 'The bulk form is irreversible: it empties the whole registry along with '
+    + 'each student\'s branch history and live lesson progress. Never send the '
+    + 'bodied form unless the user has explicitly asked for a full wipe and '
+    + 'confirmed it.',
+  description: [
+    'Two distinct operations share this method. They are not interchangeable.',
+    '',
+    '1. Single record — `DELETE /api/new/students?id=42`. Deletes that one',
+    '   student. No body is required and any body sent is ignored. Returns 404',
+    '   when the id matches no record.',
+    '',
+    '2. Bulk wipe — `DELETE /api/new/students` with no `?id=` and the body',
+    '   `{ "confirm": "DELETE ALL STUDENTS" }`. Deletes every student record',
+    '   across every branch, every branch-history row keyed to those students,',
+    '   and every live lesson progress row whose student name matches one of',
+    '   them. This cannot be undone. Export the registry first.',
+    '',
+    'The confirmation phrase is mandatory for form 2 and is compared',
+    'case-sensitively after leading and trailing whitespace is trimmed, so',
+    '"delete all students" is rejected with 400. It is required of every',
+    'caller the API admits, both same-origin browser requests and API-key',
+    'callers.',
+    '',
+    '`?id=` takes precedence over the body. A request carrying an id is always',
+    'a single-record delete, even when its body holds a valid confirmation',
+    'phrase, so a one-student delete can never turn into a wipe.',
+    '',
+    'The class schedule, instructors, leave, operational rules and CRM leads',
+    'are never touched. Class rows keep their student names as plain text, so',
+    'after a wipe those names refer to students that no longer exist.',
+  ].join('\n'),
+  parameters: [
+    {
+      ...idParam,
+      required: false,
+      description:
+        'Student id to delete. Omit ONLY when deleting every student record '
+        + 'with the confirmation body. Supplying an id always means a '
+        + 'single-record delete and makes the body irrelevant.',
+    },
+  ],
+  requestBody: {
+    required: false,
+    description:
+      'Required for the bulk wipe, and only for the bulk wipe. Omit entirely '
+      + 'when deleting a single student by ?id=.',
+    content: {
+      'application/json': {
+        schema: {
+          type: 'object',
+          required: ['confirm'],
+          properties: {
+            confirm: {
+              type: 'string',
+              enum: ['DELETE ALL STUDENTS'],
+              description:
+                'Must be exactly "DELETE ALL STUDENTS" (case-sensitive, '
+                + 'surrounding whitespace allowed). Sending this with no '
+                + '?id= deletes every student record irreversibly.',
+            },
+          },
+        },
+        examples: {
+          bulkWipe: {
+            summary: 'Delete every student record — irreversible',
+            value: { confirm: 'DELETE ALL STUDENTS' },
+          },
+        },
+      },
+    },
+  },
+  responses: {
+    200: {
+      description:
+        'Single-record form returns { success, message }. Bulk form returns '
+        + '{ success, deletedStudents, deletedHistory, deletedProgress } with '
+        + 'all three counts always present, zeros included.',
+      content: {
+        'application/json': {
+          schema: {
+            type: 'object',
+            properties: {
+              success: { type: 'boolean' },
+              message: { type: 'string', description: 'Single-record form only.' },
+              deletedStudents: {
+                type: 'integer',
+                minimum: 0,
+                description: 'Bulk form only — student records deleted.',
+              },
+              deletedHistory: {
+                type: 'integer',
+                minimum: 0,
+                description: 'Bulk form only — branch history records deleted.',
+              },
+              deletedProgress: {
+                type: 'integer',
+                minimum: 0,
+                description: 'Bulk form only — live lesson progress records deleted.',
+              },
+            },
+          },
+        },
+      },
+    },
+    400: errorResponse(
+      'No ?id= and no usable confirmation value, or a confirmation value that '
+      + 'does not match the phrase. Nothing is deleted.'
+    ),
+    404: errorResponse('The ?id= given matches no student record. Nothing is deleted.'),
+    500: errorResponse(
+      'The bulk delete failed or exceeded its 30-second limit. The whole '
+      + 'operation is rolled back, so nothing is deleted.'
+    ),
+  },
+};
 
 function buildSpec(origin) {
   return {
@@ -133,16 +276,21 @@ function buildSpec(origin) {
           { name: 'teacher', in: 'query', schema: { type: 'string' }, description: 'Filter to one instructor.' },
         ],
       }),
-      ...crud({
-        tag: 'Students',
-        path: '/api/new/students',
-        schemaName: 'Student',
-        listDescription: 'List students. Use search to look one up by name.',
-        createDescription: 'Register a student.',
-        extraListParams: [
-          { name: 'branch', in: 'query', schema: { type: 'string' }, description: 'Filter to one branch name.' },
-        ],
-      }),
+      '/api/new/students': {
+        ...crud({
+          tag: 'Students',
+          path: '/api/new/students',
+          schemaName: 'Student',
+          listDescription: 'List students. Use search to look one up by name.',
+          createDescription: 'Register a student.',
+          extraListParams: [
+            { name: 'branch', in: 'query', schema: { type: 'string' }, description: 'Filter to one branch name.' },
+          ],
+        })['/api/new/students'],
+        // Overrides the generated delete: ?id= is optional here, and omitting
+        // it with a confirmation body wipes the whole registry.
+        delete: studentsDeleteOperation,
+      },
       ...crud({
         tag: 'Instructors',
         path: '/api/new/instructors',

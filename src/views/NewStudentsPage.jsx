@@ -1,15 +1,30 @@
 'use client';
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useSchedule } from '../contexts/ScheduleContext';
+import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../components/ui/Toast';
 import { 
   subscribeToInternalStudents, 
+  getAllInternalStudents,
   createInternalStudent, 
   updateInternalStudent, 
-  deleteInternalStudent 
+  deleteInternalStudent,
+  bulkDeleteAllStudents,
+  isWipeUnconfirmedError
 } from '../services/internalStudentService';
+import { logActivity } from '../services/newActivityService';
 import Pagination from '../components/ui/Pagination';
+import WipeStudentsDialog from '../components/operations/WipeStudentsDialog';
+import { isAdmin, ADMIN_ROLE } from '../utils/roles';
+import { WIPE_CONFIRMATION_PHRASE } from '../lib/wipeConfirmation';
+import {
+  WIPE_ACTIVITY,
+  buildWipeAuditSummary,
+  buildWipeFailureAuditSummary,
+  buildWipeSuccessMessage,
+  resolveAuditUser,
+} from '../lib/wipeReporting';
 import { STUDENT_LEVELS, normaliseCoderLevel } from '../lib/programRules';
 import { Plus, Pencil, Trash2, Search, X, MapPin, User, GraduationCap, Phone, CheckCircle, HelpCircle, AlertTriangle } from 'lucide-react';
 
@@ -37,7 +52,8 @@ function appendStudentBranchHistory(id, branch) {
 }
 
 export default function NewStudentsPage() {
-  const { enabledBranches, branches } = useSchedule();
+  const { enabledBranches, branches, users } = useSchedule();
+  const { user } = useAuth();
   const { showToast } = useToast();
 
   // State
@@ -49,6 +65,24 @@ export default function NewStudentsPage() {
   const [filterBranch, setFilterBranch] = useState('all');
   const [filterStatus, setFilterStatus] = useState('all');
   const [page, setPage] = useState(1);
+
+  // Bulk wipe (Admin only). The control lives in the panel header, the dialog
+  // owns the export + typed-phrase gates.
+  const [wipeOpen, setWipeOpen] = useState(false);
+  const wipeControlRef = useRef(null);
+  // True from dispatch until the request settles, so a repeat activation sends
+  // no second request. Req 6.7
+  const wipeInFlightRef = useRef(false);
+  const canWipeAll = isAdmin(users, user?.email);
+
+  /**
+   * A role change while the dialog is open closes it within the same commit.
+   * Unmounting is what discards the typed confirmation text, since that state
+   * is local to the dialog. Req 1.4
+   */
+  useEffect(() => {
+    if (wipeOpen && !canWipeAll) setWipeOpen(false);
+  }, [wipeOpen, canWipeAll]);
 
   // Modal/Form State
   const [showModal, setShowModal] = useState(false);
@@ -110,6 +144,11 @@ export default function NewStudentsPage() {
   // avoids correcting the page from an effect.
   const safePage = Math.min(Math.max(1, page), totalPages);
   const paged = sortedFiltered.slice((safePage - 1) * STUDENTS_PAGE_SIZE, safePage * STUDENTS_PAGE_SIZE);
+
+  // Any of the four controls off its unfiltered default narrows the view, which
+  // the wipe dialog discloses because the wipe itself is never narrowed. Req 3.9
+  const filtersActive =
+    search !== '' || filterLevel !== 'all' || filterBranch !== 'all' || filterStatus !== 'all';
 
   const openAddModal = () => {
     setEditingStudent(null);
@@ -202,6 +241,154 @@ export default function NewStudentsPage() {
     }
   };
 
+  /** Close the wipe dialog and hand keyboard focus back to the control. Req 3.13 */
+  const closeWipeDialog = () => {
+    setWipeOpen(false);
+    // After the unmount commit, so the focus lands on a control that exists.
+    requestAnimationFrame(() => wipeControlRef.current?.focus());
+  };
+
+  /** Reload the registry into state, used after a wipe and by the retry toast. Req 7.5 */
+  const reloadStudents = async () => {
+    const data = await getAllInternalStudents();
+    setStudents(Array.isArray(data) ? data : []);
+  };
+
+  /**
+   * Reload after a wipe, and on failure keep the success toast while adding a
+   * second, retryable notification. The 3-second poll is an independent path to
+   * the same refresh, so a retry here is a convenience rather than the only
+   * route back. Req 7.5, 7.7
+   */
+  const reloadStudentsAfterWipe = async () => {
+    try {
+      await reloadStudents();
+    } catch (err) {
+      console.error('Could not refresh the student list after the wipe:', err);
+      showToast({
+        title: 'Student list could not be refreshed',
+        message: 'The wipe succeeded. Click here to retry loading the list.',
+        variant: 'warning',
+        duration: 0,
+        onClick: () => { reloadStudentsAfterWipe(); },
+      });
+    }
+  };
+
+  /**
+   * Write the single audit entry for a wipe attempt, retrying once after about
+   * a second. `logActivity` returns null instead of throwing when the write
+   * fails, so a falsy result is the retry signal. A second failure is
+   * console-only: it never changes the counts already reported to the user.
+   * Req 8.1, 8.5, 8.7
+   */
+  const writeWipeActivity = async (entry) => {
+    try {
+      if (await logActivity(entry)) return;
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+      if (await logActivity(entry)) return;
+      console.warn('Could not record the bulk wipe in the activity log after one retry.');
+    } catch (err) {
+      console.warn('Could not record the bulk wipe in the activity log:', err?.message || err);
+    }
+  };
+
+  /**
+   * The wipe orchestration. Ordered so the user-visible result never waits on
+   * best-effort cleanup: the toast goes out first, then localStorage, then the
+   * audit write, then the dialog close, the page reset and the reload.
+   *
+   * Rejects on failure, which is what keeps the dialog open with its typed text
+   * and completed-export state intact (Req 6.4). Resolves only on success.
+   */
+  const handleWipeConfirm = async () => {
+    // A second activation while one wipe is in flight sends nothing. The dialog
+    // guards this too; the ref makes it hold even if the dialog is remounted.
+    // Req 6.7
+    if (wipeInFlightRef.current) return;
+
+    // Re-checked here, not just at render, so a defeated client-side guard
+    // still dispatches no request. Req 1.8
+    if (!isAdmin(users, user?.email)) {
+      showToast({
+        title: `Deleting all student records requires the ${ADMIN_ROLE} role`,
+        message: 'Your account does not hold that role, so no records were deleted.',
+        variant: 'error',
+      });
+      throw new Error(`Deleting all student records requires the ${ADMIN_ROLE} role.`);
+    }
+
+    wipeInFlightRef.current = true;
+    let counts;
+    try {
+      counts = await bulkDeleteAllStudents(WIPE_CONFIRMATION_PHRASE);
+    } catch (err) {
+      // The 30-second abort is neither a success nor a failure: the transaction
+      // may have committed after the client stopped listening. No success
+      // toast, no failure toast, no audit entry. Req 6.9
+      if (isWipeUnconfirmedError(err)) {
+        showToast({
+          title: 'The outcome of the delete is unconfirmed',
+          message: 'No response arrived in time. Reload this page to see the current student record count.',
+          variant: 'warning',
+          duration: 0,
+        });
+        throw err;
+      }
+
+      showToast({
+        title: 'Failed to delete all student records',
+        message: err?.message || 'The wipe failed. No records were deleted.',
+        variant: 'error',
+      });
+      // Exactly one entry, count 0, failure summary. Req 8.7
+      writeWipeActivity({
+        ...WIPE_ACTIVITY,
+        count: 0,
+        summary: buildWipeFailureAuditSummary(),
+        userEmail: resolveAuditUser(user?.email),
+      });
+      throw err; // keeps the dialog open and re-armed. Req 6.4
+    } finally {
+      wipeInFlightRef.current = false;
+    }
+
+    // 1. The result, from the server's counts — never the dialog snapshot.
+    //    ToastContainer is aria-live="polite" with role="status", so it
+    //    announces without moving focus. Req 7.2, 7.3
+    showToast({
+      title: buildWipeSuccessMessage(counts),
+      variant: 'success',
+      duration: 6000,
+    });
+
+    // 2. Local branch history is keyed by student id, so it is orphaned now.
+    //    A throwing storage still reports the wipe as successful. Req 4.6, 4.7
+    try {
+      localStorage.removeItem(BRANCH_HISTORY_KEY);
+    } catch (err) {
+      console.error('Could not clear the local student branch history:', err);
+    }
+
+    // 3. The audit entry, not awaited: it must not delay the dialog close or
+    //    the reload, and its retry alone takes a second. Req 8.1–8.6
+    writeWipeActivity({
+      ...WIPE_ACTIVITY,
+      count: counts?.deletedStudents ?? 0,
+      summary: buildWipeAuditSummary(counts),
+      userEmail: resolveAuditUser(user?.email),
+    });
+
+    // 4. Close, hand focus back, reset paging. The four filter values are
+    //    deliberately left alone. Req 7.4, 3.13, 9.3, 9.4
+    closeWipeDialog();
+    setPage(1);
+
+    // 5. The list itself. The empty state renders once students.length === 0.
+    //    Req 7.5, 7.6
+    await reloadStudentsAfterWipe();
+  };
+
   // Helper function to get level badge styles
   const getLevelBadgeStyles = (level = '') => {
     const isKinder = level.toLowerCase().includes('kinder');
@@ -244,13 +431,46 @@ export default function NewStudentsPage() {
             </p>
           </div>
           
-          <button 
-            onClick={openAddModal} 
-            className="btn btn-primary"
-            style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', borderRadius: '10px', padding: '0.5rem 1.2rem', fontSize: '0.85rem' }}
-          >
-            <Plus size={16} /> Add Student
-          </button>
+          {/*
+            The two actions are grouped so they read as one pair. The header is
+            space-between, so leaving them as separate children would push
+            Delete All to the far edge, away from the button it belongs beside.
+          */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <button 
+              onClick={openAddModal} 
+              className="btn btn-primary"
+              style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', borderRadius: '10px', padding: '0.5rem 1.2rem', fontSize: '0.85rem' }}
+            >
+              <Plus size={16} /> Add Student
+            </button>
+
+            {/*
+              Admin-only, and absent from the DOM for every other role rather than
+              hidden or merely disabled. Sitting immediately after Add Student in
+              the header gives it the header's tab order for free, and being a real
+              <button> gives it Enter/Space activation and the platform focus ring.
+              Req 1.1, 1.2, 1.3, 1.6
+            */}
+            {canWipeAll && (
+              <button
+                ref={wipeControlRef}
+                onClick={() => setWipeOpen(true)}
+                disabled={students.length === 0}
+                aria-label="Delete all student records. This cannot be undone."
+                title={students.length === 0
+                  ? 'The student list is already empty'
+                  : 'Delete all student records — cannot be undone'}
+                className="btn"
+                style={{
+                  background: 'transparent', border: '1px solid var(--danger-border)', cursor: 'pointer',
+                  padding: '0.3rem', borderRadius: '6px', color: 'var(--danger)', display: 'flex'
+                }}
+              >
+                <Trash2 size={16} /> Delete All
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Filter Toolbar */}
@@ -654,6 +874,18 @@ export default function NewStudentsPage() {
             </form>
           </div>
         </div>
+      )}
+
+      {/* Bulk wipe confirmation. Mounted per open, so its export/typed-phrase
+          state starts clean every time. Req 3.8 */}
+      {wipeOpen && canWipeAll && (
+        <WipeStudentsDialog
+          studentCount={students.length}
+          filtersActive={filtersActive}
+          students={students}
+          onCancel={closeWipeDialog}
+          onConfirm={handleWipeConfirm}
+        />
       )}
 
       {/* Modal animation style */}
