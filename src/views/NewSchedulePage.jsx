@@ -260,6 +260,23 @@ const STUDENT_ROW_H_WIDE = 62; // ...plus the regular place, in All Students mod
 const studentListHeight = (rowH) =>
   VISIBLE_STUDENT_ROWS * rowH + (VISIBLE_STUDENT_ROWS - 1) * STUDENT_ROW_GAP;
 
+/**
+ * Space the students panel spends above its list: the search input plus its
+ * bottom margin.
+ *
+ * The Unallocated and Recommended Days cards share a stretch grid row, so the
+ * taller card sets the height of both. The students card is already bounded —
+ * its list is a fixed five rows — so the row stays put as long as the
+ * Recommended card's body is bounded to the same budget. Capping the *lists*
+ * inside it is not enough: that card carries a context row and a day/hours row
+ * above its list, and an expanded slot adds an instructor picker inline, none
+ * of which a cap on the list itself can contain.
+ */
+const STUDENT_SEARCH_BLOCK_H = 46;
+
+/** The pixel budget a panel body gets before its inner list has to scroll. */
+const panelBodyHeight = (rowH) => studentListHeight(rowH) + STUDENT_SEARCH_BLOCK_H;
+
 /** One colour per attendance kind, used wherever a kind is labelled. */
 const KIND_TINT = {
   Regular: '#5f3dc4',
@@ -673,13 +690,14 @@ export default function NewSchedulePage({ onNavigate }) {
   const scopedStudents = studentScope === 'all' ? allStudentsAnnotated : unallocatedStudents;
 
   /**
-   * Height the students list is capped to, reused by the Recommended Days lists.
+   * Height the Recommended Days body is bounded to, matching the budget the
+   * students card spends on its search block plus its five fixed rows.
    *
-   * Rows are taller in All Students mode, so the cap tracks the mode rather than
+   * Rows are taller in All Students mode, so this tracks the mode rather than
    * being a fixed number — otherwise the two cards would drift apart whenever
    * the scope changed.
    */
-  const recoListMaxHeight = studentListHeight(
+  const recoBodyMaxHeight = panelBodyHeight(
     studentScope === 'all' ? STUDENT_ROW_H_WIDE : STUDENT_ROW_H
   );
 
@@ -1522,7 +1540,19 @@ export default function NewSchedulePage({ onNavigate }) {
               </span>
             </div>
 
-            <div style={{ padding: '0.85rem 1rem', flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+            {/*
+              Bounded here rather than on the lists inside. This is the only
+              element that sees every branch — day list, time list, the
+              no-instructor warning and an expanded slot's instructor picker —
+              so capping it is what stops any of them stretching the grid row
+              and dragging the students card with it. Whichever list is showing
+              takes the space left over and scrolls.
+            */}
+            <div style={{
+              padding: '0.85rem 1rem', flex: 1,
+              display: 'flex', flexDirection: 'column',
+              minHeight: 0, maxHeight: recoBodyMaxHeight,
+            }}>
               {!dayReco ? (
                 /* The empty state grows to fill the panel, so the two columns
                    stay the same height before a student is picked. */
@@ -1562,16 +1592,13 @@ export default function NewSchedulePage({ onNavigate }) {
                   </div>
 
                   {!dayReco.day ? (
-                    /* Step 1 — day picker. `flex: 1` alone cannot bound this:
-                       the panel's own height comes from its content, so there
-                       is nothing for a percentage or a flex basis to resolve
-                       against. The explicit cap is what makes it scroll instead
-                       of stretching the grid row — the same arithmetic the
-                       students list uses, so the two cards stay level. */
+                    /* Step 1 — day picker. Takes the space the bounded body has
+                       left and scrolls inside it, so it needs no cap of its
+                       own: `minHeight: 0` is what lets a flex child shrink
+                       below its content and actually scroll. */
                     <div style={{
                       display: 'flex', flexDirection: 'column', gap: '0.4rem',
                       flex: 1, minHeight: 0,
-                      maxHeight: recoListMaxHeight,
                       overflowY: 'auto',
                     }}>
                       {/* Say which rule the list is following, so an ordering
@@ -1666,14 +1693,14 @@ export default function NewSchedulePage({ onNavigate }) {
                           </span>
                         </div>
                       ) : (
-                      /* Capped for the same reason as the day list, and it is
-                         this list that showed the problem: expanding a slot to
-                         pick an instructor adds height inline, which grew the
-                         card and dragged the students card up with it. */
+                      /* Scrolls within the bounded body, like the day list. This
+                         is the list that showed the problem: picking a slot
+                         expands an instructor picker inline, so the content
+                         grows after render and has to be absorbed here rather
+                         than pushing the card taller. */
                       <div style={{
                         display: 'flex', flexDirection: 'column', gap: '0.4rem',
                         flex: 1, minHeight: 0,
-                        maxHeight: recoListMaxHeight,
                         overflowY: 'auto',
                       }}>
                         {recoTimes.slots.map((sl) => {
