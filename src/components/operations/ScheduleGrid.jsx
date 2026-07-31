@@ -1182,7 +1182,10 @@ export default function ScheduleGrid({
                       const drawAnchor = inDraw && rowIdx === draw.startIdx;
                       const inSel = !draw && !!selection && selection.instructorName === inst.name &&
                         rowIdx >= selection.startIdx && rowIdx <= selection.endIdx;
-                      const selAnchor = inSel && rowIdx === selection.startIdx;
+                      // The summary and its Edit trigger sit on the last row of the
+                      // selection, so they read as a footer under the marked-out block
+                      // rather than covering the row the drag happened to start from.
+                      const selLabelRow = inSel && rowIdx === selection.endIdx;
 
                       return (
                         <td
@@ -1228,7 +1231,8 @@ export default function ScheduleGrid({
                             drawnDuration={drawnDuration}
                             drawnRows={drawnRows}
                             inSel={inSel}
-                            selAnchor={selAnchor}
+                            selLabelRow={selLabelRow}
+                            selStart={inSel ? rowStarts[selection.startIdx] : null}
                             selDuration={selDuration}
                             selRows={selRows}
                             onEditSelection={editSelection}
@@ -1985,7 +1989,7 @@ function Cell({
   moving, isTarget, resizing, openPicker, openEditor, openRoster, onRemoveSlot,
   beginMoveClass, beginMoveSlot, setMoving, applyMove, beginResize, nudge,
   rowIdx, beginDraw, inDraw, drawAnchor, drawnDuration, drawnRows,
-  inSel, selAnchor, selDuration, selRows, onEditSelection,
+  inSel, selLabelRow, selStart, selDuration, selRows, onEditSelection,
 }) {
   const boxH = Math.max(height - 6, 22);
   // What the drag reports back while it is in progress. Rows lead because that is
@@ -2229,7 +2233,7 @@ function Cell({
     return (
       <div
         onPointerDown={(e) => { if (!moving && e.button === 0) beginDraw(inst, rowIdx, e); }}
-        title={`${selRows} row${selRows === 1 ? '' : 's'} selected — ${selDuration} min from ${clockLabel(start)}. Press Edit to choose what goes in it, or drag to redraw.`}
+        title={`${selRows} row${selRows === 1 ? '' : 's'} selected — ${selDuration} min from ${clockLabel(selStart ?? start)}. Press Edit to choose what goes in it, or drag to redraw.`}
         style={{
           width: '100%', height: boxH, borderRadius: '7px',
           border: '1px solid rgba(5,150,105,0.9)', background: 'rgba(5,150,105,0.2)',
@@ -2239,7 +2243,7 @@ function Cell({
           whiteSpace: 'nowrap', overflow: 'hidden', padding: '0 0.3rem',
         }}
       >
-        {selAnchor && (
+        {selLabelRow && (
           <>
             <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
               {selRows} row{selRows === 1 ? '' : 's'} · {selDuration} min
@@ -2250,7 +2254,7 @@ function Cell({
               onPointerDown={(e) => e.stopPropagation()}
               onClick={onEditSelection}
               title="Choose what goes in this time"
-              aria-label={`Edit the ${selDuration} minute selection at ${clockLabel(start)} for ${inst.name}`}
+              aria-label={`Edit the ${selDuration} minute selection at ${clockLabel(selStart ?? start)} for ${inst.name}`}
               style={{
                 display: 'inline-flex', alignItems: 'center', gap: '0.15rem', flexShrink: 0,
                 border: '1px solid rgba(5,150,105,0.9)', background: '#047857', color: '#fff',
