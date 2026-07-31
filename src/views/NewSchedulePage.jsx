@@ -673,6 +673,17 @@ export default function NewSchedulePage({ onNavigate }) {
   const scopedStudents = studentScope === 'all' ? allStudentsAnnotated : unallocatedStudents;
 
   /**
+   * Height the students list is capped to, reused by the Recommended Days lists.
+   *
+   * Rows are taller in All Students mode, so the cap tracks the mode rather than
+   * being a fixed number — otherwise the two cards would drift apart whenever
+   * the scope changed.
+   */
+  const recoListMaxHeight = studentListHeight(
+    studentScope === 'all' ? STUDENT_ROW_H_WIDE : STUDENT_ROW_H
+  );
+
+  /**
    * The panel's list after its own search. Matches on name, level and branch,
    * so "puri" or "kinder" narrow the list as usefully as a name.
    */
@@ -1315,6 +1326,12 @@ export default function NewSchedulePage({ onNavigate }) {
           the panels themselves are columns so their bodies take up the slack. */}
       {/* Both children are toggled together, so the row collapses to nothing
           when the panel is hidden — hence the conditional margin. */}
+      {/*
+        Both columns stretch to the taller one, so whichever card grows sets the
+        row height for both. The students list is already capped in pixels; the
+        Recommended Days lists are capped to the same value so neither column can
+        pull the other out of shape.
+      */}
       <div style={{
         display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem',
         alignItems: 'stretch', marginBottom: showUnallocated ? '1.5rem' : 0,
@@ -1545,9 +1562,18 @@ export default function NewSchedulePage({ onNavigate }) {
                   </div>
 
                   {!dayReco.day ? (
-                    /* Step 1 — day picker. Scrolls inside the height inherited
-                       from the students card rather than setting its own. */
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', flex: 1, minHeight: 0, overflowY: 'auto' }}>
+                    /* Step 1 — day picker. `flex: 1` alone cannot bound this:
+                       the panel's own height comes from its content, so there
+                       is nothing for a percentage or a flex basis to resolve
+                       against. The explicit cap is what makes it scroll instead
+                       of stretching the grid row — the same arithmetic the
+                       students list uses, so the two cards stay level. */
+                    <div style={{
+                      display: 'flex', flexDirection: 'column', gap: '0.4rem',
+                      flex: 1, minHeight: 0,
+                      maxHeight: recoListMaxHeight,
+                      overflowY: 'auto',
+                    }}>
                       {/* Say which rule the list is following, so an ordering
                           that is not chronological does not look arbitrary. */}
                       <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginBottom: '0.15rem' }}>
@@ -1640,7 +1666,16 @@ export default function NewSchedulePage({ onNavigate }) {
                           </span>
                         </div>
                       ) : (
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', flex: 1, minHeight: 0, overflowY: 'auto' }}>
+                      /* Capped for the same reason as the day list, and it is
+                         this list that showed the problem: expanding a slot to
+                         pick an instructor adds height inline, which grew the
+                         card and dragged the students card up with it. */
+                      <div style={{
+                        display: 'flex', flexDirection: 'column', gap: '0.4rem',
+                        flex: 1, minHeight: 0,
+                        maxHeight: recoListMaxHeight,
+                        overflowY: 'auto',
+                      }}>
                         {recoTimes.slots.map((sl) => {
                           const picked = timePick === sl.start;
                           const j = sl.join;
