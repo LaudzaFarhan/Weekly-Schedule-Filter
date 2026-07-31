@@ -83,8 +83,12 @@ Kinder and Junior use a code plus a lesson number (1–10) after a dot:
 - Junior Foundation `JF1`, `JF2` → `JF1.1`
 - Junior Core `J1`–`J4` → `J1.1`
 
-Coder uses level names with no lesson number: `Coder Foundation 1`–`4`,
-`Coder Basic 1`–`2`, `Coder Intermediate 1`–`2`, `Coder Advance 1`–`3`.
+Coder uses level names with no lesson number, one per stage: `Coder Basic`,
+`Coder Intermediate`, `Coder Advance`.
+
+Records written before the stages were unnumbered may still hold values like
+`Coder Advance`. These are read as their stage, so no migration is required
+for the app to behave correctly.
 
 ### Branches
 
@@ -237,7 +241,7 @@ leave for that session.
 ```json
 {
   "name": "Dave Kingsley",
-  "level": "Coder Advance 1",
+  "level": "Coder Advance",
   "branchName": "Bekasi",
   "parentName": "Jane Doe",
   "contact": "+62 812-3456-789",
@@ -386,7 +390,7 @@ DATA RULES
 - Instructor level is "Kinder and Junior" or "Junior and Coder". An instructor
   can only teach a category named in their level.
 - Program codes: Kinder/Junior use a code plus lesson number (KF1.9, K1.1,
-  JF1.1, J1.1). Coder uses level names (Coder Basic 1) with no lesson number.
+  JF1.1, J1.1). Coder uses level names (Coder Basic) with no lesson number.
 - Branches: Gading Serpong, Puri Indah, Pluit Village, Kelapa Gading and
   Pondok Indah run Mon-Sat. Bintaro and Bekasi run Tue-Sun.
 

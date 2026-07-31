@@ -15,7 +15,7 @@ import { slotTypeMeta } from '../lib/slotTypes';
 import ScheduleGridPanel from '../components/operations/ScheduleGridPanel';
 import { useNewOperationals } from '../hooks/useNewOperationals';
 import { useScheduleRules } from '../hooks/useScheduleRules';
-import { canCombine, maxStudentsFor, parseProgram } from '../lib/programRules';
+import { canCombine, maxStudentsFor, parseProgram, CODER_LEVELS, normaliseCoderLevel } from '../lib/programRules';
 import {
   availabilityFor, groupClasses, classWindow, ATTENDANCE, isDatedKind, isExpired, isoOf,
   nextDateForDay,
@@ -156,7 +156,7 @@ function downloadImportTemplate() {
   const wb = XLSX.utils.book_new();
   const kinder = [{ Day: 'Monday', 'Start Time': '1:00 PM', Program: 'KF1', Lesson: 2, Student: 'Mia', Teacher: 'Christina', Branch: 'Gading Serpong', 'Class Type': 'Regular' }];
   const junior = [{ Day: 'Tuesday', 'Start Time': '4:00 PM', Program: 'J2', Lesson: 5, Student: 'Budi', Teacher: 'Angel', Branch: 'Puri Indah', 'Class Type': 'Regular' }];
-  const coder = [{ Day: 'Wednesday', 'Start Time': '1:00 PM', Program: 'Coder Advance 1', Student: 'Dave Kingsley', Teacher: 'Christian', Branch: 'Gading Serpong', 'Class Type': 'Trial' }];
+  const coder = [{ Day: 'Wednesday', 'Start Time': '1:00 PM', Program: 'Coder Advance', Student: 'Dave Kingsley', Teacher: 'Christian', Branch: 'Gading Serpong', 'Class Type': 'Trial' }];
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(kinder), 'Kinder');
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(junior), 'Junior');
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(coder), 'Coder');
@@ -174,15 +174,7 @@ const PROGRAM_GROUPS = [
   { label: 'Kinder Core (Term 1–4)', codes: ['K1', 'K2', 'K3', 'K4'] },
   { label: 'Junior Foundation', codes: ['JF1', 'JF2'] },
   { label: 'Junior Core (Term 1–4)', codes: ['J1', 'J2', 'J3', 'J4'] },
-  {
-    label: 'Coder',
-    codes: [
-      'Coder Foundation 1', 'Coder Foundation 2', 'Coder Foundation 3', 'Coder Foundation 4',
-      'Coder Basic 1', 'Coder Basic 2',
-      'Coder Intermediate 1', 'Coder Intermediate 2',
-      'Coder Advance 1', 'Coder Advance 2', 'Coder Advance 3',
-    ],
-  },
+  { label: 'Coder', codes: CODER_LEVELS },
 ];
 const LESSON_COUNT = 10;
 // Kinder & Junior codes carry a lesson number; Coder programs do not.
@@ -218,15 +210,18 @@ const categorizeLevel = (str) => {
  * The program code a student's recorded level points at, so allocating them
  * starts from what they are actually enrolled in rather than a blank slate.
  *
- * Levels read like "Junior Foundation", "Kinder Core" or "Coder Basic 1".
+ * Levels read like "Junior Foundation", "Kinder Core" or "Coder Basic".
  */
 const defaultCodeForLevel = (level) => {
   const s = String(level || '').trim();
   if (!s) return '';
-  // Coder levels are stored verbatim as the program code.
+  // Coder levels are stored verbatim as the program code. Folded first, so a
+  // student still recorded as "Coder Advance 1" resolves to "Coder Advance"
+  // rather than failing to match and leaving the program field empty.
   if (/^coder/i.test(s)) {
+    const folded = normaliseCoderLevel(s);
     const exact = PROGRAM_GROUPS.find((g) => g.label === 'Coder')
-      ?.codes.find((c) => c.toLowerCase() === s.toLowerCase());
+      ?.codes.find((c) => c.toLowerCase() === folded.toLowerCase());
     return exact || '';
   }
   const lower = s.toLowerCase();
@@ -245,6 +240,25 @@ const instructorHandles = (instructor, category) => {
   if (category === 'Coder') return lvl.includes('coder');
   return true;
 };
+
+/**
+ * The students panel shows five rows and scrolls for the rest, so the card keeps
+ * a predictable size however many students there are — and Recommended Days,
+ * which stretches to match it, does too.
+ *
+ * Rows are given an explicit height rather than left to their content: that is
+ * what makes "exactly five visible" true regardless of font rendering, and it
+ * lets the container height be arithmetic rather than a guess. Every line inside
+ * a row is therefore clipped to one line.
+ */
+const VISIBLE_STUDENT_ROWS = 5;
+const STUDENT_ROW_GAP = 5; // px, kept in px so the height below is exact
+const STUDENT_ROW_H = 48; // name + level/branch
+const STUDENT_ROW_H_WIDE = 62; // ...plus the regular place, in All Students mode
+
+/** Height of exactly `VISIBLE_STUDENT_ROWS` rows, including the gaps between. */
+const studentListHeight = (rowH) =>
+  VISIBLE_STUDENT_ROWS * rowH + (VISIBLE_STUDENT_ROWS - 1) * STUDENT_ROW_GAP;
 
 /** One colour per attendance kind, used wherever a kind is labelled. */
 const KIND_TINT = {
@@ -280,7 +294,7 @@ const minToHHMM = (mins) => `${String(Math.floor(mins / 60)).padStart(2, '0')}:$
 const parseProgramValue = (p) => {
   const val = String(p || '').trim();
   if (!val) return { code: '', lesson: '1' };
-  // Coder programs store their full level as the code (e.g. "Coder Advance 1").
+  // Coder programs store their full level as the code (e.g. "Coder Advance").
   if (/^coder/i.test(val)) return { code: val, lesson: '1' };
   const m = val.match(/^([A-Za-z]{1,3}\d+)(?:[.\s]+(\d+))?$/);
   if (m) return { code: m[1].toUpperCase(), lesson: m[2] || '1' };
@@ -1409,9 +1423,14 @@ export default function NewSchedulePage({ onNavigate }) {
                       No {studentScope === 'all' ? 'student' : 'unallocated student'} matches &ldquo;{unallocSearch}&rdquo;.
                     </p>
                   ) : (
-                // Grows into whatever height the row settles at, with a floor so
-                // a short list still gives the panel a sensible size.
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem', flex: 1, minHeight: '232px', maxHeight: '420px', overflowY: 'auto' }}>
+                // Five rows tall at most, scrolling beyond that. A shorter list
+                // shrinks rather than leaving dead space.
+                <div style={{
+                  display: 'flex', flexDirection: 'column',
+                  gap: `${STUDENT_ROW_GAP}px`,
+                  maxHeight: studentListHeight(studentScope === 'all' ? STUDENT_ROW_H_WIDE : STUDENT_ROW_H),
+                  overflowY: 'auto',
+                }}>
                   {visibleUnallocated.map((st) => {
                     // In All Students mode the regular place is the thing a
                     // replacement or extra session is measured against, so it
@@ -1426,21 +1445,25 @@ export default function NewSchedulePage({ onNavigate }) {
                         ? `Book a replacement or extra session for ${st.name}`
                         : `Allocate ${st.name} to a class`}
                       style={{
-                        display: 'flex', alignItems: 'flex-start', gap: '0.5rem', width: '100%', textAlign: 'left',
-                        padding: '0.5rem 0.6rem', borderRadius: '8px', cursor: 'pointer',
+                        display: 'flex', alignItems: 'center', gap: '0.5rem', width: '100%', textAlign: 'left',
+                        // Fixed so five rows is exactly five rows. Every line
+                        // inside is clipped to one line to hold that promise.
+                        height: showPlaces ? STUDENT_ROW_H_WIDE : STUDENT_ROW_H,
+                        flexShrink: 0, boxSizing: 'border-box', overflow: 'hidden',
+                        padding: '0 0.6rem', borderRadius: '8px', cursor: 'pointer',
                         border: '1px solid var(--border-color)', background: 'var(--bg-color)',
                       }}
                     >
-                      <User size={14} style={{ flexShrink: 0, marginTop: '0.1rem', color: 'var(--text-muted)' }} />
+                      <User size={14} style={{ flexShrink: 0, color: 'var(--text-muted)' }} />
                       <span style={{ overflow: 'hidden', flex: 1, minWidth: 0 }}>
                         <span style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, color: 'var(--text-main)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                           {st.name}
                         </span>
-                        <span style={{ display: 'block', fontSize: '0.68rem', color: 'var(--text-muted)' }}>
+                        <span style={{ display: 'block', fontSize: '0.68rem', color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                           {[st.level, st.branchName].filter(Boolean).join(' · ') || '—'}
                         </span>
                         {showPlaces && (
-                          <span style={{ display: 'block', fontSize: '0.66rem', color: home ? 'var(--text-secondary)' : 'var(--danger)', marginTop: '0.1rem' }}>
+                          <span style={{ display: 'block', fontSize: '0.66rem', color: home ? 'var(--text-secondary)' : 'var(--danger)', marginTop: '0.1rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                             {home
                               ? `${home.day} ${home.time} · ${home.teacher}`
                               : 'No regular class yet'}
@@ -1449,7 +1472,7 @@ export default function NewSchedulePage({ onNavigate }) {
                         )}
                       </span>
                       {showPlaces && st.regularCount > 1 && (
-                        <span style={{ fontSize: '0.62rem', fontWeight: 700, color: 'var(--text-muted)', flexShrink: 0, marginTop: '0.15rem' }}>
+                        <span style={{ fontSize: '0.62rem', fontWeight: 700, color: 'var(--text-muted)', flexShrink: 0 }}>
                           {st.regularCount}×
                         </span>
                       )}
@@ -1522,8 +1545,9 @@ export default function NewSchedulePage({ onNavigate }) {
                   </div>
 
                   {!dayReco.day ? (
-                    /* Step 1 — day picker */
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                    /* Step 1 — day picker. Scrolls inside the height inherited
+                       from the students card rather than setting its own. */
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', flex: 1, minHeight: 0, overflowY: 'auto' }}>
                       {/* Say which rule the list is following, so an ordering
                           that is not chronological does not look arbitrary. */}
                       <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginBottom: '0.15rem' }}>
@@ -1616,7 +1640,7 @@ export default function NewSchedulePage({ onNavigate }) {
                           </span>
                         </div>
                       ) : (
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', maxHeight: '300px', overflowY: 'auto' }}>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', flex: 1, minHeight: 0, overflowY: 'auto' }}>
                         {recoTimes.slots.map((sl) => {
                           const picked = timePick === sl.start;
                           const j = sl.join;
@@ -2261,7 +2285,7 @@ export default function NewSchedulePage({ onNavigate }) {
                 </div>
                 <ul style={{ margin: '0.35rem 0 0.35rem 1rem', padding: 0 }}>
                   <li><strong>Kinder</strong> / <strong>Junior</strong>: Day · Start Time · Program (<code>KF1, KF2, K1–K4</code> / <code>JF1, JF2, J1–J4</code>) · Lesson (1–10) · Student · Teacher · Branch · Class Type</li>
-                  <li><strong>Coder</strong>: Day · Start Time · Program (<code>Coder Advance 1</code>, <code>Coder Basic 2</code>, …) · Student · Teacher · Branch · Class Type</li>
+                  <li><strong>Coder</strong>: Day · Start Time · Program (<code>Coder Basic</code>, <code>Coder Advance</code>, …) · Student · Teacher · Branch · Class Type</li>
                 </ul>
                 <div>End time is auto-calculated (Kinder 1.5h, others 2h). Class Type is optional (defaults to Regular). Start Time accepts <code>1:00 PM</code>, <code>13:00</code>, etc.</div>
                 <button

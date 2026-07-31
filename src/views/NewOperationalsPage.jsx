@@ -8,7 +8,7 @@ import { subscribeToInternalClasses } from '../services/internalScheduleService'
 import { saveOperational, saveOperationals, deleteOperational } from '../services/newOperationalsService';
 import { useNewOperationals } from '../hooks/useNewOperationals';
 import { useScheduleRules } from '../hooks/useScheduleRules';
-import { CATEGORIES, simulateSlot } from '../lib/programRules';
+import { CATEGORIES, simulateSlot, CODER_LEVELS } from '../lib/programRules';
 import { SLOT_TYPES, slotTypeMeta } from '../lib/slotTypes';
 import { groupClasses, levelCovers, instructorsAtBranch, overlaps } from '../lib/instructorAvailability';
 import { DAY_NAMES, getWorkingDaysForBranch } from '../utils/constants';
@@ -2227,12 +2227,7 @@ function ScheduleRulesPanel() {
 const SIM_CODES = {
   Kinder: ['KF1', 'KF2', 'K1', 'K2', 'K3', 'K4'],
   Junior: ['JF1', 'JF2', 'J1', 'J2', 'J3', 'J4'],
-  Coder: [
-    'Coder Foundation 1', 'Coder Foundation 2', 'Coder Foundation 3', 'Coder Foundation 4',
-    'Coder Basic 1', 'Coder Basic 2',
-    'Coder Intermediate 1', 'Coder Intermediate 2',
-    'Coder Advance 1', 'Coder Advance 2', 'Coder Advance 3',
-  ],
+  Coder: CODER_LEVELS,
 };
 
 const LESSONS = Array.from({ length: 10 }, (_, i) => String(i + 1));

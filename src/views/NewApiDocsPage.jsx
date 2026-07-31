@@ -40,7 +40,7 @@ const RESOURCES = [
     required: 'name, level, branchName',
     example: {
       name: 'Dave Kingsley',
-      level: 'Coder Advance 1',
+      level: 'Coder Advance',
       branchName: 'Gading Serpong',
       parentName: 'Jane Doe',
       contact: '+62 812-3456-789',

@@ -361,7 +361,7 @@ function buildSpec(origin) {
           properties: {
             id: { type: 'integer', readOnly: true },
             name: { type: 'string' },
-            level: { type: 'string', example: 'Coder Advance 1' },
+            level: { type: 'string', example: 'Coder Advance' },
             branchName: { type: 'string' },
             parentName: { type: 'string' },
             contact: { type: 'string' },

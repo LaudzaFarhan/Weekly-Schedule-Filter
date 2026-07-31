@@ -25,11 +25,46 @@ const FAMILIES = [
 export const CATEGORIES = ['Kinder', 'Junior', 'Coder'];
 
 /**
+ * Coder levels, one per stage.
+ *
+ * Kinder and Junior name their two stages without numbering them, and the
+ * workload and profile screens have always counted Coder the same way — Basic,
+ * Intermediate, Advance. Only the student and program dropdowns carried numbered
+ * variants, and they disagreed with each other: one listed Coder Foundation 1-4
+ * as well, the other did not. Neither Foundation nor Intermediate was ever used.
+ * So the numbering is dropped and this is the single list everything reads.
+ */
+export const CODER_LEVELS = ['Coder Basic', 'Coder Intermediate', 'Coder Advance'];
+
+/** Every level a student can be enrolled at, in curriculum order. */
+export const STUDENT_LEVELS = [
+  'Kinder Foundation',
+  'Kinder Core',
+  'Junior Foundation',
+  'Junior Core',
+  ...CODER_LEVELS,
+];
+
+/**
+ * Fold a legacy numbered Coder level onto its stage: "Coder Advance 2" reads as
+ * "Coder Advance". Records written before the numbering was dropped stay
+ * meaningful, so nothing has to be migrated for the app to behave correctly.
+ * Anything that is not a Coder level is returned untouched.
+ */
+export function normaliseCoderLevel(value) {
+  const raw = String(value || '').trim();
+  if (!/^coder/i.test(raw)) return raw;
+  const stripped = raw.replace(/\s*\d+\s*$/, '').trim();
+  const match = CODER_LEVELS.find((l) => l.toLowerCase() === stripped.toLowerCase());
+  return match || raw;
+}
+
+/**
  * Parse a stored program value into its parts.
  *
  *   "KF1.2"           -> code KF1, lesson 2, family Kinder Foundation
  *   "K2.3"            -> code K2,  lesson 3, family Kinder Core
- *   "Coder Advance 1" -> code Coder Advance 1, no lesson, family Coder
+ *   "Coder Advance"   -> code Coder Advance, no lesson, family Coder
  */
 export function parseProgram(value) {
   const raw = String(value || '').trim();

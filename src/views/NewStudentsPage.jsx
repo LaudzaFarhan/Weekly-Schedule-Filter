@@ -10,21 +10,8 @@ import {
   deleteInternalStudent 
 } from '../services/internalStudentService';
 import Pagination from '../components/ui/Pagination';
+import { STUDENT_LEVELS, normaliseCoderLevel } from '../lib/programRules';
 import { Plus, Pencil, Trash2, Search, X, MapPin, User, GraduationCap, Phone, CheckCircle, HelpCircle, AlertTriangle } from 'lucide-react';
-
-const STUDENT_LEVELS = [
-  'Kinder Foundation',
-  'Kinder Core',
-  'Junior Foundation',
-  'Junior Core',
-  'Coder Basic 1',
-  'Coder Basic 2',
-  'Coder Intermediate 1',
-  'Coder Intermediate 2',
-  'Coder Advance 1',
-  'Coder Advance 2',
-  'Coder Advance 3'
-];
 
 const STUDENTS_PAGE_SIZE = 5;
 
@@ -95,7 +82,9 @@ export default function NewStudentsPage() {
   const filtered = useMemo(() => {
     const s = search.toLowerCase();
     return students.filter((st) => {
-      if (filterLevel !== 'all' && st.level !== filterLevel) return false;
+      // Compared on the folded level so filtering by "Coder Advance" still finds
+      // records written as "Coder Advance 1".
+      if (filterLevel !== 'all' && normaliseCoderLevel(st.level) !== filterLevel) return false;
       if (filterBranch !== 'all' && st.branchName !== filterBranch) return false;
       if (filterStatus !== 'all' && st.status !== filterStatus) return false;
       if (s) {
@@ -148,7 +137,10 @@ export default function NewStudentsPage() {
     setBranchHistory(hist);
     setForm({
       name: st.name || '',
-      level: st.level || STUDENT_LEVELS[0],
+      // A legacy "Coder Advance 2" folds onto "Coder Advance" so the select has
+      // a matching option. Without this the field would render blank and a save
+      // would silently reset the student to the first level in the list.
+      level: normaliseCoderLevel(st.level) || STUDENT_LEVELS[0],
       branchName: st.branchName || '',
       parentName: st.parentName || '',
       contact: st.contact || '',
@@ -352,7 +344,10 @@ export default function NewStudentsPage() {
                   </tr>
                 ) : (
                   paged.map((st) => {
-                    const badgeStyle = getLevelBadgeStyles(st.level);
+                    // Shown folded, so the table and the dropdown agree even
+                    // where a record still carries an old numbered level.
+                    const level = normaliseCoderLevel(st.level);
+                    const badgeStyle = getLevelBadgeStyles(level);
                     return (
                       <tr key={st.id}>
                         <td style={{ fontWeight: 600, color: 'var(--text-main)' }}>
@@ -374,7 +369,7 @@ export default function NewStudentsPage() {
                             gap: '0.3rem'
                           }}>
                             <GraduationCap size={12} />
-                            {st.level}
+                            {level}
                           </span>
                         </td>
                         <td>

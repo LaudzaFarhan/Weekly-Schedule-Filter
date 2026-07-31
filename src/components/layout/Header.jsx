@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { useSchedule } from '../../contexts/ScheduleContext';
 import { useAuth } from '../../contexts/AuthContext';
 import {
@@ -10,6 +10,12 @@ import {
   RefreshCw, Plus, Trash2, Bell, EyeOff, ChevronLeft, ChevronRight, Search, PanelLeft,
   AlertTriangle, AlertCircle, Info, X, CheckCheck, History,
 } from 'lucide-react';
+
+/**
+ * How long the notification panel's exit animation runs, matching the
+ * `notifDropdownOut` duration in globals.css. The panel unmounts after this.
+ */
+const NOTIF_CLOSE_MS = 160;
 
 const SEVERITY = {
   danger: { color: 'var(--danger)', bg: 'rgba(239,68,68,0.1)', Icon: AlertCircle },
@@ -32,6 +38,75 @@ export default function Header({ onToggleSearch, opsMode = 'old', onToggleSideba
   const [newUrl, setNewUrl] = useState('');
   const [newTrialUrl, setNewTrialUrl] = useState('');
   const [showNotifications, setShowNotifications] = useState(false);
+  // The panel stays mounted for the length of its exit animation, so it can
+  // collapse back toward the bell instead of vanishing.
+  const [notifClosing, setNotifClosing] = useState(false);
+  const notifRef = useRef(null);
+  const bellRef = useRef(null);
+  const notifCloseTimer = useRef(null);
+
+  /**
+   * Start the exit animation, then unmount.
+   *
+   * Driven by a timer rather than `animationend` because reduced-motion removes
+   * the animation entirely, and that event would then never fire — leaving the
+   * panel stuck open. Kept in step with the CSS duration.
+   */
+  const closeNotifications = useCallback(({ restoreFocus = false } = {}) => {
+    // The live timer is the record of "already closing", so a second Escape or
+    // a click landing in the same frame cannot queue a second unmount.
+    if (notifCloseTimer.current) return;
+    setNotifClosing(true);
+    notifCloseTimer.current = setTimeout(() => {
+      notifCloseTimer.current = null;
+      setShowNotifications(false);
+      setNotifClosing(false);
+    }, NOTIF_CLOSE_MS);
+    // Escape should hand focus back to the control that opened the panel.
+    if (restoreFocus) bellRef.current?.focus();
+  }, []);
+
+  const toggleNotifications = () => {
+    if (showNotifications && !notifClosing) {
+      closeNotifications();
+      return;
+    }
+    // Reopening mid-close cancels the pending unmount and drops the exit class,
+    // so the panel animates back in rather than disappearing a moment later.
+    clearTimeout(notifCloseTimer.current);
+    notifCloseTimer.current = null;
+    setNotifClosing(false);
+    setShowNotifications(true);
+  };
+
+  // Escape closes it, and so does a press anywhere outside. `pointerdown` rather
+  // than `click` so it starts closing the moment the user reaches elsewhere,
+  // and capture phase so a handler that stops propagation cannot trap it open.
+  useEffect(() => {
+    if (!showNotifications || notifClosing) return undefined;
+
+    const onKeyDown = (e) => {
+      if (e.key === 'Escape') {
+        e.stopPropagation();
+        closeNotifications({ restoreFocus: true });
+      }
+    };
+    const onPointerDown = (e) => {
+      if (!notifRef.current?.contains(e.target) && !bellRef.current?.contains(e.target)) {
+        closeNotifications();
+      }
+    };
+
+    document.addEventListener('keydown', onKeyDown, true);
+    document.addEventListener('pointerdown', onPointerDown, true);
+    return () => {
+      document.removeEventListener('keydown', onKeyDown, true);
+      document.removeEventListener('pointerdown', onPointerDown, true);
+    };
+  }, [showNotifications, notifClosing, closeNotifications]);
+
+  // A pending close must not fire after the header has gone.
+  useEffect(() => () => clearTimeout(notifCloseTimer.current), []);
 
   // New Operations notification feed. Old Operations has no equivalent source,
   // so the bell is only offered there.
@@ -169,11 +244,12 @@ export default function Header({ onToggleSearch, opsMode = 'old', onToggleSideba
           {opsMode === 'new' && (
             <div style={{ position: 'relative' }}>
               <button
-                onClick={() => setShowNotifications(!showNotifications)}
+                ref={bellRef}
+                onClick={toggleNotifications}
                 title={alertCount ? `${alertCount} thing${alertCount === 1 ? '' : 's'} need attention` : 'Nothing needs attention'}
                 aria-label={`Notifications${alertCount ? `, ${alertCount} needing attention` : ''}`}
-                aria-expanded={showNotifications}
-                className={`notif-bell-btn ${showNotifications ? 'notif-bell-open' : ''}`}
+                aria-expanded={showNotifications && !notifClosing}
+                className={`notif-bell-btn ${showNotifications && !notifClosing ? 'notif-bell-open' : ''}`}
                 style={{ position: 'relative', background: 'none', border: 'none', cursor: 'pointer', padding: '4px', display: 'flex' }}
               >
                 <Bell
@@ -194,7 +270,7 @@ export default function Header({ onToggleSearch, opsMode = 'old', onToggleSideba
               </button>
 
               {showNotifications && (
-                <div className="notif-dropdown" style={{
+                <div ref={notifRef} className={`notif-dropdown ${notifClosing ? 'notif-closing' : ''}`} style={{
                   position: 'absolute', top: '100%', right: 0, marginTop: '0.5rem', width: '340px',
                   maxHeight: '70vh', display: 'flex', flexDirection: 'column',
                   background: 'var(--panel-bg)', border: '1px solid var(--border-color)',
@@ -261,7 +337,7 @@ export default function Header({ onToggleSearch, opsMode = 'old', onToggleSideba
                           <button
                             onClick={() => {
                               if (item.page && onNavigate) onNavigate(item.page);
-                              setShowNotifications(false);
+                              closeNotifications();
                             }}
                             title={item.page ? `Go to ${item.page}` : undefined}
                             style={{
@@ -295,7 +371,7 @@ export default function Header({ onToggleSearch, opsMode = 'old', onToggleSideba
                   {/* The full feed, plus the schedule log, live on the
                       Activity page — this dropdown is only the summary. */}
                   <button
-                    onClick={() => { if (onNavigate) onNavigate('activity'); setShowNotifications(false); }}
+                    onClick={() => { if (onNavigate) onNavigate('activity'); closeNotifications(); }}
                     style={{
                       display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.35rem',
                       width: '100%', padding: '0.6rem 1rem', cursor: 'pointer',

@@ -101,6 +101,21 @@ body {
   animation: notifDropdownIn 0.22s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
+/* Dismissing collapses back toward the bell. Faster than opening and on an
+   ease-out curve, so it feels like it gets out of the way rather than lingering.
+   Duration is mirrored by NOTIF_CLOSE_MS in Header.jsx, which owns the unmount. */
+@keyframes notifDropdownOut {
+  from { opacity: 1; transform: scale(1) translateY(0); }
+  to   { opacity: 0; transform: scale(0.96) translateY(-8px); }
+}
+.notif-dropdown.notif-closing {
+  animation: notifDropdownOut 0.16s cubic-bezier(0.4, 0, 1, 1) forwards;
+  /* Clicks must fall through to whatever the user was actually reaching for. */
+  pointer-events: none;
+}
+/* While closing, the rows must not replay their entry animation. */
+.notif-dropdown.notif-closing .notif-item { animation: none; }
+
 /* Rows arrive just behind the panel, staggered by inline animation-delay. */
 @keyframes notifItemIn {
   from { opacity: 0; transform: translateY(-6px); }
@@ -128,6 +143,9 @@ body {
 
 @media (prefers-reduced-motion: reduce) {
   .notif-dropdown, .notif-item, .notif-bell-open .notif-bell-icon { animation: none; }
+  /* No exit animation to watch, so hide at once. The unmount is driven by a
+     timer rather than animationend, so it still happens either way. */
+  .notif-dropdown.notif-closing { animation: none; opacity: 0; }
 }
 
 /* ── Activity page ────────────────────────────────────── */
