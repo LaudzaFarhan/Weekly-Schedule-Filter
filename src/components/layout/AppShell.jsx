@@ -180,7 +180,7 @@ export default function AppShell() {
             onToggleSidebar={toggleSidebar}
           />
           <main className="dashboard-container">
-            <Header onToggleSearch={() => setIsSearchOpen(true)} opsMode={opsMode} onToggleSidebar={toggleSidebar} sidebarCollapsed={sidebarCollapsed} />
+            <Header onToggleSearch={() => setIsSearchOpen(true)} opsMode={opsMode} onToggleSidebar={toggleSidebar} sidebarCollapsed={sidebarCollapsed} onNavigate={handleNavigate} />
             <div className={`dashboard-views ${opsMode === 'new' ? 'new-ops-anim' : ''}`}>
               <PageComponent onNavigate={handleNavigate} params={pageParams} />
             </div>

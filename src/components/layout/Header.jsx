@@ -1,11 +1,23 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useSchedule } from '../../contexts/ScheduleContext';
 import { useAuth } from '../../contexts/AuthContext';
-import { RefreshCw, Plus, Trash2, Bell, EyeOff, ChevronLeft, ChevronRight, Search, PanelLeft } from 'lucide-react';
+import {
+  subscribeToNotifications, readDismissed, dismissNotification, dismissAll, visibleItems,
+} from '../../services/newNotificationService';
+import {
+  RefreshCw, Plus, Trash2, Bell, EyeOff, ChevronLeft, ChevronRight, Search, PanelLeft,
+  AlertTriangle, AlertCircle, Info, X, CheckCheck,
+} from 'lucide-react';
 
-export default function Header({ onToggleSearch, opsMode = 'old', onToggleSidebar, sidebarCollapsed }) {
+const SEVERITY = {
+  danger: { color: 'var(--danger)', bg: 'rgba(239,68,68,0.1)', Icon: AlertCircle },
+  warning: { color: '#b45309', bg: 'rgba(245,158,11,0.12)', Icon: AlertTriangle },
+  info: { color: 'var(--primary-blue)', bg: 'rgba(59,130,246,0.1)', Icon: Info },
+};
+
+export default function Header({ onToggleSearch, opsMode = 'old', onToggleSidebar, sidebarCollapsed, onNavigate }) {
   const {
     branches, updateBranches,
     activeBranchId, changeActiveBranch,
@@ -20,6 +32,25 @@ export default function Header({ onToggleSearch, opsMode = 'old', onToggleSideba
   const [newUrl, setNewUrl] = useState('');
   const [newTrialUrl, setNewTrialUrl] = useState('');
   const [showNotifications, setShowNotifications] = useState(false);
+
+  // New Operations notification feed. Old Operations has no equivalent source,
+  // so the bell is only offered there.
+  const [feed, setFeed] = useState(null);
+  const [feedError, setFeedError] = useState(null);
+  const [dismissed, setDismissed] = useState({});
+
+  useEffect(() => {
+    if (opsMode !== 'new') return undefined;
+    setDismissed(readDismissed());
+    const unsub = subscribeToNotifications(
+      (data) => { setFeed(data); setFeedError(null); },
+      (err) => setFeedError(err.message)
+    );
+    return () => unsub();
+  }, [opsMode]);
+
+  const alerts = useMemo(() => visibleItems(feed, dismissed), [feed, dismissed]);
+  const alertCount = alerts.length;
 
   const [branchPage, setBranchPage] = useState(0);
   const branchesPerPage = 3;
@@ -134,17 +165,128 @@ export default function Header({ onToggleSearch, opsMode = 'old', onToggleSideba
               <Search size={20} style={{ color: '#cbd5e1' }} />
             </button>
           )}
-          {opsMode === 'old' && (
+          {opsMode === 'new' && (
             <div style={{ position: 'relative' }}>
-              <button onClick={() => setShowNotifications(!showNotifications)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '4px', display: 'flex' }}>
-                <Bell size={20} style={{ color: '#cbd5e1' }} />
+              <button
+                onClick={() => setShowNotifications(!showNotifications)}
+                title={alertCount ? `${alertCount} thing${alertCount === 1 ? '' : 's'} need attention` : 'Nothing needs attention'}
+                aria-label={`Notifications${alertCount ? `, ${alertCount} needing attention` : ''}`}
+                aria-expanded={showNotifications}
+                style={{ position: 'relative', background: 'none', border: 'none', cursor: 'pointer', padding: '4px', display: 'flex' }}
+              >
+                <Bell size={20} style={{ color: alertCount ? 'var(--primary-blue)' : 'var(--text-muted)' }} />
+                {alertCount > 0 && (
+                  <span style={{
+                    position: 'absolute', top: 0, right: 0, minWidth: '16px', height: '16px',
+                    borderRadius: '99px', background: 'var(--danger)', color: '#fff',
+                    fontSize: '0.6rem', fontWeight: 700, lineHeight: '16px', textAlign: 'center',
+                    padding: '0 3px',
+                  }}>
+                    {alertCount}
+                  </span>
+                )}
               </button>
+
               {showNotifications && (
-                <div style={{ position: 'absolute', top: '100%', right: 0, marginTop: '0.5rem', width: '260px', background: 'var(--panel-bg)', border: '1px solid var(--border-color)', borderRadius: '10px', boxShadow: '0 8px 24px rgba(0,0,0,0.1)', zIndex: 100, overflow: 'hidden' }}>
-                  <div style={{ padding: '0.75rem 1rem', borderBottom: '1px solid var(--border-color)', fontWeight: 600, fontSize: '0.85rem' }}>Notifications</div>
-                  <div style={{ padding: '1.5rem 1rem', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.8rem' }}>
-                    No notifications yet
+                <div style={{
+                  position: 'absolute', top: '100%', right: 0, marginTop: '0.5rem', width: '340px',
+                  maxHeight: '70vh', display: 'flex', flexDirection: 'column',
+                  background: 'var(--panel-bg)', border: '1px solid var(--border-color)',
+                  borderRadius: '12px', boxShadow: '0 12px 32px rgba(0,0,0,0.18)', zIndex: 100, overflow: 'hidden',
+                }}>
+                  <div style={{
+                    padding: '0.75rem 1rem', borderBottom: '1px solid var(--border-color)',
+                    display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem',
+                  }}>
+                    <span style={{ fontWeight: 600, fontSize: '0.85rem' }}>
+                      Needs attention{alertCount > 0 ? ` (${alertCount})` : ''}
+                    </span>
+                    {alertCount > 0 && (
+                      <button
+                        onClick={() => setDismissed(dismissAll(alerts, feed?.today))}
+                        title="Dismiss all for today"
+                        style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--primary-blue)', fontSize: '0.72rem', fontWeight: 600 }}
+                      >
+                        <CheckCheck size={13} /> Clear
+                      </button>
+                    )}
                   </div>
+
+                  <div style={{ overflowY: 'auto', flex: 1 }}>
+                    {feedError && (
+                      <div style={{ padding: '1rem', fontSize: '0.78rem', color: 'var(--danger)' }}>
+                        Could not load notifications: {feedError}
+                      </div>
+                    )}
+                    {!feedError && !feed && (
+                      <div style={{ padding: '1.5rem 1rem', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.8rem' }}>
+                        Checking…
+                      </div>
+                    )}
+                    {!feedError && feed && alertCount === 0 && (
+                      <div style={{ padding: '1.5rem 1rem', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.8rem' }}>
+                        Nothing needs attention. All students allocated, no classes over capacity.
+                      </div>
+                    )}
+
+                    {alerts.map((item) => {
+                      const meta = SEVERITY[item.severity] || SEVERITY.info;
+                      const { Icon } = meta;
+                      return (
+                        <div
+                          key={item.id}
+                          style={{
+                            display: 'flex', gap: '0.6rem', padding: '0.7rem 1rem',
+                            borderBottom: '1px solid var(--border-color)', alignItems: 'flex-start',
+                          }}
+                        >
+                          <span aria-hidden="true" style={{
+                            flexShrink: 0, width: '26px', height: '26px', borderRadius: '8px',
+                            background: meta.bg, color: meta.color,
+                            display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                          }}>
+                            <Icon size={14} />
+                          </span>
+
+                          <button
+                            onClick={() => {
+                              if (item.page && onNavigate) onNavigate(item.page);
+                              setShowNotifications(false);
+                            }}
+                            title={item.page ? `Go to ${item.page}` : undefined}
+                            style={{
+                              flex: 1, minWidth: 0, textAlign: 'left', background: 'none',
+                              border: 'none', padding: 0, cursor: item.page ? 'pointer' : 'default',
+                            }}
+                          >
+                            <span style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-main)' }}>
+                              {item.title}
+                            </span>
+                            {item.detail && (
+                              <span style={{ display: 'block', fontSize: '0.72rem', color: 'var(--text-secondary)', marginTop: '0.1rem', lineHeight: 1.35 }}>
+                                {item.detail}
+                              </span>
+                            )}
+                          </button>
+
+                          <button
+                            onClick={() => setDismissed(dismissNotification(item.id, feed?.today))}
+                            title="Dismiss for today"
+                            aria-label={`Dismiss: ${item.title}`}
+                            style={{ flexShrink: 0, background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: '0.1rem', lineHeight: 0 }}
+                          >
+                            <X size={13} />
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {feed?.generatedAt && (
+                    <div style={{ padding: '0.5rem 1rem', borderTop: '1px solid var(--border-color)', fontSize: '0.68rem', color: 'var(--text-muted)' }}>
+                      Checked {new Date(feed.generatedAt).toLocaleTimeString()} · refreshes every minute
+                    </div>
+                  )}
                 </div>
               )}
             </div>
