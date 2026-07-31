@@ -40,7 +40,7 @@ const navItems = [
  * falls back to the Schedule view, so Schedule is the one that highlights.
  */
 const NEW_OPS_PAGES = [
-  'home', 'dashboard', 'operationals', 'students', 'instructors',
+  'home', 'dashboard', 'operationals', 'students', 'report-cards', 'instructors',
   'crm', 'workload', 'leave', 'trial-availability', 'activity', 'api',
   'progress-kinder', 'progress-junior', 'progress-coder',
 ];
@@ -193,6 +193,16 @@ export default function Sidebar({ currentPage, onNavigate, onToggleSearch, opsMo
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
                 <Users size={20} />
                 Students
+              </div>
+            </button>
+            <button
+              className={`nav-item ${currentPage === 'report-cards' ? 'active' : ''}`}
+              onClick={() => onNavigate('report-cards')}
+              style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                <ClipboardList size={20} />
+                Report Cards
               </div>
             </button>
             <button

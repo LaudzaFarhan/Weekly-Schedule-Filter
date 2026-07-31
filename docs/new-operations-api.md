@@ -115,6 +115,8 @@ placeholder.
 | `/api/new/leave` | GET POST PUT DELETE | Instructor leave |
 | `/api/new/activity` | GET POST DELETE | Audit trail |
 | `/api/new/student-history` | GET POST DELETE | Student branch moves |
+| `/api/new/student-evaluations` | GET POST PUT DELETE | Daily five-competency evaluations |
+| `/api/new/student-terms` | GET POST PUT DELETE | Term subscriptions — which of T1–T4 are paid |
 | `/api/new/workload` | GET | **Derived** — instructor hours |
 | `/api/new/trial-availability` | GET | **Derived** — bookable slots + reasons |
 
@@ -135,6 +137,8 @@ Every list endpoint accepts `search` (partial, case-insensitive) and `limit`
 | `leave` | `instructor`, `from`, `to`, `status` |
 | `operationals` | `branch`, `day`, `openOnly` |
 | `activity` | `source`, `action` |
+| `student-evaluations` | `studentId`, `instructorName`, `from`, `to` |
+| `student-terms` | `studentId`, `year` |
 | `workload` | `branch`, `day`, `instructor` |
 | `trial-availability` | `branch`, `day`, `category` |
 
@@ -301,6 +305,96 @@ Before calling the bulk form:
 | `404` | The `?id=` given matches no student record |
 | `500` | The wipe failed or passed its 30-second limit. It is rolled back, so nothing is deleted |
 
+### Evaluation — `/api/new/student-evaluations`
+
+One record per student per calendar day. `POST` upserts on `(studentId, date)`, so
+re-posting a day **replaces** that day rather than adding a second record.
+
+```json
+{
+  "studentId": 42,
+  "date": "2026-08-03",
+  "lessonTopic": "Loops and repetition",
+  "concept": 4,
+  "building": 5,
+  "problemSolving": 4,
+  "focus": 3,
+  "attitude": 5,
+  "instructorNotes": "Worked through the repeat block on his own.",
+  "instructorName": "Angel"
+}
+```
+
+Required: `studentId` and all five competency scores — `concept`, `building`,
+`problemSolving`, `focus`, `attitude`. Each is an integer from 1 to 5.
+
+- **Scores are rejected, never clamped.** A missing, non-integer or out-of-range
+  score is a `400` naming the competency and carrying the value received. Nothing
+  is rounded into range and nothing is defaulted, because a report card a parent
+  keeps must not hold a score no instructor entered. If a score is rejected, ask
+  for the real rating instead of sending a corrected guess.
+- `date` is optional. Omitted or blank, the server's current calendar date is
+  used. A shape that is not `YYYY-MM-DD`, and a shaped-but-unreal date such as
+  `2026-02-30`, are both a `400`. The API field is `date`; it is stored in the
+  `eval_date` column, which is what list ordering and `from`/`to` compare against.
+- `lessonTopic`, `instructorNotes` and `instructorName` are optional.
+  `instructorName` is free text of at most 255 characters and is not checked
+  against `/api/new/instructors`, so a record naming a departed instructor stays
+  editable.
+- Lists come back oldest first, by date and then by id. `search` matches the
+  lesson topic, the instructor remarks and the instructor name.
+- `PUT` revalidates the whole record, so it is a replace and not a patch: an
+  omitted score is a `400`, not "leave it as it was". `DELETE ?id=` removes one
+  record and there is no bulk form.
+
+| Status | When |
+|---|---|
+| `400` | A competency score missing, non-integer or outside 1–5; `studentId` not a positive integer; an unreal `date`; a `from`/`to` that is not `YYYY-MM-DD`. Nothing is written and no records are returned |
+| `404` | The `?id=` or body `id` matches no evaluation. Nothing is changed |
+| `409` | A `PUT` would move a record onto a date the same student already holds. Both records keep their values — open the existing day to edit it |
+
+### Student term — `/api/new/student-terms`
+
+One row per student per term per year. `POST` upserts on
+`(studentId, year, termNumber)`, so marking a term paid is one request whether or
+not the row already exists.
+
+```json
+{
+  "studentId": 42,
+  "year": 2026,
+  "termNumber": 2,
+  "paid": true,
+  "paidAt": "2026-08-01",
+  "note": "Parent asked for a receipt"
+}
+```
+
+Required: `studentId`, `year` (2000–2100), `termNumber` (1–4). A value outside
+those bounds is a `400` naming the field and its bounds, and no row is written.
+
+- **Omitting `paid` is not the same as `paid: false`.** Only the keys a payload
+  actually carries are written, so a request that leaves `paid` out says nothing
+  about payment and leaves the stored flag as it was; send `paid: false` when you
+  mean unpaid. Treating an absent key as false would let a note-only edit flip a
+  settled subscription to unpaid, and an administrator would then chase money
+  that had already arrived. A first insert with no `paid` key stores `false`.
+- `paidAt` and `note` follow the same rule: absent keeps the stored value,
+  explicit `null` clears it.
+- `paid` is read strictly — `true`/`false`, `1`/`0`, or the strings `"true"`,
+  `"false"`, `"1"`, `"0"`. Anything else is a `400`, so `"false"` can never
+  arrive as true.
+- The API field `year` is stored in the `term_year` column.
+- There is no current-term or start-term field. Both are derived on read from the
+  term rows — the start term is the earliest row, the current term is the latest
+  **paid** row — so a student with two current terms cannot be stored.
+- No price, currency or invoice reference is held here or in the table. Billing is
+  out of scope.
+- `PUT` edits only `paid`, `paidAt` and `note`, by body `id`, and needs at least
+  one of the three; the identifying triple is not editable, so a `PUT` can never
+  move a row onto another student's term. Re-filing a term is a `POST` of the new
+  triple plus a `DELETE` of the old row.
+
 ### Instructor — `/api/new/instructors`
 
 ```json
@@ -421,6 +515,29 @@ your real timetable; without it you get the standard trial grid.
   well, so those two endpoints may not match what the web UI displays.
 - **The key is a single shared secret** with full read and write access,
   including delete.
+
+### Evaluation and term rows outlive the student
+
+Deleting a student leaves that student's `student-evaluations` and `student-terms`
+rows behind as **orphans**. Both hold `studentId` as a plain integer with no
+foreign key, because the application's database user does not own
+`internal_students` and so cannot create a constraint that references it — the
+same reason `student-history` behaves this way.
+
+- Neither single-record `DELETE /api/new/students?id=` nor the bulk wipe touches
+  the two tables.
+- The orphans are unreachable through the web UI, which lists only students
+  returned by `/api/new/students`. They stay readable through the API by
+  `studentId`.
+- Re-registering a student produces a **new** id, so the old evaluations do not
+  reattach to the new record.
+- The bulk wipe keeps its existing contract unchanged by this feature: the same
+  three data sets — students, branch history, live lesson progress — and the same
+  three counts, `deletedStudents`, `deletedHistory`, `deletedProgress`. Evaluations
+  and terms are deliberately **not** added to it, because changing that response
+  shape belongs to the `student-data-bulk-wipe` specification and its tests assert
+  the three counts. Clear stale rows with `DELETE /api/new/student-evaluations?id=`
+  and `DELETE /api/new/student-terms?id=`, one row per request.
 
 ---
 

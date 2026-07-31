@@ -13,7 +13,14 @@ export default defineConfig({
     },
   },
   test: {
-    environment: 'jsdom',
+    // `node` is the default because only the component/page tests need a DOM.
+    // A jsdom environment costs roughly 1-2s per test file to construct, so the
+    // pure-logic tests (src/lib, src/utils, src/services, src/app/api) used to
+    // pay for a document they never touched. The files that do render opt in
+    // with a `// @vitest-environment jsdom` docblock at the top of the file.
+    // (vitest 4 removed `environmentMatchGlobs`, so the docblock is the
+    // supported per-file mechanism.)
+    environment: 'node',
     globals: true,
     setupFiles: ['./vitest.setup.js'],
     include: ['src/**/*.{test,spec}.{js,jsx}'],

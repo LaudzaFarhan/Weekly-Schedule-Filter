@@ -1,3 +1,7 @@
+// @vitest-environment jsdom
+// This file renders components, so it opts in to a DOM. The suite default is
+// `node` (vitest.config.mjs) because building jsdom per file is the single
+// largest fixed cost in the run.
 /**
  * Property test for the wipe dialog's enablement gates.
  *
@@ -225,12 +229,23 @@ describe('WipeStudentsDialog enablement', () => {
           }
         },
       ),
-      // Fewer runs than the pure-function properties in `src/lib/__tests__`:
-      // every example here mounts the dialog in jsdom and drives it with real
-      // user-event interactions, so a run costs ~100x a pure call. The
-      // generators below are weighted so the states the coverage counters
-      // require are still reached within this many examples.
-      { numRuns: 20 },
+      {
+        // Fewer runs than the pure-function properties in `src/lib/__tests__`:
+        // every example here mounts the dialog in jsdom and drives it with real
+        // user-event interactions, so a run costs ~100x a pure call. Lowered
+        // from 20 to 12 because this file is one of the two that dominate the
+        // suite's wall time.
+        numRuns: 12,
+        // Run first and counted toward `numRuns`: these pin the armed, running,
+        // not-armed and no-export states the counters below require, so the
+        // smaller budget cannot leave one at zero. The other nine examples are
+        // still generated.
+        examples: [
+          [{ run: true, outcome: 'success', elapsedMs: 0 }, WIPE_CONFIRMATION_PHRASE, 12, false],
+          [{ run: true, outcome: 'success', elapsedMs: 0 }, 'DELETE ALL STUDENT', 12, true],
+          [{ run: false, outcome: 'none', elapsedMs: 0 }, '', 0, false],
+        ],
+      },
     );
 
     expect(seen.exportDone).toBeGreaterThan(0);
@@ -326,7 +341,9 @@ describe('WipeStudentsDialog frozen count', () => {
       // Fewer runs than the pure-function properties in `src/lib/__tests__`:
       // each example mounts the dialog in jsdom and rerenders it up to six
       // times, so examples here are orders of magnitude more expensive.
-      { numRuns: 20 },
+      // Lowered from 20 to 12 for suite wall time; this property has no
+      // coverage counters, every example exercises the same single claim.
+      { numRuns: 12 },
     );
   }, 60000);
 });
@@ -397,12 +414,22 @@ describe('WipeStudentsDialog cancel and reopen', () => {
           }
         },
       ),
-      // Fewer runs than the pure-function properties in `src/lib/__tests__`:
-      // each example mounts the dialog twice and runs an export plus real
-      // typing, so examples here are orders of magnitude more expensive. The
-      // cancel route is drawn from `fc.constantFrom` over all three routes so
-      // each one is still exercised within this many examples.
-      { numRuns: 20 },
+      {
+        // Fewer runs than the pure-function properties in `src/lib/__tests__`:
+        // each example mounts the dialog twice and runs an export plus real
+        // typing, so examples here are orders of magnitude more expensive.
+        // Lowered from 20 to 12 for suite wall time.
+        numRuns: 12,
+        // Run first and counted toward `numRuns`: one per cancel route, each
+        // with a matching phrase, so all four counters below are reached by
+        // construction rather than by a lucky draw over 12 examples. The other
+        // nine examples are still generated.
+        examples: [
+          [WIPE_CONFIRMATION_PHRASE, 'control', 3],
+          [WIPE_CONFIRMATION_PHRASE, 'escape', 3],
+          [WIPE_CONFIRMATION_PHRASE, 'backdrop', 3],
+        ],
+      },
     );
 
     expect(seen.control).toBeGreaterThan(0);
@@ -494,12 +521,22 @@ describe('WipeStudentsDialog focus trap', () => {
           }
         },
       ),
-      // Fewer runs than the pure-function properties in `src/lib/__tests__`:
-      // each example mounts the dialog and issues up to eight real Tab
-      // presses through user-event, so examples here are orders of magnitude
-      // more expensive. The Tab sequences are generated long enough to reach
-      // both ends of the focusable set within this many examples.
-      { numRuns: 20 },
+      {
+        // Fewer runs than the pure-function properties in `src/lib/__tests__`:
+        // each example mounts the dialog and issues up to eight real Tab
+        // presses through user-event, so examples here are orders of magnitude
+        // more expensive. Lowered from 20 to 12 for suite wall time.
+        numRuns: 12,
+        // Run first and counted toward `numRuns`: six same-direction Tab
+        // presses over a focusable set of at most four controls must stand on
+        // every position in the set, so each of these reaches one end of it.
+        // That pins both wrap counters below at the smaller run count; the
+        // other ten examples are still generated.
+        examples: [
+          [true, [false, false, false, false, false, false], 3],
+          [true, [true, true, true, true, true, true], 3],
+        ],
+      },
     );
 
     // Both wrap directions must actually have been exercised.

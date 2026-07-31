@@ -1,3 +1,7 @@
+// @vitest-environment jsdom
+// This file renders components, so it opts in to a DOM. The suite default is
+// `node` (vitest.config.mjs) because building jsdom per file is the single
+// largest fixed cost in the run.
 /**
  * Example-based unit tests for the wipe dialog's content and its edge branches.
  *

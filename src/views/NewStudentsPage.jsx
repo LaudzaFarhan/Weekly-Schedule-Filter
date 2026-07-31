@@ -26,7 +26,8 @@ import {
   resolveAuditUser,
 } from '../lib/wipeReporting';
 import { STUDENT_LEVELS, normaliseCoderLevel } from '../lib/programRules';
-import { Plus, Pencil, Trash2, Search, X, MapPin, User, GraduationCap, Phone, CheckCircle, HelpCircle, AlertTriangle } from 'lucide-react';
+import { filterStudents } from '../lib/studentFilter';
+import { Plus, Pencil, Trash2, FileText, Search, X, MapPin, User, GraduationCap, Phone, CheckCircle, HelpCircle, AlertTriangle } from 'lucide-react';
 
 const STUDENTS_PAGE_SIZE = 5;
 
@@ -51,7 +52,16 @@ function appendStudentBranchHistory(id, branch) {
   return next;
 }
 
-export default function NewStudentsPage() {
+/**
+ * The Student Database screen.
+ *
+ * @param {Object} [props]
+ * @param {(page: string, params?: object) => void} [props.onNavigate] supplied by
+ *   `AppShell` to the active page. Optional here: the page renders and every other
+ *   control works without it, so the row's report control simply does nothing when it
+ *   is absent rather than throwing. Req 6.4
+ */
+export default function NewStudentsPage({ onNavigate } = {}) {
   const { enabledBranches, branches, users } = useSchedule();
   const { user } = useAuth();
   const { showToast } = useToast();
@@ -112,26 +122,23 @@ export default function NewStudentsPage() {
 
   const branchList = [...new Set([...(enabledBranches || []).map(b => b.name), ...(branches || []).map(b => b.name)])].filter(Boolean);
 
-  // Filters & Search
-  const filtered = useMemo(() => {
-    const s = search.toLowerCase();
-    return students.filter((st) => {
-      // Compared on the folded level so filtering by "Coder Advance" still finds
-      // records written as "Coder Advance 1".
-      if (filterLevel !== 'all' && normaliseCoderLevel(st.level) !== filterLevel) return false;
-      if (filterBranch !== 'all' && st.branchName !== filterBranch) return false;
-      if (filterStatus !== 'all' && st.status !== filterStatus) return false;
-      if (s) {
-        const match =
-          (st.name && st.name.toLowerCase().includes(s)) ||
-          (st.parentName && st.parentName.toLowerCase().includes(s)) ||
-          (st.contact && st.contact.toLowerCase().includes(s)) ||
-          (st.remarks && st.remarks.toLowerCase().includes(s));
-        if (!match) return false;
-      }
-      return true;
-    });
-  }, [students, search, filterLevel, filterBranch, filterStatus]);
+  // Filters & Search.
+  //
+  // The predicate lives in `src/lib/studentFilter.js` and is shared with the report
+  // cards Student_Selector_Panel, so the two screens cannot filter differently
+  // (Req 6.8). It is a transcription of the expression that used to sit here —
+  // folded-level comparison, strict branch and status equality, and a lower-cased
+  // `includes` search across name, parent name, contact and remarks — and it returns a
+  // subset in the input's order, so the sort and the paging below are unchanged.
+  const filtered = useMemo(
+    () => filterStudents(students, {
+      search,
+      level: filterLevel,
+      branch: filterBranch,
+      status: filterStatus,
+    }),
+    [students, search, filterLevel, filterBranch, filterStatus],
+  );
 
   const sortedFiltered = useMemo(() => {
     return [...filtered].sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
@@ -544,7 +551,8 @@ export default function NewStudentsPage() {
                   <th style={{ width: '220px' }}>Parent Contact</th>
                   <th style={{ width: '100px', textAlign: 'center' }}>Status</th>
                   <th>Remarks</th>
-                  <th style={{ width: '100px', textAlign: 'center' }}>Actions</th>
+                  {/* 140px rather than 100px: the cell holds three icon buttons now. */}
+                  <th style={{ width: '140px', textAlign: 'center' }}>Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -645,6 +653,24 @@ export default function NewStudentsPage() {
                               }}
                             >
                               <Trash2 size={14} />
+                            </button>
+                            {/*
+                              The third action: this student's report card. The accessible
+                              name carries the student's name, so a screen reader hears
+                              which row's report card this opens rather than "button"
+                              three times (Req 6.3). `onNavigate` is optional, so a page
+                              rendered without it stays inert instead of throwing (Req 6.4).
+                            */}
+                            <button
+                              onClick={() => onNavigate?.('report-cards', { studentId: st.id, studentName: st.name })}
+                              aria-label={`Report card for ${st.name}`}
+                              title="Open Report Card"
+                              style={{
+                                background: 'transparent', border: '1px solid var(--border-color)', cursor: 'pointer',
+                                padding: '0.3rem', borderRadius: '6px', color: 'var(--text-secondary)', display: 'flex'
+                              }}
+                            >
+                              <FileText size={14} />
                             </button>
                           </div>
                         </td>

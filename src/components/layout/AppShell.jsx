@@ -28,6 +28,7 @@ import NewLeavePage from '@/views/NewLeavePage';
 import NewSchedulePage from '@/views/NewSchedulePage';
 import NewOperationalsPage from '@/views/NewOperationalsPage';
 import NewStudentsPage from '@/views/NewStudentsPage';
+import NewStudentReportCardsPage from '@/views/NewStudentReportCardsPage';
 import NewInstructorsPage from '@/views/NewInstructorsPage';
 import NewCrmPage from '@/views/NewCrmPage';
 import NewApiDocsPage from '@/views/NewApiDocsPage';
@@ -125,6 +126,8 @@ export default function AppShell() {
       PageComponent = NewOperationalsPage;
     } else if (currentPage === 'students') {
       PageComponent = NewStudentsPage;
+    } else if (currentPage === 'report-cards') {
+      PageComponent = NewStudentReportCardsPage;
     } else if (currentPage === 'instructors') {
       PageComponent = NewInstructorsPage;
     } else if (currentPage === 'crm') {

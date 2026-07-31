@@ -1,3 +1,7 @@
+// @vitest-environment jsdom
+// This file renders components, so it opts in to a DOM. The suite default is
+// `node` (vitest.config.mjs) because building jsdom per file is the single
+// largest fixed cost in the run.
 /**
  * Page-level property tests for the student bulk wipe.
  *
@@ -242,12 +246,28 @@ describe('NewStudentsPage wipe control gating', () => {
           cleanup();
         }
       }),
-      // Fewer runs than the pure-function properties in `src/lib/__tests__`:
-      // every example mounts the whole page in jsdom, so an example here costs
-      // orders of magnitude more than a pure call. The generators above are
-      // weighted so each role and registry case the coverage counters require
-      // is still reached within this many examples.
-      { numRuns: 20 },
+      {
+        // Fewer runs than the pure-function properties in `src/lib/__tests__`:
+        // every example mounts the whole page in jsdom, so an example here costs
+        // orders of magnitude more than a pure call. Lowered from 20 to 10
+        // deliberately — this file is the slowest in the suite and the run is
+        // dominated by it, not by the pure properties.
+        numRuns: 10,
+        // Coverage, not convenience. `examples` are run first and count toward
+        // `numRuns`, so these three pin every case the counters below require
+        // (Admin / non-Admin, missing email, unrecorded email, differing letter
+        // case, empty / non-empty registry) into the smaller budget instead of
+        // leaving them to a weighted draw that misses one roughly one run in
+        // six. The remaining seven examples are still generated.
+        examples: [
+          // Admin, presented in a differing letter case, over a non-empty registry.
+          [[{ 'admin@lab.id': 'Admin', 'teacher@lab.id': 'Instructor' }, 'Admin@Lab.id'], 3],
+          // No signed-in user at all, over an already-empty registry.
+          [[{ 'admin@lab.id': 'Admin' }, null], 0],
+          // A signed-in email the map does not record.
+          [[{ 'teacher@lab.id': 'Instructor' }, 'ghost@lab.id'], 2],
+        ],
+      },
     );
 
     expect(seen.admin).toBeGreaterThan(0);
@@ -367,13 +387,22 @@ describe('NewStudentsPage wipe and filters', () => {
           }
         },
       ),
-      // Fewer runs than the pure-function properties in `src/lib/__tests__`:
-      // every example mounts the whole page, sets up to four filters and
-      // drives a full wipe through real user interactions, so examples here
-      // cost orders of magnitude more than a pure call. `filterCombination`
-      // draws the all-defaults case often enough that both sides of the
-      // disclosure are still covered within this many examples.
-      { numRuns: 20 },
+      {
+        // Fewer runs than the pure-function properties in `src/lib/__tests__`:
+        // every example mounts the whole page, sets up to four filters and
+        // drives a full wipe through real user interactions, so examples here
+        // cost orders of magnitude more than a pure call. Lowered from 20 to 10
+        // because this file dominates the suite's wall time.
+        numRuns: 10,
+        // Run first and counted toward `numRuns`: these two pin both sides of
+        // the disclosure (a narrowed view and an unnarrowed one) so the
+        // counters below cannot go unvisited at the smaller run count. The
+        // other eight examples are still generated.
+        examples: [
+          [{ search: '', level: 'all', branch: 'all', status: 'all' }],
+          [{ search: 'stu', level: 'all', branch: 'all', status: 'all' }],
+        ],
+      },
     );
 
     expect(seen.filtered).toBeGreaterThan(0);
