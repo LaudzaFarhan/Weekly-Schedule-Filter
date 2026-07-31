@@ -4,31 +4,23 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useSchedule } from '../contexts/ScheduleContext';
 import { useToast } from '../components/ui/Toast';
 import { subscribeToInternalInstructors } from '../services/internalInstructorService';
-import {
-  subscribeToInternalClasses, updateInternalClass,
-  createInternalClass, deleteInternalClass,
-} from '../services/internalScheduleService';
-import { subscribeToLeaves } from '../services/newLeaveService';
-import { logActivity } from '../services/newActivityService';
-import { useAuth } from '../contexts/AuthContext';
+import { subscribeToInternalClasses } from '../services/internalScheduleService';
 import { saveOperational, saveOperationals, deleteOperational } from '../services/newOperationalsService';
 import { useNewOperationals } from '../hooks/useNewOperationals';
 import { useScheduleRules } from '../hooks/useScheduleRules';
 import { CATEGORIES, simulateSlot } from '../lib/programRules';
 import { SLOT_TYPES, slotTypeMeta } from '../lib/slotTypes';
 import { groupClasses, levelCovers, instructorsAtBranch, overlaps } from '../lib/instructorAvailability';
-import ScheduleGrid from '../components/operations/ScheduleGrid';
 import { DAY_NAMES, getWorkingDaysForBranch } from '../utils/constants';
-import { MapPin, Save, Building2, Clock, X, Plus, Trash2, Copy, CalendarClock, AlertTriangle, Wand2, Coffee, ShieldCheck, FlaskConical, CheckCircle2, LayoutGrid } from 'lucide-react';
+import { MapPin, Save, Building2, Clock, X, Plus, Trash2, Copy, CalendarClock, AlertTriangle, Wand2, Coffee, ShieldCheck, FlaskConical, CheckCircle2 } from 'lucide-react';
 
 /** Resolve saved per-day operating hours for a branch: { Monday: {start,end}, ... } */
 export function resolveBranchHours(branch) {
   return (branch && branch.operatingHours) || {};
 }
 
-// Slot kinds live in their own module so the schedule grid can read them
-// without importing this page. Re-exported here for existing callers.
-export { SLOT_TYPES, slotTypeMeta };
+// Slot kinds live in src/lib/slotTypes.js. This page no longer re-exports them:
+// every consumer now imports from there directly.
 
 /**
  * Resolve a branch's manual class operation plan:
@@ -170,11 +162,7 @@ export default function NewOperationalsPage() {
   // Operations does not use the Google Sheets config that Old Operations reads.
   const { branches } = useSchedule();
   const { showToast } = useToast();
-  // Moving a class is logged against whoever did it.
-  const { user } = useAuth();
   const { rules, loading: rulesLoading, error: rulesError, isEmpty } = useNewOperationals();
-  // Program combination + seat capacity rules, for the grid's occupancy chips.
-  const { rules: scheduleRules } = useScheduleRules();
 
   // Editable drafts: open days per branch, and operating hours per branch/day.
   const [draft, setDraft] = useState({});            // branchId -> Set(dayName)
@@ -183,9 +171,8 @@ export default function NewOperationalsPage() {
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [instructors, setInstructors] = useState([]);
-  // Real bookings and leave, so the grid can tell who is genuinely free.
+  // Real bookings, so the capacity check knows who is already teaching.
   const [classes, setClasses] = useState([]);
-  const [leaves, setLeaves] = useState([]);
 
   // Day setup editor state (operating hours + class operation slots)
   const [editor, setEditor] = useState(null);        // { branchId, day, branchName }
@@ -325,14 +312,6 @@ export default function NewOperationalsPage() {
     const unsub = subscribeToInternalClasses(
       (data) => setClasses(data || []),
       () => { /* the grid falls back to plan-only knowledge */ }
-    );
-    return () => unsub();
-  }, []);
-
-  useEffect(() => {
-    const unsub = subscribeToLeaves(
-      (data) => setLeaves(data || []),
-      () => { /* leave is optional context */ }
     );
     return () => unsub();
   }, []);
@@ -578,231 +557,6 @@ export default function NewOperationalsPage() {
     }
   };
 
-  /**
-   * Patch one slot in place — used by the grid's session editor to change a
-   * break, training or meeting's type, times, note or scope.
-   */
-  const editSlotAt = async (branchId, day, idx, patch) => {
-    const existing = draftOps[branchId]?.[day]?.[idx];
-    if (!existing) return;
-    const list = (draftOps[branchId]?.[day] || []).map((s, i) => (
-      // `instructor: ''` has to clear the field, so it is assigned rather than
-      // spread-merged with a falsy guard.
-      i === idx ? { ...s, ...patch, instructor: patch.instructor || undefined } : s
-    ));
-    const sorted = [...list].sort((a, b) => a.start.localeCompare(b.start));
-
-    setSaving(true);
-    try {
-      await persistDay(branchId, day, sorted);
-      setDraftOps((prev) => ({
-        ...prev,
-        [branchId]: { ...(prev[branchId] || {}), [day]: sorted },
-      }));
-      showToast({
-        title: `${slotTypeMeta(patch.type || existing.type).label} updated`,
-        message: `${patch.start}–${patch.end}${patch.instructor ? ` for ${patch.instructor}` : ' for the whole branch'}.`,
-        variant: 'success',
-      });
-    } catch (err) {
-      showToast({ title: 'Could not update the session', message: err.message, variant: 'error' });
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  /**
-   * Move a planned slot to another time, and possibly another instructor
-   * column. The grid has already checked the destination is free.
-   */
-  const moveSlotTo = async (branchId, day, idx, patch) => {
-    const list = (draftOps[branchId]?.[day] || []).map((s, i) => (i === idx ? { ...s, ...patch } : s));
-    const sorted = [...list].sort((a, b) => a.start.localeCompare(b.start));
-
-    setSaving(true);
-    try {
-      await persistDay(branchId, day, sorted);
-      setDraftOps((prev) => ({
-        ...prev,
-        [branchId]: { ...(prev[branchId] || {}), [day]: sorted },
-      }));
-      showToast({
-        title: 'Slot moved',
-        message: `Now ${patch.start}–${patch.end} with ${patch.instructor}.`,
-        variant: 'success',
-      });
-    } catch (err) {
-      showToast({ title: 'Could not move the slot', message: err.message, variant: 'error' });
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  /**
-   * Move a real class to another time or instructor. Every enrolled student is
-   * one row in `internal_classes`, so the whole group has to move together —
-   * this is live student schedule data, hence the confirmation.
-   */
-  const moveClassTo = async (group, patch) => {
-    const count = group.ids.length;
-    const changes = [
-      patch.time !== group.time ? `Time: ${group.time} → ${patch.time}` : null,
-      patch.teacher !== group.teacher ? `Instructor: ${group.teacher} → ${patch.teacher}` : null,
-    ].filter(Boolean);
-    if (!changes.length) return;
-
-    // A resize keeps the start and the instructor, so call it what it is.
-    const sameStart = patch.time.split(' - ')[0] === group.time.split(' - ')[0];
-    const verb = sameStart && patch.teacher === group.teacher ? 'Change this class\'s length' : 'Move this class';
-
-    if (!window.confirm(
-      `${verb}?\n\n${changes.join('\n')}\n\n` +
-      `${count} student${count === 1 ? '' : 's'} on ${group.day} at ${group.branchName} will be rescheduled.`
-    )) return;
-
-    setSaving(true);
-    try {
-      // PUT /api/new/schedule replaces the whole row, so every field has to be
-      // sent — a partial body would blank out the student, program and branch.
-      for (const id of group.ids) {
-        const row = classes.find((c) => c.id === id);
-        if (!row) continue;
-        await updateInternalClass(id, {
-          day: row.day,
-          time: patch.time,
-          program: row.program,
-          student: row.student,
-          teacher: patch.teacher,
-          branchName: row.branchName,
-          classType: row.classType,
-          remarks: row.remarks,
-        });
-      }
-      // Reflect it immediately rather than waiting for the next poll.
-      setClasses((prev) => prev.map((c) =>
-        group.ids.includes(c.id) ? { ...c, time: patch.time, teacher: patch.teacher } : c
-      ));
-      await logActivity({
-        action: 'edit',
-        summary: `Moved class on ${group.day} at ${group.branchName}: ${changes.join(', ')}`,
-        count,
-        source: 'schedule',
-        userEmail: user?.email || null,
-      });
-      showToast({
-        title: 'Class moved',
-        message: `${count} student${count === 1 ? '' : 's'} rescheduled.`,
-        variant: 'success',
-      });
-    } catch (err) {
-      showToast({ title: 'Could not move the class', message: err.message, variant: 'error' });
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  // ── Class roster ────────────────────────────────────────────────────────
-  // A class is one row per enrolled student, so the roster is really a set of
-  // rows sharing branch + day + time + instructor.
-
-  /** Enrol a student into an existing class. */
-  const addStudentToClass = async (group, entry) => {
-    setSaving(true);
-    try {
-      const created = await createInternalClass({
-        day: group.day,
-        time: group.time,
-        program: entry.program || group.programs[0] || '',
-        student: entry.student,
-        teacher: group.teacher,
-        branchName: group.branchName,
-        classType: entry.classType,
-        sessionDates: entry.sessionDates || [],
-      });
-      if (created) setClasses((prev) => [created, ...prev]);
-      await logActivity({
-        action: 'add',
-        summary: `Added ${entry.student} (${entry.classType}) to ${group.teacher}'s ${group.time} on ${group.day} at ${group.branchName}`,
-        source: 'schedule',
-        userEmail: user?.email || null,
-      });
-      showToast({
-        title: `${entry.student} added`,
-        message: entry.classType === 'Regular'
-          ? 'Fixed weekly place.'
-          : `${entry.classType} on ${(entry.sessionDates || []).join(', ')}.`,
-        variant: 'success',
-      });
-    } catch (err) {
-      showToast({ title: 'Could not add the student', message: err.message, variant: 'error' });
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  /** Remove one student from a class. Deletes only their own row. */
-  const removeStudentFromClass = async (member, group) => {
-    if (!window.confirm(
-      `Remove ${member.student} from ${group.teacher}'s ${group.time} class on ${group.day}?\n\n` +
-      (member.classType === 'Regular'
-        ? 'This gives up their fixed weekly place.'
-        : `This drops their ${member.sessionDates.length || 'recorded'} session(s).`)
-    )) return;
-
-    setSaving(true);
-    try {
-      await deleteInternalClass(member.id);
-      setClasses((prev) => prev.filter((c) => c.id !== member.id));
-      await logActivity({
-        action: 'delete',
-        summary: `Removed ${member.student} from ${group.teacher}'s ${group.time} on ${group.day} at ${group.branchName}`,
-        source: 'schedule',
-        userEmail: user?.email || null,
-      });
-      showToast({ title: `${member.student} removed`, variant: 'success' });
-    } catch (err) {
-      showToast({ title: 'Could not remove the student', message: err.message, variant: 'error' });
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  /**
-   * Change one student's attendance: regular weekly place vs replacement on
-   * specific dates. Sends the whole row because the schedule PUT replaces it.
-   */
-  const updateStudentEntry = async (member, patch) => {
-    const row = classes.find((c) => c.id === member.id);
-    if (!row) return;
-
-    setSaving(true);
-    try {
-      const updated = await updateInternalClass(member.id, {
-        day: row.day,
-        time: row.time,
-        program: row.program,
-        student: row.student,
-        teacher: row.teacher,
-        branchName: row.branchName,
-        classType: patch.classType ?? row.classType,
-        remarks: row.remarks,
-        sessionDates: patch.sessionDates ?? row.sessionDates ?? [],
-      });
-      setClasses((prev) => prev.map((c) => (c.id === member.id ? { ...c, ...updated } : c)));
-      showToast({
-        title: `${row.student} is now ${patch.classType || row.classType}`,
-        message: patch.classType === 'Regular'
-          ? 'Fixed weekly place.'
-          : `Attends ${(patch.sessionDates || []).join(', ') || 'the dates you set'}.`,
-        variant: 'success',
-      });
-    } catch (err) {
-      showToast({ title: 'Could not update the student', message: err.message, variant: 'error' });
-    } finally {
-      setSaving(false);
-    }
-  };
-
   // ── Manual single-slot add ──────────────────────────────────────────────
   const openManualAdd = () => {
     const branch = branches.find((b) => b.id === slotBranchFilter) || branches[0];
@@ -890,32 +644,7 @@ export default function NewOperationalsPage() {
     });
   };
 
-  /**
-   * Create a slot from a grid cell. The cell already knows the branch, day,
-   * time and instructor, so this only has to persist it.
-   */
-  const addSlotFromGrid = async (branchId, day, slot) => {
-    const nextList = [...(draftOps[branchId]?.[day] || []), slot]
-      .sort((a, b) => a.start.localeCompare(b.start));
 
-    setSaving(true);
-    try {
-      await persistDay(branchId, day, nextList);
-      setDraftOps((prev) => ({
-        ...prev,
-        [branchId]: { ...(prev[branchId] || {}), [day]: nextList },
-      }));
-      showToast({
-        title: 'Slot opened',
-        message: `${slotTypeMeta(slot.type).label} ${slot.start}–${slot.end} for ${slot.instructor} on ${day}.`,
-        variant: 'success',
-      });
-    } catch (err) {
-      showToast({ title: 'Could not open the slot', message: err.message, variant: 'error' });
-    } finally {
-      setSaving(false);
-    }
-  };
 
   const applyManualAdd = async () => {
     if (!maBranchId || !maStart || !maEnd || maEnd <= maStart) return;
@@ -1430,39 +1159,8 @@ export default function NewOperationalsPage() {
 
       <ScheduleRulesPanel />
 
-      {/* ── Schedule grid — plan from instructor availability ─────────────── */}
-      <div className="panel" style={{ margin: '1.5rem 0 0' }}>
-        <div className="panel-header" style={{ flexWrap: 'wrap', gap: '0.75rem', justifyContent: 'space-between', alignItems: 'center' }}>
-          <div>
-            <h2 style={{ fontSize: '1.15rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.45rem' }}>
-              <LayoutGrid size={19} /> Schedule Grid
-            </h2>
-            <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', margin: '0.2rem 0 0' }}>
-              Plan from who is actually free. Columns are instructors, rows are 30 minutes. Click a cell to open a class — only the categories that instructor&apos;s level covers are offered. Gaps too short for a class can still take a meeting, training or break. Drag cards to move them, drag their bottom edge to change length.
-            </p>
-          </div>
-        </div>
-
-        <ScheduleGrid
-          branches={branches}
-          instructors={instructors}
-          classGroups={classGroups}
-          leaves={leaves}
-          draft={draft}
-          draftOps={draftOps}
-          draftHours={draftHours}
-          rules={scheduleRules}
-          saving={saving}
-          onAddSlot={addSlotFromGrid}
-          onRemoveSlot={removeSlot}
-          onMoveSlot={moveSlotTo}
-          onMoveClass={moveClassTo}
-          onEditSlot={editSlotAt}
-          onAddStudent={addStudentToClass}
-          onRemoveStudent={removeStudentFromClass}
-          onUpdateStudent={updateStudentEntry}
-        />
-      </div>
+      {/* The availability grid lives on the Schedule page, where allocation
+          happens. This page keeps the underlying branch/day rules. */}
 
       {/* ── Class Operation time slots — all branches in one filterable table ── */}
       <div className="panel" style={{ margin: '1.5rem 0 0' }}>
@@ -1763,7 +1461,8 @@ export default function NewOperationalsPage() {
             onClick={(e) => e.stopPropagation()}
             style={{
               background: 'var(--panel-bg)', width: '100%', maxWidth: '460px', borderRadius: '16px',
-              boxShadow: '0 12px 32px rgba(0,0,0,0.18)', border: '1px solid var(--border-color)', overflow: 'hidden',
+              maxHeight: 'calc(100vh - 2rem)', overflowY: 'auto',
+              boxShadow: '0 12px 32px rgba(0,0,0,0.18)', border: '1px solid var(--border-color)',
               animation: 'modalAppear 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards',
             }}
           >
@@ -2164,7 +1863,8 @@ export default function NewOperationalsPage() {
             onClick={(e) => e.stopPropagation()}
             style={{
               background: 'var(--panel-bg)', width: '100%', maxWidth: '340px', borderRadius: '16px',
-              boxShadow: '0 12px 32px rgba(0,0,0,0.18)', border: '1px solid var(--border-color)', overflow: 'hidden',
+              maxHeight: 'calc(100vh - 2rem)', overflowY: 'auto',
+              boxShadow: '0 12px 32px rgba(0,0,0,0.18)', border: '1px solid var(--border-color)',
             }}
           >
             <div style={{ padding: '1rem 1.25rem', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--bg-color)' }}>

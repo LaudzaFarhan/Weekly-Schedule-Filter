@@ -11,7 +11,8 @@ import {
 } from '../services/internalScheduleService';
 import { subscribeToInternalStudents } from '../services/internalStudentService';
 import { subscribeToInternalInstructors } from '../services/internalInstructorService';
-import { slotTypeMeta } from './NewOperationalsPage';
+import { slotTypeMeta } from '../lib/slotTypes';
+import ScheduleGridPanel from '../components/operations/ScheduleGridPanel';
 import { useNewOperationals } from '../hooks/useNewOperationals';
 import { useScheduleRules } from '../hooks/useScheduleRules';
 import { canCombine, maxStudentsFor, parseProgram } from '../lib/programRules';
@@ -1479,6 +1480,9 @@ export default function NewSchedulePage({ onNavigate }) {
         )}
       </div>
 
+      {/* Availability-first planning grid, above the full class table. */}
+      <ScheduleGridPanel />
+
       <div className="panel full-schedule-panel">
         <div className="panel-header" style={{ flexWrap: 'wrap', gap: '0.75rem', justifyContent: 'space-between', alignItems: 'center' }}>
           <div>
@@ -1930,7 +1934,8 @@ export default function NewSchedulePage({ onNavigate }) {
             onClick={(e) => e.stopPropagation()}
             style={{
               background: 'var(--panel-bg)', width: '100%', maxWidth: '440px', borderRadius: '16px',
-              boxShadow: '0 12px 32px rgba(0,0,0,0.18)', border: '1px solid var(--border-color)', overflow: 'hidden',
+              maxHeight: 'calc(100vh - 2rem)', overflowY: 'auto',
+              boxShadow: '0 12px 32px rgba(0,0,0,0.18)', border: '1px solid var(--border-color)',
               animation: 'modalAppear 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards',
             }}
           >

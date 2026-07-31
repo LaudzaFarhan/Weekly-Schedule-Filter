@@ -7,6 +7,9 @@ import { DAY_NAMES } from '../utils/constants';
 /**
  * Single source of truth for New Operations branch rules, read from PostgreSQL.
  *
+ * `applyLocal` lets a caller that has just saved a rule show it immediately
+ * instead of waiting for the next poll.
+ *
  * Every New Ops page that needs to know when a branch is open, what hours it
  * runs, or what its class slot plan looks like should use this — never the
  * Google Sheets branch config, which belongs to Old Operations.
@@ -26,6 +29,23 @@ export function useNewOperationals() {
   const [rules, setRules] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+
+  /**
+   * Merge a just-saved branch/day rule into the local copy.
+   *
+   * Without this, a caller that writes a rule waits for the next poll before
+   * seeing it, which reads as a lag of several seconds after adding a slot.
+   */
+  const applyLocal = useCallback((row) => {
+    if (!row?.branchName || !row?.day) return;
+    setRules((prev) => {
+      const i = prev.findIndex((r) => r.branchName === row.branchName && r.day === row.day);
+      if (i === -1) return [...prev, row];
+      const next = [...prev];
+      next[i] = { ...next[i], ...row };
+      return next;
+    });
+  }, []);
 
   useEffect(() => {
     const unsub = subscribeToOperationals(
@@ -81,6 +101,7 @@ export function useNewOperationals() {
     openDaysFor,
     hoursFor,
     slotsFor,
+    applyLocal,
   };
 }
 

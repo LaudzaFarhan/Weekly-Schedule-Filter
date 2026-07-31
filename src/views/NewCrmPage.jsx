@@ -1582,11 +1582,12 @@ export default function CrmPage() {
         <div style={{
           position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
           background: 'rgba(0,0,0,0.5)', zIndex: 1000, display: 'flex',
-          justifyContent: 'center', alignItems: 'center'
+          justifyContent: 'center', alignItems: 'center', padding: '1rem'
         }}>
           <div style={{
             background: 'white', padding: '1.75rem', borderRadius: '12px',
-            width: '90%', maxWidth: '500px', boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1)',
+            width: '100%', maxWidth: '500px', maxHeight: 'calc(100vh - 2rem)', overflowY: 'auto',
+            boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1)',
             position: 'relative'
           }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
@@ -1696,21 +1697,35 @@ export default function CrmPage() {
         <div style={{
           position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
           background: 'rgba(0,0,0,0.5)', zIndex: 1000, display: 'flex',
-          justifyContent: 'center', alignItems: 'center'
+          justifyContent: 'center', alignItems: 'center', padding: '1rem'
         }}>
+          {/* Capped to the viewport with the fields scrolling inside, so the
+              title and the Save row stay reachable on a short screen. */}
           <div style={{
-            background: 'white', padding: '1.75rem', borderRadius: '12px',
-            width: '90%', maxWidth: '550px', boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1)',
+            background: 'white', borderRadius: '12px',
+            width: '100%', maxWidth: '550px', maxHeight: 'calc(100vh - 2rem)',
+            display: 'flex', flexDirection: 'column', overflow: 'hidden',
+            boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1)',
             position: 'relative'
           }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
+            <div style={{
+              display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+              padding: '1.5rem 1.75rem 1rem', flexShrink: 0
+            }}>
               <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 600 }}>Lead Details</h3>
               <button onClick={() => setIsDetailOpen(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)' }}>
                 <X size={20} />
               </button>
             </div>
 
-            <form onSubmit={handleUpdateDetails} style={{ display: 'flex', flexDirection: 'column', gap: '0.9rem' }}>
+            <form
+              onSubmit={handleUpdateDetails}
+              style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}
+            >
+              <div style={{
+                display: 'flex', flexDirection: 'column', gap: '0.9rem',
+                overflowY: 'auto', padding: '0 1.75rem 0.5rem', minHeight: 0
+              }}>
               <div style={{ display: 'flex', gap: '1rem' }}>
                 <div className="input-group" style={{ flex: 1 }}>
                   <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Name</label>
@@ -1851,7 +1866,14 @@ export default function CrmPage() {
                 />
               </div>
 
-              <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.75rem', marginTop: '1.25rem' }}>
+              </div>
+
+              {/* Stays put while the fields above scroll. */}
+              <div style={{
+                display: 'flex', justifyContent: 'space-between', gap: '0.75rem', flexWrap: 'wrap',
+                padding: '1rem 1.75rem 1.5rem', borderTop: '1px solid var(--border-color)',
+                background: 'white', flexShrink: 0
+              }}>
                 <button
                   type="button"
                   onClick={() => handleDeleteLead(selectedLead.id)}
