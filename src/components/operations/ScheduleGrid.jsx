@@ -26,6 +26,16 @@ const ROW_H = 34;
 /** Shortest session we will let anything be. */
 const MIN_DURATION = 30;
 
+/**
+ * Shortest length anything may be booked as a *class*.
+ *
+ * Derived from the shortest standard class length rather than fixed, so it
+ * follows the duration rules instead of drifting from them. A drag shorter than
+ * this is a session — break, training, meeting — not a class: a 30-minute
+ * "class" is not a thing the school runs.
+ */
+const MIN_CLASS_DURATION = Math.min(...CATEGORIES.map(durationForCategory));
+
 const unavailableTint = (code) => {
   if (code === AVAIL.ON_LEAVE) return 'rgba(220,38,38,0.06)';
   if (code === AVAIL.TEACHING_ELSEWHERE) return 'rgba(124,58,237,0.06)';
@@ -516,6 +526,8 @@ export default function ScheduleGrid({
     if (event?.pointerId != null && event.currentTarget?.releasePointerCapture) {
       try { event.currentTarget.releasePointerCapture(event.pointerId); } catch { /* not captured */ }
     }
+    // A new drag replaces whatever was selected, so two highlights never compete.
+    setSelection(null);
     setDraw({ instructorName: inst.name, startIdx: rowIdx, endIdx: rowIdx });
   };
 
@@ -534,20 +546,67 @@ export default function ScheduleGrid({
     if (to !== cur.endIdx) setDraw({ ...cur, endIdx: to });
   };
 
-  /** Minutes covered by the current drawn range. */
-  const drawnDuration = useMemo(() => {
-    if (!draw) return 0;
-    const startMin = rowStarts[draw.startIdx];
-    const lastStart = rowStarts[draw.endIdx];
-    if (startMin == null || lastStart == null) return 0;
-    const endMin = draw.endIdx + 1 < rowStarts.length ? rowStarts[draw.endIdx + 1] : timelineEnd;
+  /**
+   * Minutes covered by a row range. Shared by the in-progress drag and the
+   * selection it leaves behind, so the two can never report different lengths
+   * for the same rows.
+   */
+  const rangeMinutes = useCallback((startIdx, endIdx) => {
+    const startMin = rowStarts[startIdx];
+    if (startMin == null || rowStarts[endIdx] == null) return 0;
+    const endMin = endIdx + 1 < rowStarts.length ? rowStarts[endIdx + 1] : timelineEnd;
     return Math.max(STEP, endMin - startMin);
-  }, [draw, rowStarts, timelineEnd]);
+  }, [rowStarts, timelineEnd]);
+
+  /**
+   * How many timeline rows a range covers.
+   *
+   * Counted from the row indices rather than divided out of the duration: the
+   * last row can be short where the branch closes mid-step, and dividing would
+   * then report a fraction of a row.
+   */
+  const rangeRows = (startIdx, endIdx) => endIdx - startIdx + 1;
+
+  const drawnDuration = useMemo(
+    () => (draw ? rangeMinutes(draw.startIdx, draw.endIdx) : 0),
+    [draw, rangeMinutes]
+  );
+  const drawnRows = draw ? rangeRows(draw.startIdx, draw.endIdx) : 0;
 
   const isDrawing = !!draw;
 
-  // Commit on release anywhere — a drag that ends off the grid should still
-  // count, rather than leaving the selection stuck on screen.
+  // ── the selection a finished drag leaves behind ─────────────────────────────
+  // Releasing marks the rows out and stops there. Nothing is asked of the user
+  // until they press Edit: drawing a length and deciding what goes in it are two
+  // separate decisions, and a modal appearing on release forced them together.
+  const [selection, setSelection] = useState(null); // { instructorName, startIdx, endIdx }
+
+  const selDuration = useMemo(
+    () => (selection ? rangeMinutes(selection.startIdx, selection.endIdx) : 0),
+    [selection, rangeMinutes]
+  );
+  const selRows = selection ? rangeRows(selection.startIdx, selection.endIdx) : 0;
+
+  const clearSelection = useCallback(() => setSelection(null), []);
+
+  /** Open the picker for the current selection — the Edit trigger. */
+  const editSelection = useCallback(() => {
+    if (!selection) return;
+    const inst = columns.find((i) => i.name === selection.instructorName);
+    if (!inst) return;
+    const startMin = rowStarts[selection.startIdx];
+    if (startMin == null) return;
+    const cell = (layout.get(inst.name) || [])[selection.startIdx];
+    // A single-row selection offers the whole gap, as a plain click always has;
+    // a longer one offers the length that was actually drawn.
+    const drawn = selection.endIdx > selection.startIdx
+      ? rangeMinutes(selection.startIdx, selection.endIdx)
+      : null;
+    openPicker(inst, startMin, cell, drawn);
+  }, [selection, columns, rowStarts, layout, rangeMinutes, openPicker]);
+
+  // Release anywhere ends the drag — one that finishes off the grid should still
+  // register, rather than leaving the highlight stuck to the cursor.
   useEffect(() => {
     if (!isDrawing) return undefined;
     const onUp = () => {
@@ -555,18 +614,15 @@ export default function ScheduleGrid({
       setDraw(null);
       if (!cur) return;
       const inst = columns.find((i) => i.name === cur.instructorName);
-      if (!inst) return;
-      const startMin = rowStarts[cur.startIdx];
-      if (startMin == null) return;
-      const endMin = cur.endIdx + 1 < rowStarts.length ? rowStarts[cur.endIdx + 1] : timelineEnd;
-      const drawn = Math.max(STEP, endMin - startMin);
-      const cell = (layout.get(inst.name) || [])[cur.startIdx];
-      // A press without a drag keeps the old behaviour: offer the whole gap.
-      const drewMoreThanOneRow = cur.endIdx > cur.startIdx;
-      openPicker(inst, startMin, cell, drewMoreThanOneRow ? drawn : null);
+      if (!inst || rowStarts[cur.startIdx] == null) return;
+      setSelection({
+        instructorName: cur.instructorName,
+        startIdx: cur.startIdx,
+        endIdx: cur.endIdx,
+      });
     };
-    // A cancelled gesture is an abandoned one — clear it without opening
-    // anything, so an interrupted drag never plants a session.
+    // A cancelled gesture is an abandoned one — clear it without selecting
+    // anything, so an interrupted drag never leaves a stray highlight.
     const onCancel = () => setDraw(null);
     window.addEventListener('pointerup', onUp);
     window.addEventListener('pointercancel', onCancel);
@@ -574,25 +630,47 @@ export default function ScheduleGrid({
       window.removeEventListener('pointerup', onUp);
       window.removeEventListener('pointercancel', onCancel);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isDrawing, columns, rowStarts, timelineEnd, layout]);
+  }, [isDrawing, columns, rowStarts]);
+
+  // Escape drops the selection, matching the rest of the app.
+  useEffect(() => {
+    if (!selection || picker) return undefined;
+    const onKey = (e) => { if (e.key === 'Escape') clearSelection(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [selection, picker, clearSelection]);
 
 
 
   /** Class options, each re-checked at its real length. */
   const classOptions = useMemo(() => {
     if (!picker) return [];
-    const { instructor, startMin } = picker;
-    return categoriesFor(instructor).map((category) => {
-      const duration = durationForCategory(category);
-      const v = canOccupy(instructor, startMin, startMin + duration, { category });
-      return {
-        category, duration,
-        end: fromMinutes(startMin + duration),
-        seats: maxStudentsFor(category === 'Coder' ? 'Coder' : `${category === 'Kinder' ? 'K' : 'J'}1`, rules),
-        ...v,
-      };
-    });
+    const { instructor, startMin, drawn } = picker;
+    const out = [];
+    for (const category of categoriesFor(instructor)) {
+      const standard = durationForCategory(category);
+      // The length that was drawn is offered alongside the category's standard
+      // one. Without this, drawing 90 minutes for a Junior or Coder instructor
+      // left every class option disabled — both default to 120, neither fits a
+      // 90-minute window — so the only bookable things were break, training and
+      // meeting. Drawing a length should let you book a class at that length.
+      const lengths = [...new Set([drawn, standard].filter((m) => m && m >= MIN_CLASS_DURATION))];
+      for (const duration of lengths) {
+        const v = canOccupy(instructor, startMin, startMin + duration, { category });
+        out.push({
+          key: `${category}-${duration}`,
+          category,
+          duration,
+          isStandard: duration === standard,
+          end: fromMinutes(startMin + duration),
+          seats: maxStudentsFor(category === 'Coder' ? 'Coder' : `${category === 'Kinder' ? 'K' : 'J'}1`, rules),
+          ...v,
+        });
+      }
+    }
+    // Bookable options lead; the order within a category is otherwise preserved,
+    // so the drawn length sits ahead of the standard one.
+    return out.sort((a, b) => (a.free === b.free ? 0 : a.free ? -1 : 1));
   }, [picker, canOccupy, rules]);
 
   /** Lengths a session could take in this gap, in 30-minute steps. */
@@ -825,8 +903,53 @@ export default function ScheduleGrid({
           background: 'rgba(5,150,105,0.1)', border: '1px solid rgba(5,150,105,0.4)',
           fontSize: '0.78rem', color: 'var(--text-secondary)',
         }}>
-          Drawing <strong>{drawnDuration} min</strong> for {draw.instructorName} from{' '}
-          {clockLabel(rowStarts[draw.startIdx])}. Release to choose what goes in it.
+          Drawing <strong>{drawnRows} row{drawnRows === 1 ? '' : 's'}</strong> ={' '}
+          <strong>{drawnDuration} min</strong> for {draw.instructorName} from{' '}
+          {clockLabel(rowStarts[draw.startIdx])} to{' '}
+          {clockLabel(rowStarts[draw.startIdx] + drawnDuration)}.
+          Release to keep it.
+        </div>
+      )}
+
+      {/* A finished selection sits here waiting. Nothing is filled in until Edit
+          is pressed, so the drag can be adjusted or abandoned first. */}
+      {selection && !draw && selDuration > 0 && (
+        <div style={{
+          margin: '0.9rem 1.5rem 0', padding: '0.65rem 0.9rem', borderRadius: '10px',
+          background: 'rgba(5,150,105,0.1)', border: '1px solid rgba(5,150,105,0.4)',
+          fontSize: '0.78rem', color: 'var(--text-secondary)',
+          display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap',
+        }}>
+          <span style={{ flex: 1, minWidth: '12rem' }}>
+            Selected <strong>{selRows} row{selRows === 1 ? '' : 's'}</strong> ={' '}
+            <strong>{selDuration} min</strong> for {selection.instructorName},{' '}
+            {clockLabel(rowStarts[selection.startIdx])}–
+            {clockLabel(rowStarts[selection.startIdx] + selDuration)}.
+          </span>
+          <button
+            type="button"
+            onClick={editSelection}
+            title="Choose what goes in the selected time"
+            className="btn btn-primary"
+            style={{
+              borderRadius: '8px', padding: '0.35rem 0.8rem', fontSize: '0.76rem',
+              display: 'inline-flex', alignItems: 'center', gap: '0.3rem', flexShrink: 0,
+            }}
+          >
+            <Pencil size={13} /> Edit
+          </button>
+          <button
+            type="button"
+            onClick={clearSelection}
+            title="Drop the selection (Esc)"
+            style={{
+              border: '1px solid var(--border-color)', background: 'transparent',
+              borderRadius: '8px', padding: '0.35rem 0.7rem', fontSize: '0.76rem',
+              color: 'var(--text-secondary)', cursor: 'pointer', flexShrink: 0,
+            }}
+          >
+            Clear
+          </button>
         </div>
       )}
 
@@ -951,6 +1074,9 @@ export default function ScheduleGrid({
                       const inDraw = !!draw && draw.instructorName === inst.name &&
                         rowIdx >= draw.startIdx && rowIdx <= draw.endIdx;
                       const drawAnchor = inDraw && rowIdx === draw.startIdx;
+                      const inSel = !draw && !!selection && selection.instructorName === inst.name &&
+                        rowIdx >= selection.startIdx && rowIdx <= selection.endIdx;
+                      const selAnchor = inSel && rowIdx === selection.startIdx;
 
                       return (
                         <td
@@ -967,9 +1093,14 @@ export default function ScheduleGrid({
                             padding: '0.2rem 0.3rem', verticalAlign: 'top', height: ROW_H * cell.span,
                             background: inDraw
                               ? 'rgba(5,150,105,0.16)'
-                              : isTarget
-                                ? 'rgba(59,130,246,0.1)'
-                                : cell.kind === 'unavailable' ? unavailableTint(cell.verdict.code) : 'transparent',
+                              // A settled selection reads slightly stronger than
+                              // one still being dragged, so "kept" is distinct
+                              // from "in progress".
+                              : inSel
+                                ? 'rgba(5,150,105,0.22)'
+                                : isTarget
+                                  ? 'rgba(59,130,246,0.1)'
+                                  : cell.kind === 'unavailable' ? unavailableTint(cell.verdict.code) : 'transparent',
                           }}
                         >
                           <Cell
@@ -989,6 +1120,12 @@ export default function ScheduleGrid({
                             inDraw={inDraw}
                             drawAnchor={drawAnchor}
                             drawnDuration={drawnDuration}
+                            drawnRows={drawnRows}
+                            inSel={inSel}
+                            selAnchor={selAnchor}
+                            selDuration={selDuration}
+                            selRows={selRows}
+                            onEditSelection={editSelection}
                             openEditor={openEditor}
                             openRoster={openRoster}
                             week={week}
@@ -1093,19 +1230,38 @@ export default function ScheduleGrid({
 
             <div style={{ padding: '1rem 1.3rem 1.3rem' }}>
               <p style={{ margin: '0 0 0.5rem', fontSize: '0.72rem', fontWeight: 700, letterSpacing: '0.04em', color: 'var(--text-muted)' }}>
-                CLASS
+                BOOK A CLASS
+              </p>
+              <p style={{ margin: '0 0 0.6rem', fontSize: '0.74rem', color: 'var(--text-secondary)' }}>
+                Opens a class {picker.instructor.name.split(' ')[0]} can teach, ready to take students.
+                {picker.drawn && ' The length you drew is offered alongside the standard one.'}
               </p>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                {classOptions.length === 0 && (
+                {classOptions.length === 0 && categoriesFor(picker.instructor).length === 0 && (
                   <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', margin: 0 }}>
                     {picker.instructor.name} has no teachable category here. Check their level under Instructors.
+                  </p>
+                )}
+                {/* Every category refused is worth calling out plainly, since the
+                    section would otherwise look like a list of dead buttons. */}
+                {classOptions.length > 0 && classOptions.every((o) => !o.free) && (
+                  <p style={{ fontSize: '0.76rem', color: 'var(--danger)', margin: 0 }}>
+                    No class fits this time. Widen the selection, or use a session below.
+                  </p>
+                )}
+                {/* A drag shorter than the shortest class cannot be one, so say
+                    so rather than showing an empty section. */}
+                {classOptions.length === 0 && categoriesFor(picker.instructor).length > 0 && (
+                  <p style={{ fontSize: '0.76rem', color: 'var(--text-secondary)', margin: 0 }}>
+                    {picker.drawn} min is shorter than the shortest class ({MIN_CLASS_DURATION} min).
+                    Draw a longer selection to book a class, or use a session below.
                   </p>
                 )}
                 {classOptions.map((opt) => {
                   const meta = slotTypeMeta(slotKeyForCategory(opt.category));
                   return (
                     <button
-                      key={opt.category}
+                      key={opt.key}
                       type="button"
                       disabled={!opt.free || saving}
                       onClick={() => confirmAddClass(opt)}
@@ -1119,8 +1275,18 @@ export default function ScheduleGrid({
                     >
                       <span aria-hidden="true" style={{ width: '9px', height: '32px', borderRadius: '4px', background: opt.free ? meta.color : 'var(--border-color)', flexShrink: 0 }} />
                       <span style={{ flex: 1, minWidth: 0 }}>
-                        <span style={{ display: 'block', fontSize: '0.84rem', fontWeight: 600, color: 'var(--text-main)' }}>
+                        <span style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', flexWrap: 'wrap', fontSize: '0.84rem', fontWeight: 600, color: 'var(--text-main)' }}>
                           {opt.category} · {clockLabel(picker.startMin)} – {clockLabel(picker.startMin + opt.duration)}
+                          {/* Which length this is, so a non-standard one is a
+                              deliberate choice rather than a surprise. */}
+                          <span style={{
+                            fontSize: '0.6rem', fontWeight: 700, letterSpacing: '0.02em',
+                            padding: '0.05rem 0.35rem', borderRadius: '5px', whiteSpace: 'nowrap',
+                            color: opt.isStandard ? 'var(--text-muted)' : '#047857',
+                            background: opt.isStandard ? 'var(--bg-color)' : 'rgba(5,150,105,0.14)',
+                          }}>
+                            {opt.isStandard ? 'STANDARD' : 'YOUR LENGTH'}
+                          </span>
                         </span>
                         <span style={{ display: 'block', fontSize: '0.73rem', color: opt.free ? 'var(--text-secondary)' : 'var(--danger)' }}>
                           {opt.free ? `${opt.duration} min · up to ${opt.seats} students` : opt.reason}
@@ -1711,9 +1877,14 @@ function Cell({
   cell, inst, start, height, allBranches, rules, saving, week,
   moving, isTarget, resizing, openPicker, openEditor, openRoster, onRemoveSlot,
   beginMoveClass, beginMoveSlot, setMoving, applyMove, beginResize, nudge,
-  rowIdx, beginDraw, inDraw, drawAnchor, drawnDuration,
+  rowIdx, beginDraw, inDraw, drawAnchor, drawnDuration, drawnRows,
+  inSel, selAnchor, selDuration, selRows, onEditSelection,
 }) {
   const boxH = Math.max(height - 6, 22);
+  // What the drag reports back while it is in progress. Rows lead because that is
+  // what the gesture is actually doing; the minutes are the consequence. Shown on
+  // the row the drag started from only, so it is not repeated down the selection.
+  const drawLabel = `${drawnRows} row${drawnRows === 1 ? '' : 's'} · ${drawnDuration} min`;
 
   if (isTarget) {
     return (
@@ -1944,6 +2115,50 @@ function Cell({
     );
   }
 
+  // Part of a kept selection. Rendered as a plain container rather than a button
+  // so the Edit trigger inside it is not a nested button; pressing the container
+  // still starts a fresh drag, so a selection can be redrawn without clearing it.
+  if (inSel && !allBranches && (cell.kind === 'free' || cell.kind === 'short')) {
+    return (
+      <div
+        onPointerDown={(e) => { if (!moving && e.button === 0) beginDraw(inst, rowIdx, e); }}
+        title={`${selRows} row${selRows === 1 ? '' : 's'} selected — ${selDuration} min from ${clockLabel(start)}. Press Edit to choose what goes in it, or drag to redraw.`}
+        style={{
+          width: '100%', height: boxH, borderRadius: '7px',
+          border: '1px solid rgba(5,150,105,0.9)', background: 'rgba(5,150,105,0.2)',
+          color: '#047857', fontSize: '0.66rem', fontWeight: 700,
+          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.3rem',
+          cursor: 'ns-resize', touchAction: 'none',
+          whiteSpace: 'nowrap', overflow: 'hidden', padding: '0 0.3rem',
+        }}
+      >
+        {selAnchor && (
+          <>
+            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              {selRows} row{selRows === 1 ? '' : 's'} · {selDuration} min
+            </span>
+            <button
+              type="button"
+              // The press must not be read as the start of a new drag.
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={onEditSelection}
+              title="Choose what goes in this time"
+              aria-label={`Edit the ${selDuration} minute selection at ${clockLabel(start)} for ${inst.name}`}
+              style={{
+                display: 'inline-flex', alignItems: 'center', gap: '0.15rem', flexShrink: 0,
+                border: '1px solid rgba(5,150,105,0.9)', background: '#047857', color: '#fff',
+                borderRadius: '5px', padding: '0.1rem 0.35rem', fontSize: '0.6rem',
+                fontWeight: 700, cursor: 'pointer',
+              }}
+            >
+              <Pencil size={9} /> Edit
+            </button>
+          </>
+        )}
+      </div>
+    );
+  }
+
   // A full class fits here.
   if (cell.kind === 'free') {
     if (allBranches) {
@@ -1973,10 +2188,13 @@ function Cell({
           display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '0.2rem',
           opacity: moving ? 0.35 : 1,
           touchAction: 'none',
+          // The drag label is longer than "Add"; wrapping would overflow a
+          // single-row box, which is only 28px tall.
+          whiteSpace: 'nowrap', overflow: 'hidden',
         }}
       >
         {inDraw
-          ? (drawAnchor ? `${drawnDuration} min` : '')
+          ? (drawAnchor ? drawLabel : '')
           : <><Plus size={11} strokeWidth={2.5} /> {cell.openable.length === 1 ? cell.openable[0] : 'Add'}</>}
       </button>
     );
@@ -2009,10 +2227,11 @@ function Cell({
           display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '0.2rem',
           opacity: moving ? 0.35 : 1,
           touchAction: 'none',
+          whiteSpace: 'nowrap', overflow: 'hidden',
         }}
       >
         {inDraw
-          ? (drawAnchor ? `${drawnDuration} min` : '')
+          ? (drawAnchor ? drawLabel : '')
           : `${cell.window} min free`}
       </button>
     );
