@@ -16,13 +16,13 @@ import ScheduleGridPanel from '../components/operations/ScheduleGridPanel';
 import { useNewOperationals } from '../hooks/useNewOperationals';
 import { useScheduleRules } from '../hooks/useScheduleRules';
 import { canCombine, maxStudentsFor, parseProgram } from '../lib/programRules';
-import { availabilityFor, groupClasses, classWindow } from '../lib/instructorAvailability';
+import { availabilityFor, groupClasses, classWindow, ATTENDANCE } from '../lib/instructorAvailability';
 import { subscribeToActivity, logActivity, deleteActivity, displayUser } from '../services/newActivityService';
 import { useAuth } from '../contexts/AuthContext';
 import { doTimeSlotsOverlap } from '../utils/timeUtils';
 import { DAY_NAMES, SCHEDULE_PAGE_SIZE } from '../utils/constants';
 import Pagination from '../components/ui/Pagination';
-import { Plus, Pencil, Trash2, Search, X, Calendar, MapPin, User, UserX, BookOpen, Clock, AlertTriangle, Upload, History, Trash, FileDown, CheckCircle2 } from 'lucide-react';
+import { Plus, Pencil, Trash2, Search, X, Calendar, MapPin, User, Users, UserX, BookOpen, Clock, AlertTriangle, Upload, History, Trash, FileDown, CheckCircle2 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
 
@@ -309,6 +309,10 @@ export default function NewSchedulePage({ onNavigate }) {
   // A time chosen in the recommendation panel, awaiting the instructor pick.
   const [timePick, setTimePick] = useState(null);
   const [startTime, setStartTime] = useState(''); // HH:MM for the class start
+  // The exact stored label of a class being joined, held so the auto-derived
+  // slot cannot overwrite it. Cleared the moment the start time is edited by
+  // hand, which means the user is no longer joining that class.
+  const [joinTime, setJoinTime] = useState(null);
   const [programCode, setProgramCode] = useState('');
   const [lessonNo, setLessonNo] = useState('1');
   // The program list is normally limited to the student's own category. This
@@ -396,11 +400,16 @@ export default function NewSchedulePage({ onNavigate }) {
   // rule (Kinder = 1.5h, everything else = 2h). Only runs once a start time is
   // picked, so editing an existing class keeps its saved slot untouched.
   useEffect(() => {
+    // Joining an existing class: that class's own label is authoritative and
+    // must survive character for character, since the label is what groups the
+    // rows. Rebuilding it here could produce a near-identical string and quietly
+    // create a second class alongside the one being joined.
+    if (joinTime) return;
     if (!startTime) return;
     const slot = buildTimeSlot(startTime, form.program);
     setForm((prev) => (prev.time === slot ? prev : { ...prev, time: slot }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [startTime, form.program]);
+  }, [startTime, form.program, joinTime]);
 
   const sortedTeachers = [...new Set((instructors || []).map(i => i.name))].filter(Boolean).sort();
   const branchList = [...new Set([...(enabledBranches || []).map(b => b.name), ...(branches || []).map(b => b.name)])].filter(Boolean);
@@ -597,6 +606,7 @@ export default function NewSchedulePage({ onNavigate }) {
     setProgramCode('');
     setLessonNo('1');
     setProgramUnlocked(false);
+    setJoinTime(null);
     const addBranch = branchList[0] || '';
     setForm({
       day: branchOpenDays(addBranch)[0] || 'Monday',
@@ -614,21 +624,33 @@ export default function NewSchedulePage({ onNavigate }) {
 
   // Open the Add modal prefilled to allocate a specific unallocated student,
   // with the class type chosen in the pre-step.
-  const openAllocateModal = (student, classType, presetDay, presetStart, presetTeacher) => {
+  /**
+   * @param {string} [presetTime] exact stored time label to reuse. Joining an
+   *   existing class has to reproduce its label character for character, since
+   *   that is what groups the rows into one class.
+   */
+  const openAllocateModal = (student, classType, presetDay, presetStart, presetTeacher, presetTime, joinProgram) => {
     setEditingClass(null);
     setStartTime(presetStart || '');
     // Start from the program the student is already enrolled in, rather than an
     // empty field that could be set to anything.
     const presetCode = defaultCodeForLevel(student.level);
+    // When joining a class already running the student's own program, start them
+    // at the lesson the class has reached rather than lesson 1. The code itself
+    // is never overwritten: a K1 student joining a K3 class is a real curriculum
+    // mismatch, and the rules engine should keep saying so.
+    const joined = joinProgram ? parseProgramValue(joinProgram) : null;
+    const presetLesson = (joined && presetCode && joined.code === presetCode) ? joined.lesson : '1';
     setProgramCode(presetCode);
-    setLessonNo('1');
+    setLessonNo(presetLesson);
     setProgramUnlocked(false);
+    setJoinTime(presetTime || null);
     const allocBranch = student.branchName || branchList[0] || '';
     const openDays = branchOpenDays(allocBranch);
     setForm({
       day: (presetDay && openDays.includes(presetDay)) ? presetDay : (openDays[0] || 'Monday'),
-      time: presetStart ? buildTimeSlot(presetStart, '') : '',
-      program: presetCode ? (codeHasLessons(presetCode) ? `${presetCode}.1` : presetCode) : '',
+      time: presetTime || (presetStart ? buildTimeSlot(presetStart, '') : ''),
+      program: presetCode ? (codeHasLessons(presetCode) ? `${presetCode}.${presetLesson}` : presetCode) : '',
       // Prefilled when an available instructor was picked in the panel.
       teacher: presetTeacher || '',
       student: student.name || '',
@@ -650,21 +672,106 @@ export default function NewSchedulePage({ onNavigate }) {
     setTimePick(null);
   };
 
-  // Days recommended for the pending student: the branch's open days, annotated
-  // with how many classes that branch already has on each day (least busy first).
+  /**
+   * Classes the pending student could simply be added to, keyed by day.
+   *
+   * Filling a class that already has students is nearly always the better move:
+   * the instructor is already committed to that window and the seat costs
+   * nothing extra, whereas opening a fresh slot spends a whole new window of an
+   * instructor's day on one student. So these are what the panel leads with.
+   *
+   * A group qualifies when it is at the student's branch, its programs may share
+   * a slot with the student's own program under the configured rules, and a seat
+   * is still free.
+   */
+  const joinTargetsByDay = useMemo(() => {
+    const byDay = new Map();
+    if (!dayReco || !dayReco.student) return byDay;
+    const student = dayReco.student;
+    const branch = student.branchName || '';
+    // The program the student would be enrolled on — the same one the allocate
+    // modal prefills, so the compatibility test matches what will be saved.
+    const candidate = defaultCodeForLevel(student.level) || student.level || '';
+    if (!candidate) return byDay;
+
+    const nameKey = String(student.name || '').trim().toLowerCase();
+
+    for (const g of groupClasses(classes)) {
+      if (branch && g.branchName !== branch) continue;
+      if (!g.programs.length || g.startMin == null) continue;
+      // Already in this class — there is nothing to join.
+      if (g.students.some((s) => String(s || '').trim().toLowerCase() === nameKey)) continue;
+
+      const verdict = canCombine(g.programs, candidate, rules);
+      if (!verdict.ok) continue;
+
+      // Only regulars hold a permanent seat; replacements and trials are guests
+      // for a single week, so they must not make a class look full forever.
+      const capacity = maxStudentsFor(g.programs[0], rules);
+      const regulars = g.members.filter((m) => m.classType === ATTENDANCE.REGULAR).length;
+      const guests = g.members.length - regulars;
+      const seatsLeft = capacity - regulars;
+      if (seatsLeft <= 0) continue;
+
+      const list = byDay.get(g.day) || [];
+      list.push({
+        key: g.key,
+        day: g.day,
+        time: g.time,
+        startMin: g.startMin,
+        endMin: g.endMin,
+        teacher: g.teacher,
+        students: g.students,
+        programs: [...new Set(g.programs)],
+        regulars,
+        guests,
+        capacity,
+        seatsLeft,
+        severity: verdict.severity,
+        reason: verdict.reason,
+      });
+      byDay.set(g.day, list);
+    }
+
+    // Fullest first: a class one seat short of complete is the most valuable to
+    // fill, and a clean combination outranks one that only just passes.
+    for (const list of byDay.values()) {
+      list.sort((a, b) => (a.severity === b.severity ? b.regulars - a.regulars
+        : (a.severity === 'ok' ? -1 : 1)));
+    }
+    return byDay;
+  }, [dayReco, classes, rules]);
+
+  // Days recommended for the pending student. Days holding a class they can
+  // join come first, fullest class first; days with nothing to join fall back to
+  // the old least-busy-first ordering so a new class lands on a quiet day.
   const recoDays = useMemo(() => {
     if (!dayReco || !dayReco.student) return [];
     const branch = dayReco.student.branchName || '';
     const openDays = branch ? openDaysFor(branch) : DAY_NAMES;
     const days = openDays.length ? openDays : DAY_NAMES;
     return days
-      .map((day) => ({
-        day,
-        count: classes.filter((c) => c.day === day && (!branch || c.branchName === branch)).length,
-      }))
-      .sort((a, b) => a.count - b.count);
+      .map((day) => {
+        const joins = joinTargetsByDay.get(day) || [];
+        return {
+          day,
+          count: classes.filter((c) => c.day === day && (!branch || c.branchName === branch)).length,
+          joins,
+          joinCount: joins.length,
+          // How full the best class on this day already is — the tie-breaker.
+          bestSeated: joins.reduce((max, j) => Math.max(max, j.regulars), 0),
+        };
+      })
+      .sort((a, b) => {
+        if ((a.joinCount > 0) !== (b.joinCount > 0)) return a.joinCount > 0 ? -1 : 1;
+        if (a.joinCount > 0) {
+          if (b.bestSeated !== a.bestSeated) return b.bestSeated - a.bestSeated;
+          return b.joinCount - a.joinCount;
+        }
+        return a.count - b.count;
+      });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dayReco, classes, openDaysFor]);
+  }, [dayReco, classes, openDaysFor, joinTargetsByDay]);
 
   // Candidate time slots for the chosen day, each annotated with whether a
   // capable instructor is free and — when not — why. Built from the branch's
@@ -807,16 +914,58 @@ export default function NewSchedulePage({ onNavigate }) {
           typeKey: planned?.type || null,
           typeLabel: meta?.bookable ? meta.label : null,
           color: meta?.color || null,
+          join: null,
         });
       }
     }
+
+    // Times that already hold a class this student can join. These are attached
+    // to the matching generated window where one exists — a window can be both
+    // "join Risa's class" and "open a new one with someone else" — and added as
+    // their own entry when the class does not sit on a 30-minute boundary.
+    const joins = joinTargetsByDay.get(day) || [];
+    for (const j of joins) {
+      const existing = slots.find((s) => s.startMin === j.startMin);
+      if (existing) {
+        existing.join = j;
+        continue;
+      }
+      slots.push({
+        startMin: j.startMin,
+        start: minToHHMM(j.startMin),
+        label: j.time,
+        // The instructor is already teaching this window, so there is nothing
+        // left to check — the only question was whether a seat was free.
+        available: true,
+        freeCount: 0,
+        freeNames: [],
+        reason: 'Existing class',
+        planned: false,
+        typeKey: null,
+        typeLabel: null,
+        color: null,
+        join: j,
+      });
+    }
+
+    // Joinable windows lead, fullest class first; everything else stays in
+    // chronological order so the day still reads like a day.
+    slots.sort((a, b) => {
+      if (!!a.join !== !!b.join) return a.join ? -1 : 1;
+      if (a.join && b.join && b.join.regulars !== a.join.regulars) {
+        return b.join.regulars - a.join.regulars;
+      }
+      return a.startMin - b.startMin;
+    });
+
     return {
       slots, hours, category, duration,
       capableCount: capable.length,
       hasPlan: plan.length > 0,
+      joinCount: joins.length,
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dayReco, classes, instructors, hoursFor, slotsFor]);
+  }, [dayReco, classes, instructors, hoursFor, slotsFor, joinTargetsByDay]);
 
   const openEditModal = (c) => {
     setEditingClass(c);
@@ -825,6 +974,7 @@ export default function NewSchedulePage({ onNavigate }) {
     setProgramCode(parsed.code);
     setLessonNo(parsed.lesson);
     setProgramUnlocked(false);
+    setJoinTime(null);
     setForm({
       day: c.day || 'Monday',
       time: c.time || '',
@@ -1247,7 +1397,7 @@ export default function NewSchedulePage({ onNavigate }) {
                 {!dayReco
                   ? 'Pick a student from Unallocated, choose a class type, then select a day.'
                   : !dayReco.day
-                    ? `${dayReco.student.name} · ${dayReco.classType} Class — pick a day`
+                    ? `${dayReco.student.name} · ${dayReco.classType} Class — classes with a free seat come first`
                     : `${dayReco.student.name} · ${dayReco.day} — pick a time`}
               </span>
             </div>
@@ -1289,26 +1439,52 @@ export default function NewSchedulePage({ onNavigate }) {
                   {!dayReco.day ? (
                     /* Step 1 — day picker */
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                      {/* Say which rule the list is following, so an ordering
+                          that is not chronological does not look arbitrary. */}
+                      <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginBottom: '0.15rem' }}>
+                        {recoDays.some((rd) => rd.joinCount > 0)
+                          ? 'Ordered by classes this student can be added to, fullest first.'
+                          : `No existing class has a free seat for ${dayReco.student.level || 'this student'} — ordered by quietest day.`}
+                      </span>
                       {recoDays.map((rd, i) => (
                         <button
                           key={rd.day}
                           onClick={() => setDayReco((prev) => ({ ...prev, day: rd.day }))}
-                          title={`See times for ${rd.day}`}
+                          title={rd.joinCount
+                            ? `${rd.day}: ${rd.joinCount} class${rd.joinCount === 1 ? '' : 'es'} with a free seat for ${dayReco.student.name}`
+                            : `See times for ${rd.day}`}
                           className="new-ops-anim"
                           style={{
                             display: 'flex', alignItems: 'center', gap: '0.6rem', width: '100%', textAlign: 'left',
                             padding: '0.6rem 0.75rem', borderRadius: '10px', cursor: 'pointer',
-                            border: `1px solid ${i === 0 ? 'var(--primary-blue, #4f46e5)' : 'var(--border-color)'}`,
-                            background: i === 0 ? 'var(--primary-blue-light, rgba(79,70,229,0.08))' : 'var(--bg-color)',
+                            border: `1px solid ${rd.joinCount ? 'rgba(16,185,129,0.55)' : (i === 0 ? 'var(--primary-blue, #4f46e5)' : 'var(--border-color)')}`,
+                            background: rd.joinCount
+                              ? 'rgba(16,185,129,0.07)'
+                              : (i === 0 ? 'var(--primary-blue-light, rgba(79,70,229,0.08))' : 'var(--bg-color)'),
                           }}
                         >
-                          <Calendar size={15} style={{ flexShrink: 0, color: i === 0 ? 'var(--primary-blue, #4f46e5)' : 'var(--text-muted)' }} />
-                          <span style={{ flex: 1, fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-main)' }}>
-                            {rd.day}
+                          <Calendar size={15} style={{ flexShrink: 0, color: rd.joinCount ? 'var(--success, #10b981)' : (i === 0 ? 'var(--primary-blue, #4f46e5)' : 'var(--text-muted)') }} />
+                          <span style={{ flex: 1, minWidth: 0 }}>
+                            <span style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-main)' }}>
+                              {rd.day}
+                            </span>
+                            {/* Say which class can be filled, not just that one
+                                can — the time is the thing being chosen next. */}
+                            {rd.joinCount > 0 && (
+                              <span style={{ display: 'block', fontSize: '0.68rem', color: 'var(--success, #10b981)' }}>
+                                {rd.joins[0].time} · {rd.joins[0].teacher} has{' '}
+                                {rd.joins[0].regulars}/{rd.joins[0].capacity} seated
+                                {rd.joinCount > 1 ? ` · +${rd.joinCount - 1} more` : ''}
+                              </span>
+                            )}
                           </span>
-                          {i === 0 && (
-                            <span style={{ fontSize: '0.62rem', fontWeight: 700, color: 'var(--primary-blue, #4f46e5)', background: 'rgba(79,70,229,0.12)', padding: '0.1rem 0.4rem', borderRadius: '5px' }}>
-                              BEST
+                          {rd.joinCount > 0 ? (
+                            <span style={{ fontSize: '0.62rem', fontWeight: 700, color: 'var(--success, #10b981)', background: 'rgba(16,185,129,0.14)', padding: '0.1rem 0.4rem', borderRadius: '5px', flexShrink: 0 }}>
+                              CAN JOIN
+                            </span>
+                          ) : i === 0 && (
+                            <span style={{ fontSize: '0.62rem', fontWeight: 700, color: 'var(--primary-blue, #4f46e5)', background: 'rgba(79,70,229,0.12)', padding: '0.1rem 0.4rem', borderRadius: '5px', flexShrink: 0 }}>
+                              QUIETEST
                             </span>
                           )}
                           <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', flexShrink: 0 }}>
@@ -1342,7 +1518,7 @@ export default function NewSchedulePage({ onNavigate }) {
 
                       {/* No point listing a dozen windows that all fail for the
                           same reason — say it once. */}
-                      {recoTimes.capableCount === 0 ? (
+                      {recoTimes.capableCount === 0 && recoTimes.joinCount === 0 ? (
                         <div style={{
                           display: 'flex', gap: '0.5rem', padding: '0.7rem 0.85rem', borderRadius: '10px',
                           background: 'var(--danger-bg, rgba(239,68,68,0.08))', border: '1px solid rgba(239,68,68,0.3)',
@@ -1358,12 +1534,15 @@ export default function NewSchedulePage({ onNavigate }) {
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', maxHeight: '300px', overflowY: 'auto' }}>
                         {recoTimes.slots.map((sl) => {
                           const picked = timePick === sl.start;
+                          const j = sl.join;
                           return (
                           <div key={sl.start}>
                             <button
                               onClick={() => sl.available && setTimePick(picked ? null : sl.start)}
                               disabled={!sl.available}
-                              title={sl.available ? `${sl.freeCount} instructor(s) free at ${sl.label}` : sl.reason}
+                              title={j
+                                ? `${j.teacher} already teaches ${j.regulars} student${j.regulars === 1 ? '' : 's'} at ${j.time} — ${j.seatsLeft} seat${j.seatsLeft === 1 ? '' : 's'} left`
+                                : (sl.available ? `${sl.freeCount} instructor(s) free at ${sl.label}` : sl.reason)}
                               className="new-ops-anim"
                               aria-expanded={picked}
                               style={{
@@ -1372,27 +1551,49 @@ export default function NewSchedulePage({ onNavigate }) {
                                 borderRadius: picked ? '10px 10px 0 0' : '10px',
                                 cursor: sl.available ? 'pointer' : 'not-allowed',
                                 opacity: sl.available ? 1 : 0.7,
-                                border: `1px solid ${sl.available ? 'rgba(16,185,129,0.5)' : 'var(--border-color)'}`,
-                                background: sl.available ? 'rgba(16,185,129,0.06)' : 'var(--bg-color)',
+                                border: `1px solid ${j ? 'rgba(16,185,129,0.75)' : (sl.available ? 'rgba(16,185,129,0.5)' : 'var(--border-color)')}`,
+                                borderLeft: j ? '3px solid var(--success, #10b981)' : undefined,
+                                background: j ? 'rgba(16,185,129,0.12)' : (sl.available ? 'rgba(16,185,129,0.06)' : 'var(--bg-color)'),
                               }}
                             >
-                              <Clock size={15} style={{ flexShrink: 0, color: sl.available ? 'var(--success, #10b981)' : 'var(--text-muted)' }} />
+                              {j
+                                ? <Users size={15} style={{ flexShrink: 0, color: 'var(--success, #10b981)' }} />
+                                : <Clock size={15} style={{ flexShrink: 0, color: sl.available ? 'var(--success, #10b981)' : 'var(--text-muted)' }} />}
                               <span style={{ flex: 1, minWidth: 0 }}>
-                                <span style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.82rem', fontWeight: 600, color: 'var(--text-main)' }}>
-                                  {sl.label}
-                                  {sl.planned && sl.typeLabel && (
+                                <span style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.82rem', fontWeight: 600, color: 'var(--text-main)', flexWrap: 'wrap' }}>
+                                  {j ? j.time : sl.label}
+                                  {j && (
+                                    <span style={{ fontSize: '0.6rem', fontWeight: 700, color: '#047857', background: 'rgba(16,185,129,0.2)', padding: '0.05rem 0.35rem', borderRadius: '5px', whiteSpace: 'nowrap' }}>
+                                      FILL THIS CLASS
+                                    </span>
+                                  )}
+                                  {!j && sl.planned && sl.typeLabel && (
                                     <span style={{ fontSize: '0.6rem', fontWeight: 700, color: sl.color, background: `${sl.color}1f`, padding: '0.05rem 0.35rem', borderRadius: '5px', whiteSpace: 'nowrap' }}>
                                       {sl.typeLabel}
                                     </span>
                                   )}
                                 </span>
-                                <span style={{ display: 'block', fontSize: '0.68rem', color: sl.available ? 'var(--success, #10b981)' : 'var(--danger, #ef4444)' }}>
-                                  {sl.available ? `✓ ${sl.reason}` : `✕ ${sl.reason}`}
-                                </span>
+                                {/* Who is already in it, so the choice is made on
+                                    the actual class rather than a bare time. */}
+                                {j ? (
+                                  <span style={{ display: 'block', fontSize: '0.68rem', color: '#047857' }}>
+                                    {j.teacher} · {j.programs.join(', ')} · {j.regulars}/{j.capacity} seated
+                                    {j.guests > 0 ? ` (+${j.guests} guest${j.guests === 1 ? '' : 's'})` : ''}
+                                  </span>
+                                ) : (
+                                  <span style={{ display: 'block', fontSize: '0.68rem', color: sl.available ? 'var(--success, #10b981)' : 'var(--danger, #ef4444)' }}>
+                                    {sl.available ? `✓ ${sl.reason}` : `✕ ${sl.reason}`}
+                                  </span>
+                                )}
+                                {j && (
+                                  <span style={{ display: 'block', fontSize: '0.66rem', color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                    {j.students.join(', ')}
+                                  </span>
+                                )}
                               </span>
                               {sl.available && (
-                                <span style={{ fontSize: '0.68rem', color: 'var(--text-muted)', flexShrink: 0 }}>
-                                  {picked ? 'pick below' : 'choose'}
+                                <span style={{ fontSize: '0.68rem', fontWeight: j ? 700 : 400, color: j ? '#047857' : 'var(--text-muted)', flexShrink: 0 }}>
+                                  {picked ? 'pick below' : (j ? `${j.seatsLeft} seat${j.seatsLeft === 1 ? '' : 's'} left` : 'choose')}
                                 </span>
                               )}
                             </button>
@@ -1408,9 +1609,48 @@ export default function NewSchedulePage({ onNavigate }) {
                                   display: 'flex', flexDirection: 'column', gap: '0.3rem',
                                 }}
                               >
-                                <span style={{ fontSize: '0.68rem', fontWeight: 700, letterSpacing: '0.03em', color: 'var(--text-muted)' }}>
-                                  AVAILABLE INSTRUCTOR
-                                </span>
+                                {/* Joining the class that is already running is
+                                    the recommended action, so it comes first and
+                                    skips the instructor question entirely. */}
+                                {j && (
+                                  <>
+                                    <span style={{ fontSize: '0.68rem', fontWeight: 700, letterSpacing: '0.03em', color: '#047857' }}>
+                                      JOIN THE EXISTING CLASS
+                                    </span>
+                                    <button
+                                      onClick={() => openAllocateModal(dayReco.student, dayReco.classType, dayReco.day, sl.start, j.teacher, j.time, j.programs[0])}
+                                      title={`Add ${dayReco.student.name} to ${j.teacher}'s ${j.time} class`}
+                                      style={{
+                                        display: 'flex', alignItems: 'center', gap: '0.5rem', width: '100%', textAlign: 'left',
+                                        padding: '0.45rem 0.6rem', borderRadius: '8px', cursor: 'pointer',
+                                        border: '1px solid rgba(16,185,129,0.6)', background: 'rgba(16,185,129,0.1)',
+                                      }}
+                                    >
+                                      <Users size={14} style={{ flexShrink: 0, color: 'var(--success, #10b981)' }} />
+                                      <span style={{ flex: 1, minWidth: 0 }}>
+                                        <span style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-main)' }}>
+                                          {j.teacher}
+                                        </span>
+                                        <span style={{ display: 'block', fontSize: '0.66rem', color: 'var(--text-muted)' }}>
+                                          {j.regulars} seated · {j.seatsLeft} free · {j.programs.join(', ')}
+                                        </span>
+                                      </span>
+                                      <span style={{ fontSize: '0.66rem', fontWeight: 700, color: '#047857', flexShrink: 0 }}>
+                                        Join →
+                                      </span>
+                                    </button>
+                                    {j.severity === 'warn' && (
+                                      <span style={{ fontSize: '0.66rem', color: 'var(--warning, #f59e0b)' }}>
+                                        {j.reason}
+                                      </span>
+                                    )}
+                                  </>
+                                )}
+                                {sl.freeNames.length > 0 && (
+                                  <span style={{ fontSize: '0.68rem', fontWeight: 700, letterSpacing: '0.03em', color: 'var(--text-muted)', marginTop: j ? '0.35rem' : 0 }}>
+                                    {j ? 'OR START A SEPARATE CLASS' : 'AVAILABLE INSTRUCTOR'}
+                                  </span>
+                                )}
                                 {sl.freeNames.map((name) => {
                                   const inst = (instructors || []).find((i) => i.name === name);
                                   return (
@@ -2077,13 +2317,17 @@ export default function NewSchedulePage({ onNavigate }) {
                     <input
                       type="time"
                       value={startTime}
-                      onChange={(e) => setStartTime(e.target.value)}
+                      // Editing the start by hand means this is no longer the
+                      // class that was being joined, so the lock comes off.
+                      onChange={(e) => { setJoinTime(null); setStartTime(e.target.value); }}
                       className={`modal-input-field ${formErrors.time ? 'error' : ''}`}
                     />
-                    <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.2rem', display: 'block' }}>
-                      {form.time
-                        ? `Slot: ${form.time} · ${isKinderProgram(form.program) ? 'Kinder 1.5h' : '2h'}`
-                        : `Duration: ${isKinderProgram(form.program) ? 'Kinder 1.5h' : '2h'} (auto)`}
+                    <span style={{ fontSize: '0.7rem', color: joinTime ? 'var(--success, #10b981)' : 'var(--text-muted)', marginTop: '0.2rem', display: 'block' }}>
+                      {joinTime
+                        ? `Joining the existing ${joinTime} class · change the start time to book a separate one`
+                        : form.time
+                          ? `Slot: ${form.time} · ${isKinderProgram(form.program) ? 'Kinder 1.5h' : '2h'}`
+                          : `Duration: ${isKinderProgram(form.program) ? 'Kinder 1.5h' : '2h'} (auto)`}
                     </span>
                     {formErrors.time && <span style={{ fontSize: '0.72rem', color: 'var(--danger)', marginTop: '0.2rem', display: 'block' }}>{formErrors.time}</span>}
                   </div>

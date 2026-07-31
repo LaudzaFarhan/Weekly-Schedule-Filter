@@ -89,6 +89,60 @@ body {
 .schedule-grid-sticky-col { box-shadow: 1px 0 0 var(--border-color); }
 .schedule-grid-sticky-head { box-shadow: 0 1px 0 var(--border-color); }
 
+/* ── Notification bell + dropdown ─────────────────────── */
+/* The panel grows out of the bell rather than just fading, so the click and
+   the thing it opened read as connected. */
+@keyframes notifDropdownIn {
+  from { opacity: 0; transform: scale(0.94) translateY(-10px); }
+  to   { opacity: 1; transform: scale(1) translateY(0); }
+}
+.notif-dropdown {
+  transform-origin: top right;
+  animation: notifDropdownIn 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* Rows arrive just behind the panel, staggered by inline animation-delay. */
+@keyframes notifItemIn {
+  from { opacity: 0; transform: translateY(-6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.notif-item {
+  animation: notifItemIn 0.24s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* A short shake on the bell itself, so the icon acknowledges the press. */
+@keyframes notifBellRing {
+  0%   { transform: rotate(0deg); }
+  20%  { transform: rotate(13deg); }
+  40%  { transform: rotate(-10deg); }
+  60%  { transform: rotate(7deg); }
+  80%  { transform: rotate(-4deg); }
+  100% { transform: rotate(0deg); }
+}
+.notif-bell-icon { transform-origin: 50% 15%; }
+.notif-bell-open .notif-bell-icon { animation: notifBellRing 0.5s ease-in-out; }
+.notif-bell-btn:active .notif-bell-icon { transform: scale(0.9); }
+.notif-bell-btn:focus-visible {
+  outline: 2px solid var(--primary-blue); outline-offset: 2px; border-radius: 8px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .notif-dropdown, .notif-item, .notif-bell-open .notif-bell-icon { animation: none; }
+}
+
+/* ── Activity page ────────────────────────────────────── */
+/* What needs attention now, beside what has already happened. Single column on
+   narrower screens, because the activity rows need the width more. */
+.activity-two-col {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr);
+  gap: 1.5rem;
+  align-items: start;
+}
+@media (max-width: 1100px) {
+  .activity-two-col { grid-template-columns: minmax(0, 1fr); }
+}
+
 /* ── Glassmorphism Login ──────────────────────────────── */
 .glass-login-overlay {
   position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;

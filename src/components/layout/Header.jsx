@@ -8,7 +8,7 @@ import {
 } from '../../services/newNotificationService';
 import {
   RefreshCw, Plus, Trash2, Bell, EyeOff, ChevronLeft, ChevronRight, Search, PanelLeft,
-  AlertTriangle, AlertCircle, Info, X, CheckCheck,
+  AlertTriangle, AlertCircle, Info, X, CheckCheck, History,
 } from 'lucide-react';
 
 const SEVERITY = {
@@ -37,11 +37,12 @@ export default function Header({ onToggleSearch, opsMode = 'old', onToggleSideba
   // so the bell is only offered there.
   const [feed, setFeed] = useState(null);
   const [feedError, setFeedError] = useState(null);
-  const [dismissed, setDismissed] = useState({});
+  // Read from storage as the initial value rather than in an effect, so
+  // already-dismissed items never flash into view on first paint.
+  const [dismissed, setDismissed] = useState(readDismissed);
 
   useEffect(() => {
     if (opsMode !== 'new') return undefined;
-    setDismissed(readDismissed());
     const unsub = subscribeToNotifications(
       (data) => { setFeed(data); setFeedError(null); },
       (err) => setFeedError(err.message)
@@ -172,9 +173,14 @@ export default function Header({ onToggleSearch, opsMode = 'old', onToggleSideba
                 title={alertCount ? `${alertCount} thing${alertCount === 1 ? '' : 's'} need attention` : 'Nothing needs attention'}
                 aria-label={`Notifications${alertCount ? `, ${alertCount} needing attention` : ''}`}
                 aria-expanded={showNotifications}
+                className={`notif-bell-btn ${showNotifications ? 'notif-bell-open' : ''}`}
                 style={{ position: 'relative', background: 'none', border: 'none', cursor: 'pointer', padding: '4px', display: 'flex' }}
               >
-                <Bell size={20} style={{ color: alertCount ? 'var(--primary-blue)' : 'var(--text-muted)' }} />
+                <Bell
+                  size={20}
+                  className="notif-bell-icon"
+                  style={{ color: alertCount ? 'var(--primary-blue)' : 'var(--text-muted)', transition: 'transform 0.12s ease' }}
+                />
                 {alertCount > 0 && (
                   <span style={{
                     position: 'absolute', top: 0, right: 0, minWidth: '16px', height: '16px',
@@ -188,7 +194,7 @@ export default function Header({ onToggleSearch, opsMode = 'old', onToggleSideba
               </button>
 
               {showNotifications && (
-                <div style={{
+                <div className="notif-dropdown" style={{
                   position: 'absolute', top: '100%', right: 0, marginTop: '0.5rem', width: '340px',
                   maxHeight: '70vh', display: 'flex', flexDirection: 'column',
                   background: 'var(--panel-bg)', border: '1px solid var(--border-color)',
@@ -229,15 +235,19 @@ export default function Header({ onToggleSearch, opsMode = 'old', onToggleSideba
                       </div>
                     )}
 
-                    {alerts.map((item) => {
+                    {alerts.map((item, i) => {
                       const meta = SEVERITY[item.severity] || SEVERITY.info;
                       const { Icon } = meta;
                       return (
                         <div
                           key={item.id}
+                          className="notif-item"
                           style={{
                             display: 'flex', gap: '0.6rem', padding: '0.7rem 1rem',
                             borderBottom: '1px solid var(--border-color)', alignItems: 'flex-start',
+                            // Each row trails the one above, so the list reads
+                            // as arriving rather than appearing all at once.
+                            animationDelay: `${Math.min(i, 6) * 40}ms`,
                           }}
                         >
                           <span aria-hidden="true" style={{
@@ -281,6 +291,21 @@ export default function Header({ onToggleSearch, opsMode = 'old', onToggleSideba
                       );
                     })}
                   </div>
+
+                  {/* The full feed, plus the schedule log, live on the
+                      Activity page — this dropdown is only the summary. */}
+                  <button
+                    onClick={() => { if (onNavigate) onNavigate('activity'); setShowNotifications(false); }}
+                    style={{
+                      display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.35rem',
+                      width: '100%', padding: '0.6rem 1rem', cursor: 'pointer',
+                      borderTop: '1px solid var(--border-color)', border: 'none',
+                      background: 'transparent', color: 'var(--primary-blue)',
+                      fontSize: '0.78rem', fontWeight: 600, fontFamily: 'inherit',
+                    }}
+                  >
+                    <History size={13} /> View all logs
+                  </button>
 
                   {feed?.generatedAt && (
                     <div style={{ padding: '0.5rem 1rem', borderTop: '1px solid var(--border-color)', fontSize: '0.68rem', color: 'var(--text-muted)' }}>

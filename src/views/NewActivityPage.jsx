@@ -1,8 +1,13 @@
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { History, Search, Trash, X, User, AlertTriangle } from 'lucide-react';
+import {
+  History, Search, Trash, X, User, AlertTriangle, AlertCircle, Info, Bell, CheckCheck,
+} from 'lucide-react';
 import { subscribeToActivity, deleteActivity, displayUser } from '../services/newActivityService';
+import {
+  subscribeToNotifications, readDismissed, dismissNotification, dismissAll, visibleItems,
+} from '../services/newNotificationService';
 import { useToast } from '../components/ui/Toast';
 
 const ACTION_META = {
@@ -12,7 +17,14 @@ const ACTION_META = {
   delete: { color: '#dc2626', bg: 'rgba(220,38,38,0.12)', label: 'DELETE' },
 };
 
-export default function NewActivityPage() {
+/** Matches the header bell, so the same alert reads the same in both places. */
+const SEVERITY = {
+  danger: { color: 'var(--danger)', bg: 'rgba(239,68,68,0.1)', Icon: AlertCircle },
+  warning: { color: '#b45309', bg: 'rgba(245,158,11,0.12)', Icon: AlertTriangle },
+  info: { color: 'var(--primary-blue)', bg: 'rgba(59,130,246,0.1)', Icon: Info },
+};
+
+export default function NewActivityPage({ onNavigate }) {
   const { showToast } = useToast();
   const [history, setHistory] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -21,6 +33,23 @@ export default function NewActivityPage() {
   const [userFilter, setUserFilter] = useState('all');
   const [search, setSearch] = useState('');
   const [searchFocused, setSearchFocused] = useState(false);
+
+  // The same feed the header bell shows, so this page is the full view of it
+  // rather than a second, differently-computed list.
+  const [feed, setFeed] = useState(null);
+  const [feedError, setFeedError] = useState(null);
+  // Initial value rather than an effect, so dismissed items never flash in.
+  const [dismissed, setDismissed] = useState(readDismissed);
+
+  useEffect(() => {
+    const unsub = subscribeToNotifications(
+      (data) => { setFeed(data); setFeedError(null); },
+      (err) => setFeedError(err.message)
+    );
+    return () => unsub();
+  }, []);
+
+  const alerts = useMemo(() => visibleItems(feed, dismissed), [feed, dismissed]);
 
   // Read from PostgreSQL so the log is shared and carries the acting user.
   useEffect(() => {
@@ -71,7 +100,11 @@ export default function NewActivityPage() {
 
   return (
     <section className="dashboard-view active">
-      <div className="panel" style={{ margin: 0 }}>
+      {/* Two cards side by side: what needs attention now, and what has already
+          happened. Collapses to one column below 1100px. */}
+      <div className="activity-two-col">
+
+      <div className="panel" style={{ margin: 0, minWidth: 0 }}>
         <div className="panel-header" style={{ flexWrap: 'wrap', gap: '0.75rem', justifyContent: 'space-between', alignItems: 'center' }}>
           <div>
             <h2 style={{ fontSize: '1.25rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.45rem' }}>
@@ -217,6 +250,120 @@ export default function NewActivityPage() {
             </div>
           )}
         </div>
+      </div>
+
+      {/* ── Notifications: the header bell's feed, in full ────────────────── */}
+      <div className="panel" style={{ margin: 0, minWidth: 0, alignSelf: 'start' }}>
+        <div className="panel-header" style={{ flexWrap: 'wrap', gap: '0.75rem', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div>
+            <h2 style={{ fontSize: '1.25rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.45rem' }}>
+              <Bell size={20} /> Needs Attention
+              {alerts.length > 0 && (
+                <span style={{
+                  fontSize: '0.72rem', fontWeight: 700, color: 'var(--danger)',
+                  background: 'var(--danger-bg, rgba(239,68,68,0.12))',
+                  padding: '0.05rem 0.45rem', borderRadius: '99px',
+                }}>
+                  {alerts.length}
+                </span>
+              )}
+            </h2>
+            <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', margin: '0.2rem 0 0' }}>
+              The same checks behind the bell in the header. Derived live from New Operations data, refreshed every minute.
+            </p>
+          </div>
+          {alerts.length > 0 && (
+            <button
+              onClick={() => setDismissed(dismissAll(alerts, feed?.today))}
+              className="btn"
+              title="Dismiss all for today"
+              style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.8rem', border: '1px solid var(--border-color)', borderRadius: '8px', padding: '0.4rem 0.8rem', color: 'var(--text-secondary)', background: 'transparent' }}
+            >
+              <CheckCheck size={14} /> Dismiss all
+            </button>
+          )}
+        </div>
+
+        <div style={{ padding: '1rem 1.5rem' }}>
+          {feedError ? (
+            <div style={{
+              display: 'flex', alignItems: 'flex-start', gap: '0.5rem',
+              padding: '0.7rem 0.9rem', borderRadius: '10px',
+              background: 'var(--danger-bg, rgba(239,68,68,0.1))', border: '1px solid rgba(239,68,68,0.35)',
+            }}>
+              <AlertTriangle size={16} style={{ color: 'var(--danger)', flexShrink: 0, marginTop: '0.1rem' }} />
+              <span style={{ fontSize: '0.78rem', color: 'var(--danger)' }}>{feedError}</span>
+            </div>
+          ) : !feed ? (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.75rem', padding: '2rem', color: 'var(--text-secondary)' }}>
+              <div className="loading-spinner" /> Checking…
+            </div>
+          ) : alerts.length === 0 ? (
+            <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', textAlign: 'center', padding: '2rem 0' }}>
+              Nothing needs attention. Every student is allocated and no class is over capacity.
+            </p>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+              {alerts.map((item) => {
+                const meta = SEVERITY[item.severity] || SEVERITY.info;
+                const { Icon } = meta;
+                return (
+                  <div
+                    key={item.id}
+                    style={{
+                      display: 'flex', gap: '0.6rem', alignItems: 'flex-start',
+                      padding: '0.7rem 0.8rem', borderRadius: '10px',
+                      background: 'var(--bg-color)', border: '1px solid var(--border-color)',
+                    }}
+                  >
+                    <span aria-hidden="true" style={{
+                      flexShrink: 0, width: '28px', height: '28px', borderRadius: '8px',
+                      background: meta.bg, color: meta.color,
+                      display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                    }}>
+                      <Icon size={15} />
+                    </span>
+
+                    <button
+                      onClick={() => { if (item.page && onNavigate) onNavigate(item.page); }}
+                      title={item.page ? `Go to ${item.page}` : undefined}
+                      style={{
+                        flex: 1, minWidth: 0, textAlign: 'left', background: 'none',
+                        border: 'none', padding: 0, cursor: item.page ? 'pointer' : 'default',
+                      }}
+                    >
+                      <span style={{ display: 'block', fontSize: '0.86rem', fontWeight: 600, color: 'var(--text-main)' }}>
+                        {item.title}
+                      </span>
+                      {item.detail && (
+                        <span style={{ display: 'block', fontSize: '0.76rem', color: 'var(--text-secondary)', marginTop: '0.15rem', lineHeight: 1.4 }}>
+                          {item.detail}
+                        </span>
+                      )}
+                    </button>
+
+                    <button
+                      onClick={() => setDismissed(dismissNotification(item.id, feed?.today))}
+                      title="Dismiss for today"
+                      aria-label={`Dismiss: ${item.title}`}
+                      style={{ flexShrink: 0, background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: '0.15rem', lineHeight: 0 }}
+                    >
+                      <X size={14} />
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {feed?.generatedAt && (
+            <p style={{ margin: '0.9rem 0 0', fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+              Checked {new Date(feed.generatedAt).toLocaleTimeString()} · {feed.todayName}, {feed.today}
+            </p>
+          )}
+        </div>
+      </div>
+
       </div>
     </section>
   );
