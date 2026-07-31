@@ -215,6 +215,25 @@ Out of scope:
 
 ---
 
+### Requirement 11: Configurable class duration
+
+**User Story:** As an operations admin, I want to decide how long each category's classes run, and to open a longer or shorter one when a gap calls for it, so that the planner matches how we actually teach instead of a fixed 90/120 rule.
+
+#### Acceptance Criteria
+
+1. THE SYSTEM SHALL store a default class duration per category in the Schedule Rules, alongside `maxStudents`, and SHALL expose it for editing in the Schedule Rules panel.
+2. THE SYSTEM SHALL default to Kinder 90 minutes and Junior/Coder 120 minutes, so behaviour is unchanged until an admin edits it.
+3. THE SYSTEM SHALL allow more than one permitted duration per category (for example Kinder 90 or 120) and SHALL offer each permitted length when opening a class.
+4. WHERE any permitted duration for a category fits the gap, THE SYSTEM SHALL treat the window as openable for that category — a 60-minute gap SHALL offer a 60-minute class when 60 is permitted.
+5. WHEN the admin opens a class THE SYSTEM SHALL let them pick the length, defaulting to that category's default duration.
+6. THE SYSTEM SHALL keep resizing free-form in 30-minute steps rather than restricting it to the permitted durations, and SHALL indicate when a class has been resized outside them.
+7. THE SYSTEM SHALL derive duration from the rules everywhere it is currently hardcoded: the grid's openable check, the category picker, the legend, the recommended-times panel, the Add/Edit class time-slot builder, Add Slot Manually, `/api/new/workload`, and `/api/new/trial-availability`.
+8. WHEN a category's default duration changes THEN THE SYSTEM SHALL NOT alter existing classes; the stored `time` string on each class remains authoritative.
+9. THE SYSTEM SHALL validate a duration as a multiple of 15 minutes, at least 30 and at most 300, and SHALL reject anything else with a clear message.
+10. WHERE a branch's operating hours cannot accommodate a category's shortest permitted duration on a given day, THE SYSTEM SHALL say so rather than presenting an empty time list.
+
+---
+
 ## Implementation status
 
 | Requirement | State | Notes |
@@ -229,6 +248,7 @@ Out of scope:
 | 8 — API + derived report consistency | not started | No `/api/new/availability` yet; `trial-availability` still has its own logic |
 | 9 — non-functional | partial | No extra round trips; keyboard and text-plus-colour states in place |
 | 10 — remaining capacity per instructor | mostly | 10.4 daily limit and 10.8 all-days view outstanding |
+| 11 — configurable class duration | not started | Duration is hardcoded 90/120 in 8 places; see design.md |
 
 ## Known gaps this feature closes
 
