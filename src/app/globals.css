@@ -85,6 +85,44 @@ body {
   border-color: var(--text-muted) !important;
   color: var(--text-secondary) !important;
 }
+/* Scroll arrows over the grid. The instructor columns run off the right edge and
+   the sticky time column hides the usual clue that the table is wider than its
+   box, so the affordance has to be explicit. */
+.grid-scroll-nav {
+  position: absolute; top: 50%; transform: translateY(-50%);
+  z-index: 5;
+  display: inline-flex; align-items: center; gap: 2px;
+  padding: 0.4rem 0.3rem; border-radius: 99px; cursor: pointer;
+  border: 1px solid var(--border-color); background: var(--panel-bg);
+  color: var(--text-secondary);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.14);
+  transition: background 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
+}
+.grid-scroll-nav:hover {
+  background: var(--primary-blue); color: #fff; border-color: var(--primary-blue);
+  box-shadow: 0 3px 14px rgba(0, 0, 0, 0.2);
+}
+.grid-scroll-nav:focus-visible {
+  outline: 2px solid var(--primary-blue); outline-offset: 2px;
+}
+/* How many instructor columns are still off-screen. */
+.grid-scroll-nav-count {
+  font-size: 0.62rem; font-weight: 700; line-height: 1;
+  padding-right: 0.25rem;
+}
+/* A gentle sideways nudge, drawing the eye to the edge without spinning or
+   flashing. Stops on hover so it does not fidget under the cursor. */
+@keyframes gridScrollNudge {
+  0%, 100% { transform: translateY(-50%) translateX(0); }
+  50%      { transform: translateY(-50%) translateX(3px); }
+}
+.grid-scroll-nav-right { animation: gridScrollNudge 1.8s ease-in-out infinite; }
+.grid-scroll-nav-right:hover { animation: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  .grid-scroll-nav-right { animation: none; }
+}
+
 /* Sticky header row and time column need to sit above scrolled content. */
 .schedule-grid-sticky-col { box-shadow: 1px 0 0 var(--border-color); }
 .schedule-grid-sticky-head { box-shadow: 0 1px 0 var(--border-color); }
@@ -484,6 +522,21 @@ body {
               border-left-color 0.2s ease;
 }
 .nav-item:hover { background-color: var(--sidebar-active-bg); color: white; padding-left: calc(1.5rem + 4px); }
+
+/* Nested nav rows, indented under a disclosure parent. The dash carries the
+   indent visually so the label still starts where a top-level icon's label
+   would, keeping the left edge of the text consistent down the sidebar. */
+.nav-subitem {
+  padding-left: 2.6rem;
+  font-size: 0.8rem;
+  gap: 8px;
+}
+.nav-subitem:hover { padding-left: calc(2.6rem + 4px); }
+.nav-subitem-dash {
+  width: 10px; height: 1px; flex-shrink: 0;
+  background: currentColor; opacity: 0.45;
+}
+.nav-subitem.active .nav-subitem-dash { opacity: 1; }
 .nav-item.active {
   background-color: var(--sidebar-active-bg); color: white;
   font-weight: 600; border-left-color: var(--primary-blue);

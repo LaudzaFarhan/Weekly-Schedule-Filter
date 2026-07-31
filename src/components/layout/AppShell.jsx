@@ -34,6 +34,9 @@ import NewApiDocsPage from '@/views/NewApiDocsPage';
 import NewWorkloadPage from '@/views/NewWorkloadPage';
 import NewTrialAvailabilityPage from '@/views/NewTrialAvailabilityPage';
 import NewActivityPage from '@/views/NewActivityPage';
+import NewKinderProgressPage from '@/views/NewKinderProgressPage';
+import NewJuniorProgressPage from '@/views/NewJuniorProgressPage';
+import NewCoderProgressPage from '@/views/NewCoderProgressPage';
 
 const PAGE_MAP = {
   home: HomePage,
@@ -134,6 +137,12 @@ export default function AppShell() {
       PageComponent = NewTrialAvailabilityPage;
     } else if (currentPage === 'activity') {
       PageComponent = NewActivityPage;
+    } else if (currentPage === 'progress-kinder') {
+      PageComponent = NewKinderProgressPage;
+    } else if (currentPage === 'progress-junior') {
+      PageComponent = NewJuniorProgressPage;
+    } else if (currentPage === 'progress-coder') {
+      PageComponent = NewCoderProgressPage;
     } else if (currentPage === 'api') {
       PageComponent = NewApiDocsPage;
     } else {

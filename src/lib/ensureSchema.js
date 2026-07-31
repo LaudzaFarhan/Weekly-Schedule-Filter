@@ -107,6 +107,40 @@ const DEFINITIONS = {
     )`,
   ],
 
+  /**
+   * Live Progress: how far a student has got through one program level.
+   *
+   * Keyed by student name + program code rather than by class row, because
+   * progress belongs to the student's journey through a level, not to the seat
+   * they happen to occupy. Moving a student to another day, time or instructor
+   * must not reset their attendance — and it would, if this hung off a
+   * `internal_classes` row that gets deleted and recreated.
+   *
+   * The per-lesson detail is JSONB rather than ten columns or ten rows: it is
+   * always read and written as a whole, and the shape is a sparse map of lesson
+   * number to { date, note }. `videos` is the same idea for the "video sent"
+   * flags, whose keys are the level codes of the student's category.
+   */
+  internal_live_progress: [
+    `CREATE TABLE IF NOT EXISTS internal_live_progress (
+        id SERIAL PRIMARY KEY,
+        student_name VARCHAR(255) NOT NULL,
+        program_code VARCHAR(100) NOT NULL,
+        category VARCHAR(50),
+        attendance JSONB DEFAULT '{}'::jsonb NOT NULL,
+        videos JSONB DEFAULT '{}'::jsonb NOT NULL,
+        continuation VARCHAR(50) DEFAULT 'Not Decide Yet' NOT NULL,
+        continuation_note TEXT,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT internal_live_progress_student_program_key
+            UNIQUE (student_name, program_code)
+    )`,
+    `CREATE INDEX IF NOT EXISTS internal_live_progress_category_idx
+        ON internal_live_progress (category)`,
+    { trigger: 'update_internal_live_progress_changetimestamp', table: 'internal_live_progress' },
+  ],
+
   internal_student_history: [
     `CREATE TABLE IF NOT EXISTS internal_student_history (
         id SERIAL PRIMARY KEY,

@@ -5,7 +5,8 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useSchedule } from '@/contexts/ScheduleContext';
 import {
   Home, AlertTriangle, Calendar, Activity, Star,
-  Search, FileText, PenLine, Terminal, Settings, LogOut, User, BarChart3, ClipboardList, Users, Building2, PanelLeftClose, CalendarOff
+  Search, FileText, PenLine, Terminal, Settings, LogOut, User, BarChart3, ClipboardList, Users, Building2, PanelLeftClose, CalendarOff,
+  TrendingUp, ChevronDown, ChevronRight
 } from 'lucide-react';
 import { listenToMyTasks } from '@/services/taskService';
 
@@ -41,6 +42,19 @@ const navItems = [
 const NEW_OPS_PAGES = [
   'home', 'dashboard', 'operationals', 'students', 'instructors',
   'crm', 'workload', 'leave', 'trial-availability', 'activity', 'api',
+  'progress-kinder', 'progress-junior', 'progress-coder',
+];
+
+/**
+ * Live Progress and its three category pages.
+ *
+ * The parent is a disclosure, not a destination — there is no combined view, so
+ * pressing it expands rather than navigating somewhere that does not exist.
+ */
+const LIVE_PROGRESS_PAGES = [
+  { id: 'progress-kinder', label: 'Kinder Progress' },
+  { id: 'progress-junior', label: 'Junior Progress' },
+  { id: 'progress-coder', label: 'Coder Progress' },
 ];
 
 export default function Sidebar({ currentPage, onNavigate, onToggleSearch, opsMode = 'old', setOpsMode, onToggleSidebar }) {
@@ -56,6 +70,18 @@ export default function Sidebar({ currentPage, onNavigate, onToggleSearch, opsMo
   const currentToggles = roleToggles?.[userRole] || roleToggles?.['Instructor'] || {};
 
   const [pendingCount, setPendingCount] = useState(0);
+
+  const liveProgressActive = LIVE_PROGRESS_PAGES.some((p) => p.id === currentPage);
+  /**
+   * Whether the Live Progress group is expanded.
+   *
+   * Seeded from the page showing at mount, so a reload or a shared
+   * /new/progress-junior link opens with the group already revealed rather than
+   * hiding the active page. A lazy initialiser rather than an effect: correcting
+   * this from an effect would both flash the wrong state on first paint and add
+   * another set-state-in-effect error to this file.
+   */
+  const [liveProgressOpen, setLiveProgressOpen] = useState(() => liveProgressActive);
 
   // Determine the logged in user's instructor name for task queries
   const { instructorProfiles } = useSchedule();
@@ -229,6 +255,33 @@ export default function Sidebar({ currentPage, onNavigate, onToggleSearch, opsMo
                 Activity
               </div>
             </button>
+            {/* Live Progress — a disclosure with one page per category. The
+                parent expands rather than navigating, since there is no
+                combined view behind it. */}
+            <button
+              className={`nav-item ${liveProgressActive ? 'active' : ''}`}
+              onClick={() => setLiveProgressOpen((v) => !v)}
+              aria-expanded={liveProgressOpen}
+              title="Attendance, videos sent and continuation per category"
+              style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                <TrendingUp size={20} />
+                Live Progress
+              </div>
+              {liveProgressOpen ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+            </button>
+            {liveProgressOpen && LIVE_PROGRESS_PAGES.map((sub) => (
+              <button
+                key={sub.id}
+                className={`nav-item nav-subitem ${currentPage === sub.id ? 'active' : ''}`}
+                onClick={() => onNavigate(sub.id)}
+                style={{ display: 'flex', justifyContent: 'flex-start', alignItems: 'center' }}
+              >
+                <span aria-hidden="true" className="nav-subitem-dash" />
+                {sub.label}
+              </button>
+            ))}
             <button
               className={`nav-item ${currentPage === 'api' ? 'active' : ''}`}
               onClick={() => onNavigate('api')}

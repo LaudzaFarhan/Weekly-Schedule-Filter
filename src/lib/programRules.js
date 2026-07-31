@@ -46,6 +46,40 @@ export const STUDENT_LEVELS = [
 ];
 
 /**
+ * Program codes offered in each category, in curriculum order.
+ *
+ * Kinder and Junior codes carry a lesson number when stored ("J1.3"); the code
+ * itself is the level. Coder levels are stored whole and have no lessons.
+ */
+export const CATEGORY_LEVELS = {
+  Kinder: ['KF1', 'KF2', 'K1', 'K2', 'K3', 'K4'],
+  Junior: ['JF1', 'JF2', 'J1', 'J2', 'J3', 'J4'],
+  Coder: CODER_LEVELS,
+};
+
+/** The level codes a category runs, for progress tracking and video flags. */
+export function levelsForCategory(category) {
+  return CATEGORY_LEVELS[category] || [];
+}
+
+/** Lessons in one level — the span of the attendance ticks. */
+export const LESSONS_PER_LEVEL = 10;
+
+/**
+ * How likely a student is to carry on after their current level.
+ *
+ * "Not Decide Yet" leads because it is the honest default for a student nobody
+ * has spoken to yet; treating no answer as "Continue" would overstate retention.
+ */
+export const CONTINUATION_OPTIONS = [
+  'Not Decide Yet',
+  'Continue',
+  'Uncertain',
+  'Break',
+  'Not Continue',
+];
+
+/**
  * Fold a legacy numbered Coder level onto its stage: "Coder Advance 2" reads as
  * "Coder Advance". Records written before the numbering was dropped stay
  * meaningful, so nothing has to be migrated for the app to behave correctly.

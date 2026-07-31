@@ -3,7 +3,8 @@
 import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import {
   Users, Filter, Trash2, X, CalendarDays, CalendarPlus, AlertTriangle, Clock,
-  GripVertical, ChevronUp, ChevronDown, Plus, Pencil, Building2, UserPlus, Repeat,
+  GripVertical, ChevronUp, ChevronDown, ChevronLeft, ChevronRight,
+  Plus, Pencil, Building2, UserPlus, Repeat,
 } from 'lucide-react';
 import {
   AVAIL, ATTENDANCE, isExpired, isoOf, availabilityFor, toMinutes, fromMinutes, clockLabel, slotLabelFor,
@@ -789,6 +790,59 @@ export default function ScheduleGrid({
 
   const timeColWidth = 88;
   const colWidth = 172;
+
+  // ── horizontal scroll affordance ────────────────────────────────────────────
+  // With more instructors than fit, the columns off to the right are invisible
+  // and there is nothing to suggest they exist — the sticky time column hides
+  // the usual clue that the table is wider than its box.
+  const scrollerRef = useRef(null);
+  const [scrollNav, setScrollNav] = useState({ left: false, right: false, hidden: 0 });
+
+  const syncScrollNav = useCallback(() => {
+    const el = scrollerRef.current;
+    if (!el) return;
+    const max = el.scrollWidth - el.clientWidth;
+    // A pixel of slack: fractional layout widths otherwise leave the arrow
+    // showing at the very end of the scroll.
+    const left = el.scrollLeft > 1;
+    const right = el.scrollLeft < max - 1;
+    // How many instructor columns are still out of view, so the hint can say
+    // what is over there rather than just pointing. Rounded up: a column only
+    // half in view is one you still cannot read, and rounding down reported
+    // "0 more" while the arrow was still offering to scroll.
+    const hidden = Math.max(0, Math.ceil((max - el.scrollLeft) / colWidth));
+    setScrollNav((prev) => (
+      prev.left === left && prev.right === right && prev.hidden === hidden
+        ? prev
+        : { left, right, hidden }
+    ));
+  }, [colWidth]);
+
+  // Re-measure when the box or the number of columns changes, not just on scroll:
+  // collapsing the sidebar or filtering to one teacher both change whether there
+  // is anything left to scroll to.
+  useEffect(() => {
+    const el = scrollerRef.current;
+    if (!el) return undefined;
+    syncScrollNav();
+    const observer = typeof ResizeObserver === 'function'
+      ? new ResizeObserver(syncScrollNav)
+      : null;
+    observer?.observe(el);
+    window.addEventListener('resize', syncScrollNav);
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener('resize', syncScrollNav);
+    };
+  }, [syncScrollNav, columns.length, rowStarts.length]);
+
+  /** Scroll by roughly a screenful, but always a whole number of columns. */
+  const scrollByColumns = (direction) => {
+    const el = scrollerRef.current;
+    if (!el) return;
+    const perScreen = Math.max(1, Math.floor((el.clientWidth - timeColWidth) / colWidth) - 1);
+    el.scrollBy({ left: direction * perScreen * colWidth, behavior: 'smooth' });
+  };
   const isHour = (mins) => mins % 60 === 0;
 
   return (
@@ -978,7 +1032,59 @@ export default function ScheduleGrid({
             {branch ? `${branch.name} has no open days yet. Enable days above.` : 'Select a branch.'}
           </div>
         ) : (
-          <div style={{ overflow: 'auto', maxHeight: '640px' }}>
+          <div style={{ position: 'relative' }}>
+          {/* Edge fades sit above the table but must not eat clicks meant for
+              the cells underneath, hence pointer-events: none. */}
+          {scrollNav.left && (
+            <div aria-hidden="true" style={{
+              position: 'absolute', top: 0, bottom: 0, left: timeColWidth, width: '38px',
+              zIndex: 4, pointerEvents: 'none',
+              background: 'linear-gradient(to right, var(--panel-bg), transparent)',
+            }} />
+          )}
+          {scrollNav.right && (
+            <div aria-hidden="true" style={{
+              position: 'absolute', top: 0, bottom: 0, right: 0, width: '48px',
+              zIndex: 4, pointerEvents: 'none',
+              background: 'linear-gradient(to left, var(--panel-bg), transparent)',
+            }} />
+          )}
+
+          {scrollNav.left && (
+            <button
+              type="button"
+              onClick={() => scrollByColumns(-1)}
+              className="grid-scroll-nav"
+              title="Scroll left"
+              aria-label="Scroll the grid left"
+              style={{ left: `${timeColWidth + 6}px` }}
+            >
+              <ChevronLeft size={18} />
+            </button>
+          )}
+          {scrollNav.right && (
+            <button
+              type="button"
+              onClick={() => scrollByColumns(1)}
+              className="grid-scroll-nav grid-scroll-nav-right"
+              title={scrollNav.hidden > 0
+                ? `Scroll right — about ${scrollNav.hidden} more instructor${scrollNav.hidden === 1 ? '' : 's'} this way`
+                : 'Scroll right for more instructors'}
+              aria-label="Scroll the grid right for more instructors"
+              style={{ right: '10px' }}
+            >
+              <ChevronRight size={18} />
+              {scrollNav.hidden > 0 && (
+                <span className="grid-scroll-nav-count">{scrollNav.hidden}</span>
+              )}
+            </button>
+          )}
+
+          <div
+            ref={scrollerRef}
+            onScroll={syncScrollNav}
+            style={{ overflow: 'auto', maxHeight: '640px' }}
+          >
             <table style={{ borderCollapse: 'separate', borderSpacing: 0, width: 'max-content', minWidth: '100%' }}>
               <thead>
                 <tr>
@@ -1144,6 +1250,7 @@ export default function ScheduleGrid({
                 ))}
               </tbody>
             </table>
+          </div>
           </div>
         )}
       </div>
