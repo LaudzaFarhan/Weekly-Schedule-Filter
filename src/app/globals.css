@@ -193,10 +193,19 @@ body {
   display: grid;
   grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr);
   gap: 1.5rem;
-  align-items: start;
+  /* Stretch, so Needs Attention takes its height from the activity log beside
+     it. The log is capped at a fixed number of rows, so that height is stable
+     and the notification list scrolls inside whatever is left. */
+  align-items: stretch;
+}
+.activity-two-col > .panel {
+  display: flex;
+  flex-direction: column;
 }
 @media (max-width: 1100px) {
   .activity-two-col { grid-template-columns: minmax(0, 1fr); }
+  /* Stacked, each card should be its own height again. */
+  .activity-two-col > .panel { display: block; }
 }
 
 /* ── Glassmorphism Login ──────────────────────────────── */

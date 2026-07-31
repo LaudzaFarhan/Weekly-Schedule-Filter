@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import {
   History, Search, Trash, X, User, AlertTriangle, AlertCircle, Info, Bell, CheckCheck,
 } from 'lucide-react';
@@ -16,6 +16,17 @@ const ACTION_META = {
   edit: { color: '#d97706', bg: 'rgba(217,119,6,0.12)', label: 'EDIT' },
   delete: { color: '#dc2626', bg: 'rgba(220,38,38,0.12)', label: 'DELETE' },
 };
+
+/**
+ * How many activity rows are visible before the list scrolls.
+ *
+ * The height is measured from the rows themselves rather than assumed, because a
+ * summary wraps to two lines when it is long — a fixed row height would clip
+ * exactly the entries that have the most to say.
+ */
+const VISIBLE_ACTIVITY_ROWS = 8;
+/** Gap between activity rows, in px so the measured height is exact. */
+const ACTIVITY_ROW_GAP = 6;
 
 /** Matches the header bell, so the same alert reads the same in both places. */
 const SEVERITY = {
@@ -33,6 +44,28 @@ export default function NewActivityPage({ onNavigate }) {
   const [userFilter, setUserFilter] = useState('all');
   const [search, setSearch] = useState('');
   const [searchFocused, setSearchFocused] = useState(false);
+
+  // Height of the first VISIBLE_ACTIVITY_ROWS rows, measured after layout.
+  // null means "fewer rows than the cap", so no limit is applied.
+  const listRef = useRef(null);
+  const [listMaxHeight, setListMaxHeight] = useState(null);
+
+  const measureList = useCallback(() => {
+    const el = listRef.current;
+    if (!el) return;
+    const kids = Array.from(el.children);
+    if (kids.length <= VISIBLE_ACTIVITY_ROWS) {
+      setListMaxHeight((prev) => (prev === null ? prev : null));
+      return;
+    }
+    // offsetHeight rather than getBoundingClientRect: once the cap is applied the
+    // list can be scrolled, and viewport-relative rects would then measure from
+    // the wrong place.
+    let h = 0;
+    for (let i = 0; i < VISIBLE_ACTIVITY_ROWS; i += 1) h += kids[i].offsetHeight;
+    h += (VISIBLE_ACTIVITY_ROWS - 1) * ACTIVITY_ROW_GAP;
+    setListMaxHeight((prev) => (prev === h ? prev : h));
+  }, []);
 
   // The same feed the header bell shows, so this page is the full view of it
   // rather than a second, differently-computed list.
@@ -97,6 +130,23 @@ export default function NewActivityPage({ onNavigate }) {
     history.forEach((h) => { if (c[h.action] !== undefined) c[h.action] += 1; });
     return c;
   }, [history]);
+
+  /**
+   * Re-measure whenever the rows or their heights change.
+   *
+   * A ResizeObserver on the rows rather than a one-off pass, because a row grows
+   * from one line to two as the column narrows, which changes what eight rows
+   * comes to. Observing fires the callback straight away, so this also covers the
+   * initial measure without setting state inside the effect body.
+   */
+  useEffect(() => {
+    const el = listRef.current;
+    if (!el || typeof ResizeObserver !== 'function') return undefined;
+    const ro = new ResizeObserver(measureList);
+    ro.observe(el);
+    Array.from(el.children).forEach((child) => ro.observe(child));
+    return () => ro.disconnect();
+  }, [measureList, filtered.length, loading]);
 
   return (
     <section className="dashboard-view active">
@@ -219,13 +269,28 @@ export default function NewActivityPage({ onNavigate }) {
               No activity matches the filter.
             </p>
           ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+            <div
+              ref={listRef}
+              style={{
+                display: 'flex', flexDirection: 'column',
+                gap: `${ACTIVITY_ROW_GAP}px`,
+                // Exactly VISIBLE_ACTIVITY_ROWS rows tall once there are more
+                // than that; the rest scroll.
+                maxHeight: listMaxHeight ?? undefined,
+                overflowY: listMaxHeight ? 'auto' : 'visible',
+                // The scrollbar's width is reserved from the start. Without this
+                // the cap appearing narrows the rows, a long summary reflows onto
+                // a second line, the measured height changes, the scrollbar goes
+                // away — and the two states flip-flop forever.
+                scrollbarGutter: 'stable',
+              }}
+            >
               {filtered.map((h, i) => {
                 const meta = ACTION_META[h.action] || { color: 'var(--text-muted)', bg: 'var(--bg-color)', label: (h.action || '').toUpperCase() };
                 const when = new Date(h.createdAt || h.at);
                 const who = displayUser(h.userEmail);
                 return (
-                  <div key={h.id ?? i} style={{ display: 'flex', alignItems: 'center', gap: '0.7rem', padding: '0.6rem 0.75rem', borderRadius: '8px', background: 'var(--bg-color)', border: '1px solid var(--border-color)' }}>
+                  <div key={h.id ?? i} style={{ display: 'flex', alignItems: 'center', gap: '0.7rem', padding: '0.6rem 0.75rem', borderRadius: '8px', background: 'var(--bg-color)', border: '1px solid var(--border-color)', flexShrink: 0 }}>
                     <span style={{ fontSize: '0.64rem', fontWeight: 700, color: meta.color, background: meta.bg, padding: '0.12rem 0.45rem', borderRadius: '5px', flexShrink: 0, minWidth: '52px', textAlign: 'center' }}>{meta.label}</span>
                     <span
                       title={h.userEmail || 'No user recorded'}
@@ -249,11 +314,20 @@ export default function NewActivityPage({ onNavigate }) {
               })}
             </div>
           )}
+          {/* Say that the list continues, since a capped list with no visible
+              scrollbar looks like the whole log. */}
+          {listMaxHeight && filtered.length > VISIBLE_ACTIVITY_ROWS && (
+            <p style={{ fontSize: '0.72rem', color: 'var(--text-muted)', margin: '0.5rem 0 0', textAlign: 'center' }}>
+              Showing {VISIBLE_ACTIVITY_ROWS} of {filtered.length} — scroll for the rest
+            </p>
+          )}
         </div>
       </div>
 
       {/* ── Notifications: the header bell's feed, in full ────────────────── */}
-      <div className="panel" style={{ margin: 0, minWidth: 0, alignSelf: 'start' }}>
+      {/* No alignSelf here: the card takes its height from the activity log
+          beside it, and its own list scrolls within that. */}
+      <div className="panel" style={{ margin: 0, minWidth: 0 }}>
         <div className="panel-header" style={{ flexWrap: 'wrap', gap: '0.75rem', justifyContent: 'space-between', alignItems: 'center' }}>
           <div>
             <h2 style={{ fontSize: '1.25rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.45rem' }}>
@@ -284,7 +358,9 @@ export default function NewActivityPage({ onNavigate }) {
           )}
         </div>
 
-        <div style={{ padding: '1rem 1.5rem' }}>
+        {/* Fills whatever height the row settles at, so the list inside scrolls
+            rather than the card growing past the activity log. */}
+        <div style={{ padding: '1rem 1.5rem', flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
           {feedError ? (
             <div style={{
               display: 'flex', alignItems: 'flex-start', gap: '0.5rem',
@@ -303,7 +379,7 @@ export default function NewActivityPage({ onNavigate }) {
               Nothing needs attention. Every student is allocated and no class is over capacity.
             </p>
           ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', flex: 1, minHeight: 0, overflowY: 'auto' }}>
               {alerts.map((item) => {
                 const meta = SEVERITY[item.severity] || SEVERITY.info;
                 const { Icon } = meta;
@@ -314,6 +390,7 @@ export default function NewActivityPage({ onNavigate }) {
                       display: 'flex', gap: '0.6rem', alignItems: 'flex-start',
                       padding: '0.7rem 0.8rem', borderRadius: '10px',
                       background: 'var(--bg-color)', border: '1px solid var(--border-color)',
+                      flexShrink: 0,
                     }}
                   >
                     <span aria-hidden="true" style={{
