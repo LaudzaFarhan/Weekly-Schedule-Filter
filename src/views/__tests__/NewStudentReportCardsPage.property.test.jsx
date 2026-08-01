@@ -175,6 +175,26 @@ const scoresArb = fc.record(
   Object.fromEntries(COMPETENCIES.map((competency) => [competency.key, score]))
 );
 
+/**
+ * One Evaluation_Record for `lesson`, dated by `day`, carrying `id`.
+ *
+ * The lesson is what identifies the report; the day is just when it was taught.
+ * They are generated independently on purpose, so the property covers two
+ * lessons graded on one day — the case the old day key made impossible and which
+ * lost a report.
+ */
+const evaluationFor = (id, lesson, day) =>
+  scoresArb.map((scores) => ({
+    id,
+    studentId: STUDENT.id,
+    lessonNumber: lesson,
+    date: isoDay(day),
+    lessonTopic: `Lesson ${lesson}`,
+    instructorNotes: `Notes ${lesson}`,
+    instructorName: INSTRUCTOR,
+    ...scores,
+  }));
+
 /** One Evaluation_Record on `day`, carrying `id`. */
 const evaluationOn = (id, day) =>
   scoresArb.map((scores) => ({
@@ -403,32 +423,45 @@ const mergeCase = fc
     // The already-empty list is its own branch: it is the state a new student is
     // in, and left to a free draw it would not reliably appear in 20 examples.
     { arbitrary: fc.constant([]), weight: 1 },
-    { arbitrary: fc.uniqueArray(fc.integer({ min: 1, max: 12 }), { minLength: 1, maxLength: 4 }), weight: 4 }
+    { arbitrary: fc.uniqueArray(fc.integer({ min: 1, max: 8 }), { minLength: 1, maxLength: 4 }), weight: 4 }
   )
-  .chain((days) =>
+  .chain((lessons) =>
     fc.tuple(
-      days.length === 0 ? fc.constant([]) : fc.tuple(...days.map((day, i) => evaluationOn(i + 1, day))),
-      fc.integer({ min: 0, max: Math.max(0, days.length) })
+      lessons.length === 0
+        ? fc.constant([])
+        : fc.tuple(
+            // Days are drawn from a SMALL pool on purpose, so several of these
+            // lessons land on the same day. That is the case the old day key
+            // could not represent.
+            ...lessons.map((lesson, i) => evaluationFor(i + 1, lesson, 1 + (i % 2)))
+          ),
+      fc.integer({ min: 0, max: Math.max(0, lessons.length) })
     )
   )
   .chain(([existing, pick]) => {
-    // `pick === existing.length` is the new-day case; anything lower replaces
-    // the record already held for that day, keeping its id (Req 2.2 upsert).
+    // `pick === existing.length` is the new-lesson case; anything lower replaces
+    // the report already held for that lesson, keeping its id (Req 2.2 upsert).
     const replacing = pick < existing.length ? existing[pick] : null;
-    const freeDay = [13, 14, 15, 16, 17].find(
-      (day) => !existing.some((row) => row.date === isoDay(day))
+    const freeLesson = [9, 10].find(
+      (lesson) => !existing.some((row) => row.lessonNumber === lesson)
     );
     const savedId = replacing ? replacing.id : existing.length + 1;
-    const savedDay = replacing ? Number(replacing.date.slice(-2)) : freeDay;
+    const savedLesson = replacing ? replacing.lessonNumber : freeLesson;
 
-    return fc.tuple(fc.constant(existing), evaluationOn(savedId, savedDay));
+    // Deliberately dated on a day the list already uses, so a merge that keyed
+    // on the day would drop somebody else's report and fail this property.
+    return fc.tuple(fc.constant(existing), evaluationFor(savedId, savedLesson, 1));
   });
 
-/** Set the five ratings, choose the instructor and save. */
-async function driveSave() {
+/** Open a lesson, set the five ratings, choose the instructor and save. */
+async function driveSave(lesson) {
   await waitFor(() =>
     expect(screen.getByLabelText(/instructor \*/i).querySelectorAll('option').length).toBeGreaterThan(1)
   );
+
+  // The lesson identifies the report, so Save stays disabled until one is open.
+  fireEvent.click(screen.getByRole('radio', { name: new RegExp(`^Lesson ${lesson}:`) }));
+
   fireEvent.change(screen.getByLabelText(/instructor \*/i), { target: { value: INSTRUCTOR } });
 
   // One option per row, all five rows. `fireEvent` rather than `userEvent`: the
@@ -445,10 +478,11 @@ async function driveSave() {
 }
 
 describe('NewStudentReportCardsPage save merge', () => {
-  // Feature: student-report-cards, Property 17: Saving merges without duplicating a day
-  it('merges the returned record into the local list, replacing any record for the same day and disturbing no other day', async () => {
-    // Coverage counters: both the replaced-day and the new-day case must occur.
-    const seen = { replaced: 0, added: 0, emptyStart: 0 };
+  // Feature: student-report-cards, Property 17: Saving merges without duplicating a lesson
+  it('merges the returned record into the local list, replacing any report for the same lesson and disturbing no other lesson', async () => {
+    // Coverage counters: the replaced-lesson, new-lesson, empty-start and
+    // two-lessons-on-one-day cases must all occur.
+    const seen = { replaced: 0, added: 0, emptyStart: 0, sharedDay: 0 };
 
     await fc.assert(
       fc.asyncProperty(mergeCase, async ([existing, saved]) => {
@@ -461,19 +495,25 @@ describe('NewStudentReportCardsPage save merge', () => {
         saveEvaluation.mockClear().mockResolvedValue({ ...saved });
         logActivity.mockClear();
 
-        const replaces = existing.some((row) => row.date === saved.date);
+        const replaces = existing.some((row) => row.lessonNumber === saved.lessonNumber);
         replaces ? (seen.replaced += 1) : (seen.added += 1);
         if (existing.length === 0) seen.emptyStart += 1;
+        // A report that shares its day with a DIFFERENT lesson: the exact case a
+        // day-keyed merge silently dropped.
+        if (existing.some((row) => row.date === saved.date && row.lessonNumber !== saved.lessonNumber)) {
+          seen.sharedDay += 1;
+        }
 
         /**
          * The merged list this test expects, computed from the generated inputs
-         * alone: every record for another day survives untouched, the saved
-         * record is the only one for its own day, and the order is date order.
+         * alone: every report for another LESSON survives untouched — including
+         * one recorded on the same day — the saved record is the only one for its
+         * own lesson, and the order is lesson order.
          */
         const expected = existing
-          .filter((row) => row.date !== saved.date)
+          .filter((row) => row.lessonNumber !== saved.lessonNumber)
           .concat([saved])
-          .sort((a, b) => a.date.localeCompare(b.date));
+          .sort((a, b) => a.lessonNumber - b.lessonNumber);
 
         try {
           const { container } = render(<NewStudentReportCardsPage />);
@@ -484,30 +524,34 @@ describe('NewStudentReportCardsPage save merge', () => {
           await waitFor(() =>
             expect(screen.getByText(countText(existing.length))).toBeInTheDocument()
           );
-          expect(lastDynamic('trend').props.series.dates).toEqual(
-            existing.map((row) => row.date).sort((a, b) => a.localeCompare(b))
+          expect(lastDynamic('trend').props.series.labels).toEqual(
+            [...existing].sort((a, b) => a.lessonNumber - b.lessonNumber)
+              .map((row) => `L${row.lessonNumber}`)
           );
 
-          await driveSave();
+          await driveSave(saved.lessonNumber);
 
           await waitFor(() => expect(saveEvaluation).toHaveBeenCalledTimes(1));
           await waitFor(() => {
-            expect(lastDynamic('trend').props.series.dates).toEqual(
-              expected.map((row) => row.date)
+            expect(lastDynamic('trend').props.series.labels).toEqual(
+              expected.map((row) => `L${row.lessonNumber}`)
             );
           });
 
           const series = lastDynamic('trend').props.series;
 
-          // Req 3.11 — at most one point per date: a day was replaced, not joined.
-          expect(new Set(series.dates).size).toBe(series.dates.length);
-          expect(series.dates).toHaveLength(expected.length);
+          // Req 3.11 — one point per LESSON: a lesson was replaced, not joined,
+          // and no other lesson was dropped to make room.
+          expect(new Set(series.labels).size).toBe(series.labels.length);
+          expect(series.labels).toHaveLength(expected.length);
           expect(series.values).toHaveLength(expected.length);
-          // Contiguous true ordinals over the merged list.
-          expect(series.labels).toEqual(expected.map((_row, index) => `L${index + 1}`));
+          // Labels are the lessons themselves, so `L5` on the chart and
+          // "Lesson 5" in the evaluator name the same report even though the
+          // lessons were not graded in order.
+          expect(series.labels).toEqual(expected.map((row) => `L${row.lessonNumber}`));
 
-          // The saved record's values are the ones present for its date, and no
-          // other date's value moved. Both means are computed here, from the
+          // The saved record's values are the ones present for its lesson, and no
+          // other lesson's value moved. Both means are computed here, from the
           // generated records, never through the derivation module.
           expected.forEach((row, index) => {
             expect(series.values[index]).toBeCloseTo(meanOf(row), 6);
@@ -543,5 +587,8 @@ describe('NewStudentReportCardsPage save merge', () => {
     expect(seen.replaced).toBeGreaterThan(0);
     expect(seen.added).toBeGreaterThan(0);
     expect(seen.emptyStart).toBeGreaterThan(0);
+    // Without this the property could pass while never exercising the bug it
+    // exists to catch: a report sharing a day with a different lesson.
+    expect(seen.sharedDay).toBeGreaterThan(0);
   }, 300000);
 });

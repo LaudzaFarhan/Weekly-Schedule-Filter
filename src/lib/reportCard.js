@@ -173,14 +173,43 @@ export function lessonSeries(evaluations, { window = LESSONS_PER_LEVEL } = {}) {
   // .slice() first — sort() is in place, and the caller's list must survive.
   const rows = (Array.isArray(evaluations) ? evaluations : []).slice();
 
-  // Date first, id second. localeCompare on the ISO string, never a Date object.
-  rows.sort(
-    (a, b) =>
+  /** A row's lesson number, or `null` when it carries none. */
+  const lessonOf = (row) => {
+    const lesson = Number(row?.lessonNumber);
+    return Number.isInteger(lesson) && lesson >= 1 ? lesson : null;
+  };
+
+  /**
+   * Lesson order, NOT date order.
+   *
+   * The lessons are not taught in sequence — lesson 5 can be graded before
+   * lesson 2 — so plotting by date would draw a progress line whose x-axis
+   * jumped about, and would label the earliest-graded report `L1` however it was
+   * tagged. The lesson number is the curriculum position, so it is the axis.
+   *
+   * Rows with no lesson number sort last, by date, and keep their positional
+   * label. Those are records made before the lesson picker existed; they still
+   * belong on the chart rather than vanishing from a parent's report.
+   *
+   * `date` is compared as a string: ISO `YYYY-MM-DD` sorts lexicographically, so
+   * this is correct and avoids the timezone behaviour of `Date` objects. `id`
+   * breaks a remaining tie so the order is total.
+   */
+  rows.sort((a, b) => {
+    const lessonA = lessonOf(a);
+    const lessonB = lessonOf(b);
+    if (lessonA !== null && lessonB !== null) {
+      if (lessonA !== lessonB) return lessonA - lessonB;
+    } else if (lessonA !== lessonB) {
+      return lessonA === null ? 1 : -1; // untagged rows to the end
+    }
+    return (
       String(a?.date).localeCompare(String(b?.date)) ||
       // Number() keeps a missing id from turning the comparator into NaN, which
       // would silently degrade to "equal" and lose the tiebreak.
       (Number(a?.id) || 0) - (Number(b?.id) || 0)
-  );
+    );
+  });
 
   const n = rows.length;
   const start = Math.max(0, n - window); // the last min(n, window) records (D4)
@@ -190,9 +219,11 @@ export function lessonSeries(evaluations, { window = LESSONS_PER_LEVEL } = {}) {
   /** @type {string[]} */ const dates = [];
 
   for (let i = start; i < n; i += 1) {
-    // INVARIANT: labels are strictly increasing by 1 and dates are
-    // non-decreasing, because i increases by 1 over a list sorted by date.
-    labels.push(`L${i + 1}`); // the TRUE ordinal in the full history, not 1..window
+    // A tagged row is labelled with the lesson it IS, so `L5` on the chart and
+    // "Lesson 5" in the evaluator name the same report. An untagged row falls
+    // back to its position, which is what the label always used to mean.
+    const lesson = lessonOf(rows[i]);
+    labels.push(`L${lesson === null ? i + 1 : lesson}`);
 
     let total = 0;
     for (const { key } of COMPETENCIES) total += Number(rows[i]?.[key]);

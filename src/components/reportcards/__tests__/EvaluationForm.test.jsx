@@ -41,6 +41,7 @@ import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 import { COMPETENCIES, descriptorFor } from '@/lib/reportCardRubric';
+import { LESSONS_PER_LEVEL } from '@/lib/programRules';
 
 /* ------------------------------------------------------------------- mocks */
 
@@ -79,6 +80,9 @@ function renderForm(props = {}) {
       date={DATE}
       student={STUDENT}
       instructorNames={INSTRUCTORS}
+      // A lesson is required to save, so the default fixture has one open.
+      // Tests about the lesson itself pass their own value, including `null`.
+      lessonNumber={3}
       {...props}
       onSave={onSave}
       onDateChange={onDateChange}
@@ -138,6 +142,19 @@ describe('save gating (Req 1.12)', () => {
     expect(saveButton()).toBeDisabled();
     expect(screen.getByText(/rate all five competencies to save/i)).toBeInTheDocument();
   });
+
+  it('keeps save disabled while no lesson is open, and says so first', async () => {
+    const user = userEvent.setup();
+    renderForm({ lessonNumber: null });
+
+    await rateAll(user);
+    await user.selectOptions(instructorSelect(), INSTRUCTORS[0]);
+
+    // Everything else is complete, so the lesson is the only thing left — and it
+    // is what the report is keyed by, so a save has nothing to land on.
+    expect(saveButton()).toBeDisabled();
+    expect(screen.getByText(/pick the lesson this report is for to save/i)).toBeInTheDocument();
+  }, 20000);
 
   it('keeps save disabled until the fifth competency is rated, with an instructor chosen', async () => {
     const user = userEvent.setup();
@@ -268,8 +285,14 @@ describe('rating options (Req 1.18)', () => {
 
     const competency = COMPETENCIES[0];
 
-    // Tab order: date, lesson topic, instructor, then the row's single tab stop.
+    // Tab order: date, lesson topic, instructor, the lesson picker's single tab
+    // stop, then the row's single tab stop. The lesson picker is a radiogroup
+    // with a roving tab stop like the rating rows, so it costs ONE stop here and
+    // not ten — that is asserted directly below.
     instructorSelect().focus();
+    await user.tab();
+    // The picker's single stop, which lands on the open lesson (3 by fixture).
+    expect(screen.getByRole('radio', { name: /^Lesson 3\b/ })).toHaveFocus();
     await user.tab();
     expect(option(competency, 1)).toHaveFocus();
 
@@ -285,6 +308,101 @@ describe('rating options (Req 1.18)', () => {
 
     await user.keyboard('{Home}');
     expect(option(competency, 1)).toHaveAttribute('aria-checked', 'true');
+  });
+});
+
+/* ------------------------------------------------------- the lesson picker */
+
+describe('lesson picker', () => {
+  const lesson = (n) => screen.getByRole('radio', { name: new RegExp(`^Lesson ${n}\\b`) });
+  const group = () => screen.getByRole('radiogroup', { name: /^lesson$/i });
+
+  it('offers one button per lesson of the level, none selected when none is open', () => {
+    renderForm({ lessonNumber: null });
+
+    const options = within(group()).getAllByRole('radio');
+    expect(options).toHaveLength(LESSONS_PER_LEVEL);
+    for (const option of options) {
+      expect(option).toHaveAttribute('aria-checked', 'false');
+    }
+    expect(screen.getByText(/pick a lesson to open its report/i)).toBeInTheDocument();
+  });
+
+  it('costs a single tab stop rather than one per number', () => {
+    renderForm({ lessonNumber: null });
+
+    const reachable = within(group())
+      .getAllByRole('radio')
+      .filter((option) => option.tabIndex === 0);
+
+    // Ten tab stops here would bury the rating rows behind them.
+    expect(reachable).toHaveLength(1);
+    expect(reachable[0]).toHaveAccessibleName(/^Lesson 1\b/);
+  });
+
+  it('asks the page to open that lesson, rather than deciding for itself', async () => {
+    const user = userEvent.setup();
+    const onLessonChange = vi.fn();
+    renderForm({ lessonNumber: null, onLessonChange });
+
+    await user.click(lesson(4));
+
+    // The page owns which report is open, so the click is a request, not a
+    // local state change — that is what keeps the highlight and the loaded
+    // record from disagreeing.
+    expect(onLessonChange).toHaveBeenCalledTimes(1);
+    expect(onLessonChange).toHaveBeenCalledWith(4);
+  });
+
+  it('marks the lesson the page says is open', () => {
+    renderForm({ lessonNumber: 4 });
+
+    expect(lesson(4)).toHaveAttribute('aria-checked', 'true');
+    expect(lesson(3)).toHaveAttribute('aria-checked', 'false');
+    expect(within(group()).getAllByRole('radio').filter((o) => o.tabIndex === 0)).toHaveLength(1);
+  });
+
+  it('distinguishes a lesson that has a report from one that does not', () => {
+    renderForm({ recordedLessons: new Set([2, 5]) });
+
+    // Stated in the accessible name, not only in colour, so the difference
+    // between editing and starting a report survives without sight.
+    expect(lesson(2)).toHaveAccessibleName(/edit the recorded report/i);
+    expect(lesson(3)).toHaveAccessibleName(/no report yet/i);
+  });
+
+  it('says whether the open lesson is being edited or started', () => {
+    const view = renderForm({ lessonNumber: 5, recordedLessons: new Set([5]) });
+    expect(screen.getByText(/editing the lesson 5 report/i)).toBeInTheDocument();
+    view.unmount();
+
+    renderForm({ lessonNumber: 6, recordedLessons: new Set([5]) });
+    expect(screen.getByText(/new report for lesson 6/i)).toBeInTheDocument();
+  });
+
+  it('sends the open lesson with the save', async () => {
+    const user = userEvent.setup();
+    const { onSave } = renderForm({ lessonNumber: 7 });
+
+    await rateAll(user);
+    await user.selectOptions(instructorSelect(), INSTRUCTORS[0]);
+    await user.click(saveButton());
+
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+    expect(onSave.mock.calls[0][0].lessonNumber).toBe(7);
+  }, 20000);
+
+  it('requests the last and first lesson with End and Home', async () => {
+    const user = userEvent.setup();
+    const onLessonChange = vi.fn();
+    renderForm({ lessonNumber: 3, onLessonChange });
+
+    lesson(3).focus();
+    await user.keyboard('{End}');
+    expect(onLessonChange).toHaveBeenLastCalledWith(LESSONS_PER_LEVEL);
+
+    await user.keyboard('{Home}');
+    expect(onLessonChange).toHaveBeenLastCalledWith(1);
   });
 });
 
@@ -331,7 +449,12 @@ describe('rejected save (Req 1.13)', () => {
       lessonTopic: 'Gears and simple machines',
       instructorName: INSTRUCTORS[1],
     });
-  });
+    // `userEvent.type` enters text one keystroke at a time, and this test types
+    // two long strings, rates all five competencies, picks an instructor and
+    // saves twice. That exceeds the 5s default under parallel load, which showed
+    // up as an intermittent failure rather than a real one — so the budget is
+    // raised here rather than the interaction being trimmed away.
+  }, 30000);
 
   it('falls back to a stated message when the rejection carries none', async () => {
     const user = userEvent.setup();

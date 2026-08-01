@@ -133,6 +133,12 @@ export default function ReportCardDocument({
 
   const badges = Array.isArray(terms?.badges) ? terms.badges : [];
   const lessonTopic = text(latest?.lessonTopic);
+  // The lesson this day was tagged as. Optional, so an untagged evaluation
+  // prints no Lesson line at all rather than a blank one or a "Lesson —".
+  const lessonNumber = Number.isInteger(Number(latest?.lessonNumber))
+    && Number(latest.lessonNumber) >= 1
+    ? Number(latest.lessonNumber)
+    : null;
   const remarks = text(latest?.instructorNotes);
 
   return (
@@ -231,6 +237,12 @@ export default function ReportCardDocument({
       {/* 5. Instructor Remarks — free text, rendered as children and so escaped. */}
       <section className="report-section">
         <h3 className="report-section-title">Instructor Remarks</h3>
+        {lessonNumber !== null && (
+          <div className="report-field">
+            <span className="report-field-label">Lesson</span>
+            <span className="report-field-value">{`Lesson ${lessonNumber}`}</span>
+          </div>
+        )}
         {lessonTopic && (
           <div className="report-field">
             <span className="report-field-label">Lesson Topic</span>

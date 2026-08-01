@@ -28,6 +28,7 @@ import { Star, Save as SaveIcon, AlertCircle } from 'lucide-react';
 
 import { useAuth } from '../../contexts/AuthContext';
 import { COMPETENCIES, descriptorFor } from '../../lib/reportCardRubric';
+import { LESSONS_PER_LEVEL } from '../../lib/programRules';
 
 /** The five options of every row, worst-first, so left-to-right reads 1 → 5. */
 const RATINGS = [1, 2, 3, 4, 5];
@@ -68,6 +69,26 @@ function trimmed(value) {
  *
  * @param {Object|null} evaluation
  */
+/**
+ * The lesson numbers a level runs: `[1 … LESSONS_PER_LEVEL]`.
+ *
+ * Built from the curriculum rule rather than written out, so the row of buttons
+ * follows the same constant the attendance ticks and the trend-chart window use.
+ */
+const LESSON_NUMBERS = Array.from({ length: LESSONS_PER_LEVEL }, (_, i) => i + 1);
+
+/**
+ * Does `recordedLessons` hold `number`?
+ *
+ * Accepts a `Set`, an array or nothing at all, so a caller that has not loaded a
+ * history yet can simply omit the prop and every lesson reads as unrecorded.
+ */
+function recorded_has(recordedLessons, number) {
+  if (!recordedLessons) return false;
+  if (typeof recordedLessons.has === 'function') return recordedLessons.has(number);
+  return Array.isArray(recordedLessons) && recordedLessons.includes(number);
+}
+
 function formFromEvaluation(evaluation) {
   if (!evaluation || typeof evaluation !== 'object') {
     return { lessonTopic: '', instructorNotes: '', scores: emptyScores() };
@@ -164,6 +185,14 @@ export default function EvaluationForm({
   evaluation = null,
   date,
   onDateChange,
+  // The lesson picker is CONTROLLED by the page, because picking a lesson picks
+  // which report is being edited — the page is what owns that selection and
+  // hands the matching record back as `evaluation`. Keeping it in local state
+  // here would let the highlighted number disagree with the loaded record.
+  lessonNumber = null,
+  onLessonChange,
+  /** Lesson numbers this student already has a report for, so the picker shows it. */
+  recordedLessons = null,
   students,
   evaluations,
   student = null,
@@ -207,6 +236,10 @@ export default function EvaluationForm({
     date ?? '',
     evaluation?.id ?? '',
     evaluation?.updatedAt ?? '',
+    // Switching between two lessons that have no report yet leaves the student,
+    // the date and the (absent) record identical, so without this the form would
+    // keep whatever was typed against the previous lesson.
+    lessonNumber ?? '',
   ].join('|');
   const [lastSyncKey, setLastSyncKey] = useState(syncKey);
   /**
@@ -255,8 +288,15 @@ export default function EvaluationForm({
   }, [knownNames, evaluation?.instructorName, selectedInstructor]);
 
   const unrated = COMPETENCIES.filter((c) => form.scores[c.key] === null);
-  /** Req 1.12 — an unrated competency or no instructor keeps Save disabled. */
-  const canSave = unrated.length === 0 && selectedInstructor !== '' && !saving;
+  /**
+   * Req 1.12 — an unrated competency, no instructor or no lesson keeps Save
+   * disabled.
+   *
+   * The lesson is required because it identifies the report: the API upserts on
+   * `(student_id, lesson_number)`, so a save without one has nothing to land on.
+   */
+  const canSave =
+    unrated.length === 0 && selectedInstructor !== '' && lessonNumber !== null && !saving;
 
   const setScore = (key, rating) => {
     setForm((previous) => ({ ...previous, scores: { ...previous.scores, [key]: rating } }));
@@ -293,6 +333,38 @@ export default function EvaluationForm({
     options[next - 1]?.focus();
   };
 
+  /**
+   * The same arrow / Home / End behaviour for the lesson picker, over 1..N
+   * instead of 1..5.
+   *
+   * A radio group is ONE tab stop with arrows moving inside it. Ten separately
+   * tabbable buttons would put ten stops between the instructor select and the
+   * first rating row, which is why this mirrors `handleRowKeyDown` rather than
+   * leaving the buttons to default behaviour.
+   */
+  const handleLessonKeyDown = (event) => {
+    const current = lessonNumber;
+    let next = null;
+
+    if (event.key === 'ArrowRight' || event.key === 'ArrowDown') {
+      next = current === null ? 1 : Math.min(LESSONS_PER_LEVEL, current + 1);
+    } else if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') {
+      next = current === null ? LESSONS_PER_LEVEL : Math.max(1, current - 1);
+    } else if (event.key === 'Home') {
+      next = 1;
+    } else if (event.key === 'End') {
+      next = LESSONS_PER_LEVEL;
+    } else {
+      return;
+    }
+
+    event.preventDefault();
+    onLessonChange?.(next);
+
+    const options = event.currentTarget.querySelectorAll('[role="radio"]');
+    options[next - 1]?.focus();
+  };
+
   const handleSubmit = async (event) => {
     event.preventDefault();
     if (!canSave || typeof onSave !== 'function') return;
@@ -301,6 +373,7 @@ export default function EvaluationForm({
       studentId: student?.id ?? null,
       date,
       lessonTopic: trimmed(form.lessonTopic) || null,
+      lessonNumber,
       instructorNotes: trimmed(form.instructorNotes) || null,
       instructorName: selectedInstructor,
     };
@@ -378,6 +451,117 @@ export default function EvaluationForm({
                 </option>
               ))}
             </select>
+          </div>
+        </div>
+
+        {/*
+          Which lesson of the level this day was. Optional — the evaluation is
+          still keyed by date, so a day can be recorded without tagging it.
+
+          A `radiogroup` of real buttons rather than a `<select>`: the whole
+          point is that all ten are visible and one press away, the way the
+          attendance ticks read. Pressing the chosen number again clears it, so a
+          tag applied by mistake can be removed without reloading the day.
+        */}
+        <div>
+          <span className="modal-form-label" id="evaluation-lesson-number-label">
+            Lesson
+          </span>
+          <div
+            role="radiogroup"
+            aria-labelledby="evaluation-lesson-number-label"
+            onKeyDown={handleLessonKeyDown}
+            style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem', marginTop: '0.15rem' }}
+          >
+            {LESSON_NUMBERS.map((number) => {
+              const picked = lessonNumber === number;
+              const recorded = recorded_has(recordedLessons, number);
+              return (
+                <button
+                  key={number}
+                  type="button"
+                  role="radio"
+                  aria-checked={picked}
+                  // A bare digit tells a screen reader nothing. The name says
+                  // which lesson it opens and whether a report already exists,
+                  // because that is the difference between editing and starting
+                  // one — and on screen that difference is carried by a dot.
+                  aria-label={
+                    `Lesson ${number}: ${recorded ? 'edit the recorded report' : 'no report yet'}`
+                  }
+                  title={
+                    `Lesson ${number} of ${LESSONS_PER_LEVEL} — ${
+                      recorded ? 'report recorded' : 'not recorded yet'
+                    }`
+                  }
+                  // Roving tab stop, as on the rating rows: one stop for the
+                  // whole group, landing on the selected lesson.
+                  tabIndex={picked || (lessonNumber === null && number === 1) ? 0 : -1}
+                  onClick={() => onLessonChange?.(number)}
+                  style={{
+                    position: 'relative',
+                    width: '2rem',
+                    height: '2rem',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    borderRadius: '7px',
+                    fontSize: '0.8rem',
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    background: picked
+                      ? 'var(--primary-blue)'
+                      : recorded
+                        ? 'var(--success-bg)'
+                        : 'var(--card-bg)',
+                    color: picked
+                      ? '#ffffff'
+                      : recorded
+                        ? 'var(--free-text)'
+                        : 'var(--text-secondary)',
+                    border: `1px solid ${
+                      picked
+                        ? 'var(--primary-blue)'
+                        : recorded
+                          ? 'var(--success-border)'
+                          : 'var(--border-color)'
+                    }`,
+                  }}
+                >
+                  {number}
+                  {/* A second, non-colour cue that a report exists, so the state
+                      does not rest on green alone. */}
+                  {recorded && !picked && (
+                    <span
+                      aria-hidden="true"
+                      style={{
+                        position: 'absolute',
+                        top: '2px',
+                        right: '3px',
+                        width: '4px',
+                        height: '4px',
+                        borderRadius: '50%',
+                        background: 'var(--free-text)',
+                      }}
+                    />
+                  )}
+                </button>
+              );
+            })}
+            <span
+              style={{
+                alignSelf: 'center',
+                marginLeft: '0.3rem',
+                fontSize: '0.7rem',
+                color: 'var(--text-muted)',
+              }}
+            >
+              {lessonNumber
+                ? recorded_has(recordedLessons, lessonNumber)
+                  ? `Editing the Lesson ${lessonNumber} report`
+                  : `New report for Lesson ${lessonNumber}`
+                : 'Pick a lesson to open its report'}
+            </span>
           </div>
         </div>
 
@@ -544,7 +728,9 @@ export default function EvaluationForm({
             is duplicated here.
           */}
           <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-            {unrated.length > 0
+            {lessonNumber === null
+              ? 'Pick the lesson this report is for to save.'
+              : unrated.length > 0
               ? `Rate all five competencies to save — still to rate: ${unrated
                   .map((c) => c.label)
                   .join(', ')}.`

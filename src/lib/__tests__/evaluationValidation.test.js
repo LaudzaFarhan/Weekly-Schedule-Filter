@@ -20,6 +20,8 @@ function validPayload(overrides = {}) {
   return {
     studentId: 42,
     date: '2026-03-04',
+    // Required: `(student_id, lesson_number)` identifies the report.
+    lessonNumber: 3,
     concept: 5,
     building: 4,
     problemSolving: 3,
@@ -49,6 +51,7 @@ describe('validateEvaluationPayload', () => {
     expect(result.value).toEqual({
       studentId: 42,
       date: '2026-03-04',
+      lessonNumber: 3,
       concept: 5,
       building: 4,
       problemSolving: 3,
@@ -158,6 +161,42 @@ describe('validateEvaluationPayload', () => {
         const error = expectRejection(validateEvaluationPayload(validPayload({ [key]: 9 })), label);
         expect(error).toContain('9');
       }
+    });
+  });
+
+  // The lesson identifies the report, so it is required and bounded.
+  describe('lesson number', () => {
+    it.each([
+      ['absent', undefined],
+      ['null', null],
+      ['blank', '   '],
+    ])('rejects a lessonNumber that is %s, naming the field', (_label, lessonNumber) => {
+      const error = expectRejection(
+        validateEvaluationPayload(validPayload({ lessonNumber })),
+        'lessonNumber',
+      );
+      // Defaulting to lesson 1 here would upsert onto a real report.
+      expect(error).toContain('required');
+    });
+
+    it.each([[0], [11], [-2], [2.5], ['two'], [[3]], [true], [{}]])(
+      'rejects an out-of-range or non-integer lessonNumber %p without clamping it',
+      (lessonNumber) => {
+        const result = validateEvaluationPayload(validPayload({ lessonNumber }));
+
+        expect(Object.keys(result)).toEqual(['error']);
+        expect(result.error).toContain('lessonNumber');
+        expect(result.error).toContain('1 to 10');
+      },
+    );
+
+    it('accepts each lesson of the level, and an integer sent as a string', () => {
+      for (const lessonNumber of [1, 5, 10]) {
+        expect(validateEvaluationPayload(validPayload({ lessonNumber })).value.lessonNumber)
+          .toBe(lessonNumber);
+      }
+      expect(validateEvaluationPayload(validPayload({ lessonNumber: '7' })).value.lessonNumber)
+        .toBe(7);
     });
   });
 

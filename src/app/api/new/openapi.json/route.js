@@ -299,15 +299,23 @@ const evaluationCreateOperation = {
   tags: ['Evaluations'],
   operationId: 'createEvaluation',
   summary:
-    'Save one student\'s evaluation for one teaching day. UPSERT on '
-    + '(studentId, date) — posting a day that already has an evaluation '
-    + 'REPLACES it instead of adding a second record. All five competency '
-    + 'scores are required integers from 1 to 5.',
+    'Save one student\'s evaluation for one lesson. UPSERT on '
+    + '(studentId, lessonNumber) — posting a lesson that already has a report '
+    + 'REPLACES it instead of adding a second record. lessonNumber and all five '
+    + 'competency scores are required.',
   description: [
-    'There is at most one evaluation per student per calendar day. A second post',
-    'of the same (studentId, date) overwrites every field of that day with this',
-    'payload — nothing is merged, so send the whole record even when only one',
-    'score changed.',
+    'There is at most one report per student per lesson. A second post of the',
+    'same (studentId, lessonNumber) overwrites every field of that report with',
+    'this payload — nothing is merged, so send the whole record even when only',
+    'one score changed.',
+    '',
+    'Keyed by LESSON and not by day. The lessons are not taught in sequence and',
+    'two can be graded on the same day, so `date` records when the lesson',
+    'happened and does not identify the record. Two reports may share a date.',
+    '',
+    '`lessonNumber` is required: an integer from 1 to 10. It is refused rather',
+    'than defaulted when absent, because guessing lesson 1 would overwrite a',
+    'report that already exists.',
     '',
     'The five competency scores — concept, building, problemSolving, focus and',
     'attitude — are all required, and each must be an integer from 1 to 5. A',
@@ -330,11 +338,12 @@ const evaluationCreateOperation = {
     required: true,
     content: { 'application/json': { schema: { $ref: '#/components/schemas/Evaluation' } } },
     examples: {
-      oneDay: {
-        summary: 'Rate one student for one day',
+      oneLesson: {
+        summary: 'Rate one student for one lesson',
         value: {
           studentId: 42,
           date: '2026-08-03',
+          lessonNumber: 5,
           lessonTopic: 'Loops and repetition',
           concept: 4,
           building: 5,
@@ -852,7 +861,18 @@ function buildSpec(origin) {
               example: '2026-08-03',
               description:
                 'Calendar day of the lesson, "YYYY-MM-DD". Omit for the server\'s '
-                + 'current date. Stored in the eval_date column; unique per student.',
+                + 'current date. Stored in the eval_date column. NOT unique: two '
+                + 'lessons can be graded on the same day.',
+            },
+            lessonNumber: {
+              type: 'integer',
+              minimum: 1,
+              maximum: 10,
+              example: 5,
+              description:
+                'Which lesson of the level this report is for. Required, and unique '
+                + 'per student — it is what identifies the record, so POST upserts on '
+                + '(studentId, lessonNumber). Rejected, never clamped.',
             },
             lessonTopic: { type: 'string', example: 'Loops and repetition' },
             concept: {

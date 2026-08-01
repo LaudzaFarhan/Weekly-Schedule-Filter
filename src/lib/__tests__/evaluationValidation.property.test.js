@@ -158,6 +158,27 @@ const studentIdCaseArb = fc.oneof(
   { weight: 2, arbitrary: fieldCase(invalidStudentIdArb, false) },
 );
 
+/**
+ * The lesson identifies the report, so unlike the optional text it is REQUIRED:
+ * absent, blank, out of range and non-integer are all rejections. `[3]` and
+ * `'3.5'` are in here because `String()` coercion would otherwise let them
+ * through as 3 — the same trap `asInteger` closes for the scores.
+ */
+const lessonNumberCaseArb = fc.oneof(
+  { weight: 6, arbitrary: fc.integer({ min: 1, max: 10 }).map((raw) => ({ raw, valid: true })) },
+  { weight: 1, arbitrary: fc.integer({ min: 1, max: 10 }).map((n) => ({ raw: String(n), valid: true })) },
+  {
+    weight: 3,
+    arbitrary: fc
+      .oneof(
+        fc.constantFrom(undefined, null, '', '   '),
+        fc.oneof(fc.integer({ min: -50, max: 0 }), fc.integer({ min: 11, max: 500 })),
+        fc.constantFrom(2.5, NaN, Infinity, '3.5', 'two', true, false, [3], {}, [], '1e1'),
+      )
+      .map((raw) => ({ raw, valid: false })),
+  },
+);
+
 const dateCaseArb = fc.oneof(
   { weight: 4, arbitrary: fieldCase(isoDateArb, true) },
   { weight: 2, arbitrary: fieldCase(blankDateArb, true) },
@@ -185,14 +206,16 @@ const assembledCaseArb = fc
     studentId: studentIdCaseArb,
     date: dateCaseArb,
     scores: fc.record(Object.fromEntries(COMPETENCY_KEYS.map((key) => [key, scoreCaseArb]))),
+    lessonNumber: lessonNumberCaseArb,
     lessonTopic: validOptionalTextArb,
     instructorNotes: validOptionalTextArb,
     instructorName: instructorNameCaseArb,
   })
-  .map(({ studentId, date, scores, lessonTopic, instructorNotes, instructorName }) => {
+  .map(({ studentId, date, scores, lessonNumber, lessonTopic, instructorNotes, instructorName }) => {
     const offenders = [];
     if (!studentId.valid) offenders.push('studentId');
     if (!date.valid) offenders.push('date');
+    if (!lessonNumber.valid) offenders.push('lessonNumber');
     for (const key of COMPETENCY_KEYS) {
       if (!scores[key].valid) offenders.push(LABEL_BY_KEY[key]);
     }
@@ -203,6 +226,7 @@ const assembledCaseArb = fc
         studentId: studentId.raw,
         date: date.raw,
         ...Object.fromEntries(COMPETENCY_KEYS.map((key) => [key, scores[key].raw])),
+        lessonNumber: lessonNumber.raw,
         lessonTopic,
         instructorNotes,
         instructorName: instructorName.raw,
@@ -214,7 +238,10 @@ const assembledCaseArb = fc
 
 /** A fully valid record exactly as the API returns it — extra `id` key and all. */
 const acceptedRecordCaseArb = validEvaluationArb.map((record) => ({
-  body: record,
+  // The shared arbitrary predates the lesson key and carries no lessonNumber, so
+  // one is added here rather than in the helper — `reportCard`'s properties use
+  // the same helper to exercise the untagged rows a legacy database still holds.
+  body: { ...record, lessonNumber: 4 },
   offenders: [],
   dateOmitted: false,
 }));
@@ -274,6 +301,14 @@ describe('evaluationValidation properties', () => {
             expect(value[key]).toBeGreaterThanOrEqual(1);
             expect(value[key]).toBeLessThanOrEqual(5);
           }
+
+          // The lesson is returned exactly as received — it identifies the
+          // report, so a coerced or defaulted value would upsert onto the wrong
+          // one.
+          expect(value.lessonNumber).toBe(Number(String(body.lessonNumber).trim()));
+          expect(Number.isInteger(value.lessonNumber)).toBe(true);
+          expect(value.lessonNumber).toBeGreaterThanOrEqual(1);
+          expect(value.lessonNumber).toBeLessThanOrEqual(10);
 
           // The date is a real ISO date: the one supplied, or the server's own
           // day when the payload omitted it (Req 1.7, 1.8).

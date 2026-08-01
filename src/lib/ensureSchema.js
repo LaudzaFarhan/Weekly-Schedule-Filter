@@ -178,6 +178,7 @@ const DEFINITIONS = {
         student_id INTEGER NOT NULL,
         eval_date DATE NOT NULL DEFAULT CURRENT_DATE,
         lesson_topic TEXT,
+        lesson_number INTEGER CHECK (lesson_number BETWEEN 1 AND 10),
         concept INTEGER NOT NULL CHECK (concept BETWEEN 1 AND 5),
         building INTEGER NOT NULL CHECK (building BETWEEN 1 AND 5),
         problem_solving INTEGER NOT NULL CHECK (problem_solving BETWEEN 1 AND 5),
@@ -187,9 +188,82 @@ const DEFINITIONS = {
         instructor_name VARCHAR(255),
         created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-        CONSTRAINT internal_student_evaluations_student_date_key
-            UNIQUE (student_id, eval_date)
+        CONSTRAINT internal_student_evaluations_student_lesson_key
+            UNIQUE (student_id, lesson_number)
     )`,
+    /**
+     * `lesson_number` was added after this table had already been provisioned,
+     * so `CREATE TABLE IF NOT EXISTS` above will not reach a live database that
+     * already holds the table — it is skipped whole. This heals that database.
+     *
+     * Non-destructive and idempotent: the column is nullable with no default,
+     * so existing rows keep their data and simply read `null` until someone
+     * tags them. Safe to run on every cold start, which is what happens.
+     *
+     * `ADD COLUMN IF NOT EXISTS` needs PostgreSQL 9.6+; the VPS runs 14+, which
+     * the `scram-sha-256` line in `setup_vps.sh` already relies on.
+     */
+    `ALTER TABLE internal_student_evaluations
+        ADD COLUMN IF NOT EXISTS lesson_number INTEGER`,
+    /**
+     * The bound, added separately so it lands on a table that predates the
+     * column too. `NOT VALID` would let existing rows escape the check, so the
+     * constraint is added plain — every existing row is `null`, and `CHECK`
+     * passes `null` by design, so nothing can fail validation here.
+     */
+    `DO $$
+       BEGIN
+         IF NOT EXISTS (
+           SELECT 1 FROM pg_constraint
+            WHERE conname = 'internal_student_evaluations_lesson_number_check'
+         ) THEN
+           ALTER TABLE internal_student_evaluations
+             ADD CONSTRAINT internal_student_evaluations_lesson_number_check
+             CHECK (lesson_number BETWEEN 1 AND 10);
+         END IF;
+       END $$`,
+    /**
+     * Identity moved from the day to the lesson.
+     *
+     * It was `(student_id, eval_date)`, one report per student per day. That is
+     * wrong for how the lessons actually run: two lessons can be graded on the
+     * same day, and they do not happen in order. Under the old key, recording
+     * lesson 5 on a day that already held lesson 2 upserted onto lesson 2's row
+     * and lesson 2 was lost.
+     *
+     * So the day constraint goes and `(student_id, lesson_number)` takes its
+     * place. `eval_date` stays as the day the lesson was taught — recorded, no
+     * longer identifying.
+     *
+     * `lesson_number` stays NULLABLE on purpose. PostgreSQL treats NULLs as
+     * distinct in a unique constraint, so rows recorded before the column
+     * existed keep coexisting instead of colliding, and no NOT NULL backfill has
+     * to guess a lesson number for them. New records always carry one, enforced
+     * by `validateEvaluationPayload`.
+     *
+     * The ADD is wrapped: if a database already holds two rows for one
+     * (student, lesson) the constraint cannot be created, and a warning is far
+     * better than a route that throws on every request. Nothing is deleted to
+     * force it through.
+     */
+    `DO $$
+       BEGIN
+         ALTER TABLE internal_student_evaluations
+           DROP CONSTRAINT IF EXISTS internal_student_evaluations_student_date_key;
+
+         IF NOT EXISTS (
+           SELECT 1 FROM pg_constraint
+            WHERE conname = 'internal_student_evaluations_student_lesson_key'
+         ) THEN
+           BEGIN
+             ALTER TABLE internal_student_evaluations
+               ADD CONSTRAINT internal_student_evaluations_student_lesson_key
+               UNIQUE (student_id, lesson_number);
+           EXCEPTION WHEN unique_violation THEN
+             RAISE WARNING 'internal_student_evaluations: duplicate (student_id, lesson_number) rows exist, so the unique constraint was not added';
+           END;
+         END IF;
+       END $$`,
     `CREATE INDEX IF NOT EXISTS internal_student_evaluations_student_date_idx
         ON internal_student_evaluations (student_id, eval_date)`,
     {

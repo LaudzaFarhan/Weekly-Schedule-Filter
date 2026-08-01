@@ -45,6 +45,7 @@ const DOCUMENTED_KEYS = [
   'studentId',
   'date',
   'lessonTopic',
+  'lessonNumber',
   'concept',
   'building',
   'problemSolving',

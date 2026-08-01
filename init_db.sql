@@ -156,10 +156,15 @@ CREATE OR REPLACE TRIGGER update_internal_leaves_changetimestamp
 CREATE INDEX IF NOT EXISTS internal_leaves_range_idx
     ON internal_leaves (instructor_name, start_date, end_date);
 -- 10. Create 'internal_student_evaluations' table (Report Cards: one
---     five-competency evaluation per student per teaching day)
---     UNIQUE (student_id, eval_date) makes a duplicated day unrepresentable, so
---     re-saving a date edits it rather than stacking a second opinion on the
---     same lesson. The five scores are NOT NULL CHECK (... BETWEEN 1 AND 5) so a
+--     five-competency evaluation per student per LESSON)
+--     UNIQUE (student_id, lesson_number) makes a duplicated lesson
+--     unrepresentable, so re-saving a lesson edits it rather than stacking a
+--     second opinion on the same lesson. It is keyed by lesson and NOT by day
+--     because the lessons do not run in sequence and two can be graded on one
+--     day; eval_date records when the lesson was taught. lesson_number is
+--     nullable so rows predating the column keep coexisting (NULLs are distinct
+--     in a unique constraint); the API requires one on every new record.
+--     The five scores are NOT NULL CHECK (... BETWEEN 1 AND 5) so a
 --     write that bypasses the route validator is refused here too.
 --     No foreign key on student_id: the application's database user does not own
 --     internal_students, so a referencing constraint cannot be created.
@@ -168,6 +173,7 @@ CREATE TABLE IF NOT EXISTS internal_student_evaluations (
     student_id INTEGER NOT NULL,
     eval_date DATE NOT NULL DEFAULT CURRENT_DATE, -- eval_date, not date: date is a type name
     lesson_topic TEXT,
+    lesson_number INTEGER CHECK (lesson_number BETWEEN 1 AND 10), -- identifies the report; lessons are not sequential
     concept INTEGER NOT NULL CHECK (concept BETWEEN 1 AND 5),
     building INTEGER NOT NULL CHECK (building BETWEEN 1 AND 5),
     problem_solving INTEGER NOT NULL CHECK (problem_solving BETWEEN 1 AND 5),
@@ -177,8 +183,8 @@ CREATE TABLE IF NOT EXISTS internal_student_evaluations (
     instructor_name VARCHAR(255),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT internal_student_evaluations_student_date_key
-        UNIQUE (student_id, eval_date)
+    CONSTRAINT internal_student_evaluations_student_lesson_key
+        UNIQUE (student_id, lesson_number)
 );
 
 CREATE OR REPLACE TRIGGER update_internal_student_evaluations_changetimestamp

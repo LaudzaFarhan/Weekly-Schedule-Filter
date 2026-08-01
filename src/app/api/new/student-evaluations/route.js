@@ -57,6 +57,7 @@ export const mapRow = (row) => ({
   studentId: row.student_id,
   date: toISODate(row.eval_date),
   lessonTopic: row.lesson_topic,
+  lessonNumber: row.lesson_number,
   concept: row.concept,
   building: row.building,
   problemSolving: row.problem_solving,
@@ -164,10 +165,11 @@ export async function POST(req) {
 
     const res = await query(
       `INSERT INTO internal_student_evaluations
-         (student_id, eval_date, lesson_topic, concept, building, problem_solving,
-          focus, attitude, instructor_notes, instructor_name)
-       VALUES ($1, $2::date, $3, $4, $5, $6, $7, $8, $9, $10)
-       ON CONFLICT (student_id, eval_date) DO UPDATE SET
+         (student_id, eval_date, lesson_topic, lesson_number, concept, building,
+          problem_solving, focus, attitude, instructor_notes, instructor_name)
+       VALUES ($1, $2::date, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+       ON CONFLICT (student_id, lesson_number) DO UPDATE SET
+         eval_date = EXCLUDED.eval_date,
          lesson_topic = EXCLUDED.lesson_topic,
          concept = EXCLUDED.concept,
          building = EXCLUDED.building,
@@ -178,7 +180,8 @@ export async function POST(req) {
          instructor_name = EXCLUDED.instructor_name
        RETURNING *`,
       [
-        value.studentId, value.date, value.lessonTopic, value.concept, value.building,
+        value.studentId, value.date, value.lessonTopic, value.lessonNumber,
+        value.concept, value.building,
         value.problemSolving, value.focus, value.attitude, value.instructorNotes,
         value.instructorName,
       ]
@@ -219,17 +222,19 @@ export async function PUT(req) {
            student_id = $1,
            eval_date = $2::date,
            lesson_topic = $3,
-           concept = $4,
-           building = $5,
-           problem_solving = $6,
-           focus = $7,
-           attitude = $8,
-           instructor_notes = $9,
-           instructor_name = $10
-         WHERE id = $11
+           lesson_number = $4,
+           concept = $5,
+           building = $6,
+           problem_solving = $7,
+           focus = $8,
+           attitude = $9,
+           instructor_notes = $10,
+           instructor_name = $11
+         WHERE id = $12
          RETURNING *`,
         [
-          value.studentId, value.date, value.lessonTopic, value.concept, value.building,
+          value.studentId, value.date, value.lessonTopic, value.lessonNumber,
+          value.concept, value.building,
           value.problemSolving, value.focus, value.attitude, value.instructorNotes,
           value.instructorName, id,
         ]
@@ -238,8 +243,8 @@ export async function PUT(req) {
       if (dbError?.code === '23505') {
         return NextResponse.json(
           {
-            error: `This student already has an evaluation on ${value.date}. `
-              + 'Open that day to edit it.',
+            error: `This student already has a report for Lesson ${value.lessonNumber}. `
+              + 'Open that lesson to edit it.',
           },
           { status: 409 }
         );

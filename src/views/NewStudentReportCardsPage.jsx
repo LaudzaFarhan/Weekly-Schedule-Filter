@@ -90,6 +90,20 @@ import { getTerms, saveTerm } from '../services/studentTermService';
 /** Printed and shown where a value is genuinely absent (Req 4.5, 4.6). */
 const EM_DASH = '\u2014';
 
+/**
+ * The two recorded term states, in the order the legend lists them, plus the
+ * third for a term with no row at all.
+ *
+ * `state` matches the `.term-badge-{state}` class and the `badge.state` value
+ * `termSummary()` produces, so the legend is keyed off the same vocabulary as
+ * the badges rather than a parallel list that could fall out of step.
+ */
+const TERM_LEGEND = [
+  { state: 'paid', label: 'Paid' },
+  { state: 'unpaid', label: 'Unpaid' },
+  { state: 'absent', label: 'Not recorded' },
+];
+
 /** One shared empty array, so a memo dependency does not change every render. */
 const EMPTY = Object.freeze([]);
 
@@ -125,24 +139,42 @@ function termPointLabel(point) {
 }
 
 /**
- * The saved record merged into the local list: any record for the same day is
- * replaced rather than joined, which is the client half of the one-row-per-day
- * rule the API enforces with its upsert (Req 3.11).
+ * The saved record merged into the local list: any record for the same LESSON is
+ * replaced rather than joined, which is the client half of the
+ * one-row-per-lesson rule the API enforces with its upsert (Req 3.11).
+ *
+ * Keyed by lesson, not by day. Replacing by day would drop a different lesson
+ * that happened to be graded the same afternoon — two lessons on one day is
+ * normal, and the lessons do not run in order.
+ *
+ * A record with no lesson number is matched by id only, so rows predating the
+ * lesson picker are never silently discarded by a save.
  *
  * @param {Array<Object>} list
  * @param {Object} saved
- * @returns {Array<Object>} a new list, ascending by date
+ * @returns {Array<Object>} a new list, ascending by lesson
  */
 function mergeEvaluation(list, saved) {
+  const savedLesson = Number(saved?.lessonNumber);
+  const hasLesson = Number.isInteger(savedLesson) && savedLesson >= 1;
+
   const rows = (Array.isArray(list) ? list : []).filter((row) => {
     if (saved?.id != null && row?.id != null && String(row.id) === String(saved.id)) return false;
-    return row?.date !== saved?.date;
+    if (!hasLesson) return true;
+    return Number(row?.lessonNumber) !== savedLesson;
   });
   rows.push(saved);
-  rows.sort(
-    (a, b) =>
+  rows.sort((a, b) => {
+    const lessonA = Number(a?.lessonNumber);
+    const lessonB = Number(b?.lessonNumber);
+    const okA = Number.isInteger(lessonA) && lessonA >= 1;
+    const okB = Number.isInteger(lessonB) && lessonB >= 1;
+    if (okA && okB && lessonA !== lessonB) return lessonA - lessonB;
+    if (okA !== okB) return okA ? -1 : 1; // untagged rows last, as on the chart
+    return (
       String(a?.date).localeCompare(String(b?.date)) || (Number(a?.id) || 0) - (Number(b?.id) || 0)
-  );
+    );
+  });
   return rows;
 }
 
@@ -348,6 +380,15 @@ export default function NewStudentReportCardsPage({ onNavigate, params } = {}) {
   // second piece of state and cannot fall out of step with the tab.
   const [pickedStudentId, setPickedStudentId] = useState(params?.studentId ?? null);
   const [date, setDate] = useState(() => todayISO());
+  /**
+   * Which lesson's report is open, or `null` for "the day the date field names".
+   *
+   * The lesson picker selects a REPORT, not a label: lesson 3 opens lesson 3's
+   * evaluation with its own scores, topic, remarks and date. Records are still
+   * keyed by date in the database — this resolves a lesson to the record tagged
+   * with it, so no identity changed to make the picker work.
+   */
+  const [selectedLesson, setSelectedLesson] = useState(null);
   const [mode, setMode] = useState('evaluate');
 
   const [evaluations, setEvaluations] = useState(EMPTY);
@@ -438,6 +479,12 @@ export default function NewStudentReportCardsPage({ onNavigate, params } = {}) {
   useEffect(() => {
     if (selectedStudentId == null) return undefined;
 
+    // A new student means a new set of reports. Keeping "lesson 3" selected here
+    // would leave the picker pointing at this student's lesson 3 while the date
+    // field still named the previous student's, so the selection is cleared with
+    // the data it belonged to.
+    setSelectedLesson(null);
+
     let cancelled = false;
     const token = reloadToken;
 
@@ -506,6 +553,51 @@ export default function NewStudentReportCardsPage({ onNavigate, params } = {}) {
     () => shownEvaluations.find((row) => row?.date === date) || null,
     [shownEvaluations, date]
   );
+
+  /** Lesson number → the report tagged with it, for this student. */
+  const evaluationsByLesson = useMemo(() => {
+    const byLesson = new Map();
+    for (const row of shownEvaluations) {
+      const lesson = Number(row?.lessonNumber);
+      if (!Number.isInteger(lesson) || lesson < 1) continue;
+      // Records arrive in `eval_date ASC, id ASC` order, so the last write for a
+      // lesson wins — the most recent report is the one the picker opens.
+      byLesson.set(lesson, row);
+    }
+    return byLesson;
+  }, [shownEvaluations]);
+
+  /** The lessons that already have a report, so the picker can mark them. */
+  const recordedLessons = useMemo(
+    () => new Set(evaluationsByLesson.keys()),
+    [evaluationsByLesson]
+  );
+
+  /**
+   * The report the form is editing.
+   *
+   * With a lesson selected it is that lesson's report, or `null` when the lesson
+   * has none yet — deliberately `null` rather than falling back to whatever sits
+   * on today's date, so opening an unrecorded lesson starts a blank report
+   * instead of quietly re-editing a different lesson's.
+   */
+  const editingEvaluation =
+    selectedLesson === null ? evaluationForDate : evaluationsByLesson.get(selectedLesson) || null;
+
+  /**
+   * Open a lesson's report: select it, and move the date field to that report's
+   * own date so the saved record is the one being looked at. An unrecorded lesson
+   * opens blank, dated today.
+   */
+  const handleLessonChange = useCallback(
+    (lesson) => {
+      setSelectedLesson(lesson);
+      if (lesson === null) return;
+      const existing = evaluationsByLesson.get(lesson);
+      setDate(existing?.date || todayISO());
+    },
+    [evaluationsByLesson]
+  );
   const latest = useMemo(() => reportSource(shownEvaluations, date), [shownEvaluations, date]);
   const headerInstructor =
     (typeof latest?.instructorName === 'string' && latest.instructorName.trim()) ||
@@ -539,9 +631,9 @@ export default function NewStudentReportCardsPage({ onNavigate, params } = {}) {
         // null instead of throwing; the try/catch covers the rest.
         try {
           await logActivity({
-            action: evaluationForDate ? 'edit' : 'add',
+            action: editingEvaluation ? 'edit' : 'add',
             source: 'students',
-            summary: `Report card evaluation ${evaluationForDate ? 'updated' : 'recorded'} for ${
+            summary: `Report card evaluation ${editingEvaluation ? 'updated' : 'recorded'} for ${
               selectedStudent.name || `student ${selectedStudent.id}`
             } on ${saved?.date || payload?.date || todayISO()}`,
             count: 1,
@@ -559,7 +651,7 @@ export default function NewStudentReportCardsPage({ onNavigate, params } = {}) {
       // catches it, shows the API's own message and keeps every entered value
       // (Req 1.13).
     },
-    [selectedStudent, dataReady, evaluationForDate, showToast, user?.email]
+    [selectedStudent, dataReady, editingEvaluation, showToast, user?.email]
   );
 
   // ── Term badges: mark a term paid or unpaid (Req 4.1, 4.9) ───────────────
@@ -931,6 +1023,40 @@ export default function NewStudentReportCardsPage({ onNavigate, params } = {}) {
                           {`Terms ${terms.year}`}
                         </span>
                       </span>
+
+                      {/*
+                        What the badge colours mean. Req 4.9 asks for three
+                        visually distinct states, but "distinct" is not the same
+                        as "self-explanatory": green and amber say nothing about
+                        which is paid until something says so. The swatches reuse
+                        the `.term-badge-*` classes, so this legend cannot drift
+                        from the badges above it.
+
+                        `no-print`: the printed report card is
+                        `ReportCardDocument`, and a parent has no business reading
+                        an interaction hint about clicking.
+                      */}
+                      <span className="term-legend no-print">
+                        {TERM_LEGEND.map(({ state, label }) => (
+                          <span key={state} className="term-legend-item">
+                            <span
+                              aria-hidden="true"
+                              className={`term-badge term-badge-${state} term-legend-swatch`}
+                            />
+                            {label}
+                          </span>
+                        ))}
+                        <span className="term-legend-item">
+                          <span
+                            aria-hidden="true"
+                            className="term-badge term-badge-paid term-badge-current term-legend-swatch"
+                          />
+                          Current term
+                        </span>
+                        <span className="term-legend-hint">
+                          Click a term to switch it between paid and unpaid.
+                        </span>
+                      </span>
                     </div>
 
                     <div style={{ textAlign: 'right', display: 'grid', gap: '0.15rem' }}>
@@ -1031,7 +1157,10 @@ export default function NewStudentReportCardsPage({ onNavigate, params } = {}) {
               <>
                 {/* Evaluation form — already carries `no-print` on its own root. */}
                 <EvaluationForm
-                  evaluation={evaluationForDate}
+                  evaluation={editingEvaluation}
+                  lessonNumber={selectedLesson}
+                  onLessonChange={handleLessonChange}
+                  recordedLessons={recordedLessons}
                   date={date}
                   onDateChange={setDate}
                   evaluations={shownEvaluations}

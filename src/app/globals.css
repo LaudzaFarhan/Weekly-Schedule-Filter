@@ -1945,6 +1945,25 @@ body {
 }
 .term-badge-current { box-shadow: 0 0 0 2px var(--primary-blue); }
 
+/* Legend for the term badges. The swatches reuse the `.term-badge-*` classes
+   themselves rather than re-declaring the colours, so the legend cannot drift
+   from the badges it explains — restyle a state and both move together. Each
+   swatch is `aria-hidden`, because the text beside it already names the state,
+   and a screen reader reads the state from each badge's own accessible name. */
+.term-legend {
+  display: flex; align-items: center; gap: 0.7rem; flex-wrap: wrap;
+  margin-top: 0.45rem; font-size: 0.68rem; color: var(--text-muted);
+}
+.term-legend-item { display: inline-flex; align-items: center; gap: 0.3rem; }
+.term-legend-swatch {
+  min-width: 0; width: 14px; height: 14px; padding: 0;
+  border-radius: 4px; flex-shrink: 0;
+  /* The `current` swatch draws a 2px ring outside its box; without the margin
+     the neighbouring text clips it. */
+  margin: 2px;
+}
+.term-legend-hint { color: var(--text-secondary); }
+
 /* ── Report Cards — the printable document ────────────── */
 /* Named blocks rather than inline styles, so the @media print block below can
    pin page-break behaviour and colour rendering on the same elements the

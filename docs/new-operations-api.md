@@ -307,13 +307,19 @@ Before calling the bulk form:
 
 ### Evaluation — `/api/new/student-evaluations`
 
-One record per student per calendar day. `POST` upserts on `(studentId, date)`, so
-re-posting a day **replaces** that day rather than adding a second record.
+One record per student per **lesson**. `POST` upserts on
+`(studentId, lessonNumber)`, so re-posting a lesson **replaces** that lesson's
+report rather than adding a second one.
+
+Keyed by lesson and **not** by day, because the lessons do not run in sequence and
+two can be graded on the same day. `date` records when the lesson was taught; it
+does not identify the record. Two reports may share a `date`.
 
 ```json
 {
   "studentId": 42,
   "date": "2026-08-03",
+  "lessonNumber": 5,
   "lessonTopic": "Loops and repetition",
   "concept": 4,
   "building": 5,
@@ -325,8 +331,15 @@ re-posting a day **replaces** that day rather than adding a second record.
 }
 ```
 
-Required: `studentId` and all five competency scores — `concept`, `building`,
-`problemSolving`, `focus`, `attitude`. Each is an integer from 1 to 5.
+Required: `studentId`, `lessonNumber`, and all five competency scores —
+`concept`, `building`, `problemSolving`, `focus`, `attitude`. Each score is an
+integer from 1 to 5.
+
+- `lessonNumber` is an integer from 1 to 10 and is **required**, because it is
+  what identifies the report. An absent one is a `400` rather than a default:
+  guessing lesson 1 would upsert onto a report that already exists. Out of range
+  or non-integer is a `400` naming the field and carrying the value received —
+  rejected, never clamped, exactly as the scores are.
 
 - **Scores are rejected, never clamped.** A missing, non-integer or out-of-range
   score is a `400` naming the competency and carrying the value received. Nothing
@@ -342,7 +355,12 @@ Required: `studentId` and all five competency scores — `concept`, `building`,
   against `/api/new/instructors`, so a record naming a departed instructor stays
   editable.
 - Lists come back oldest first, by date and then by id. `search` matches the
-  lesson topic, the instructor remarks and the instructor name.
+  lesson topic, the instructor remarks and the instructor name. Note that the
+  report card orders by `lessonNumber`, not by this list order, since the lessons
+  are not taught in sequence.
+- Records created before `lessonNumber` existed carry `null`. PostgreSQL treats
+  NULLs as distinct in a unique constraint, so several such rows coexist; they
+  are readable and deletable but cannot be reached by lesson.
 - `PUT` revalidates the whole record, so it is a replace and not a patch: an
   omitted score is a `400`, not "leave it as it was". `DELETE ?id=` removes one
   record and there is no bulk form.

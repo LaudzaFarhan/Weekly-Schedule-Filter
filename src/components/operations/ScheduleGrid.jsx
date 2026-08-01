@@ -1182,10 +1182,12 @@ export default function ScheduleGrid({
                       const drawAnchor = inDraw && rowIdx === draw.startIdx;
                       const inSel = !draw && !!selection && selection.instructorName === inst.name &&
                         rowIdx >= selection.startIdx && rowIdx <= selection.endIdx;
-                      // The summary and its Edit trigger sit on the last row of the
-                      // selection, so they read as a footer under the marked-out block
-                      // rather than covering the row the drag happened to start from.
-                      const selLabelRow = inSel && rowIdx === selection.endIdx;
+                      // The two halves of the selection chip sit at opposite ends of
+                      // the block: the size reads as a heading on the first row, and
+                      // the Edit trigger as a footer on the last. On a single-row
+                      // selection both land on the same row and render side by side.
+                      const selSummaryRow = inSel && rowIdx === selection.startIdx;
+                      const selEditRow = inSel && rowIdx === selection.endIdx;
 
                       return (
                         <td
@@ -1231,7 +1233,8 @@ export default function ScheduleGrid({
                             drawnDuration={drawnDuration}
                             drawnRows={drawnRows}
                             inSel={inSel}
-                            selLabelRow={selLabelRow}
+                            selSummaryRow={selSummaryRow}
+                            selEditRow={selEditRow}
                             selStart={inSel ? rowStarts[selection.startIdx] : null}
                             selDuration={selDuration}
                             selRows={selRows}
@@ -1989,7 +1992,7 @@ function Cell({
   moving, isTarget, resizing, openPicker, openEditor, openRoster, onRemoveSlot,
   beginMoveClass, beginMoveSlot, setMoving, applyMove, beginResize, nudge,
   rowIdx, beginDraw, inDraw, drawAnchor, drawnDuration, drawnRows,
-  inSel, selLabelRow, selStart, selDuration, selRows, onEditSelection,
+  inSel, selSummaryRow, selEditRow, selStart, selDuration, selRows, onEditSelection,
 }) {
   const boxH = Math.max(height - 6, 22);
   // What the drag reports back while it is in progress. Rows lead because that is
@@ -2243,28 +2246,28 @@ function Cell({
           whiteSpace: 'nowrap', overflow: 'hidden', padding: '0 0.3rem',
         }}
       >
-        {selLabelRow && (
-          <>
-            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
-              {selRows} row{selRows === 1 ? '' : 's'} · {selDuration} min
-            </span>
-            <button
-              type="button"
-              // The press must not be read as the start of a new drag.
-              onPointerDown={(e) => e.stopPropagation()}
-              onClick={onEditSelection}
-              title="Choose what goes in this time"
-              aria-label={`Edit the ${selDuration} minute selection at ${clockLabel(selStart ?? start)} for ${inst.name}`}
-              style={{
-                display: 'inline-flex', alignItems: 'center', gap: '0.15rem', flexShrink: 0,
-                border: '1px solid rgba(5,150,105,0.9)', background: '#047857', color: '#fff',
-                borderRadius: '5px', padding: '0.1rem 0.35rem', fontSize: '0.6rem',
-                fontWeight: 700, cursor: 'pointer',
-              }}
-            >
-              <Pencil size={9} /> Edit
-            </button>
-          </>
+        {selSummaryRow && (
+          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
+            {selRows} row{selRows === 1 ? '' : 's'} · {selDuration} min
+          </span>
+        )}
+        {selEditRow && (
+          <button
+            type="button"
+            // The press must not be read as the start of a new drag.
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={onEditSelection}
+            title="Choose what goes in this time"
+            aria-label={`Edit the ${selDuration} minute selection at ${clockLabel(selStart ?? start)} for ${inst.name}`}
+            style={{
+              display: 'inline-flex', alignItems: 'center', gap: '0.15rem', flexShrink: 0,
+              border: '1px solid rgba(5,150,105,0.9)', background: '#047857', color: '#fff',
+              borderRadius: '5px', padding: '0.1rem 0.35rem', fontSize: '0.6rem',
+              fontWeight: 700, cursor: 'pointer',
+            }}
+          >
+            <Pencil size={9} /> Edit
+          </button>
         )}
       </div>
     );

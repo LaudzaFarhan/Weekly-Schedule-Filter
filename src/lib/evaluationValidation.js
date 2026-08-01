@@ -22,6 +22,9 @@
  */
 
 import { COMPETENCIES } from './reportCardRubric';
+// The lesson count comes from the curriculum rules, not a literal of this
+// module's own, so the picker and the bound can never disagree.
+import { LESSONS_PER_LEVEL } from './programRules';
 
 /** The only date shape accepted or produced: `YYYY-MM-DD`. */
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
@@ -185,6 +188,25 @@ export function validateEvaluationPayload(body) {
     scores[key] = score;
   }
 
+  // --- lesson number: required, because it identifies the report ---
+  // A report belongs to a lesson, and `(student_id, lesson_number)` is what makes
+  // it unique. Without one there is nothing to upsert onto, so an absent lesson
+  // is refused rather than defaulted — guessing "lesson 1" would overwrite a
+  // real report. Goes through `asInteger`, so `[3]` and `'3.5'` are refused
+  // rather than coerced, and an out-of-range value is rejected, never clamped,
+  // exactly as the five scores are (Req 1.4, 1.5).
+  if (isBlank(body.lessonNumber)) {
+    return {
+      error: `lessonNumber is required — pick which lesson from 1 to ${LESSONS_PER_LEVEL} this report is for`,
+    };
+  }
+  const lessonNumber = asInteger(body.lessonNumber);
+  if (lessonNumber === null || lessonNumber < 1 || lessonNumber > LESSONS_PER_LEVEL) {
+    return {
+      error: `lessonNumber must be an integer from 1 to ${LESSONS_PER_LEVEL} — got ${received(body.lessonNumber)}`,
+    };
+  }
+
   // --- optional text (Req 1.9) ---
   const instructorNameRaw = optionalText(body.instructorName);
   const instructorName = instructorNameRaw === null ? null : instructorNameRaw.trim() || null;
@@ -197,6 +219,7 @@ export function validateEvaluationPayload(body) {
       studentId,
       date,
       ...scores,
+      lessonNumber,
       lessonTopic: optionalText(body.lessonTopic),
       instructorNotes: optionalText(body.instructorNotes),
       instructorName,

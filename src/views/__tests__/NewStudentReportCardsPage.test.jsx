@@ -264,7 +264,9 @@ describe('program tabs (Req 6.7)', () => {
 
 describe('saving an evaluation (Req 6.10)', () => {
   /** Rate all five competencies and pick an instructor, so Save becomes usable. */
-  async function fillForm(user, rating = 4) {
+  async function fillForm(user, rating = 4, lesson = 1) {
+    // The lesson identifies the report, so Save stays disabled until one is open.
+    await user.click(screen.getByRole('radio', { name: new RegExp(`^Lesson ${lesson}:`) }));
     for (const competency of COMPETENCIES) {
       await user.click(
         screen.getByRole('radio', {
@@ -291,6 +293,7 @@ describe('saving an evaluation (Req 6.10)', () => {
     expect(saveEvaluation).toHaveBeenCalledWith(
       expect.objectContaining({
         studentId: 2,
+        lessonNumber: 1,
         instructorName: 'Ms. Tina',
         ...Object.fromEntries(COMPETENCIES.map((competency) => [competency.key, 4])),
       })

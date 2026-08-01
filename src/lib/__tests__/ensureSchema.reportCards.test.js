@@ -93,9 +93,22 @@ describe('internal_student_evaluations definition', () => {
     expect(scoreLike.sort()).toEqual([...SCORE_COLUMNS].sort());
   });
 
-  // Req 1.6 / D1: one row per student per day, so re-saving a date edits it.
-  it('keys one evaluation per student per day', () => {
-    expect(evaluationsSql).toMatch(/UNIQUE\s*\(student_id,\s*eval_date\)/);
+  // One row per student per LESSON, so re-saving a lesson edits it. Keyed by
+  // lesson and NOT by day: the lessons do not run in sequence and two can be
+  // graded on one day, which the old day key made unrepresentable.
+  it('keys one evaluation per student per lesson, not per day', () => {
+    expect(evaluationsSql).toMatch(/UNIQUE\s*\(student_id,\s*lesson_number\)/);
+    expect(evaluationsSql).not.toMatch(/UNIQUE\s*\(student_id,\s*eval_date\)/);
+  });
+
+  it('drops any surviving day-uniqueness constraint on an existing database', () => {
+    // `CREATE TABLE IF NOT EXISTS` is skipped whole where the table already
+    // exists, so the old constraint has to be dropped explicitly or two lessons
+    // on one day keep colliding on a live database.
+    const migration = executed.find((sql) => sql.includes('DROP CONSTRAINT IF EXISTS'));
+    expect(migration).toBeTruthy();
+    expect(migration).toContain('internal_student_evaluations_student_date_key');
+    expect(migration).toContain('internal_student_evaluations_student_lesson_key');
   });
 
   // D3: `date` is a type name; the column is `eval_date` and the API translates.
