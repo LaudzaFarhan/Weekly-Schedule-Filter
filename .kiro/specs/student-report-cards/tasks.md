@@ -331,14 +331,14 @@ above its `it`, with `Req x.y` references inside the assertions.
     - _Requirements: 1.1, 1.6, 2.2, 2.3, 2.8, 2.13_
 
 - [ ] 19. Manual verification that cannot be automated
-  - [~] 19.1 Verify print fidelity in Chrome, Edge and Firefox
+  - [ ] 19.1 Verify print fidelity in Chrome, Edge and Firefox
     - Canvas rasterisation into a print job cannot be verified by reading code, so run the print preview in all three browsers and confirm, in each: the sidebar and header are absent; **both** canvases are present as images; colours are retained (term badges and rating colours, not stripped); the report fits **one** A4 page; the signature lines are not orphaned onto a second page
     - Then Save-as-PDF from the same dialog and confirm the PDF matches the preview page for page
     - Also confirm a student with 11+ evaluations shows `L2…L12` on the trend axis
     - Record the result per browser; a failure here sends work back to task 14.1 or 11.1
     - _Requirements: 5.5, 5.7, 5.9, 5.10, 5.12_
 
-  - [~] 19.2 Verify no canvas is left bound after repeated student switches
+  - [ ] 19.2 Verify no canvas is left bound after repeated student switches
     - Switch the selected student roughly 20 times, and enter and leave the rubric view between switches, with the console open
     - Confirm no "Canvas is already in use" warning appears — this is the Chart.js `destroy()` path that React 19 Strict Mode's double-invoked effects expose, and the reason `react-chartjs-2` owns the lifecycle rather than hand-rolled canvas code
     - _Requirements: 3.8, 5.10_
