@@ -391,7 +391,7 @@ export default function EvaluationForm({
   };
 
   return (
-    <form className="panel no-print" onSubmit={handleSubmit} noValidate>
+    <form data-tour="evaluation-form" className="panel no-print" onSubmit={handleSubmit} noValidate>
       <div className="panel-header" style={{ display: 'block' }}>
         <h2 style={{ fontSize: '1.25rem', fontWeight: 600, margin: 0 }}>Daily Meeting Evaluator</h2>
         <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', margin: '0.2rem 0 0' }}>
@@ -463,7 +463,7 @@ export default function EvaluationForm({
           attendance ticks read. Pressing the chosen number again clears it, so a
           tag applied by mistake can be removed without reloading the day.
         */}
-        <div>
+        <div data-tour="lesson-picker">
           <span className="modal-form-label" id="evaluation-lesson-number-label">
             Lesson
           </span>

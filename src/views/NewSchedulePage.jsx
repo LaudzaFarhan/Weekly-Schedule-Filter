@@ -1516,7 +1516,7 @@ export default function NewSchedulePage({ onNavigate }) {
 
         {/* Unallocated Students sidebar */}
         {showUnallocated && (
-          <div className="panel" style={{ margin: 0, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+          <div data-tour="student-scope" className="panel" style={{ margin: 0, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
             <div className="panel-header" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: '0.15rem' }}>
               <h2 style={{ fontSize: '1rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
                 {studentScope === 'all' ? <Users size={16} /> : <UserX size={16} />}
@@ -2114,7 +2114,7 @@ export default function NewSchedulePage({ onNavigate }) {
           their report card. */}
       <ScheduleGridPanel onNavigate={onNavigate} />
 
-      <div className="panel full-schedule-panel">
+      <div data-tour="schedule-grid" className="panel full-schedule-panel">
         <div className="panel-header" style={{ flexWrap: 'wrap', gap: '0.75rem', justifyContent: 'space-between', alignItems: 'center' }}>
           <div>
             <h2 style={{ fontSize: '1.25rem', fontWeight: 600 }}>Internal Operations Schedule</h2>

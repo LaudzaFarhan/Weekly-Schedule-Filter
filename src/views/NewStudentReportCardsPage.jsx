@@ -1024,7 +1024,7 @@ export default function NewStudentReportCardsPage({ onNavigate, params } = {}) {
                         so the state is also in the accessible name rather than
                         carried by colour alone.
                       */}
-                      <span className="term-badge-row">
+                      <span data-tour="term-badges" className="term-badge-row">
                         {terms.badges.map((badge) => (
                           <button
                             key={badge.termNumber}
@@ -1237,6 +1237,7 @@ export default function NewStudentReportCardsPage({ onNavigate, params } = {}) {
                       </p>
                     </div>
                     <div
+                      data-tour="radar"
                       className="panel-body"
                       style={{
                         padding: '1rem',

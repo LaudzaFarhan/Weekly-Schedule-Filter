@@ -2181,6 +2181,7 @@ body {
   .panel-header button,
   .panel-header select,
   .panel-header input,
+  .tour-root,
   .no-print {
     display: none !important;
   }
@@ -2271,4 +2272,297 @@ body {
   .dashboard-views:has(#report-card-print) .report-print-notice {
     display: none !important;
   }
+}
+
+/* ── Guided tour ────────────────────────────────────────────────────────────
+   A spotlight overlay for first-time users. Geometry comes from lib/tour.js;
+   everything here is presentation and movement.
+
+   The dark surround is a single element with a very large box-shadow spread, so
+   the lit area is a real hole in one box rather than four panels that have to
+   agree with each other. Transitioning that one box is what makes stepping
+   through the tour read as one continuous movement instead of a series of cuts. */
+
+.tour-root {
+  position: fixed;
+  inset: 0;
+  z-index: 9000;
+}
+
+/* Catches every press so the page underneath cannot be operated mid-tour. */
+.tour-blocker {
+  position: fixed;
+  inset: 0;
+  cursor: default;
+}
+
+.tour-spotlight {
+  position: fixed;
+  border-radius: 12px;
+  /* The surround. Spread has to exceed any plausible viewport diagonal. */
+  box-shadow: 0 0 0 9999px rgba(15, 23, 42, 0.6);
+  outline: 2px solid rgba(255, 255, 255, 0.9);
+  outline-offset: 2px;
+  pointer-events: none;
+  transition:
+    top 300ms cubic-bezier(0.16, 1, 0.3, 1),
+    left 300ms cubic-bezier(0.16, 1, 0.3, 1),
+    width 300ms cubic-bezier(0.16, 1, 0.3, 1),
+    height 300ms cubic-bezier(0.16, 1, 0.3, 1);
+  animation: tour-spotlight-in 260ms ease-out;
+}
+
+@keyframes tour-spotlight-in {
+  from { box-shadow: 0 0 0 9999px rgba(15, 23, 42, 0); }
+  to   { box-shadow: 0 0 0 9999px rgba(15, 23, 42, 0.6); }
+}
+
+/* A halo that breathes once a second, so the eye lands on the lit area before
+   it starts reading the callout. Slow and low contrast on purpose: a fast pulse
+   competes with the text for attention instead of directing it there. */
+.tour-spotlight::after {
+  content: '';
+  position: absolute;
+  inset: -4px;
+  border-radius: 15px;
+  border: 2px solid var(--primary-blue, #3b82f6);
+  opacity: 0;
+  animation: tour-pulse 2000ms ease-out infinite;
+}
+
+@keyframes tour-pulse {
+  0%   { opacity: 0.55; transform: scale(1); }
+  70%  { opacity: 0;    transform: scale(1.06); }
+  100% { opacity: 0;    transform: scale(1.06); }
+}
+
+/* Used for steps with no anchor, where there is nothing to cut a hole around. */
+.tour-scrim {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.6);
+  pointer-events: none;
+  animation: tour-fade-in 220ms ease-out;
+}
+
+@keyframes tour-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.tour-callout {
+  position: fixed;
+  width: min(340px, calc(100vw - 24px));
+  box-sizing: border-box;
+  padding: 0.85rem 0.95rem 0.75rem;
+  background: var(--panel-bg);
+  border: 1px solid var(--border-color);
+  border-radius: 14px;
+  box-shadow: 0 18px 44px rgba(15, 23, 42, 0.28);
+  transition:
+    top 300ms cubic-bezier(0.16, 1, 0.3, 1),
+    left 300ms cubic-bezier(0.16, 1, 0.3, 1);
+  animation: tour-callout-in 240ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes tour-callout-in {
+  from { opacity: 0; transform: translateY(6px) scale(0.98); }
+  to   { opacity: 1; transform: translateY(0)   scale(1); }
+}
+
+/* A rotated square with two borders showing, so it reads as a continuation of
+   the callout's own outline rather than a separate triangle stuck on the side. */
+.tour-caret {
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  background: var(--panel-bg);
+  border: 1px solid var(--border-color);
+  transform: rotate(45deg);
+}
+
+.tour-callout-bottom > .tour-caret {
+  top: -6px;
+  margin-left: -5px;
+  border-right: none;
+  border-bottom: none;
+}
+
+.tour-callout-top > .tour-caret {
+  bottom: -6px;
+  margin-left: -5px;
+  border-left: none;
+  border-top: none;
+}
+
+.tour-callout-right > .tour-caret {
+  left: -6px;
+  margin-top: -5px;
+  border-right: none;
+  border-top: none;
+}
+
+.tour-callout-left > .tour-caret {
+  right: -6px;
+  margin-top: -5px;
+  border-left: none;
+  border-bottom: none;
+}
+
+.tour-callout-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.35rem;
+}
+
+.tour-step-count {
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--primary-blue, #3b82f6);
+}
+
+.tour-tour-name {
+  color: var(--text-muted);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+.tour-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.tour-close:hover {
+  background: var(--bg-color);
+  color: var(--text-main);
+}
+
+.tour-callout-title {
+  margin: 0 0 0.3rem;
+  font-family: 'Outfit', sans-serif;
+  font-size: 0.98rem;
+  font-weight: 600;
+  line-height: 1.25;
+  color: var(--text-main);
+}
+
+.tour-callout-body {
+  margin: 0 0 0.75rem;
+  font-size: 0.78rem;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+
+.tour-callout-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+}
+
+.tour-dots {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.tour-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 99px;
+  background: var(--border-color);
+  transition: width 220ms ease, background 220ms ease;
+}
+
+.tour-dot-on {
+  width: 14px;
+  background: var(--primary-blue, #3b82f6);
+}
+
+.tour-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.tour-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.35rem 0.7rem;
+  border-radius: 8px;
+  font-family: inherit;
+  font-size: 0.74rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease, opacity 0.15s ease;
+}
+
+.tour-btn-quiet {
+  border: 1px solid var(--border-color);
+  background: transparent;
+  color: var(--text-secondary);
+}
+
+.tour-btn-quiet:hover:not(:disabled) {
+  background: var(--bg-color);
+}
+
+.tour-btn-quiet:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.tour-btn-primary {
+  border: 1px solid var(--primary-blue, #3b82f6);
+  background: var(--primary-blue, #3b82f6);
+  color: #fff;
+}
+
+.tour-btn-primary:hover {
+  filter: brightness(1.06);
+}
+
+/* The help button glows while the current screen has a tour nobody here has
+   taken yet. Three pulses, then it stops — a control that pulses forever stops
+   being a signal and becomes furniture. */
+.tour-help-nudge {
+  animation: tour-nudge 1400ms ease-out 3;
+}
+
+@keyframes tour-nudge {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0); }
+  35%      { box-shadow: 0 0 0 5px rgba(59, 130, 246, 0.22); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* Position still has to change or the spotlight would be wrong, but it moves
+     instantly, and the decorative pulses go entirely. */
+  .tour-spotlight,
+  .tour-callout {
+    transition: none;
+    animation: none;
+  }
+  .tour-spotlight::after,
+  .tour-help-nudge {
+    animation: none;
+  }
+  .tour-spotlight::after { opacity: 0.5; }
+  .tour-scrim { animation: none; }
+  .tour-dot { transition: none; }
 }

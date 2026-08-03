@@ -8,8 +8,9 @@ import {
 } from '../../services/newNotificationService';
 import {
   RefreshCw, Plus, Trash2, Bell, EyeOff, ChevronLeft, ChevronRight, Search, PanelLeft,
-  AlertTriangle, AlertCircle, Info, X, CheckCheck, History,
+  AlertTriangle, AlertCircle, Info, X, CheckCheck, History, HelpCircle,
 } from 'lucide-react';
+import { useTour } from '../tour/TourProvider';
 
 /**
  * How long the notification panel's exit animation runs, matching the
@@ -32,6 +33,7 @@ export default function Header({ onToggleSearch, opsMode = 'old', onToggleSideba
     disabledBranches, users,
   } = useSchedule();
   const { user } = useAuth();
+  const { startForCurrentPage, hasUnseenPageTour, pageTourTitle } = useTour();
 
   const [isAdding, setIsAdding] = useState(false);
   const [newName, setNewName] = useState('');
@@ -242,7 +244,7 @@ export default function Header({ onToggleSearch, opsMode = 'old', onToggleSideba
             </button>
           )}
           {opsMode === 'new' && (
-            <div style={{ position: 'relative' }}>
+            <div data-tour="notifications" style={{ position: 'relative' }}>
               <button
                 ref={bellRef}
                 onClick={toggleNotifications}
@@ -392,7 +394,26 @@ export default function Header({ onToggleSearch, opsMode = 'old', onToggleSideba
               )}
             </div>
           )}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+          {/* Runs the tour for whichever page is showing. Nudged while the
+              current screen has one nobody on this browser has taken. */}
+          <button
+            type="button"
+            data-tour="help"
+            onClick={startForCurrentPage}
+            className={hasUnseenPageTour ? 'tour-help-nudge' : undefined}
+            title={pageTourTitle ? `Show me around: ${pageTourTitle}` : 'Show me around'}
+            aria-label={pageTourTitle ? `Start the tour: ${pageTourTitle}` : 'Start the tour'}
+            style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              width: '32px', height: '32px', borderRadius: '10px', cursor: 'pointer',
+              border: 'none', background: 'transparent',
+              color: hasUnseenPageTour ? 'var(--primary-blue)' : 'var(--text-muted)',
+              transition: 'color 0.15s ease',
+            }}
+          >
+            <HelpCircle size={20} />
+          </button>
+          <div data-tour="user-chip" style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
             <div style={{ textAlign: 'right' }}>
               <div style={{ fontSize: '0.8rem', fontWeight: 500, color: 'var(--text-main)' }}>{userName}</div>
               <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>{userRole}</div>

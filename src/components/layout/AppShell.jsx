@@ -5,6 +5,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { ScheduleProvider } from '@/contexts/ScheduleContext';
 import { ToastProvider } from '@/components/ui/Toast';
 import LoginOverlay from '@/components/auth/LoginOverlay';
+import TourProvider from '@/components/tour/TourProvider';
 import Sidebar from '@/components/layout/Sidebar';
 import Header from '@/components/layout/Header';
 import StudentSearchSidebar from '@/components/layout/StudentSearchSidebar';
@@ -185,6 +186,10 @@ export default function AppShell() {
   return (
     <ToastProvider>
       <ScheduleProvider>
+        {/* Inside the providers, so a tour step can describe anything the app
+            renders; outside the page, so switching pages cannot unmount a
+            running tour mid-step. */}
+        <TourProvider page={currentPage} opsMode={opsMode}>
         <div className={`app-layout ${sidebarCollapsed ? 'sidebar-collapsed' : ''}`}>
           <Sidebar 
             currentPage={currentPage} 
@@ -204,6 +209,7 @@ export default function AppShell() {
             <StudentSearchSidebar isOpen={isSearchOpen} onClose={() => setIsSearchOpen(false)} />
           )}
         </div>
+        </TourProvider>
       </ScheduleProvider>
     </ToastProvider>
   );

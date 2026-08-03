@@ -131,6 +131,7 @@ export default function StudentSelectorPanel({
 
   return (
     <section
+      data-tour="student-selector"
       className="panel no-print"
       aria-labelledby="report-cards-selector-heading"
       style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}

@@ -151,7 +151,7 @@ export default function Sidebar({ currentPage, onNavigate, onToggleSearch, opsMo
         </div>
       </div>
       
-      <div className={`operations-switcher ${opsMode === 'new' ? 'is-new' : 'is-old'}`}>
+      <div data-tour="ops-switcher" className={`operations-switcher ${opsMode === 'new' ? 'is-new' : 'is-old'}`}>
         <button 
           className={`switcher-tab ${opsMode === 'old' ? 'active' : ''}`}
           onClick={() => setOpsMode('old')}
@@ -168,7 +168,7 @@ export default function Sidebar({ currentPage, onNavigate, onToggleSearch, opsMo
         </button>
       </div>
 
-      <nav className="sidebar-nav">
+      <nav data-tour="sidebar-nav" className="sidebar-nav">
         {opsMode === 'new' && (
           <>
             <button
@@ -182,6 +182,7 @@ export default function Sidebar({ currentPage, onNavigate, onToggleSearch, opsMo
               </div>
             </button>
             <button
+              data-tour="nav-schedule"
               className={`nav-item ${NEW_OPS_PAGES.includes(currentPage) ? '' : 'active'}`}
               onClick={() => onNavigate('schedule')}
               style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
@@ -202,6 +203,7 @@ export default function Sidebar({ currentPage, onNavigate, onToggleSearch, opsMo
               </div>
             </button>
             <button
+              data-tour="nav-students"
               className={`nav-item ${currentPage === 'students' ? 'active' : ''}`}
               onClick={() => onNavigate('students')}
               style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
