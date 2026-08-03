@@ -172,6 +172,75 @@ const DEFINITIONS = {
    * The column is `eval_date`, not `date`: `date` is a type name and would force
    * quoting in every `ORDER BY`.
    */
+  /**
+   * Employee accounts, migrated off Firebase Auth + Firestore `profiles`.
+   *
+   * `password_encrypted` holds AES-256-GCM ciphertext, never plaintext and never
+   * a hash: an Admin has to be able to read a password back when an employee
+   * forgets it. The key lives in `EMPLOYEE_CREDENTIAL_KEY`, so this column is
+   * useless on its own to anyone holding only a database dump.
+   *
+   * Profile fields are columns here rather than a companion table. The
+   * `internal_student_credentials` split exists because the app's DB user does
+   * not own `internal_students`; it DOES own this table, and `profiles` was
+   * already one-to-one with an account, so a join would buy nothing.
+   *
+   * The five roles are `ROLES` in `AdminPage.jsx`. A `CHECK` rather than free
+   * text, so a typo'd role cannot silently become unprivileged-but-accepted.
+   */
+  internal_users: [
+    `CREATE TABLE IF NOT EXISTS internal_users (
+        id SERIAL PRIMARY KEY,
+        username VARCHAR(150) NOT NULL,
+        email VARCHAR(255) NOT NULL,
+        role VARCHAR(50) NOT NULL DEFAULT 'Instructor'
+            CHECK (role IN ('Admin', 'SPA', 'EC', 'Instructor', 'Supervisor')),
+        password_encrypted TEXT,
+        must_change_password BOOLEAN NOT NULL DEFAULT TRUE,
+        status VARCHAR(50) NOT NULL DEFAULT 'Active',
+        firebase_uid VARCHAR(128),
+        fullname VARCHAR(255),
+        nickname VARCHAR(255),
+        specialization VARCHAR(255),
+        phone_number VARCHAR(255),
+        location VARCHAR(255),
+        training_progress JSONB DEFAULT '{}'::jsonb NOT NULL,
+        last_login_at TIMESTAMP WITH TIME ZONE,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT internal_users_email_key UNIQUE (email),
+        CONSTRAINT internal_users_username_key UNIQUE (username)
+    )`,
+    `CREATE INDEX IF NOT EXISTS internal_users_role_idx ON internal_users (role)`,
+    { trigger: 'update_internal_users_changetimestamp', table: 'internal_users' },
+  ],
+
+  /**
+   * Login sessions.
+   *
+   * Server-side records rather than a self-contained signed cookie, because a
+   * self-contained token cannot be revoked before it expires — and the point of
+   * the users screen is that an Admin can kill a compromised credential NOW.
+   *
+   * Only the SHA-256 of the cookie value is stored, so reading this table yields
+   * no usable session tokens. `expires_at` is checked on every request; expired
+   * rows are deleted opportunistically rather than by a scheduled job, since
+   * there is no scheduler on this host.
+   */
+  internal_sessions: [
+    `CREATE TABLE IF NOT EXISTS internal_sessions (
+        id SERIAL PRIMARY KEY,
+        token_hash CHAR(64) NOT NULL,
+        user_id INTEGER NOT NULL,
+        expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        last_seen_at TIMESTAMP WITH TIME ZONE,
+        CONSTRAINT internal_sessions_token_key UNIQUE (token_hash)
+    )`,
+    `CREATE INDEX IF NOT EXISTS internal_sessions_user_idx ON internal_sessions (user_id)`,
+    `CREATE INDEX IF NOT EXISTS internal_sessions_expiry_idx ON internal_sessions (expires_at)`,
+  ],
+
   internal_student_evaluations: [
     `CREATE TABLE IF NOT EXISTS internal_student_evaluations (
         id SERIAL PRIMARY KEY,

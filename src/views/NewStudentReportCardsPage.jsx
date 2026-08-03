@@ -91,6 +91,16 @@ import { getTerms, saveTerm } from '../services/studentTermService';
 const EM_DASH = '\u2014';
 
 /**
+ * A student name folded for comparison: trimmed, collapsed whitespace, lowercased.
+ *
+ * The schedule stores names typed by hand, so "John  Doe" and "john doe" are the
+ * same student as far as opening a report card is concerned.
+ */
+function normaliseName(value) {
+  return typeof value === 'string' ? value.trim().replace(/\s+/g, ' ').toLowerCase() : '';
+}
+
+/**
  * The two recorded term states, in the order the legend lists them, plus the
  * third for a term with no row at all.
  *
@@ -452,6 +462,26 @@ export default function NewStudentReportCardsPage({ onNavigate, params } = {}) {
       setPickedStudentId(params.studentId);
     }
   }, [params?.studentId]);
+
+  /**
+   * Resolve `params.studentName` when no id came with the navigation.
+   *
+   * The schedule grid navigates here from a class card, and `internal_classes`
+   * stores a student NAME rather than an id — so the name is resolved against the
+   * registry here, where the registry already lives, instead of the grid taking a
+   * second subscription to the whole student list for one button.
+   *
+   * Waits for the registry to arrive: on the first render `students` is empty and
+   * resolving then would silently fall back to the first student of the default
+   * tab. A name matching nothing leaves the selection alone rather than jumping.
+   */
+  useEffect(() => {
+    if (params?.studentId != null && params.studentId !== '') return;
+    const wanted = normaliseName(params?.studentName);
+    if (!wanted || students.length === 0) return;
+    const match = students.find((st) => normaliseName(st?.name) === wanted);
+    if (match) setPickedStudentId(match.id);
+  }, [params?.studentId, params?.studentName, students]);
 
   /**
    * The effective selection: the picked student while that student is still in
@@ -845,7 +875,7 @@ export default function NewStudentReportCardsPage({ onNavigate, params } = {}) {
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem', alignItems: 'center' }}>
             {modeButton('evaluate', 'Evaluate', ClipboardList)}
             {modeButton('preview', 'Preview Report', Eye)}
-            {modeButton('rubric', 'Scoring Guidelines', BookOpen)}
+
             <button
               type="button"
               className="btn btn-primary"
@@ -1148,12 +1178,10 @@ export default function NewStudentReportCardsPage({ onNavigate, params } = {}) {
               </div>
             </div>
 
-            {mode === 'rubric' ? (
-              <div className="no-print">
-                {/* One component, `variant="full"` — the standalone guidelines view. */}
-                <ScoringGuidelinesPanel variant="full" />
-              </div>
-            ) : (
+            {/* The standalone guidelines view moved to its own page,
+                `report-cards-rubric`, so this page has two modes rather than
+                three. The compact reference beside the form stays. */}
+            {(
               <>
                 {/* Evaluation form — already carries `no-print` on its own root. */}
                 <EvaluationForm

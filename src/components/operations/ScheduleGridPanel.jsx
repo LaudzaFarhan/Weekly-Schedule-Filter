@@ -28,7 +28,7 @@ import ScheduleGrid from './ScheduleGrid';
  * actually happens — rather than only inside Operationals. All state comes from
  * PostgreSQL via the New Operations hooks and services.
  */
-export default function ScheduleGridPanel() {
+export default function ScheduleGridPanel({ onNavigate } = {}) {
   const { branches } = useSchedule();
   const { showToast } = useToast();
   const { user } = useAuth();
@@ -354,6 +354,16 @@ export default function ScheduleGridPanel() {
         onAddStudent={addStudent}
         onRemoveStudent={removeStudent}
         onUpdateStudent={updateStudent}
+        /*
+         * A class card holds a student NAME, not an id — `internal_classes`
+         * stores names. This panel does not load the student registry, so the
+         * name is passed through and the Report Cards page resolves it against
+         * the list it already holds. Resolving here would mean subscribing to
+         * the whole registry for one button.
+         */
+        onOpenStudentReport={onNavigate
+          ? (studentName) => onNavigate('report-cards', { studentName })
+          : undefined}
       />
     </div>
   );

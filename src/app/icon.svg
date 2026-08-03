@@ -1,0 +1,60 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-label="The Lab">
+  <!--
+    Tab icon for The Lab Operation System.
+
+    Next.js App Router picks `src/app/icon.svg` up automatically and serves it as
+    the favicon, so no `metadata.icons` entry is needed.
+
+    THE MARK ONLY, not the full lockup. The wordmark "THE LAB" and the tagline
+    "LEARNING WITHOUT BOUNDARIES" are illegible below roughly 100px and would
+    render as grey mush in a 16px tab. What survives at that size is the colour
+    signature — yellow, navy, teal, left to right — which is what makes a tab
+    recognisable at a glance.
+
+    The mark is about 2:1, so it is centred vertically in a square canvas rather
+    than stretched. Squashing it to fill the square would distort the logo.
+
+    Rounded corners on the triangle come from a stroke of the same colour with
+    `stroke-linejoin="round"`, which rounds the joins without hand-building arcs
+    at each vertex.
+
+    Geometry and colours are traced by eye from the supplied artwork. If you have
+    the original vector file, drop it in as `src/app/icon.svg` and it will replace
+    this — the shapes here are an approximation, not the authoritative asset.
+  -->
+  <title>The Lab</title>
+
+  <!-- Transparent background: the browser draws the tab strip behind it, so this
+       stays legible in both light and dark browser themes. -->
+
+  <!-- Left: the yellow bar -->
+  <rect x="14" y="268" width="196" height="392" rx="44" fill="#FBCF41" />
+
+  <!-- Middle: the navy triangle. Right angle at bottom right, hypotenuse rising
+       left to right. The stroke both rounds the corners and compensates for the
+       area a round join removes. -->
+  <path
+    d="M 306 636 L 636 268 L 636 636 Z"
+    fill="#141050"
+    stroke="#141050"
+    stroke-width="56"
+    stroke-linejoin="round"
+  />
+
+  <!-- Right: the two teal lobes of the stylised B. The lower one is wider, as in
+       the original. -->
+  <path
+    d="M 742 268 H 862 a 108 108 0 0 1 0 196 H 742 Z"
+    fill="#45B7AE"
+    stroke="#45B7AE"
+    stroke-width="30"
+    stroke-linejoin="round"
+  />
+  <path
+    d="M 742 506 H 872 a 132 132 0 0 1 0 264 H 742 Z"
+    fill="#45B7AE"
+    stroke="#45B7AE"
+    stroke-width="30"
+    stroke-linejoin="round"
+  />
+</svg>

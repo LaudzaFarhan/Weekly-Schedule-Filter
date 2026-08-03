@@ -526,6 +526,53 @@ export default function CrmPage() {
     setIsDetailOpen(true);
   };
 
+  /**
+   * Has the Lead Details form been edited since it was opened?
+   *
+   * Compared against the same fields `handleOpenDetails` seeds, with the same
+   * `|| ''` normalisation — otherwise a lead whose `notes` is null would read as
+   * dirty the moment the modal opened, and every dismissal would prompt.
+   */
+  const detailsDirty = useMemo(() => {
+    if (!selectedLead) return false;
+    const original = {
+      name: selectedLead.name,
+      phone: selectedLead.phone,
+      message: selectedLead.message || '',
+      status: selectedLead.status,
+      notes: selectedLead.notes || '',
+      branch: selectedLead.branch || '',
+      trialDate: selectedLead.trialDate || '',
+    };
+    return Object.keys(original).some((key) => original[key] !== editedLead[key]);
+  }, [selectedLead, editedLead]);
+
+  /**
+   * Dismiss the Lead Details modal.
+   *
+   * `confirmIfDirty` is set for the accidental routes — a click on the backdrop
+   * and Escape — because those can happen while reaching for something else, and
+   * this form holds typed edits. The X and Cancel buttons pass nothing: pressing
+   * them IS the intent to discard, and prompting there would be nagging.
+   */
+  const closeDetails = ({ confirmIfDirty = false } = {}) => {
+    if (confirmIfDirty && detailsDirty
+      && !window.confirm('Discard the changes to this lead?')) return;
+    setIsDetailOpen(false);
+  };
+
+  // Escape closes the modal, guarded the same way as a backdrop click.
+  useEffect(() => {
+    if (!isDetailOpen) return undefined;
+    const onKeyDown = (event) => {
+      if (event.key === 'Escape') closeDetails({ confirmIfDirty: true });
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+    // `closeDetails` closes over `detailsDirty`, so the effect re-binds when the
+    // form becomes dirty — otherwise Escape would use a stale answer.
+  }, [isDetailOpen, detailsDirty]);
+
   const handleUpdateDetails = async (e) => {
     e.preventDefault();
     if (!selectedLead) return;
@@ -1694,11 +1741,27 @@ export default function CrmPage() {
 
       {/* Lead Details & Edit Modal */}
       {isDetailOpen && selectedLead && (
-        <div style={{
-          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
-          background: 'rgba(0,0,0,0.5)', zIndex: 1000, display: 'flex',
-          justifyContent: 'center', alignItems: 'center', padding: '1rem'
-        }}>
+        <div
+          role="presentation"
+          /*
+           * Backdrop click dismisses. `onMouseDown` with a `currentTarget` check
+           * rather than `onClick`, for two reasons:
+           *
+           *   - the check means only a press on the backdrop ITSELF counts, so a
+           *     click that started inside the dialog never closes it;
+           *   - `mousedown` rather than `click` means a text selection that
+           *     begins inside a field and ends outside the dialog does not
+           *     dismiss it, which a `click` handler would, mid-edit.
+           */
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) closeDetails({ confirmIfDirty: true });
+          }}
+          style={{
+            position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+            background: 'rgba(0,0,0,0.5)', zIndex: 1000, display: 'flex',
+            justifyContent: 'center', alignItems: 'center', padding: '1rem'
+          }}
+        >
           {/* Capped to the viewport with the fields scrolling inside, so the
               title and the Save row stay reachable on a short screen. */}
           <div style={{
@@ -1713,7 +1776,7 @@ export default function CrmPage() {
               padding: '1.5rem 1.75rem 1rem', flexShrink: 0
             }}>
               <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 600 }}>Lead Details</h3>
-              <button onClick={() => setIsDetailOpen(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)' }}>
+              <button onClick={() => closeDetails()} aria-label="Close lead details" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)' }}>
                 <X size={20} />
               </button>
             </div>
@@ -1887,7 +1950,7 @@ export default function CrmPage() {
                 </button>
 
                 <div style={{ display: 'flex', gap: '0.5rem' }}>
-                  <button type="button" className="btn btn-sm" onClick={() => setIsDetailOpen(false)} style={{ background: '#f1f5f9', border: '1px solid var(--border-color)', color: 'var(--text-main)', cursor: 'pointer' }}>Cancel</button>
+                  <button type="button" className="btn btn-sm" onClick={() => closeDetails()} style={{ background: '#f1f5f9', border: '1px solid var(--border-color)', color: 'var(--text-main)', cursor: 'pointer' }}>Cancel</button>
                   <button type="submit" className="btn btn-primary" style={{ display: 'flex', alignItems: 'center', gap: '4px' }}><Save size={16} /> Save Changes</button>
                 </div>
               </div>

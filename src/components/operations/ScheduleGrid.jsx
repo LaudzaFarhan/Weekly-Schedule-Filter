@@ -4,7 +4,7 @@ import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react'
 import {
   Users, Filter, Trash2, X, CalendarDays, CalendarPlus, AlertTriangle, Clock,
   GripVertical, ChevronUp, ChevronDown, ChevronLeft, ChevronRight,
-  Plus, Pencil, Building2, UserPlus, Repeat,
+  Plus, Pencil, Building2, UserPlus, Repeat, FileText,
 } from 'lucide-react';
 import {
   AVAIL, ATTENDANCE, isExpired, isoOf, availabilityFor, toMinutes, fromMinutes, clockLabel, slotLabelFor,
@@ -26,6 +26,16 @@ const STEP = 30;
 const ROW_H = 34;
 /** Shortest session we will let anything be. */
 const MIN_DURATION = 30;
+
+/** Cell kinds that draw as a solid card, as opposed to an empty or blocked slot. */
+const CARD_KINDS = new Set(['class', 'planned', 'session']);
+
+/**
+ * How tall a card has to be before START/END edge labels are worth drawing.
+ * Three rows (90 min) is the shortest real class, and the shortest card that
+ * still has room for the labels without squeezing the details.
+ */
+const EDGE_MARK_MIN_SPAN = 3;
 
 /**
  * Shortest length anything may be booked as a *class*.
@@ -95,6 +105,8 @@ export default function ScheduleGrid({
   onEditSlot,
   onAddStudent,
   onRemoveStudent,
+  /** Opens a student's report card by NAME; absent when navigation is unavailable. */
+  onOpenStudentReport,
   onUpdateStudent,
 }) {
   const selectable = useMemo(
@@ -330,6 +342,24 @@ export default function ScheduleGrid({
           : { kind: 'short', span: 1, window };
         i += 1;
       }
+
+      // Two cards can sit back to back with no gap: one ends at 2:30 and the
+      // next starts at 2:30. Their shared edge draws as a single straight line,
+      // so the pair reads as one block and neither end time is legible. Flag
+      // both sides so the boundary can be drawn as a step instead.
+      // Both cards have to be tall enough to carry edge labels in the first
+      // place: the tab hangs into the next card, and a one-row card would be
+      // almost entirely covered by it.
+      for (let k = 0; k < cells.length; k += 1) {
+        const c = cells[k];
+        if (!c || !CARD_KINDS.has(c.kind) || c.span < EDGE_MARK_MIN_SPAN) continue;
+        const next = cells[k + c.span];
+        if (next && CARD_KINDS.has(next.kind) && next.span >= EDGE_MARK_MIN_SPAN) {
+          c.buttedNext = true;
+          next.buttedPrev = true;
+        }
+      }
+
       out.set(inst.name, cells);
     }
     return out;
@@ -1157,17 +1187,32 @@ export default function ScheduleGrid({
               <tbody>
                 {rowStarts.map((start, rowIdx) => (
                   <tr key={start}>
+                    {/* Above the butted cells below, which take z-index 1 so their
+                        seam chip can straddle the edge between them. */}
                     <th scope="row" className="schedule-grid-sticky-col" style={{
-                      position: 'sticky', left: 0, zIndex: 1, background: 'var(--panel-bg)',
-                      borderBottom: `1px solid ${isHour(start) ? 'var(--border-color)' : 'transparent'}`,
+                      position: 'sticky', left: 0, zIndex: 2, background: 'var(--panel-bg)',
+                      // A row's bottom rule is the gridline for the time that starts
+                      // the *next* row, so its weight follows that time, not this one.
+                      borderBottom: `1px solid ${isHour(start + STEP) ? 'var(--border-color)' : 'rgba(120,120,120,0.12)'}`,
                       borderRight: '1px solid var(--border-color)',
-                      padding: '0 0.8rem', height: ROW_H,
+                      padding: '0 0.8rem', verticalAlign: 'top', height: ROW_H,
                       fontSize: isHour(start) ? '0.7rem' : '0.62rem',
                       fontWeight: isHour(start) ? 700 : 500,
                       color: isHour(start) ? 'var(--text-secondary)' : 'var(--text-muted)',
                       textAlign: 'left', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums',
                     }}>
-                      {clockLabel(start)}
+                      {/*
+                        Centred on the gridline it names, not inside the row below it.
+                        A card running 2:30–4:30 has its bottom edge on the 4:30 line;
+                        with the label sitting under that line, "4:00 PM" was the last
+                        label inside the card and it read as ending at 4:00. On the
+                        line, the card visibly spans label to label.
+                        The first row is left alone — there is no gridline above it to
+                        straddle, and half the label would fall outside the table.
+                      */}
+                      <span style={{ display: 'inline-block', transform: rowIdx === 0 ? 'none' : 'translateY(-50%)' }}>
+                        {clockLabel(start)}
+                      </span>
                     </th>
                     {columns.map((inst) => {
                       const cell = (layout.get(inst.name) || [])[rowIdx];
@@ -1199,9 +1244,24 @@ export default function ScheduleGrid({
                           // coordinates keeps the drag aligned to real rows.
                           onPointerEnter={() => { if (draw) extendDraw(inst, rowIdx); }}
                           style={{
-                            borderBottom: `1px solid ${isHour(rowStarts[rowIdx + cell.span - 1] ?? start) || cell.span > 1 ? 'var(--border-color)' : 'rgba(120,120,120,0.12)'}`,
+                            // Same convention as the time column: this rule is the
+                            // gridline for the time the next row starts, so its
+                            // weight follows that time. A multi-row cell always
+                            // gets the strong rule, since its edge is a real end.
+                            borderBottom: `1px solid ${isHour(rowStarts[rowIdx + cell.span] ?? timelineEnd) || cell.span > 1 ? 'var(--border-color)' : 'rgba(120,120,120,0.12)'}`,
                             borderRight: '1px solid var(--border-color)',
                             padding: '0.2rem 0.3rem', verticalAlign: 'top', height: ROW_H * cell.span,
+                            // Back-to-back cards meet on the gridline, so the
+                            // padding between them goes. The seam chip straddles
+                            // that edge and the cell below comes later in the
+                            // DOM, so the upper cell needs lifting.
+                            // The gridline goes too: the two card borders meeting
+                            // there already draw the divider, in both colours, so
+                            // it says whose time ends and whose begins.
+                            ...(cell.buttedNext
+                              ? { paddingBottom: 0, borderBottomColor: 'transparent', position: 'relative', zIndex: 1 }
+                              : null),
+                            ...(cell.buttedPrev ? { paddingTop: 0 } : null),
                             background: inDraw
                               ? 'rgba(5,150,105,0.16)'
                               // A settled selection reads slightly stronger than
@@ -1618,6 +1678,26 @@ export default function ScheduleGrid({
                         >
                           {m.classType === ATTENDANCE.REGULAR ? 'To replacement' : 'To regular'}
                         </button>
+                        {/* Straight to this student's report card. Hidden rather
+                            than disabled when there is no navigation handler, so
+                            it never looks like a broken control. */}
+                        {onOpenStudentReport && m.student && (
+                          <button
+                            type="button"
+                            onClick={() => onOpenStudentReport(m.student)}
+                            title={`Open ${m.student}'s report card`}
+                            aria-label={`Report card for ${m.student}`}
+                            className="btn"
+                            style={{
+                              display: 'inline-flex', alignItems: 'center', gap: '0.25rem',
+                              border: '1px solid var(--border-color)', background: 'transparent',
+                              color: 'var(--text-secondary)', borderRadius: '8px',
+                              padding: '0.3rem 0.55rem', fontSize: '0.72rem', cursor: 'pointer',
+                            }}
+                          >
+                            <FileText size={12} aria-hidden="true" /> Report
+                          </button>
+                        )}
                         <button
                           type="button"
                           disabled={saving}
@@ -1986,6 +2066,88 @@ function ResizeGrip({ color, onStart, onNudge, label, disabled }) {
   );
 }
 
+/** Vertical padding inside a grid cell, in px — `0.2rem`, spelled out for maths. */
+const CELL_PAD_Y = 3.2;
+
+/** Height of the chip that sits on the seam between two back-to-back cards. */
+const SEAM_CHIP_H = 15;
+
+/**
+ * Labels pinned to the card's own top and bottom edges.
+ *
+ * Back-to-back cards are the awkward case: one ends at 2:30 and the next starts
+ * at 2:30. The two cards are drawn touching, with their facing corners squared,
+ * so the pair reads as one unbroken run of time — which is what it is. The shared
+ * instant is printed once on a chip straddling the seam, so END and START are not
+ * fighting for the same line and the time is not stated twice.
+ *
+ * Hidden from assistive tech: the card already states the range in text, and
+ * repeating it would just be noise.
+ */
+function EdgeMarks({ color, startLabel, endLabel, gripped, buttedNext, buttedPrev }) {
+  const band = {
+    position: 'absolute', pointerEvents: 'none', left: 0, right: 0,
+    display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.3rem',
+    padding: '0 0.4rem', lineHeight: 1,
+    fontSize: '0.5rem', fontWeight: 800, letterSpacing: '0.09em',
+    color, opacity: 0.8, fontVariantNumeric: 'tabular-nums',
+  };
+  return (
+    <>
+      <span aria-hidden="true" style={{ ...band, top: '3px' }}>
+        <span>START</span>
+        {/* The seam chip above already carries this time. */}
+        {!buttedPrev && <span style={{ opacity: 0.85 }}>{startLabel}</span>}
+      </span>
+
+      {/* Sits above the resize grip band so the two never overlap. */}
+      <span aria-hidden="true" style={{ ...band, bottom: gripped ? '12px' : '3px' }}>
+        <span>END</span>
+        {!buttedNext && <span style={{ opacity: 0.85 }}>{endLabel}</span>}
+      </span>
+
+      {buttedNext && (
+        // Straddles the shared edge, half in each card. Opaque so the seam does
+        // not read through it.
+        <span
+          aria-hidden="true"
+          style={{
+            position: 'absolute', pointerEvents: 'none',
+            right: '0.45rem', bottom: `-${SEAM_CHIP_H / 2}px`, height: `${SEAM_CHIP_H}px`,
+            display: 'inline-flex', alignItems: 'center', padding: '0 0.4rem',
+            borderRadius: '999px', border: `1px solid ${color}`,
+            background: 'var(--panel-bg)',
+            fontSize: '0.5rem', fontWeight: 800, letterSpacing: '0.06em',
+            color, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap',
+          }}
+        >
+          {endLabel}
+        </span>
+      )}
+    </>
+  );
+}
+
+/**
+ * Card padding that leaves room for the edge labels when they are drawn.
+ * Without them the padding is unchanged from before, so short cards look the same.
+ */
+function cardPadding(edgeMarks, gripped) {
+  if (!edgeMarks) return '0.3rem 0.4rem 0.7rem';
+  return `0.95rem 0.4rem ${gripped ? '1.4rem' : '0.85rem'}`;
+}
+
+/**
+ * Corner radii. A card touching another one squares the facing corners so the
+ * pair draws as a single continuous block instead of two lozenges with a pinch
+ * between them.
+ */
+function cardRadius(buttedPrev, buttedNext) {
+  const top = buttedPrev ? '0' : '8px';
+  const bottom = buttedNext ? '0' : '8px';
+  return `${top} ${top} ${bottom} ${bottom}`;
+}
+
 /** One cell's content. */
 function Cell({
   cell, inst, start, height, allBranches, rules, saving, week,
@@ -1994,7 +2156,11 @@ function Cell({
   rowIdx, beginDraw, inDraw, drawAnchor, drawnDuration, drawnRows,
   inSel, selSummaryRow, selEditRow, selStart, selDuration, selRows, onEditSelection,
 }) {
-  const boxH = Math.max(height - 6, 22);
+  // Back-to-back cards give up the cell padding on the side they touch, so their
+  // edges meet on the gridline instead of leaving a 6px pinch between them. The
+  // cell drops the same padding, so nothing overflows.
+  const bleed = (cell.buttedPrev ? CELL_PAD_Y : 0) + (cell.buttedNext ? CELL_PAD_Y : 0);
+  const boxH = Math.max(height - 2 * CELL_PAD_Y + bleed, 22);
   // What the drag reports back while it is in progress. Rows lead because that is
   // what the gesture is actually doing; the minutes are the consequence. Shown on
   // the row the drag started from only, so it is not repeated down the selection.
@@ -2030,6 +2196,8 @@ function Cell({
       duration: endMin - startMin, category: null, label: meta.label,
     };
     const shownEnd = resizing ? resizing.previewEnd : endMin;
+    const gripped = !allBranches && personal;
+    const edgeMarks = cell.span >= EDGE_MARK_MIN_SPAN;
 
     return (
       <div
@@ -2043,13 +2211,25 @@ function Cell({
         }}
         onDragEnd={() => setMoving(null)}
         style={{
-          position: 'relative', height: boxH, borderRadius: '8px',
+          position: 'relative', height: boxH, borderRadius: cardRadius(cell.buttedPrev, cell.buttedNext),
           border: `1px solid ${meta.color}55`, background: meta.bg,
-          padding: '0.25rem 0.4rem 0.7rem', overflow: 'hidden',
+          padding: edgeMarks ? cardPadding(true, gripped) : '0.25rem 0.4rem 0.7rem',
+          // The seam chip has to be allowed past the card's own edge.
+          overflow: cell.buttedNext ? 'visible' : 'hidden',
           cursor: allBranches ? 'default' : (personal ? 'grab' : 'default'),
           outline: resizing ? `2px solid ${meta.color}` : 'none',
         }}
       >
+        {edgeMarks && (
+          <EdgeMarks
+            color={meta.color}
+            startLabel={slot.start}
+            endLabel={fromMinutes(shownEnd)}
+            gripped={gripped}
+            buttedNext={cell.buttedNext}
+            buttedPrev={cell.buttedPrev}
+          />
+        )}
         <span style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.2rem' }}>
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.15rem', minWidth: 0 }}>
             {!allBranches && personal && <GripVertical size={10} style={{ color: meta.color, flexShrink: 0 }} aria-hidden="true" />}
@@ -2104,6 +2284,8 @@ function Cell({
       category: cell.category, label: [...new Set(cls.programs)].join(', ') || 'Class',
     };
     const shownEnd = resizing ? resizing.previewEnd : cls.endMin;
+    const gripped = !allBranches;
+    const edgeMarks = cell.span >= EDGE_MARK_MIN_SPAN;
 
     return (
       <div
@@ -2123,13 +2305,25 @@ function Cell({
         }}
         title={allBranches ? undefined : 'Open the roster — add or remove students'}
         style={{
-          position: 'relative', height: boxH, borderRadius: '8px',
+          position: 'relative', height: boxH, borderRadius: cardRadius(cell.buttedPrev, cell.buttedNext),
           border: `1px solid ${meta.color}`, background: meta.bg,
-          padding: '0.3rem 0.4rem 0.7rem', overflow: 'hidden',
+          padding: cardPadding(edgeMarks, gripped),
+          // The seam chip has to be allowed past the card's own edge.
+          overflow: cell.buttedNext ? 'visible' : 'hidden',
           cursor: allBranches ? 'default' : 'pointer',
           outline: resizing ? `2px solid ${meta.color}` : 'none',
         }}
       >
+        {edgeMarks && (
+          <EdgeMarks
+            color={meta.color}
+            startLabel={clockLabel(cls.startMin)}
+            endLabel={clockLabel(shownEnd)}
+            gripped={gripped}
+            buttedNext={cell.buttedNext}
+            buttedPrev={cell.buttedPrev}
+          />
+        )}
         <span style={{ display: 'flex', alignItems: 'center', gap: '0.2rem' }}>
           {!allBranches && <GripVertical size={11} style={{ color: meta.color, flexShrink: 0 }} aria-hidden="true" />}
           <span style={{ fontSize: '0.73rem', fontWeight: 700, color: 'var(--text-main)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -2177,6 +2371,8 @@ function Cell({
       duration: endMin - startMin, category: meta.category, label: meta.label,
     };
     const shownEnd = resizing ? resizing.previewEnd : endMin;
+    const gripped = !allBranches;
+    const edgeMarks = cell.span >= EDGE_MARK_MIN_SPAN;
 
     return (
       <div
@@ -2188,13 +2384,25 @@ function Cell({
         }}
         onDragEnd={() => setMoving(null)}
         style={{
-          position: 'relative', height: boxH, borderRadius: '8px',
+          position: 'relative', height: boxH, borderRadius: cardRadius(cell.buttedPrev, cell.buttedNext),
           border: `1px dashed ${meta.color}`, background: 'transparent',
-          padding: '0.3rem 0.4rem 0.7rem', overflow: 'hidden',
+          padding: cardPadding(edgeMarks, gripped),
+          // The seam chip has to be allowed past the card's own edge.
+          overflow: cell.buttedNext ? 'visible' : 'hidden',
           cursor: allBranches ? 'default' : 'grab',
           outline: resizing ? `2px solid ${meta.color}` : 'none',
         }}
       >
+        {edgeMarks && (
+          <EdgeMarks
+            color={meta.color}
+            startLabel={slot.start}
+            endLabel={fromMinutes(shownEnd)}
+            gripped={gripped}
+            buttedNext={cell.buttedNext}
+            buttedPrev={cell.buttedPrev}
+          />
+        )}
         <span style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.3rem' }}>
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.2rem', minWidth: 0 }}>
             {!allBranches && <GripVertical size={11} style={{ color: meta.color, flexShrink: 0 }} aria-hidden="true" />}

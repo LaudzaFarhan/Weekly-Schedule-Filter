@@ -40,7 +40,7 @@ const navItems = [
  * falls back to the Schedule view, so Schedule is the one that highlights.
  */
 const NEW_OPS_PAGES = [
-  'home', 'dashboard', 'operationals', 'students', 'report-cards', 'instructors',
+  'home', 'dashboard', 'operationals', 'students', 'report-cards', 'report-cards-rubric', 'instructors',
   'crm', 'workload', 'leave', 'trial-availability', 'activity', 'api',
   'progress-kinder', 'progress-junior', 'progress-coder',
 ];
@@ -51,6 +51,18 @@ const NEW_OPS_PAGES = [
  * The parent is a disclosure, not a destination — there is no combined view, so
  * pressing it expands rather than navigating somewhere that does not exist.
  */
+/**
+ * Report Cards and its two pages.
+ *
+ * Unlike Live Progress, the parent IS a destination: clicking it goes to
+ * Evaluate, which is the thing anyone opening Report Cards almost always wants.
+ * The disclosure is for reaching Rubrics and Setup, which is occasional.
+ */
+const REPORT_CARD_PAGES = [
+  { id: 'report-cards', label: 'Evaluate' },
+  { id: 'report-cards-rubric', label: 'Rubrics and Setup' },
+];
+
 const LIVE_PROGRESS_PAGES = [
   { id: 'progress-kinder', label: 'Kinder Progress' },
   { id: 'progress-junior', label: 'Junior Progress' },
@@ -82,6 +94,10 @@ export default function Sidebar({ currentPage, onNavigate, onToggleSearch, opsMo
    * another set-state-in-effect error to this file.
    */
   const [liveProgressOpen, setLiveProgressOpen] = useState(() => liveProgressActive);
+
+  const reportCardsActive = REPORT_CARD_PAGES.some((p) => p.id === currentPage);
+  /** Expanded when one of its pages is showing, seeded the same way as above. */
+  const [reportCardsOpen, setReportCardsOpen] = useState(() => reportCardsActive);
 
   // Determine the logged in user's instructor name for task queries
   const { instructorProfiles } = useSchedule();
@@ -195,16 +211,47 @@ export default function Sidebar({ currentPage, onNavigate, onToggleSearch, opsMo
                 Students
               </div>
             </button>
+            {/* Report Cards — a destination AND a disclosure. The label navigates
+                to Evaluate; the chevron is a separate control for opening the
+                group, so one click still gets to the page anyone actually wants
+                while Rubrics and Setup stays one click away. */}
             <button
-              className={`nav-item ${currentPage === 'report-cards' ? 'active' : ''}`}
-              onClick={() => onNavigate('report-cards')}
+              className={`nav-item ${reportCardsActive ? 'active' : ''}`}
+              onClick={() => { setReportCardsOpen(true); onNavigate('report-cards'); }}
               style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
             >
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
                 <ClipboardList size={20} />
                 Report Cards
               </div>
+              <span
+                role="button"
+                tabIndex={0}
+                aria-label={reportCardsOpen ? 'Collapse Report Cards' : 'Expand Report Cards'}
+                aria-expanded={reportCardsOpen}
+                // Stops the parent's navigation, so the chevron only toggles.
+                onClick={(e) => { e.stopPropagation(); setReportCardsOpen((v) => !v); }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault(); e.stopPropagation(); setReportCardsOpen((v) => !v);
+                  }
+                }}
+                style={{ display: 'inline-flex', alignItems: 'center', cursor: 'pointer' }}
+              >
+                {reportCardsOpen ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+              </span>
             </button>
+            {reportCardsOpen && REPORT_CARD_PAGES.map((sub) => (
+              <button
+                key={sub.id}
+                className={`nav-item nav-subitem ${currentPage === sub.id ? 'active' : ''}`}
+                onClick={() => onNavigate(sub.id)}
+                style={{ display: 'flex', justifyContent: 'flex-start', alignItems: 'center' }}
+              >
+                <span aria-hidden="true" className="nav-subitem-dash" />
+                {sub.label}
+              </button>
+            ))}
             <button
               className={`nav-item ${currentPage === 'instructors' ? 'active' : ''}`}
               onClick={() => onNavigate('instructors')}

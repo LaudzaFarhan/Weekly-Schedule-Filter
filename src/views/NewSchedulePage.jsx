@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useSchedule } from '../contexts/ScheduleContext';
 import { useToast } from '../components/ui/Toast';
 import { 
@@ -25,7 +25,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { doTimeSlotsOverlap } from '../utils/timeUtils';
 import { DAY_NAMES, SCHEDULE_PAGE_SIZE } from '../utils/constants';
 import Pagination from '../components/ui/Pagination';
-import { Plus, Pencil, Trash2, Search, X, Calendar, CalendarPlus, MapPin, Repeat, User, Users, UserX, BookOpen, Clock, AlertTriangle, Upload, History, Trash, FileDown, CheckCircle2 } from 'lucide-react';
+import { Plus, Pencil, Trash2, Search, X, Calendar, CalendarPlus, MapPin, Repeat, User, Users, UserX, BookOpen, Clock, AlertTriangle, Upload, History, Trash, FileDown, CheckCircle2, ChevronDown, Check } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
 
@@ -252,6 +252,165 @@ const instructorHandles = (instructor, category) => {
  * a row is therefore clipped to one line.
  */
 const VISIBLE_STUDENT_ROWS = 5;
+/** The two scopes the students panel can show. */
+const STUDENT_SCOPES = [
+  { value: 'unallocated', label: 'Unallocated' },
+  { value: 'all', label: 'All Students' },
+];
+
+/**
+ * The scope switch, as a listbox rather than a `<select>`.
+ *
+ * A native `<select>` renders its options through the operating system, which no
+ * stylesheet can reach — so an opening animation is impossible without owning the
+ * menu. That is the whole reason this component exists; everything else about it
+ * is the cost of replacing a native control responsibly:
+ *
+ *   - `role="listbox"` / `role="option"` with `aria-selected`, so it announces as
+ *     the control it replaced.
+ *   - Arrow keys, Home/End, Enter/Space to choose, Escape to dismiss, and focus
+ *     returning to the button on close — all of which a `<select>` gave for free.
+ *   - Closes on outside pointerdown and on blur leaving the component.
+ *
+ * The animation itself lives in `globals.css` (`.scope-menu`), including a
+ * `prefers-reduced-motion` branch.
+ */
+function ScopeSwitch({ value, onChange }) {
+  const [open, setOpen] = useState(false);
+  const [activeIndex, setActiveIndex] = useState(0);
+  const rootRef = useRef(null);
+  const buttonRef = useRef(null);
+
+  const selectedIndex = Math.max(0, STUDENT_SCOPES.findIndex((s) => s.value === value));
+  const current = STUDENT_SCOPES[selectedIndex];
+
+  // Opening highlights the current value, so Enter without moving is a no-op
+  // rather than a silent change to the first item.
+  const openMenu = () => { setActiveIndex(selectedIndex); setOpen(true); };
+  const closeMenu = ({ refocus = false } = {}) => {
+    setOpen(false);
+    if (refocus) buttonRef.current?.focus();
+  };
+
+  const choose = (index) => {
+    const next = STUDENT_SCOPES[index];
+    if (next && next.value !== value) onChange?.(next.value);
+    closeMenu({ refocus: true });
+  };
+
+  // Dismiss on a press anywhere else. `pointerdown` rather than `click` so the
+  // menu is gone before the click lands on whatever is underneath.
+  useEffect(() => {
+    if (!open) return undefined;
+    const onPointerDown = (event) => {
+      if (!rootRef.current?.contains(event.target)) setOpen(false);
+    };
+    document.addEventListener('pointerdown', onPointerDown);
+    return () => document.removeEventListener('pointerdown', onPointerDown);
+  }, [open]);
+
+  const onKeyDown = (event) => {
+    if (!open) {
+      if (['ArrowDown', 'ArrowUp', 'Enter', ' '].includes(event.key)) {
+        event.preventDefault();
+        openMenu();
+      }
+      return;
+    }
+    if (event.key === 'Escape') { event.preventDefault(); closeMenu({ refocus: true }); return; }
+    if (event.key === 'Tab') { setOpen(false); return; }
+    if (event.key === 'ArrowDown') {
+      event.preventDefault();
+      setActiveIndex((i) => Math.min(STUDENT_SCOPES.length - 1, i + 1));
+    } else if (event.key === 'ArrowUp') {
+      event.preventDefault();
+      setActiveIndex((i) => Math.max(0, i - 1));
+    } else if (event.key === 'Home') {
+      event.preventDefault(); setActiveIndex(0);
+    } else if (event.key === 'End') {
+      event.preventDefault(); setActiveIndex(STUDENT_SCOPES.length - 1);
+    } else if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault(); choose(activeIndex);
+    }
+  };
+
+  return (
+    <span ref={rootRef} style={{ position: 'relative', display: 'inline-flex' }}>
+      <button
+        ref={buttonRef}
+        type="button"
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        aria-label="Which students to list"
+        title="Switch between unallocated students and everyone"
+        onClick={() => (open ? closeMenu() : openMenu())}
+        onKeyDown={onKeyDown}
+        style={{
+          display: 'inline-flex', alignItems: 'center', gap: '0.25rem',
+          fontSize: '1rem', fontWeight: 600, color: 'var(--text-main)',
+          background: 'transparent',
+          border: `1px solid ${open ? 'var(--border-color)' : 'transparent'}`,
+          borderRadius: '7px', padding: '0.1rem 0.35rem', cursor: 'pointer',
+          font: 'inherit',
+        }}
+      >
+        {current.label}
+        <ChevronDown
+          size={14}
+          aria-hidden="true"
+          className={`scope-caret ${open ? 'scope-caret-open' : ''}`}
+        />
+      </button>
+
+      {open && (
+        <ul
+          role="listbox"
+          aria-label="Which students to list"
+          aria-activedescendant={`scope-option-${STUDENT_SCOPES[activeIndex]?.value}`}
+          className="scope-menu"
+          style={{
+            position: 'absolute', top: 'calc(100% + 4px)', left: 0, zIndex: 30,
+            margin: 0, padding: '0.25rem', listStyle: 'none', minWidth: '11rem',
+            // `--panel-bg` is the repo's opaque surface colour. An explicit
+            // #ffffff fallback as well, because a floating menu MUST be solid:
+            // an undefined variable resolves to nothing and the text underneath
+            // reads straight through it.
+            background: 'var(--panel-bg, #ffffff)', border: '1px solid var(--border-color)',
+            borderRadius: '9px', boxShadow: '0 8px 24px rgba(0,0,0,0.12)',
+          }}
+        >
+          {STUDENT_SCOPES.map((scope, index) => {
+            const isSelected = scope.value === value;
+            const isActive = index === activeIndex;
+            return (
+              <li
+                key={scope.value}
+                id={`scope-option-${scope.value}`}
+                role="option"
+                aria-selected={isSelected}
+                className="scope-menu-item"
+                onMouseEnter={() => setActiveIndex(index)}
+                onClick={() => choose(index)}
+                style={{
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                  gap: '0.5rem', padding: '0.4rem 0.55rem', borderRadius: '6px',
+                  fontSize: '0.85rem', fontWeight: isSelected ? 700 : 500,
+                  color: isSelected ? 'var(--primary-blue)' : 'var(--text-main)',
+                  background: isActive ? 'var(--bg-color)' : 'transparent',
+                  cursor: 'pointer',
+                }}
+              >
+                {scope.label}
+                {isSelected && <Check size={13} aria-hidden="true" />}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </span>
+  );
+}
+
 const STUDENT_ROW_GAP = 5; // px, kept in px so the height below is exact
 const STUDENT_ROW_H = 48; // name + level/branch
 const STUDENT_ROW_H_WIDE = 62; // ...plus the regular place, in All Students mode
@@ -1363,22 +1522,10 @@ export default function NewSchedulePage({ onNavigate }) {
                 {studentScope === 'all' ? <Users size={16} /> : <UserX size={16} />}
                 {/* The title is the scope switch, so the panel can serve both
                     "who still needs a class" and "book an extra for anyone". */}
-                <select
+                <ScopeSwitch
                   value={studentScope}
-                  onChange={(e) => { setStudentScope(e.target.value); setUnallocSearch(''); }}
-                  aria-label="Which students to list"
-                  title="Switch between unallocated students and everyone"
-                  style={{
-                    fontSize: '1rem', fontWeight: 600, color: 'var(--text-main)',
-                    background: 'transparent', border: '1px solid transparent',
-                    borderRadius: '7px', padding: '0.1rem 0.2rem', cursor: 'pointer',
-                  }}
-                  onFocus={(e) => { e.target.style.borderColor = 'var(--border-color)'; }}
-                  onBlur={(e) => { e.target.style.borderColor = 'transparent'; }}
-                >
-                  <option value="unallocated">Unallocated</option>
-                  <option value="all">All Students</option>
-                </select>
+                  onChange={(next) => { setStudentScope(next); setUnallocSearch(''); }}
+                />
                 <span style={{
                   fontSize: '0.72rem', fontWeight: 700,
                   color: studentScope === 'all'
@@ -1962,8 +2109,10 @@ export default function NewSchedulePage({ onNavigate }) {
             )}
           </div>
         </div>
-      {/* Availability-first planning grid, above the full class table. */}
-      <ScheduleGridPanel />
+      {/* Availability-first planning grid, above the full class table.
+          `onNavigate` is threaded down so a student in a class card can open
+          their report card. */}
+      <ScheduleGridPanel onNavigate={onNavigate} />
 
       <div className="panel full-schedule-panel">
         <div className="panel-header" style={{ flexWrap: 'wrap', gap: '0.75rem', justifyContent: 'space-between', alignItems: 'center' }}>

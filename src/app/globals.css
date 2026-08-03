@@ -1964,6 +1964,51 @@ body {
 }
 .term-legend-hint { color: var(--text-secondary); }
 
+/* ── Scope switch: an animated listbox ──────────────────
+   A native <select> draws its list through the operating system, so no CSS can
+   animate it. This is the markup that replaces it — a button plus a menu — which
+   is the only way to get an opening transition.
+
+   The menu animates from 96% scale and -4px, transform-origin at the top, so it
+   reads as unfolding from the button rather than fading in from nowhere. 130ms
+   on an ease-out curve: long enough to be perceived, short enough that a user
+   clicking through the list twice in a row never waits for it.
+
+   `prefers-reduced-motion` removes the movement and keeps the fade, because the
+   animation here is decoration — the menu is equally usable without it. */
+.scope-menu {
+  animation: scope-menu-in 130ms cubic-bezier(0.16, 1, 0.3, 1);
+  transform-origin: top left;
+}
+@keyframes scope-menu-in {
+  from { opacity: 0; transform: translateY(-4px) scale(0.96); }
+  to   { opacity: 1; transform: translateY(0)    scale(1); }
+}
+
+/* Each row is offset slightly so the list cascades rather than arriving as one
+   block. Two items only, so the stagger stays under 60ms in total. */
+.scope-menu-item {
+  animation: scope-item-in 150ms ease-out backwards;
+}
+.scope-menu-item:nth-child(1) { animation-delay: 20ms; }
+.scope-menu-item:nth-child(2) { animation-delay: 50ms; }
+@keyframes scope-item-in {
+  from { opacity: 0; transform: translateX(-3px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+/* The chevron turns to point at the open menu. */
+.scope-caret { transition: transform 130ms cubic-bezier(0.16, 1, 0.3, 1); }
+.scope-caret-open { transform: rotate(180deg); }
+
+@media (prefers-reduced-motion: reduce) {
+  .scope-menu, .scope-menu-item {
+    animation: scope-fade-in 1ms linear;
+  }
+  .scope-caret { transition: none; }
+  @keyframes scope-fade-in { from { opacity: 0; } to { opacity: 1; } }
+}
+
 /* ── Report Cards — the printable document ────────────── */
 /* Named blocks rather than inline styles, so the @media print block below can
    pin page-break behaviour and colour rendering on the same elements the

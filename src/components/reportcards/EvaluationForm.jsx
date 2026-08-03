@@ -513,7 +513,7 @@ export default function EvaluationForm({
                       ? 'var(--primary-blue)'
                       : recorded
                         ? 'var(--success-bg)'
-                        : 'var(--card-bg)',
+                        : 'var(--panel-bg, #ffffff)',
                     color: picked
                       ? '#ffffff'
                       : recorded

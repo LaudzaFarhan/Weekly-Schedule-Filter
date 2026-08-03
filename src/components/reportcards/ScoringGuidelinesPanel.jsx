@@ -209,7 +209,7 @@ export default function ScoringGuidelinesPanel({
         border: '1px solid var(--border-color)',
         borderRadius: '12px',
         padding: '0.9rem 1rem',
-        background: 'var(--card-bg, transparent)',
+        background: 'var(--panel-bg, #ffffff)',
       }}
     >
       <h3
