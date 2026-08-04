@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { ROLES } from '@/lib/authSession';
 
 /**
  * OpenAPI 3.1 description of the New Operations API.
@@ -10,6 +11,15 @@ import { NextResponse } from 'next/server';
  * Descriptions here are written for a model to read: they say when to use an
  * operation, not just what it returns.
  */
+
+/**
+ * Role names and config keys, imported rather than repeated.
+ *
+ * A published enum that has drifted from what the route accepts is worse than no
+ * enum: a caller trusts it and gets a 400 the document says is impossible.
+ */
+const ROLE_NAMES = ROLES;
+const CONFIG_KEYS = ['branches', 'userRoles', 'rolePages', 'featureToggles', 'announcements'];
 
 const idParam = {
   name: 'id',
@@ -548,6 +558,10 @@ function buildSpec(origin) {
       { name: 'Leave', description: 'Instructor leave by date range.' },
       { name: 'Activity', description: 'Audit trail.' },
       { name: 'Reports', description: 'Derived, read-only answers.' },
+      { name: 'Auth', description: 'Sign in and the current session.' },
+      { name: 'Accounts', description: 'Employee accounts. Admin only. Passwords are read on their own audited path.' },
+      { name: 'Config', description: 'Application settings. Replaces reading configuration from the Google Sheet.' },
+      { name: 'Rubrics', description: 'Report-card competencies per programme category.' },
     ],
     paths: {
       ...crud({
@@ -799,6 +813,406 @@ function buildSpec(origin) {
           }),
         },
       },
+
+      '/api/new/auth/login': {
+        post: {
+          tags: ['Auth'],
+          operationId: 'login',
+          summary: 'Sign in with a username or email and a password. Sets the lab_session cookie.',
+          description: [
+            'The only endpoint here that does not need an existing identity.',
+            '',
+            'A wrong username and a wrong password give the same 401 and the same message, so the',
+            'response cannot be used to discover which accounts exist. A suspended account gets 403,',
+            'and an account whose stored password cannot be decrypted gets 409 — that means the',
+            'credential key was rotated without re-encrypting, and an Admin has to set a new password.',
+          ].join('\n'),
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['identifier', 'password'],
+                  properties: {
+                    identifier: { type: 'string', description: 'Username or email.' },
+                    password: { type: 'string', format: 'password' },
+                  },
+                },
+              },
+            },
+          },
+          responses: {
+            ...ok('Signed in. The session cookie is set on this response.', {
+              type: 'object',
+              properties: { user: { type: 'object' }, expiresAt: { type: 'string', format: 'date-time' } },
+            }),
+            401: { description: 'Wrong username or password.' },
+            403: { description: 'The account is not active.' },
+            503: { description: 'EMPLOYEE_CREDENTIAL_KEY is not configured on this deployment.' },
+          },
+        },
+      },
+
+      '/api/new/auth/session': {
+        get: {
+          tags: ['Auth'],
+          operationId: 'getSession',
+          summary: 'Who the caller is, and whether they may manage accounts.',
+          description:
+            'For deciding what a client should show. It is not a security boundary — every protected '
+            + 'route re-checks the role itself, because hiding a button is presentation and refusing a '
+            + 'request is enforcement.',
+          responses: {
+            ...ok('The current identity.', {
+              type: 'object',
+              properties: {
+                authenticated: { type: 'boolean' },
+                via: { type: 'string', enum: ['session', 'apiKey'] },
+                user: { type: 'object' },
+                permissions: { type: 'object', properties: { manageAccounts: { type: 'boolean' } } },
+              },
+            }),
+            401: { description: 'No usable session or key.' },
+          },
+        },
+        delete: {
+          tags: ['Auth'],
+          operationId: 'logout',
+          summary: 'Sign out of this browser. Other devices keep their sessions.',
+          description: 'Always succeeds and always clears the cookie — "sign me out" has no failure the caller could act on.',
+          responses: ok('Signed out.'),
+        },
+      },
+
+      '/api/new/users': {
+        get: {
+          tags: ['Accounts'],
+          operationId: 'listUsers',
+          summary: 'Employee accounts. Never includes passwords, on any role.',
+          parameters: [
+            { name: 'search', in: 'query', schema: { type: 'string' } },
+            { name: 'role', in: 'query', schema: { type: 'string', enum: ROLE_NAMES } },
+            { name: 'status', in: 'query', schema: { type: 'string', enum: ['Active', 'Suspended'] } },
+            { name: 'limit', in: 'query', schema: { type: 'integer' } },
+          ],
+          responses: {
+            ...ok('Accounts, with the roles and statuses the system accepts.', {
+              type: 'object',
+              properties: {
+                users: { type: 'array', items: { $ref: '#/components/schemas/Account' } },
+                roles: { type: 'array', items: { type: 'string' } },
+                credentialKeyConfigured: { type: 'boolean' },
+              },
+            }),
+            403: { description: 'Needs the Admin role or the API key.' },
+          },
+        },
+        post: {
+          tags: ['Accounts'],
+          operationId: 'createUser',
+          summary: 'Create an account. Defaults the password to the shared starter password.',
+          description: [
+            'While the table is empty this is open and forced to create an Admin, because otherwise the',
+            'first account could never be made. The emptiness check and the insert share one transaction,',
+            'so two simultaneous requests cannot both take that window.',
+          ].join('\n'),
+          requestBody: {
+            required: true,
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/Account' } } },
+          },
+          responses: {
+            201: { description: 'Created. Echoes the temporary password only when the server chose it.' },
+            400: { description: 'Missing username or email, or an unknown role or status.' },
+            403: { description: 'Needs the Admin role or the API key.' },
+            409: { description: 'That username or email is taken.' },
+          },
+        },
+        put: {
+          tags: ['Accounts'],
+          operationId: 'updateUser',
+          summary: 'Partial update of an account. Omitted fields keep their stored value.',
+          description:
+            'Suspending an account also deletes its sessions, so access ends immediately rather than '
+            + 'when the session would have expired. Removing your own Admin role or suspending yourself '
+            + 'is refused — it cannot be undone through this API.',
+          requestBody: {
+            required: true,
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/Account' } } },
+          },
+          responses: {
+            ...ok('The updated account.'),
+            403: { description: 'Needs the Admin role or the API key.' },
+            404: { description: 'No such account.' },
+            409: { description: 'That change would lock you out, or the username or email is taken.' },
+          },
+        },
+        delete: {
+          tags: ['Accounts'],
+          operationId: 'deleteUser',
+          summary: 'Delete an account and all its sessions. Destructive — confirm with the user first.',
+          description: 'Refuses to delete the last Admin, or the caller\'s own account.',
+          parameters: [{ name: 'id', in: 'query', required: true, schema: { type: 'integer' } }],
+          responses: {
+            ...ok('Deleted.'),
+            403: { description: 'Needs the Admin role or the API key.' },
+            404: { description: 'No such account.' },
+            409: { description: 'That is the last Admin, or your own account.' },
+          },
+        },
+      },
+
+      '/api/new/users/provision': {
+        get: {
+          tags: ['Accounts'],
+          operationId: 'previewInstructorAccounts',
+          summary: 'Which instructors have no login yet, and the usernames they would get.',
+          description:
+            'A preview, so the usernames can be checked before they exist. Renaming an account '
+            + 'afterwards is more work than looking first.',
+          responses: {
+            ...ok('What would be created.', {
+              type: 'object',
+              properties: {
+                willCreate: { type: 'array', items: { type: 'object' } },
+                skipped: { type: 'array', items: { type: 'object' } },
+                defaultPassword: { type: 'string' },
+              },
+            }),
+            403: { description: 'Needs the Admin role or the API key.' },
+          },
+        },
+        post: {
+          tags: ['Accounts'],
+          operationId: 'provisionInstructorAccounts',
+          summary: 'Create a login for every active instructor who does not have one.',
+          description: [
+            'Usernames come from the instructor name (Felix Wijaya -> felix.wijaya) and everyone',
+            'starts on the shared instructor password with must_change_password set.',
+            '',
+            'Idempotent by instructor id, not by name: running it twice creates nothing the second',
+            'time, and correcting a spelling in the registry does not hand that person a second',
+            'account. The whole batch is one transaction, so a partial run cannot leave some',
+            'instructors with a login and no record of which.',
+          ].join('\n'),
+          responses: {
+            201: { description: 'Created. Returns the accounts and the shared starter password.' },
+            200: { description: 'Nothing to do — everyone already has an account.' },
+            403: { description: 'Needs the Admin role or the API key.' },
+            503: { description: 'EMPLOYEE_CREDENTIAL_KEY is not configured.' },
+          },
+        },
+      },
+
+      '/api/new/users/password': {
+        get: {
+          tags: ['Accounts'],
+          operationId: 'revealUserPassword',
+          summary: 'Read a stored password back. Admin only, and every read is written to the activity log.',
+          description: [
+            'The one endpoint that hands over a live credential, which is why it is on its own path.',
+            '',
+            'The audit entry is the actual control: the reveal cannot be prevented, since the design',
+            'requires an Admin to be able to tell an employee their password, so the guarantee offered',
+            'is that it cannot be done quietly. Responses are marked no-store.',
+          ].join('\n'),
+          parameters: [{ name: 'id', in: 'query', required: true, schema: { type: 'integer' } }],
+          responses: {
+            ...ok('The password, in plaintext.', {
+              type: 'object',
+              properties: {
+                id: { type: 'integer' },
+                username: { type: 'string' },
+                password: { type: 'string' },
+              },
+            }),
+            403: { description: 'Needs the Admin role or the API key.' },
+            404: { description: 'No such account.' },
+            409: { description: 'No password on record, or it was encrypted with a different key.' },
+            503: { description: 'EMPLOYEE_CREDENTIAL_KEY is not configured.' },
+          },
+        },
+        put: {
+          tags: ['Accounts'],
+          operationId: 'setUserPassword',
+          summary: 'Set or reset a password. Ends every existing session for that account.',
+          description:
+            'Send reset: true to put it back to the shared starter password. Sessions are cleared '
+            + 'because if the reason for the change was a suspected compromise, leaving the attacker '
+            + 'signed in would defeat the point.',
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['id'],
+                  properties: {
+                    id: { type: 'integer' },
+                    password: { type: 'string', minLength: 8 },
+                    reset: { type: 'boolean', description: 'Use the shared starter password instead of supplying one.' },
+                    mustChangePassword: { type: 'boolean', default: true },
+                  },
+                },
+              },
+            },
+          },
+          responses: {
+            ...ok('Set. Echoes the password only when the server chose it.'),
+            400: { description: 'No password supplied, or shorter than 8 characters.' },
+            403: { description: 'Needs the Admin role or the API key.' },
+            404: { description: 'No such account.' },
+          },
+        },
+      },
+
+      '/api/new/config': {
+        get: {
+          tags: ['Config'],
+          operationId: 'getConfig',
+          summary: 'Application settings, with defaults filled in for anything unset.',
+          description:
+            'Replaces reading configuration from the Google Sheet. /api/config still serves Old '
+            + 'Operations from the Sheet and is untouched. Readable by any authenticated caller, '
+            + 'because the UI needs the branch list and role map to render at all.',
+          parameters: [{
+            name: 'key',
+            in: 'query',
+            schema: { type: 'string', enum: CONFIG_KEYS },
+            description: 'Return just this setting.',
+          }],
+          responses: {
+            ...ok('Every setting, or the one requested.'),
+            401: { description: 'Not signed in.' },
+          },
+        },
+        put: {
+          tags: ['Config'],
+          operationId: 'setConfig',
+          summary: 'Write one setting. Admin only, and validated against its expected shape.',
+          description:
+            'Keys are an allowlist, so this cannot become a place to stash arbitrary JSON. userRoles '
+            + 'is refused if it would leave nobody as an Admin.',
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['key', 'value'],
+                  properties: { key: { type: 'string', enum: CONFIG_KEYS }, value: {} },
+                },
+              },
+            },
+          },
+          responses: {
+            ...ok('The stored setting.'),
+            400: { description: 'Unknown key, or a value of the wrong shape.' },
+            403: { description: 'Needs the Admin role or the API key.' },
+            409: { description: 'That change would leave no Admin.' },
+          },
+        },
+        delete: {
+          tags: ['Config'],
+          operationId: 'resetConfig',
+          summary: 'Drop a setting back to its default.',
+          parameters: [{ name: 'key', in: 'query', required: true, schema: { type: 'string', enum: CONFIG_KEYS } }],
+          responses: {
+            ...ok('Reset. Returns the default that now applies.'),
+            403: { description: 'Needs the Admin role or the API key.' },
+          },
+        },
+      },
+
+      '/api/new/rubric-competencies': {
+        get: {
+          tags: ['Rubrics'],
+          operationId: 'listRubricCompetencies',
+          summary: 'The rubric in use for each programme category.',
+          description: [
+            'A category with no configured rows falls back to the five hardcoded competencies, and',
+            '`usingFallback` says which categories are in that state. That is what makes this safe',
+            'ahead of any UI: an empty table behaves exactly like the previous build.',
+          ].join('\n'),
+          parameters: [
+            { name: 'category', in: 'query', schema: { type: 'string', enum: ['Kinder', 'Junior', 'Coder'] } },
+            {
+              name: 'includeInactive',
+              in: 'query',
+              schema: { type: 'boolean' },
+              description: 'Include retired competencies. The evaluation form must not; the setup screen must.',
+            },
+          ],
+          responses: {
+            ...ok('Competencies per category.', {
+              type: 'object',
+              properties: {
+                competencies: { type: 'object' },
+                usingFallback: { type: 'object', additionalProperties: { type: 'boolean' } },
+                maxPerCategory: { type: 'integer' },
+              },
+            }),
+            401: { description: 'Not signed in.' },
+          },
+        },
+        post: {
+          tags: ['Rubrics'],
+          operationId: 'createRubricCompetency',
+          summary: 'Add a competency to a category. The first write also materialises the fallback set.',
+          description:
+            'Without materialising the fallback, the first addition would silently take the rubric '
+            + 'from five competencies down to one. Descriptors are all-or-nothing: a row with wording '
+            + 'for three of five stars leaves the grader with blanks they cannot interpret.',
+          requestBody: {
+            required: true,
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/RubricCompetency' } } },
+          },
+          responses: {
+            201: { description: 'Created.' },
+            400: { description: 'Unknown category, bad key, missing label, or partial descriptors.' },
+            403: { description: 'Needs the Admin role or the API key.' },
+            409: { description: 'That key already exists in this category, or the category is full.' },
+          },
+        },
+        put: {
+          tags: ['Rubrics'],
+          operationId: 'updateRubricCompetency',
+          summary: 'Edit a competency, or send { order: [id, ...] } to reorder a whole category at once.',
+          description:
+            'Reordering is bulk because dragging one row changes several rows\' positions, and applying '
+            + 'them one request at a time would leave the rubric briefly duplicated or gapped. `key` '
+            + 'cannot be changed — recorded evaluations reference it.',
+          requestBody: {
+            required: true,
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/RubricCompetency' } } },
+          },
+          responses: {
+            ...ok('The updated competency, or the reordered category.'),
+            403: { description: 'Needs the Admin role or the API key.' },
+            404: { description: 'No such competency.' },
+            409: { description: 'Attempted to change the key.' },
+          },
+        },
+        delete: {
+          tags: ['Rubrics'],
+          operationId: 'deleteRubricCompetency',
+          summary: 'Retire a competency. Soft by default, so recorded scores stay readable.',
+          description:
+            'Pass hard=true only for a competency created by mistake and never used. The last '
+            + 'competency in a category cannot be removed, because an empty category means "use the '
+            + 'fallback" and there would be no way back.',
+          parameters: [
+            { name: 'id', in: 'query', required: true, schema: { type: 'integer' } },
+            { name: 'hard', in: 'query', schema: { type: 'boolean' }, description: 'Delete the row outright instead of retiring it.' },
+          ],
+          responses: {
+            ...ok('Retired, or permanently removed.'),
+            403: { description: 'Needs the Admin role or the API key.' },
+            404: { description: 'No such competency.' },
+            409: { description: 'That is the last competency in its category.' },
+          },
+        },
+      },
     },
 
     components: {
@@ -810,6 +1224,52 @@ function buildSpec(origin) {
         },
       },
       schemas: {
+        Account: {
+          type: 'object',
+          required: ['username', 'email'],
+          description:
+            'An employee account. Note what is absent: there is no password field, on purpose. '
+            + 'Passwords are only ever read or written through /api/new/users/password.',
+          properties: {
+            id: { type: 'integer', readOnly: true },
+            username: { type: 'string' },
+            email: { type: 'string', format: 'email' },
+            role: { type: 'string', enum: ROLE_NAMES, default: 'Instructor' },
+            status: { type: 'string', enum: ['Active', 'Suspended'], default: 'Active' },
+            fullname: { type: 'string', nullable: true },
+            nickname: { type: 'string', nullable: true },
+            specialization: { type: 'string', nullable: true },
+            phoneNumber: { type: 'string', nullable: true },
+            location: { type: 'string', nullable: true },
+            trainingProgress: { type: 'object', description: 'Carried over from the Firestore profile.' },
+            hasPassword: { type: 'boolean', readOnly: true, description: 'Whether a password is set — not the password.' },
+            mustChangePassword: { type: 'boolean' },
+            firebaseUid: { type: 'string', nullable: true, description: 'The Firebase Auth uid this account was migrated from.' },
+            lastLoginAt: { type: 'string', format: 'date-time', readOnly: true, nullable: true },
+          },
+        },
+        RubricCompetency: {
+          type: 'object',
+          required: ['category', 'key', 'label'],
+          properties: {
+            id: { type: 'integer', readOnly: true },
+            category: { type: 'string', enum: ['Kinder', 'Junior', 'Coder'] },
+            key: {
+              type: 'string',
+              pattern: '^[a-zA-Z][a-zA-Z0-9]{0,39}$',
+              description: 'Immutable once created — recorded evaluations reference it.',
+            },
+            label: { type: 'string', description: 'On-screen and printed heading. Free to rename.' },
+            color: { type: 'string', example: '#3b82f6', description: 'Star and chart colour.' },
+            sortOrder: { type: 'integer' },
+            descriptors: {
+              type: 'object',
+              description: 'Rating 1 to 5 mapped to wording. All five or none — a partial map leaves the grader with blanks.',
+              additionalProperties: { type: 'string' },
+            },
+            active: { type: 'boolean', default: true, description: 'False means retired: hidden from grading, kept for stored scores.' },
+          },
+        },
         Class: {
           type: 'object',
           required: ['day', 'time', 'program', 'student', 'teacher', 'branchName'],

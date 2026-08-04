@@ -6,7 +6,7 @@ import { useSchedule } from '@/contexts/ScheduleContext';
 import {
   Home, AlertTriangle, Calendar, Activity, Star,
   Search, FileText, PenLine, Terminal, Settings, LogOut, User, BarChart3, ClipboardList, Users, Building2, PanelLeftClose, CalendarOff,
-  TrendingUp, ChevronDown, ChevronRight
+  TrendingUp, ChevronDown, ChevronRight, ShieldCheck
 } from 'lucide-react';
 import { listenToMyTasks } from '@/services/taskService';
 
@@ -41,7 +41,7 @@ const navItems = [
  */
 const NEW_OPS_PAGES = [
   'home', 'dashboard', 'operationals', 'students', 'report-cards', 'report-cards-rubric', 'instructors',
-  'crm', 'workload', 'leave', 'trial-availability', 'activity', 'api',
+  'crm', 'workload', 'leave', 'trial-availability', 'activity', 'users', 'api',
   'progress-kinder', 'progress-junior', 'progress-coder',
 ];
 
@@ -341,6 +341,20 @@ export default function Sidebar({ currentPage, onNavigate, onToggleSearch, opsMo
                 {sub.label}
               </button>
             ))}
+            {/* New Operations accounts, separate from the Old Operations users in
+                Admin Settings. Sits next to API Documentation because both are
+                administrative rather than day-to-day. */}
+            <button
+              data-tour="nav-users"
+              className={`nav-item ${currentPage === 'users' ? 'active' : ''}`}
+              onClick={() => onNavigate('users')}
+              style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                <ShieldCheck size={20} />
+                Users
+              </div>
+            </button>
             <button
               className={`nav-item ${currentPage === 'api' ? 'active' : ''}`}
               onClick={() => onNavigate('api')}

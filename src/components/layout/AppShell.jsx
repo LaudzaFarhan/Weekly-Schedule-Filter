@@ -34,6 +34,7 @@ import NewRubricSetupPage from '@/views/NewRubricSetupPage';
 import NewInstructorsPage from '@/views/NewInstructorsPage';
 import NewCrmPage from '@/views/NewCrmPage';
 import NewApiDocsPage from '@/views/NewApiDocsPage';
+import NewUsersPage from '@/views/NewUsersPage';
 import NewWorkloadPage from '@/views/NewWorkloadPage';
 import NewTrialAvailabilityPage from '@/views/NewTrialAvailabilityPage';
 import NewActivityPage from '@/views/NewActivityPage';
@@ -150,6 +151,8 @@ export default function AppShell() {
       PageComponent = NewJuniorProgressPage;
     } else if (currentPage === 'progress-coder') {
       PageComponent = NewCoderProgressPage;
+    } else if (currentPage === 'users') {
+      PageComponent = NewUsersPage;
     } else if (currentPage === 'api') {
       PageComponent = NewApiDocsPage;
     } else {

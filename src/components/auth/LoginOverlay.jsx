@@ -30,10 +30,14 @@ export default function LoginOverlay() {
         err.code === 'auth/user-not-found' ||
         err.code === 'auth/wrong-password'
       ) {
+        // Reached only after the PostgreSQL attempt also came back 401, so this
+        // means neither account store recognised the credentials.
         setError('Invalid username or password.');
       } else if (err.code === 'auth/invalid-api-key') {
         setError('Firebase is not configured correctly.');
       } else {
+        // Includes `pg/rejected`, which already carries a specific message —
+        // a suspended account, or a deployment missing its credential key.
         setError(err.message);
       }
     } finally {
@@ -67,13 +71,15 @@ export default function LoginOverlay() {
 
         <form onSubmit={handleSubmit} className="glass-login-form">
           <div className="glass-input-group">
-            <label htmlFor="login-username">Email</label>
+            {/* Username or email: New Operations accounts sign in with a username
+                like `felix.wijaya`, Old Operations ones with an email. */}
+            <label htmlFor="login-username">Username or email</label>
             <div className="glass-input-wrapper">
               <User size={16} className="glass-input-icon" />
               <input
                 type="text"
                 id="login-username"
-                placeholder="username@gmail.com"
+                placeholder="felix.wijaya"
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
                 autoComplete="username"

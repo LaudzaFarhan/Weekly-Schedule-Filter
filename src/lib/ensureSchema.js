@@ -108,6 +108,62 @@ const DEFINITIONS = {
   ],
 
   /**
+   * Application configuration, one row per key.
+   *
+   * This is what replaces the Google Sheet for New Operations. The Sheet-backed
+   * `/api/config` still serves Old Operations, and both will be live at once for
+   * a while, so this is a separate store rather than a migration of that one.
+   *
+   * A key/value table rather than a column per setting: the settings that live
+   * here are read and written whole by whoever owns them (branches by the header,
+   * the role map by the users screen), and adding a setting should not need a
+   * migration. JSONB so a value can be a list, a map or a scalar without three
+   * different columns.
+   */
+  internal_config: [
+    `CREATE TABLE IF NOT EXISTS internal_config (
+        key VARCHAR(100) PRIMARY KEY,
+        value JSONB NOT NULL DEFAULT '{}'::jsonb,
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        updated_by VARCHAR(255)
+    )`,
+  ],
+
+  /**
+   * Report-card rubrics, per programme category.
+   *
+   * The five competencies used to be hardcoded in `lib/reportCardRubric.js`, which
+   * meant Kinder and Coder were graded on the same axes even though they teach
+   * different things. Rows here replace that list; the hardcoded set remains as
+   * the fallback for a category with no rows yet, so an empty table behaves
+   * exactly like the old build.
+   *
+   * `key` is immutable once created, because stored evaluations reference it. The
+   * label can be renamed freely — that is presentation.
+   *
+   * Removal is a soft delete via `active`, so turning a competency off does not
+   * orphan the scores already recorded against it.
+   */
+  internal_rubric_competencies: [
+    `CREATE TABLE IF NOT EXISTS internal_rubric_competencies (
+        id SERIAL PRIMARY KEY,
+        category VARCHAR(50) NOT NULL,
+        key VARCHAR(60) NOT NULL,
+        label VARCHAR(120) NOT NULL,
+        color VARCHAR(30),
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        descriptors JSONB NOT NULL DEFAULT '{}'::jsonb,
+        active BOOLEAN NOT NULL DEFAULT TRUE,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT internal_rubric_competencies_key UNIQUE (category, key)
+    )`,
+    `CREATE INDEX IF NOT EXISTS internal_rubric_competencies_category_idx
+        ON internal_rubric_competencies (category, sort_order)`,
+    { trigger: 'update_internal_rubric_competencies_changetimestamp', table: 'internal_rubric_competencies' },
+  ],
+
+  /**
    * Live Progress: how far a student has got through one program level.
    *
    * Keyed by student name + program code rather than by class row, because
@@ -212,6 +268,27 @@ const DEFINITIONS = {
         CONSTRAINT internal_users_username_key UNIQUE (username)
     )`,
     `CREATE INDEX IF NOT EXISTS internal_users_role_idx ON internal_users (role)`,
+
+    /**
+     * Which instructor this account belongs to, for the ones generated from the
+     * instructor registry.
+     *
+     * Added by ALTER because the table shipped before instructor provisioning
+     * existed. Safe to run on every cold start, which is what happens.
+     *
+     * This is what makes provisioning idempotent. Matching on name or username
+     * would not: names get corrected and usernames get edited, and either would
+     * hand a renamed instructor a second account.
+     *
+     * NULL for staff accounts, and PostgreSQL allows any number of NULLs under a
+     * UNIQUE constraint, so one constraint covers "at most one account per
+     * instructor" without excluding accounts that have no instructor.
+     */
+    `ALTER TABLE internal_users
+        ADD COLUMN IF NOT EXISTS instructor_id INTEGER`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS internal_users_instructor_key
+        ON internal_users (instructor_id)`,
+
     { trigger: 'update_internal_users_changetimestamp', table: 'internal_users' },
   ],
 

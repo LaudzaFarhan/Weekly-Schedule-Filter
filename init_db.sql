@@ -223,3 +223,126 @@ CREATE OR REPLACE TRIGGER update_internal_student_terms_changetimestamp
 
 CREATE INDEX IF NOT EXISTS internal_student_terms_student_idx
     ON internal_student_terms (student_id, term_year, term_number);
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- Employee accounts, migrated off Firebase Auth + Firestore `profiles`.
+--
+-- `password_encrypted` holds AES-256-GCM ciphertext, never plaintext and never a
+-- hash: an Admin has to be able to read a password back when an employee forgets
+-- it. The key lives in EMPLOYEE_CREDENTIAL_KEY, so this column on its own is
+-- useless to anyone holding only a database dump.
+--
+-- The role list is a CHECK rather than free text, so a typo'd role cannot
+-- silently become unprivileged-but-accepted.
+CREATE TABLE IF NOT EXISTS internal_users (
+    id SERIAL PRIMARY KEY,
+    username VARCHAR(150) NOT NULL,
+    email VARCHAR(255) NOT NULL,
+    role VARCHAR(50) NOT NULL DEFAULT 'Instructor'
+        CHECK (role IN ('Admin', 'SPA', 'EC', 'Instructor', 'Supervisor')),
+    password_encrypted TEXT,
+    must_change_password BOOLEAN NOT NULL DEFAULT TRUE,
+    status VARCHAR(50) NOT NULL DEFAULT 'Active',
+    firebase_uid VARCHAR(128),
+    fullname VARCHAR(255),
+    nickname VARCHAR(255),
+    specialization VARCHAR(255),
+    phone_number VARCHAR(255),
+    location VARCHAR(255),
+    training_progress JSONB DEFAULT '{}'::jsonb NOT NULL,
+    last_login_at TIMESTAMP WITH TIME ZONE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT internal_users_email_key UNIQUE (email),
+    CONSTRAINT internal_users_username_key UNIQUE (username)
+);
+
+CREATE OR REPLACE TRIGGER update_internal_users_changetimestamp
+    BEFORE UPDATE ON internal_users
+    FOR EACH ROW
+    EXECUTE FUNCTION update_modified_column();
+
+CREATE INDEX IF NOT EXISTS internal_users_role_idx ON internal_users (role);
+
+-- Which instructor this account belongs to, for accounts generated from the
+-- instructor registry. NULL for staff accounts, and PostgreSQL allows any number
+-- of NULLs under a UNIQUE index, so one index gives "at most one account per
+-- instructor" without excluding accounts that have no instructor.
+--
+-- This is what makes provisioning idempotent. Matching on name or username would
+-- not: both get edited, and either would hand a renamed instructor a second
+-- account.
+ALTER TABLE internal_users ADD COLUMN IF NOT EXISTS instructor_id INTEGER;
+CREATE UNIQUE INDEX IF NOT EXISTS internal_users_instructor_key
+    ON internal_users (instructor_id);
+
+-- Login sessions.
+--
+-- Server-side rows rather than a self-contained signed cookie, because a signed
+-- token cannot be revoked before it expires — and the point of the users screen
+-- is that an Admin can kill a compromised credential now.
+--
+-- Only the SHA-256 of the cookie value is stored, so reading this table yields
+-- no usable session tokens. Expired rows are deleted opportunistically as they
+-- are encountered; there is no scheduler on this host.
+CREATE TABLE IF NOT EXISTS internal_sessions (
+    id SERIAL PRIMARY KEY,
+    token_hash CHAR(64) NOT NULL,
+    user_id INTEGER NOT NULL,
+    expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    last_seen_at TIMESTAMP WITH TIME ZONE,
+    CONSTRAINT internal_sessions_token_key UNIQUE (token_hash)
+);
+
+CREATE INDEX IF NOT EXISTS internal_sessions_user_idx ON internal_sessions (user_id);
+CREATE INDEX IF NOT EXISTS internal_sessions_expiry_idx ON internal_sessions (expires_at);
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- Application configuration, one row per key. This is what replaces the Google
+-- Sheet for New Operations; the Sheet-backed /api/config still serves Old
+-- Operations, and both run at once until Old Operations is retired.
+--
+-- Key/value rather than a column per setting: each setting is read and written
+-- whole by whoever owns it, and adding one should not need a migration. The set
+-- of accepted keys is enforced in the route, not here, so a typo'd key cannot be
+-- written but a new key does not need a schema change.
+CREATE TABLE IF NOT EXISTS internal_config (
+    key VARCHAR(100) PRIMARY KEY,
+    value JSONB NOT NULL DEFAULT '{}'::jsonb,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_by VARCHAR(255)
+);
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- Report-card rubrics, per programme category.
+--
+-- The five competencies used to be hardcoded, which meant Kinder and Coder were
+-- graded on the same axes despite teaching different things. A category with no
+-- rows here falls back to that hardcoded set, so an empty table behaves exactly
+-- like the previous build.
+--
+-- `key` is immutable once created, because recorded evaluations reference it.
+-- Removal is a soft delete via `active`, so retiring a competency does not orphan
+-- the scores already stored against it.
+CREATE TABLE IF NOT EXISTS internal_rubric_competencies (
+    id SERIAL PRIMARY KEY,
+    category VARCHAR(50) NOT NULL,
+    key VARCHAR(60) NOT NULL,
+    label VARCHAR(120) NOT NULL,
+    color VARCHAR(30),
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    descriptors JSONB NOT NULL DEFAULT '{}'::jsonb,
+    active BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT internal_rubric_competencies_key UNIQUE (category, key)
+);
+
+CREATE OR REPLACE TRIGGER update_internal_rubric_competencies_changetimestamp
+    BEFORE UPDATE ON internal_rubric_competencies
+    FOR EACH ROW
+    EXECUTE FUNCTION update_modified_column();
+
+CREATE INDEX IF NOT EXISTS internal_rubric_competencies_category_idx
+    ON internal_rubric_competencies (category, sort_order);

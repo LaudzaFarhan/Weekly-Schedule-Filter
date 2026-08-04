@@ -119,6 +119,13 @@ placeholder.
 | `/api/new/student-terms` | GET POST PUT DELETE | Term subscriptions — which of T1–T4 are paid |
 | `/api/new/workload` | GET | **Derived** — instructor hours |
 | `/api/new/trial-availability` | GET | **Derived** — bookable slots + reasons |
+| `/api/new/auth/login` | POST | Sign in. **Not** behind the API key — see below |
+| `/api/new/auth/session` | GET DELETE | Who am I · sign out |
+| `/api/new/users` | GET POST PUT DELETE | Employee accounts. **Admin only.** Never returns passwords |
+| `/api/new/users/password` | GET PUT | Read a password back, or set one. **Admin only, every read audited** |
+| `/api/new/users/provision` | GET POST | Give every instructor a login. GET previews, POST creates |
+| `/api/new/config` | GET PUT DELETE | App settings. Replaces reading config from the Sheet |
+| `/api/new/rubric-competencies` | GET POST PUT DELETE | Report-card competencies per category |
 
 Method convention: `GET` list · `POST` create · `PUT` update (body needs `id`) ·
 `DELETE ?id=`. Send `Content-Type: application/json` on writes.
@@ -141,6 +148,82 @@ Every list endpoint accepts `search` (partial, case-insensitive) and `limit`
 | `student-terms` | `studentId`, `year` |
 | `workload` | `branch`, `day`, `instructor` |
 | `trial-availability` | `branch`, `day`, `category` |
+| `users` | `role`, `status` |
+| `config` | `key` |
+| `rubric-competencies` | `category`, `includeInactive` |
+
+### Identity and roles
+
+Two kinds of caller reach these routes:
+
+| Caller | How | Role it gets |
+|---|---|---|
+| A person | `lab_session` cookie from `POST /api/new/auth/login` | Whatever their account says |
+| A machine | `NEW_OPS_API_KEY` bearer, as everywhere else | `Admin` |
+
+The key counts as `Admin` deliberately. Whoever holds it can already read and
+write every record through the other endpoints, so refusing it the accounts API
+would protect nothing while making the first account impossible to create.
+
+`/api/new/auth/*` is exempt from the shared-key gate in `src/middleware.js`.
+Gating it would be backwards — nobody could sign in until they already held the
+key, which would make per-user sessions useless as a replacement for that gate.
+The login route fails closed on its own. **There is no rate limiting on it yet.**
+
+**Bootstrap.** While `internal_users` is empty, `POST /api/new/users` needs no
+identity and is forced to create an `Admin`. Otherwise the first account could
+never be made. The emptiness check and the insert share one transaction, so two
+simultaneous requests cannot both take that window. It closes the moment the
+first row exists.
+
+```bash
+# First account, on a fresh database
+curl -X POST "$BASE/api/new/users" -H 'Content-Type: application/json' \
+  -d '{"username":"admin","email":"admin@thelab.id"}'
+# -> 201, role forced to Admin, temporaryPassword: "thelab12345"
+```
+
+**Instructor accounts.** New Operations accounts are separate from the Firebase
+accounts Old Operations uses — the same person can exist in one, the other, or
+both, and one does not imply the other. Instructors get theirs from the registry:
+
+```bash
+curl "$BASE/api/new/users/provision" -H "Authorization: Bearer $KEY"   # preview
+curl -X POST "$BASE/api/new/users/provision" -H "Authorization: Bearer $KEY"
+```
+
+Usernames are derived from the name — `Felix Wijaya` → `felix.wijaya`, accents
+folded to base letters, punctuation collapsed to dots. Lowercase and dotted
+rather than the raw name because it gets typed at a login prompt every morning.
+Two instructors folding to the same username get `felix` and `felix2`, so the
+first holder keeps the name they already learned.
+
+The link is stored as `internal_users.instructor_id`, which is what makes this
+idempotent. Matching on name or username would not: both get edited, and either
+would hand a renamed instructor a second account.
+
+Starter passwords depend on the role, so the reset button gives an instructor
+something their colleagues already know:
+
+| Role | Default |
+|---|---|
+| `Instructor` | `instructor12345` |
+| everything else | `thelab12345` |
+
+On reset the role is read from the database rather than taken from the request, so
+a caller cannot choose which default applies.
+
+**Passwords** are encrypted, not hashed, so an Admin can read one back for an
+employee who forgot theirs. That needs `EMPLOYEE_CREDENTIAL_KEY` set, or login
+and reveal both answer `503`. `GET /api/new/users` never includes a password on
+any role; reading one is `GET /api/new/users/password?id=`, which writes an
+`accounts` entry to the activity log naming the Admin who read it and whose it
+was. That log is the control — the reveal cannot be prevented, since the design
+requires it, so what is guaranteed is that it cannot be done quietly.
+
+Setting a password deletes every session for that account. If the reason was a
+suspected compromise, leaving the attacker signed in would defeat the point.
+Suspending an account does the same.
 
 ---
 

@@ -29,6 +29,15 @@ export function middleware(request) {
     return NextResponse.next();
   }
 
+  // The auth routes authenticate themselves, so gating them behind the shared
+  // secret would be backwards: nobody can sign in until they already hold the
+  // key, which would make per-user sessions useless as a replacement for this
+  // gate. They fail closed on their own — a wrong password is a 401 from the
+  // route. Note there is no rate limiting on /auth/login yet.
+  if (request.nextUrl.pathname.startsWith('/api/new/auth/')) {
+    return NextResponse.next();
+  }
+
   // Requests originating from our own pages.
   const fetchSite = request.headers.get('sec-fetch-site');
   if (fetchSite === 'same-origin') return NextResponse.next();
