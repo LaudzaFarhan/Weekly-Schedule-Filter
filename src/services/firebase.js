@@ -12,6 +12,27 @@ const firebaseConfig = {
   measurementId: process.env.NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID,
 };
 
+/**
+ * Is Firebase actually configured in this build?
+ *
+ * `NEXT_PUBLIC_*` values are inlined at build time, so a deployment built without
+ * them ships a config full of `undefined`. Nothing fails at import — the failure
+ * arrives much later, at sign-in, as
+ * `auth/api-key-not-valid.-please-pass-a-valid-api-key.`, which reads like a
+ * wrong key rather than a missing one and sends you looking in the wrong place.
+ *
+ * Exported so the sign-in path can skip Firebase entirely on a deployment that
+ * has no Firebase config. New Operations accounts live in PostgreSQL and do not
+ * need it, so such a deployment is perfectly usable — it just cannot serve Old
+ * Operations logins, and should say so.
+ *
+ * The api key and project id only: without either, nothing works. The rest
+ * degrade to specific broken features rather than a broken app.
+ */
+export const firebaseConfigured = Boolean(
+  firebaseConfig.apiKey && firebaseConfig.projectId
+);
+
 const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
 export const auth = getAuth(app);
 export const db = getFirestore(app);

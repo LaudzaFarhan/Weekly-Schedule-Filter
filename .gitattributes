@@ -1,0 +1,22 @@
+# Line endings.
+#
+# Shell scripts MUST be LF. A .sh file checked out with CRLF fails on Linux with
+#   bad interpreter: /usr/bin/env bash^M: No such file or directory
+# which is an hour of confusion on the server for a reason invisible in the diff.
+# Development here is on Windows, where git is configured to convert to CRLF, so
+# this is pinned rather than left to whoever's config.
+*.sh text eol=lf
+
+# Same reasoning: SQL run through psql on the server, and .env files sourced by
+# the deploy script, where a trailing \r would end up inside a password.
+*.sql text eol=lf
+.env* text eol=lf
+
+# Let git handle the rest normally.
+*.js text
+*.jsx text
+*.mjs text
+*.json text
+*.md text
+*.css text
+*.yml text

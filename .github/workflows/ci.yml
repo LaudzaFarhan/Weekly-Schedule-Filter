@@ -1,0 +1,47 @@
+# Checks, not deployment.
+#
+# Production is the VPS and it is deployed by running scripts/deploy.sh on the
+# box. Nothing here touches it — GitHub has no credentials for that server and
+# does not need any.
+#
+# This replaced a workflow that claimed to deploy to GitHub Pages by uploading
+# `./dist`, a directory `next build` has never produced. It failed on every push
+# for as long as it existed, which is worse than having no workflow: a build
+# badge that is always red tells you nothing when something actually breaks.
+#
+# What this is for: knowing whether main is deployable before you SSH in.
+
+name: CI
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: "npm"
+
+      - name: Install
+        run: npm ci
+
+      - name: Test
+        run: npm run test
+
+      # Placeholder values, because NEXT_PUBLIC_* are inlined at build time and an
+      # absent one is a build warning rather than an error. The point here is to
+      # catch compile failures; whether the real keys are present is checked by
+      # scripts/deploy.sh on the server, where the real values live.
+      - name: Build
+        run: npm run build
+        env:
+          NEXT_PUBLIC_FIREBASE_API_KEY: ci-placeholder
+          NEXT_PUBLIC_FIREBASE_PROJECT_ID: ci-placeholder

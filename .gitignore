@@ -13,6 +13,12 @@ dist/
 
 # env files
 .env*.local
+# Copies of an env file are still an env file. `*.local` does not match
+# `.env.local.backup`, and that file holds EMPLOYEE_CREDENTIAL_KEY — losing which
+# makes every stored employee password undecryptable, and leaking which makes
+# them all readable.
+.env*.local.*
+*.backup
 
 # misc
 .DS_Store

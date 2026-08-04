@@ -2,7 +2,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { onAuthStateChanged, signInWithEmailAndPassword, signOut } from 'firebase/auth';
-import { auth } from '../services/firebase';
+import { auth, firebaseConfigured } from '../services/firebase';
 import { logActivity } from '../services/activityService';
 
 const AuthContext = createContext(null);
@@ -73,6 +73,13 @@ export function AuthProvider({ children }) {
   useEffect(() => { refreshPgSession(); }, [refreshPgSession]);
 
   useEffect(() => {
+    // A build with no Firebase config would never resolve this listener, leaving
+    // the app on its loading screen forever. Report "nobody" at once instead, so
+    // the PostgreSQL session is the only thing the app waits on.
+    if (!firebaseConfigured) {
+      setFirebaseChecked(true);
+      return undefined;
+    }
     const unsubscribe = onAuthStateChanged(auth, (nextUser) => {
       setFirebaseUser(nextUser);
       setFirebaseChecked(true);
@@ -136,6 +143,19 @@ export function AuthProvider({ children }) {
       throw error;
     }
 
+    // Nothing to fall back to. Without this the attempt reaches Firebase and
+    // fails with `auth/api-key-not-valid`, which reads as a rejected credential
+    // and hides the fact that these credentials were never checked anywhere.
+    if (!firebaseConfigured) {
+      const error = new Error(
+        'That username or password is not right — or you are using an Old Operations '
+        + 'account, which this deployment cannot check because Firebase is not configured '
+        + 'here. Sign in with your New Operations username.'
+      );
+      error.code = 'auth/not-configured-here';
+      throw error;
+    }
+
     // Firebase's own path: a bare username is expanded to the local domain it has
     // always used.
     let email = trimmedId.toLowerCase();
@@ -159,12 +179,14 @@ export function AuthProvider({ children }) {
       setPgUser(null);
     }
 
-    // Always attempted: signing out of a Firebase session that is not there is a
-    // no-op, and leaving one behind would sign them straight back in.
-    try {
-      await signOut(auth);
-    } catch {
-      /* no Firebase session */
+    // Attempted whenever Firebase is configured: signing out of a session that is
+    // not there is a no-op, and leaving one behind would sign them straight back in.
+    if (firebaseConfigured) {
+      try {
+        await signOut(auth);
+      } catch {
+        /* no Firebase session */
+      }
     }
   }, [user, pgUser]);
 

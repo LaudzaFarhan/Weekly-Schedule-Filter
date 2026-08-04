@@ -1,205 +1,274 @@
-# Deployment Guide
+# Deployment
 
-How to push this web app to GitHub and ship it to production.
+**Production is the VPS at `thelabindonesia.my.id` (`187.77.127.199`), and only the VPS.**
+
+nginx in front, Next.js behind it, PostgreSQL on the same box. Pushing to GitHub
+does not deploy anything — deploying means running a script on the server.
+
+> **History worth knowing.** This project has had three deployment paths at once:
+> Vercel, a GitHub Pages workflow, and the VPS. Only the VPS was real. The Pages
+> workflow uploaded `./dist`, which `next build` has never produced, so it failed
+> on every push. Vercel served a second live copy of the app with write access to
+> the production database. Both are retired; if you find a reference to either,
+> it is stale.
 
 ---
 
-## 1. Prerequisites
+## 1. Deploy
 
-Install once on your machine:
-
-- [Git](https://git-scm.com/downloads)
-- [Node.js 20+](https://nodejs.org/) (matches the GitHub Actions runner)
-- A GitHub account with push access to [`LaudzaFarhan/Weekly-Schedule-Filter`](https://github.com/LaudzaFarhan/Weekly-Schedule-Filter)
-
-Verify:
+On the server:
 
 ```bash
-git --version
-node --version
-npm --version
+cd /path/to/app
+./scripts/deploy.sh
+```
+
+That fetches `main`, installs from the lockfile, runs the tests, builds, and
+restarts. It refuses to build if a build-time variable is missing — see below for
+why that check exists.
+
+Flags for when you need them:
+
+| Flag | Effect |
+|---|---|
+| `SKIP_TESTS=1` | Build without running tests. Mid-incident only. |
+| `SKIP_FIREBASE=1` | Build without the Firebase variables. Old Operations sign-in stops working; New Operations accounts still do. |
+
+Rollback, if a deploy goes wrong:
+
+```bash
+rm -rf .next && mv .next.previous .next
+pm2 restart thelab   # or: sudo systemctl restart thelab
 ```
 
 ---
 
-## 2. One-Time Setup
+## 2. Build-time vs run-time variables
 
-If this is a fresh clone:
+This is the one thing about this deployment that has actually bitten.
+
+`NEXT_PUBLIC_*` values are **inlined into the browser bundle when the build runs**.
+They are not read from the environment at startup. A value added after the build,
+followed by a restart, changes nothing — the old value, or `undefined`, is already
+compiled into the JavaScript users download.
+
+A build missing `NEXT_PUBLIC_FIREBASE_API_KEY` fails at the login screen with:
+
+```
+Firebase: Error (auth/api-key-not-valid.-please-pass-a-valid-api-key.)
+```
+
+which reads as a *wrong* key and sends you looking at Firebase rather than at your
+own build. `scripts/deploy.sh` checks for these before building for that reason.
+
+Everything else — `DATABASE_URL`, `EMPLOYEE_CREDENTIAL_KEY`, `NEW_OPS_API_KEY`,
+`GOOGLE_SERVICE_ACCOUNT` — is read by the server at run time, so a restart suffices.
+
+`.env.example` marks which is which. Copy it to `.env.local` on the server:
 
 ```bash
-git clone https://github.com/LaudzaFarhan/Weekly-Schedule-Filter.git
-cd Weekly-Schedule-Filter
+cp .env.example .env.local
+```
+
+`.env.local` is gitignored. `.env` is **tracked**, so nothing secret goes in it.
+
+---
+
+## 3. First-time server setup
+
+Assuming Node 20+ and the repo cloned.
+
+```bash
+sudo apt install -y nginx
+./setup_vps.sh                 # PostgreSQL, database, tables
+cp .env.example .env.local     # then fill it in
+npm ci && npm run build
+```
+
+Run it under a process manager so it survives a reboot:
+
+```bash
+npm install -g pm2
+pm2 start npm --name thelab -- start
+pm2 startup && pm2 save
+```
+
+The name **must** be `thelab` — that is what `scripts/deploy.sh` restarts.
+
+nginx in front of it:
+
+```nginx
+server {
+    server_name thelabindonesia.my.id;
+
+    location / {
+        proxy_pass http://127.0.0.1:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_cache_bypass $http_upgrade;
+    }
+}
+```
+
+`X-Forwarded-Proto` matters: it is how the app knows whether the request arrived
+over HTTPS, which decides whether the session cookie gets the `Secure` flag.
+
+---
+
+## 4. HTTPS
+
+**Currently missing, and it is now the only thing between a password and the
+network.** Port 443 does not answer; the site serves on port 80. Every login sends
+its password in cleartext, and the session cookie travels the same way.
+
+```bash
+sudo apt install -y certbot python3-certbot-nginx
+sudo certbot --nginx -d thelabindonesia.my.id
+```
+
+certbot edits the nginx config and sets up renewal. Redeploy afterwards so the
+app sees `X-Forwarded-Proto: https` and starts marking the session cookie
+`Secure`.
+
+---
+
+## 5. Lock down PostgreSQL
+
+`setup_vps.sh` opens PostgreSQL to `0.0.0.0/0` and port 5432 to the internet,
+because Vercel had to reach it from outside. **Nothing external needs it now.**
+The app is on the same machine, so it should connect over localhost and the port
+should be closed.
+
+In `.env.local`:
+
+```
+DATABASE_URL=postgres://lab_operator:...@localhost:5432/thelabops
+```
+
+Then:
+
+```bash
+sudo ufw delete allow 5432/tcp
+# /etc/postgresql/*/main/pg_hba.conf — remove the 0.0.0.0/0 line
+sudo systemctl restart postgresql
+```
+
+Verify from your laptop that it is actually shut:
+
+```bash
+psql "postgres://lab_operator:...@187.77.127.199:5432/thelabops" -c 'select 1'
+# should time out or refuse
+```
+
+Note this breaks the local helper scripts in `scratch/`, which connect to the
+public IP. Run them over SSH on the server instead.
+
+---
+
+## 6. First Admin account
+
+New Operations accounts live in PostgreSQL and are separate from the Firebase
+accounts Old Operations uses. Being an Admin in one does not make you one in the
+other.
+
+The accounts API needs an Admin to create accounts, and there is no Admin on a
+fresh database. Two ways through:
+
+```bash
+# On the server, using the app's own encryption so the login route can read it
+node scratch/create_admin.mjs admin <password>
+```
+
+or, while `internal_users` is still empty, the API opens itself once and forces
+the first account to be an Admin:
+
+```bash
+curl -X POST http://localhost:3000/api/new/users \
+  -H 'Content-Type: application/json' \
+  -d '{"username":"admin","email":"admin@thelab.id"}'
+```
+
+Then give every instructor a login from the **Users** page, or:
+
+```bash
+curl "http://localhost:3000/api/new/users/provision" -H "Authorization: Bearer $NEW_OPS_API_KEY"   # preview
+curl -X POST "http://localhost:3000/api/new/users/provision" -H "Authorization: Bearer $NEW_OPS_API_KEY"
+```
+
+Usernames come from the instructor's name (`Felix Wijaya` → `felix.wijaya`) and
+everyone starts on `instructor12345`.
+
+---
+
+## 7. Backups
+
+Nothing is backing this up. The database is now the only copy of students,
+classes, evaluations and accounts, on a single box.
+
+```bash
+# /etc/cron.daily/thelab-backup
+pg_dump -U lab_operator thelabops | gzip > /var/backups/thelab-$(date +%F).sql.gz
+find /var/backups -name 'thelab-*.sql.gz' -mtime +30 -delete
+```
+
+Copy them off the machine. A backup on the same disk as the database is not a
+backup.
+
+`EMPLOYEE_CREDENTIAL_KEY` needs backing up separately, somewhere that is not this
+server. Without it a database dump cannot decrypt a single password, which is the
+point of it — and also means losing it costs you every account.
+
+---
+
+## 8. Local development
+
+```bash
 npm install
+cp .env.example .env.local    # fill in
+npm run dev
 ```
 
-Configure your git identity (only needed once per machine):
+Before you push:
 
 ```bash
-git config --global user.name "Your Name"
-git config --global user.email "you@example.com"
-```
-
-### Environment variables
-
-Copy `.env.local` from a teammate (it is intentionally gitignored). The required keys live in `.env` for non-secret defaults and `.env.local` for secrets:
-
-| Key                                       | Used by                              |
-| ----------------------------------------- | ------------------------------------ |
-| `NEXT_PUBLIC_DEFAULT_SHEET_URL`           | Default branch sheet URL fallback    |
-| `NEXT_PUBLIC_FIREBASE_*`                  | Firebase Auth + Firestore client SDK |
-| `GOOGLE_SERVICE_ACCOUNT_*` / `SHEETS_*`   | Server-side Google Sheets API access |
-
-> Never commit `.env.local`. Double-check `git status` before each commit.
-
----
-
-## 3. Daily Workflow — Push Changes to GitHub
-
-From the project root:
-
-```bash
-# 1. Pull the latest main so you don't push on top of stale code
-git pull origin main
-
-# 2. See what's changed
-git status
-git diff
-
-# 3. Stage only the files you intend to push
-git add src/views/WorkloadPage.jsx DEPLOYMENT.md
-
-# 4. Commit with a clear message
-git commit -m "fix(workload): filter instructors by profile location"
-
-# 5. Push to the main branch on GitHub
-git push origin main
-```
-
-### Commit message style
-
-Match the existing log:
-
-- `fix: short description`
-- `feat: short description`
-- `docs: short description`
-- `chore: short description`
-
-Example commits already in the repo:
-
-```
-fix: treat student as absent if Lesson Arrange Date is '-'
-feat: post-sync diff toast and disable-branch support
-feat: UI redesign - dark sidebar, new header layout
-```
-
----
-
-## 4. Working on a Branch (Recommended for Larger Changes)
-
-Direct pushes to `main` trigger a production deploy. For anything bigger than a small fix, use a feature branch and a pull request:
-
-```bash
-git checkout -b fix/workload-profile-filter
-# ...edit files...
-git add -A
-git commit -m "fix(workload): filter by profile location"
-git push -u origin fix/workload-profile-filter
-```
-
-Then open a PR on GitHub. Once approved, merge into `main` to deploy.
-
----
-
-## 5. Automated Deployment (GitHub Actions)
-
-Pushing to `main` runs `.github/workflows/deploy.yml`, which:
-
-1. Checks out the code
-2. Installs dependencies with `npm ci`
-3. Runs `npm run build`
-4. Uploads `./dist` to GitHub Pages
-5. Publishes the site to GitHub Pages
-
-Watch the run live: **Repo → Actions → Deploy static content to Pages**.
-
-If the workflow fails:
-
-- Click the failed step to read the logs
-- Most failures are `build` errors — reproduce locally with `npm run build`
-- Fix, commit, push again
-
-> The workflow runs on Node 20. If your local Node is on a different major version and the build differs, install Node 20 to match.
-
----
-
-## 6. Local Verification Before You Push
-
-Run these locally to avoid red builds in CI:
-
-```bash
-# Lint
-npm run lint
-
-# Build (catches Next.js build errors)
+npm run test
 npm run build
-
-# Optional: smoke-test the production build
-npm run start
 ```
 
-Open <http://localhost:3000> and click through the pages you changed.
+CI (`.github/workflows/ci.yml`) runs both on every push. It does **not** deploy —
+it only tells you whether `main` is deployable before you SSH in.
 
 ---
 
-## 7. Firebase (Firestore Rules + Indexes)
+## 9. Troubleshooting
 
-The app uses Firestore for instructor profiles and workload snapshots. The schema is committed in:
-
-- `firestore.rules`
-- `firestore.indexes.json`
-
-To deploy rule or index changes, install the Firebase CLI once:
-
-```bash
-npm install -g firebase-tools
-firebase login
-```
-
-Then from the project root:
-
-```bash
-# Deploy Firestore rules
-firebase deploy --only firestore:rules
-
-# Deploy Firestore indexes
-firebase deploy --only firestore:indexes
-```
-
-Firebase project ID lives in `.firebaserc`.
+| Symptom | Cause |
+|---|---|
+| `auth/api-key-not-valid` at login | Built without `NEXT_PUBLIC_FIREBASE_API_KEY`. Add it to `.env.local` and **rebuild** — a restart is not enough. |
+| New Operations login returns 503 | `EMPLOYEE_CREDENTIAL_KEY` unset. Restart is enough; it is read at run time. |
+| Users page shows "Sign in with a New Operations account" | You are signed in with an Old Operations account. Sign out, sign in with a New Operations username. |
+| Every New Operations page errors | `DATABASE_URL` unset or unreachable. |
+| `/api/new/*` answers without a key | `NEW_OPS_API_KEY` unset leaves the gate open. Set it. |
+| Site serves an old version after deploy | The app was not restarted. Check `pm2 logs thelab` or `journalctl -u thelab -f`. |
+| Deploy refuses to build | A build-time variable is missing. It is telling you which. |
 
 ---
 
-## 8. Quick Troubleshooting
+## 10. Retiring Vercel
 
-| Symptom                                      | Fix                                                                            |
-| -------------------------------------------- | ------------------------------------------------------------------------------ |
-| `git push` rejected (non-fast-forward)       | Run `git pull --rebase origin main`, resolve conflicts, push again             |
-| `npm ci` fails locally                       | Delete `node_modules` and `package-lock.json`, run `npm install`               |
-| Build fails on CI but passes locally         | Match Node version (`nvm use 20`) and re-run `npm ci && npm run build`         |
-| GitHub Pages still shows old content         | Check **Actions** tab — the deploy may still be running or queued              |
-| Firestore "permission-denied" after deploy   | Re-deploy `firestore.rules` (`firebase deploy --only firestore:rules`)         |
-| Secret accidentally committed                | Rotate the secret, then remove the file with `git rm --cached <file>` + force push (ask the team first) |
+For the record, so nobody wonders later:
 
----
+1. Vercel dashboard → project → Settings → **Delete Project**. Until it is
+   deleted it holds a live `DATABASE_URL` for the production database and will
+   redeploy on every push to `main`.
+2. Rotate the database password afterwards, since it existed in a third-party
+   system: change it in `setup_vps.sh`, run `ALTER ROLE lab_operator WITH PASSWORD`,
+   update `.env.local`, redeploy.
+3. `rm -rf .vercel` locally. It is gitignored, so this is only tidying.
 
-## 9. Safety Checklist Before Pushing
-
-- [ ] `git status` shows only the files I intend to commit
-- [ ] No `.env.local`, no API keys, no service-account JSON staged
-- [ ] `npm run build` passes locally
-- [ ] Commit message describes the *why*, not just the *what*
-- [ ] Pulled latest `main` before pushing
-
----
-
-That's the whole pipeline. Edit → commit → push → GitHub Actions deploys.
+The `scratch/` helpers and `setup_vps.sh` still mention Vercel in places. Harmless,
+but out of date.
