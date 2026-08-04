@@ -34,6 +34,29 @@ import {
  */
 const REJECTED = 'That username or password is not right.';
 
+/**
+ * Did this request arrive over HTTPS?
+ *
+ * `req.url` is not enough. In production nginx terminates TLS and proxies to
+ * 127.0.0.1:3000 over plain HTTP, so the app sees `http:` on a request the
+ * browser made over `https:`. Trusting that would leave the session cookie
+ * unmarked `Secure` on a properly encrypted site — the cookie would still work,
+ * which is why the mistake would go unnoticed.
+ *
+ * `X-Forwarded-Proto` is set by our own nginx (see DEPLOYMENT.md). It is a
+ * client-settable header in general, but the only way to reach the app is through
+ * that proxy, which overwrites it. The failure direction is also the safe one: a
+ * forged `https` marks the cookie `Secure`, which restricts it further.
+ *
+ * Plain HTTP has to keep working — development is over HTTP, and a `Secure`
+ * cookie there is silently dropped, which looks exactly like a wrong password.
+ */
+function isHttps(req) {
+  const forwarded = req.headers.get('x-forwarded-proto');
+  if (forwarded) return forwarded.split(',')[0].trim() === 'https';
+  return new URL(req.url).protocol === 'https:';
+}
+
 const publicUser = (row) => ({
   id: row.id,
   username: row.username,
@@ -130,13 +153,7 @@ export async function POST(req) {
       user: publicUser(row),
       expiresAt,
     });
-    response.cookies.set(
-      SESSION_COOKIE,
-      token,
-      // Plain HTTP in development would drop a `secure` cookie, and the failure
-      // looks exactly like a wrong password.
-      sessionCookieOptions({ secure: new URL(req.url).protocol === 'https:' })
-    );
+    response.cookies.set(SESSION_COOKIE, token, sessionCookieOptions({ secure: isHttps(req) }));
     return response;
   } catch (error) {
     if (error instanceof CredentialKeyError) {
