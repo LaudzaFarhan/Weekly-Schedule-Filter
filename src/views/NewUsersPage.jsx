@@ -84,6 +84,55 @@ export default function NewUsersPage() {
   const [provisionPreview, setProvisionPreview] = useState(null);
   const [provisioning, setProvisioning] = useState(false);
 
+  /**
+   * The signed-in account's own id.
+   *
+   * Needed so the row belonging to whoever is looking does not offer them the
+   * three actions that would lock them out of this screen. The API refuses those
+   * anyway; this is so the button is not there to press in the first place, which
+   * is a better answer than an error after the fact.
+   */
+  const [myId, setMyId] = useState(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/new/auth/session')
+      .then((res) => (res.ok ? res.json() : null))
+      .then((body) => { if (!cancelled) setMyId(body?.user?.id ?? null); })
+      // A failure here only means self-actions stay enabled and the API refuses
+      // them instead. Not worth surfacing.
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
+
+  /**
+   * Report a failed action.
+   *
+   * A 403 gets the explanation rather than the API's one-line refusal, because
+   * the cause is never something the caller did wrong on this screen — they are
+   * signed in with an Old Operations account, and no amount of retrying the
+   * action will help.
+   */
+  const reportError = useCallback((err, title) => {
+    if (err?.status === 403) {
+      showToast({
+        variant: 'error',
+        title: 'Not allowed with this sign-in',
+        message:
+          'These accounts are separate from Old Operations. Sign out, then sign back in '
+          + 'with a New Operations account that has the Admin role.',
+        duration: 10000,
+      });
+      return;
+    }
+    showToast({
+      variant: 'error',
+      title,
+      message: err?.message || 'Something went wrong.',
+      duration: 9000,
+    });
+  }, [showToast]);
+
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -143,7 +192,7 @@ export default function NewUsersPage() {
       const body = await res.json();
       setRevealed((prev) => ({ ...prev, [user.id]: body.password }));
     } catch (err) {
-      showToast(err.message, 'error');
+      reportError(err, 'Could not read that password');
     } finally {
       setBusyId(null);
     }
@@ -170,11 +219,16 @@ export default function NewUsersPage() {
       // Shown straight away rather than making the Admin press the eye as well —
       // they just chose to set it, so there is nothing to protect them from.
       setRevealed((prev) => ({ ...prev, [user.id]: body.password }));
-      showToast(`Password reset to "${body.password}"`, 'success');
+      showToast({
+        variant: 'success',
+        title: `Password reset for ${user.username}`,
+        message: `It is now "${body.password}". They will be asked to change it on next sign-in.`,
+        duration: 12000,
+      });
       await load();
       setRevealed((prev) => ({ ...prev, [user.id]: body.password }));
     } catch (err) {
-      showToast(err.message, 'error');
+      reportError(err, 'Could not reset that password');
     } finally {
       setBusyId(null);
     }
@@ -189,15 +243,16 @@ export default function NewUsersPage() {
         body: JSON.stringify({ id: user.id, status }),
       });
       if (!res.ok) throw await errorFrom(res);
-      showToast(
-        status === 'Active'
-          ? `${user.username} can sign in again`
-          : `${user.username} is suspended and signed out everywhere`,
-        'success'
-      );
+      showToast({
+        variant: 'success',
+        title: status === 'Active' ? `${user.username} re-enabled` : `${user.username} suspended`,
+        message: status === 'Active'
+          ? 'They can sign in again.'
+          : 'They cannot sign in, and any session they had has ended.',
+      });
       await load();
     } catch (err) {
-      showToast(err.message, 'error');
+      reportError(err, 'Could not change that account');
     } finally {
       setBusyId(null);
     }
@@ -212,9 +267,10 @@ export default function NewUsersPage() {
         body: JSON.stringify({ id: user.id, role }),
       });
       if (!res.ok) throw await errorFrom(res);
+      showToast({ variant: 'success', title: `${user.username} is now ${role}` });
       await load();
     } catch (err) {
-      showToast(err.message, 'error');
+      reportError(err, 'Could not change that role');
     } finally {
       setBusyId(null);
     }
@@ -232,10 +288,10 @@ export default function NewUsersPage() {
     try {
       const res = await fetch(`/api/new/users?id=${user.id}`, { method: 'DELETE' });
       if (!res.ok) throw await errorFrom(res);
-      showToast(`Deleted ${user.username}`, 'success');
+      showToast({ variant: 'success', title: `Deleted the account ${user.username}` });
       await load();
     } catch (err) {
-      showToast(err.message, 'error');
+      reportError(err, 'Could not delete that account');
     } finally {
       setBusyId(null);
     }
@@ -253,18 +309,21 @@ export default function NewUsersPage() {
       });
       if (!res.ok) throw await errorFrom(res);
       const body = await res.json();
-      showToast(
-        editing
-          ? `Updated ${body.user.username}`
-          : `Created ${body.user.username}${body.temporaryPassword ? ` — password "${body.temporaryPassword}"` : ''}`,
-        'success'
-      );
+      showToast({
+        variant: 'success',
+        title: editing ? `Updated ${body.user.username}` : `Created ${body.user.username}`,
+        message: body.temporaryPassword
+          ? `Password is "${body.temporaryPassword}". They must change it on first sign-in.`
+          : undefined,
+        // Long enough to write the password down, since it is only shown here.
+        duration: body.temporaryPassword ? 14000 : 6000,
+      });
       setAdding(false);
       setEditingId(null);
       setDraft(emptyDraft());
       await load();
     } catch (err) {
-      showToast(err.message, 'error');
+      reportError(err, editing ? 'Could not save that account' : 'Could not create that account');
     } finally {
       setSaving(false);
     }
@@ -290,7 +349,7 @@ export default function NewUsersPage() {
       if (!res.ok) throw await errorFrom(res);
       setProvisionPreview(await res.json());
     } catch (err) {
-      showToast(err.message, 'error');
+      reportError(err, 'Could not check the instructor list');
     } finally {
       setProvisioning(false);
     }
@@ -302,11 +361,16 @@ export default function NewUsersPage() {
       const res = await fetch('/api/new/users/provision', { method: 'POST' });
       if (!res.ok) throw await errorFrom(res);
       const body = await res.json();
-      showToast(body.message, 'success');
+      showToast({
+        variant: 'success',
+        title: `Created ${body.created.length} instructor account${body.created.length === 1 ? '' : 's'}`,
+        message: body.message,
+        duration: 14000,
+      });
       setProvisionPreview(null);
       await load();
     } catch (err) {
-      showToast(err.message, 'error');
+      reportError(err, 'Could not create the instructor accounts');
     } finally {
       setProvisioning(false);
     }
@@ -627,10 +691,22 @@ export default function NewUsersPage() {
                   const roleStyle = ROLE_STYLE[user.role] || ROLE_STYLE.Instructor;
                   const busy = busyId === user.id;
                   const shown = revealed[user.id];
+                  // Your own row: resetting, suspending or deleting it would end
+                  // this session and leave the screen answering 403.
+                  const isMe = myId != null && user.id === myId;
                   return (
                     <tr key={user.id} style={{ opacity: user.status === 'Active' ? 1 : 0.55 }}>
                       <td style={{ padding: '0.55rem 0.75rem', borderBottom: '1px solid var(--border-color)', fontSize: '0.82rem', fontWeight: 600 }}>
                         {user.username}
+                        {isMe && (
+                          <span style={{
+                            marginLeft: '0.35rem', fontSize: '0.6rem', fontWeight: 700,
+                            color: 'var(--primary-blue)', background: 'rgba(59,130,246,0.12)',
+                            borderRadius: '5px', padding: '0.05rem 0.3rem',
+                          }}>
+                            you
+                          </span>
+                        )}
                         {user.instructorId != null && (
                           <span
                             title="Generated from the instructor registry"
@@ -688,8 +764,10 @@ export default function NewUsersPage() {
                         <button
                           type="button"
                           onClick={() => setStatus(user, user.status === 'Active' ? 'Suspended' : 'Active')}
-                          disabled={busy}
-                          title={user.status === 'Active' ? 'Suspend this account' : 'Let this account sign in again'}
+                          disabled={busy || isMe}
+                          title={isMe
+                            ? 'You cannot suspend your own account'
+                            : user.status === 'Active' ? 'Suspend this account' : 'Let this account sign in again'}
                           style={{
                             display: 'inline-flex', alignItems: 'center', gap: '0.25rem',
                             border: 'none', borderRadius: '6px', padding: '0.18rem 0.45rem',
@@ -715,10 +793,17 @@ export default function NewUsersPage() {
                           <button
                             type="button"
                             onClick={() => resetPassword(user)}
-                            disabled={busy}
-                            title="Reset the password to the shared default for this role"
+                            disabled={busy || isMe}
+                            title={isMe
+                              ? 'Resetting your own password would sign you out — ask another Admin'
+                              : 'Reset the password to the shared default for this role'}
                             aria-label={`Reset the password for ${user.username}`}
-                            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--primary-blue)', padding: '0.2rem', lineHeight: 0 }}
+                            style={{
+                              background: 'none', border: 'none', padding: '0.2rem', lineHeight: 0,
+                              cursor: isMe ? 'not-allowed' : 'pointer',
+                              color: isMe ? 'var(--text-muted)' : 'var(--primary-blue)',
+                              opacity: isMe ? 0.4 : 1,
+                            }}
                           >
                             <KeyRound size={14} />
                           </button>
@@ -735,10 +820,15 @@ export default function NewUsersPage() {
                           <button
                             type="button"
                             onClick={() => remove(user)}
-                            disabled={busy}
-                            title="Delete this account"
+                            disabled={busy || isMe}
+                            title={isMe ? 'You cannot delete your own account' : 'Delete this account'}
                             aria-label={`Delete ${user.username}`}
-                            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--danger)', padding: '0.2rem', lineHeight: 0 }}
+                            style={{
+                              background: 'none', border: 'none', padding: '0.2rem', lineHeight: 0,
+                              cursor: isMe ? 'not-allowed' : 'pointer',
+                              color: isMe ? 'var(--text-muted)' : 'var(--danger)',
+                              opacity: isMe ? 0.4 : 1,
+                            }}
                           >
                             <Trash2 size={14} />
                           </button>

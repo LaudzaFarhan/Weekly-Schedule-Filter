@@ -122,6 +122,34 @@ export async function PUT(req) {
     // `instructor12345`, and a caller must not be able to change which default
     // applies by sending a different role.
     const resetting = body?.reset === true;
+
+    /*
+      Resetting your OWN password is refused, and this is not pedantry — it is a
+      trap that has already caught someone.
+
+      A reset sets the password to a value every colleague knows, and then ends
+      every session for that account, including the one making the request. The
+      Admin is signed out mid-task, every subsequent call answers 403, and the
+      screen looks broken rather than logged out. The only way back in is to
+      guess that the shared default now applies to them.
+
+      Choosing your own new password is still allowed. That also ends your
+      sessions, but you know what you set and "you changed your password, sign in
+      again" is a comprehensible outcome.
+    */
+    if (resetting && identity.kind === 'session' && identity.userId === id) {
+      return NextResponse.json(
+        {
+          error: 'That would sign you out',
+          message:
+            'Resetting your own password would set it to the shared default and end this '
+            + 'session immediately. Send a password you have chosen instead, or have another '
+            + 'Admin reset it for you.',
+        },
+        { status: 409 }
+      );
+    }
+
     let resetRole = null;
     if (resetting) {
       const existing = await query('SELECT role FROM internal_users WHERE id = $1', [id]);
