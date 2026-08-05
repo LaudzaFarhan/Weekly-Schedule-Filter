@@ -39,6 +39,13 @@ export default function Header({ onToggleSearch, opsMode = 'old', onToggleSideba
   const [newName, setNewName] = useState('');
   const [newUrl, setNewUrl] = useState('');
   const [newTrialUrl, setNewTrialUrl] = useState('');
+  // Why a refused branch save has to be shown: `updateBranches` writes through
+  // to the server and rejects when the Admin gate returns 403 or the shape
+  // check returns 400. It rolls its own optimistic update back, so without this
+  // the row would just vanish again with nothing said. Same inline style the
+  // failed-sync strip below already uses — the header has no toast of its own.
+  const [branchError, setBranchError] = useState(null);
+  const [savingBranches, setSavingBranches] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
   // The panel stays mounted for the length of its exit animation, so it can
   // collapse back toward the bell instead of vanishing.
@@ -146,8 +153,8 @@ export default function Header({ onToggleSearch, opsMode = 'old', onToggleSideba
     }
   }, [activeBranchId, branches.length]);
 
-  const handleAddBranch = () => {
-    if (!newName || !newUrl) return;
+  const handleAddBranch = async () => {
+    if (!newName || !newUrl || savingBranches) return;
     const newId = newName.toLowerCase().replace(/\s+/g, '-');
     // trialUrl is optional — without it, submitTrialLead falls back to the
     // legacy default URL so existing single-branch deployments keep working.
@@ -158,19 +165,43 @@ export default function Header({ onToggleSearch, opsMode = 'old', onToggleSideba
     }
 
     const currentBranches = Array.isArray(branches) ? branches : [];
-    updateBranches([...currentBranches, newBranch]);
+    setBranchError(null);
+    setSavingBranches(true);
+    try {
+      await updateBranches([...currentBranches, newBranch]);
+    } catch (err) {
+      // The form stays open with what the user typed still in it, so the save
+      // can be retried once the reason is dealt with.
+      setBranchError(`Could not add "${newName}": ${err?.message || 'the save was refused.'}`);
+      return;
+    } finally {
+      setSavingBranches(false);
+    }
+
     setIsAdding(false);
     setNewName('');
     setNewUrl('');
     setNewTrialUrl('');
   };
 
-  const handleDeleteBranch = (e, branchId) => {
+  const handleDeleteBranch = async (e, branchId) => {
     e.stopPropagation();
+    if (savingBranches) return;
     const ok = window.confirm(`Are you sure you want to delete branch "${branchId}"? This will also disable its configs.`);
     if (!ok) return;
 
-    updateBranches(branches.filter(b => b.id !== branchId));
+    setBranchError(null);
+    setSavingBranches(true);
+    try {
+      await updateBranches(branches.filter(b => b.id !== branchId));
+    } catch (err) {
+      // The branch is still there — leave the active selection pointing at it.
+      setBranchError(`Could not delete "${branchId}": ${err?.message || 'the save was refused.'}`);
+      return;
+    } finally {
+      setSavingBranches(false);
+    }
+
     if (activeBranchId === branchId) {
       const remaining = branches.filter(b => b.id !== branchId);
       if (remaining.length > 0) {
@@ -477,7 +508,7 @@ export default function Header({ onToggleSearch, opsMode = 'old', onToggleSideba
                 )}
                 {branch.name}
                 {branches.length > 1 && (
-                  <Trash2 size={11} style={{ opacity: 0.4 }} onClick={(e) => handleRemoveBranch(e, branch.id)} />
+                  <Trash2 size={11} style={{ opacity: 0.4 }} onClick={(e) => handleDeleteBranch(e, branch.id)} />
                 )}
               </button>
             );
@@ -496,7 +527,7 @@ export default function Header({ onToggleSearch, opsMode = 'old', onToggleSideba
             );
           })()}
           {!isAdding ? (
-            <button onClick={() => setIsAdding(true)} style={{ padding: '0.4rem 0.85rem', borderRadius: '20px', border: 'none', background: 'transparent', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+            <button onClick={() => { setBranchError(null); setIsAdding(true); }} style={{ padding: '0.4rem 0.85rem', borderRadius: '20px', border: 'none', background: 'transparent', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
               <Plus size={13} /> ADD BRANCH
             </button>
           ) : (
@@ -504,8 +535,8 @@ export default function Header({ onToggleSearch, opsMode = 'old', onToggleSideba
               <input type="text" placeholder="Branch Name" value={newName} onChange={e => setNewName(e.target.value)} style={{ padding: '0.35rem 0.5rem', borderRadius: '6px', border: '1px solid var(--border-color)', width: '110px', fontSize: '0.75rem' }} />
               <input type="text" placeholder="Schedule Publish URL" value={newUrl} onChange={e => setNewUrl(e.target.value)} style={{ padding: '0.35rem 0.5rem', borderRadius: '6px', border: '1px solid var(--border-color)', width: '180px', fontSize: '0.75rem' }} />
               <input type="text" placeholder="Trial Submit URL (Apps Script)" title="Apps Script Web App URL that appends Trial Leads for this branch's spreadsheet" value={newTrialUrl} onChange={e => setNewTrialUrl(e.target.value)} style={{ padding: '0.35rem 0.5rem', borderRadius: '6px', border: '1px solid var(--border-color)', width: '180px', fontSize: '0.75rem' }} />
-              <button onClick={handleAddBranch} className="btn btn-primary btn-sm">Save</button>
-              <button onClick={() => setIsAdding(false)} className="btn btn-sm" style={{ background: 'transparent' }}>✕</button>
+              <button onClick={handleAddBranch} disabled={savingBranches} className="btn btn-primary btn-sm">{savingBranches ? 'Saving…' : 'Save'}</button>
+              <button onClick={() => { setIsAdding(false); setBranchError(null); }} className="btn btn-sm" style={{ background: 'transparent' }}>✕</button>
             </div>
           )}
         </div>
@@ -532,6 +563,22 @@ export default function Header({ onToggleSearch, opsMode = 'old', onToggleSideba
           </button>
         </div>
       </div>
+
+      {/* A branch save the server refused. Sits directly under the branch tabs
+          so it reads as being about the row that just reverted. */}
+      {branchError && (
+        <div role="alert" style={{ padding: '0.4rem 1.5rem', fontSize: '0.75rem', color: 'var(--danger)', background: 'var(--danger-bg)', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+          <AlertCircle size={13} style={{ flexShrink: 0 }} />
+          <span>{branchError}</span>
+          <button
+            onClick={() => setBranchError(null)}
+            aria-label="Dismiss branch error"
+            style={{ background: 'none', border: 'none', color: 'var(--primary-blue)', cursor: 'pointer', fontSize: '0.75rem', textDecoration: 'underline' }}
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
 
       {/* Progress bar */}
       {isSyncing && syncProgress > 0 && (

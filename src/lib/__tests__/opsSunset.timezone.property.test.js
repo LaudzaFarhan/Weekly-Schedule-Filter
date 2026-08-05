@@ -53,10 +53,15 @@ const nearWibMidnight = () => fc
 
 const anyInstant = () => fc.oneof(instant(), nearWibMidnight());
 
-/** Well-formed ISO dates that name real days. */
+/**
+ * Well-formed ISO dates that name real days. `noInvalidDate` because the
+ * generator's whole job is to produce a string, and `toISOString` throws on the
+ * invalid date fast-check would otherwise be free to hand us.
+ */
 const isoDate = () => fc.date({
   min: new Date(Date.UTC(2020, 0, 1)),
   max: new Date(Date.UTC(2030, 0, 1)),
+  noInvalidDate: true,
 }).map((d) => d.toISOString().slice(0, 10));
 
 /**
@@ -81,7 +86,6 @@ describe('opsSunset timezone independence', () => {
     for (const tz of TIMEZONES) {
       // Sequential on purpose: each import has to happen while its own `TZ` is
       // the one in force, so these cannot be started in parallel.
-      // eslint-disable-next-line no-await-in-loop
       loaded.push({ tz, mod: await loadUnder(tz) });
     }
   });

@@ -49,6 +49,24 @@ function persistConfig(key, value) {
     .catch((err) => ({ configured: false, error: err?.message || 'offline' }));
 }
 
+/**
+ * The branch list is the one config key that has moved off the Google Sheet.
+ *
+ * `/api/config` is backed by Sheets and needs `GOOGLE_SPREADSHEET_ID` plus a
+ * service account; without them it reports `configured: false` and stores
+ * nothing, so branches only ever lived in one browser's `localStorage`.
+ * `/api/new/config` is backed by PostgreSQL, already allowlists `branches` and
+ * validates their shape, so that is now the source of truth. Reads are open to
+ * any signed-in caller; writes need the Admin role.
+ */
+const BRANCHES_ENDPOINT = '/api/new/config';
+const BRANCHES_KEY = 'branches';
+
+/** Mirror the branch list into localStorage as an offline cache. Never throws. */
+function cacheBranches(list) {
+  try { localStorage.setItem(BRANCHES_KEY, JSON.stringify(list)); } catch { /* ignore */ }
+}
+
 /** Cache raw schedule data (all branches) so it persists across page refreshes */
 function cacheScheduleData(rawClasses) {
   try {
@@ -252,6 +270,87 @@ export function ScheduleProvider({ children }) {
   // Track whether we already loaded from API to avoid overwriting user edits
   const apiLoaded = useRef(false);
 
+  // Latest branch list, readable from callbacks and effects without making them
+  // re-run. Used for the rollback snapshot in `updateBranches` and for the
+  // one-time adopt-upward below.
+  const branchesRef = useRef(branches);
+  useEffect(() => { branchesRef.current = branches; }, [branches]);
+
+  // ─── Branches: load from the PostgreSQL-backed store ─────────────
+  //
+  // Every failure here is quiet and leaves the local list standing. A branch
+  // list that vanishes because a request failed is worse than a stale one, and
+  // the reader is open to any signed-in user so the common failure is simply
+  // "not signed in yet".
+  const branchesLoaded = useRef(false);
+  useEffect(() => {
+    if (branchesLoaded.current) return;
+    branchesLoaded.current = true;
+
+    let cancelled = false;
+
+    (async () => {
+      let data;
+      try {
+        const res = await fetch(`${BRANCHES_ENDPOINT}?key=${BRANCHES_KEY}`);
+        if (!res.ok) {
+          console.log(`Branches: store unreadable (HTTP ${res.status}) — using local list`);
+          return;
+        }
+        data = await res.json();
+      } catch {
+        console.log('Branches: store unreachable — using local list');
+        return;
+      }
+
+      // A body that isn't the documented `{ key, value, isDefault, ... }` object
+      // tells us nothing, so it is treated as a failed read rather than as an
+      // empty store — guessing "empty" there could overwrite real rows.
+      if (!data || typeof data !== 'object' || Array.isArray(data)) {
+        console.log('Branches: unexpected response shape — using local list');
+        return;
+      }
+
+      const stored = data.value;
+      if (Array.isArray(stored) && stored.length > 0) {
+        if (cancelled) return;
+        setBranches(stored);
+        cacheBranches(stored);
+        return;
+      }
+
+      const isEmptyStore =
+        data.isDefault === true || stored === undefined || stored === null ||
+        (Array.isArray(stored) && stored.length === 0);
+      if (!isEmptyStore) {
+        console.log('Branches: unexpected stored value — using local list');
+        return;
+      }
+
+      // Nothing stored yet. Adopt upward once, so branches that only ever
+      // existed in this browser become durable. If the write is refused — most
+      // likely because the signed-in user is not an Admin — the local list
+      // simply stays local.
+      const local = branchesRef.current;
+      if (cancelled || !Array.isArray(local) || local.length === 0) return;
+
+      try {
+        const res = await fetch(BRANCHES_ENDPOINT, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ key: BRANCHES_KEY, value: local }),
+        });
+        if (!res.ok) {
+          console.log(`Branches: could not seed the store (HTTP ${res.status}) — keeping the local list`);
+        }
+      } catch {
+        console.log('Branches: could not seed the store — keeping the local list');
+      }
+    })();
+
+    return () => { cancelled = true; };
+  }, []);
+
   // ─── Dual Storage: load from API on mount ────────────────────────
   useEffect(() => {
     if (apiLoaded.current) return;
@@ -290,10 +389,10 @@ export function ScheduleProvider({ children }) {
           setDisabledBranches(new Set(data.disabledBranches));
           localStorage.setItem('disabledBranches', JSON.stringify(data.disabledBranches));
         }
-        if (data.branches) {
-          setBranches(data.branches);
-          localStorage.setItem('branches', JSON.stringify(data.branches));
-        }
+        // `branches` is deliberately absent here: it is served by
+        // `/api/new/config` (PostgreSQL) in the effect below. Reading it from
+        // the Sheet as well would let a later Sheets deployment overwrite the
+        // durable list with a stale copy.
         if (data.users) {
           const normalized = {};
           for (const [k, v] of Object.entries(data.users || {})) {
@@ -340,9 +439,47 @@ export function ScheduleProvider({ children }) {
     persistConfig('leaveList', newList);
   }, []);
 
-  const updateBranches = useCallback((newBranches) => {
+  /**
+   * Write the branch list to the PostgreSQL-backed store.
+   *
+   * Optimistic: state and the localStorage cache update first so the UI stays
+   * responsive. Unlike the other config writers this one does **not** swallow
+   * failures — it rejects with the server's own message and rolls the optimistic
+   * update back, so a 403 from the Admin gate or a 400 from the route's shape
+   * check reaches the caller instead of looking like a successful save.
+   */
+  const updateBranches = useCallback(async (newBranches) => {
+    const previous = branchesRef.current;
+
     setBranches(newBranches);
-    return persistConfig('branches', newBranches);
+    cacheBranches(newBranches);
+
+    const rollback = () => {
+      setBranches(previous);
+      cacheBranches(previous);
+    };
+
+    let res;
+    try {
+      res = await fetch(BRANCHES_ENDPOINT, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key: BRANCHES_KEY, value: newBranches }),
+      });
+    } catch (err) {
+      rollback();
+      throw new Error(err?.message || 'Could not reach the server to save branches.');
+    }
+
+    if (!res.ok) {
+      const body = await res.json().catch(() => null);
+      rollback();
+      throw new Error(
+        body?.message || body?.error || `Could not save branches (HTTP ${res.status}).`
+      );
+    }
+
+    return res.json().catch(() => ({ key: BRANCHES_KEY, value: newBranches }));
   }, []);
 
   const changeActiveBranch = useCallback((branchId) => {

@@ -205,17 +205,50 @@ const DAYS = {
   notice: 28, warning: 14, warningLate: 4, urgent: 3, urgentLast: 1, final: 0, past: -1,
 };
 
-/** The `lucide-react` class each phase's icon renders with. */
+/**
+ * The `lucide-react` class each phase's icon renders with.
+ *
+ * `createLucideIcon` derives the class from the glyph's canonical name, and two
+ * of the four names the copy table uses are aliases: `AlertTriangle` is an alias
+ * of `TriangleAlert` and `AlertCircle` of `CircleAlert`, so those two render as
+ * `lucide-triangle-alert` and `lucide-circle-alert`. `Info` and `Archive` are
+ * canonical already. The banner imports the names the design names; this map
+ * records what the library then puts in the DOM.
+ */
 const ICON_CLASS = {
   notice: 'lucide-info',
-  warning: 'lucide-alert-triangle',
-  urgent: 'lucide-alert-circle',
-  final: 'lucide-alert-circle',
+  warning: 'lucide-triangle-alert',
+  urgent: 'lucide-circle-alert',
+  final: 'lucide-circle-alert',
   past: 'lucide-archive',
 };
 
-/** The headline the copy table produces for a phase at one of those instants. */
-const headlineFor = (phase) => PHASE_COPY[phase].headline(DAYS[phase], DATE);
+/**
+ * The Sunset_Phase each instant in `AT` falls in. `warningLate` and `urgentLast`
+ * are the far ends of `warning` and `urgent` rather than phases of their own, so
+ * the copy table has no entry under those names.
+ */
+const PHASE_AT = {
+  notice: 'notice',
+  warning: 'warning',
+  warningLate: 'warning',
+  urgent: 'urgent',
+  urgentLast: 'urgent',
+  final: 'final',
+  past: 'past',
+};
+
+/**
+ * The headline on screen at one of the instants in `AT`, keyed by that instant.
+ *
+ * The five headlines are five different sentences rather than one sentence with
+ * the number swapped, so this has to go through the copy table for the phase the
+ * instant falls in and cannot be assembled from a shared template.
+ *
+ * @param   {string} at a key of `AT`
+ * @returns {string} the headline the banner renders at that instant
+ */
+const headlineFor = (at) => PHASE_COPY[PHASE_AT[at]].headline(DAYS[at], DATE);
 
 /* ----------------------------------------------------------------- helpers */
 
