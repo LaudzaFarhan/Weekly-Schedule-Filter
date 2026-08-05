@@ -160,7 +160,7 @@ export default function NewOperationalsPage() {
   // `branches` supplies the branch names/ids only. All operational values —
   // open days, hours and class slots — come from PostgreSQL, because New
   // Operations does not use the Google Sheets config that Old Operations reads.
-  const { branches } = useSchedule();
+  const { branches, updateBranches } = useSchedule();
   const { showToast } = useToast();
   const { rules, loading: rulesLoading, error: rulesError, isEmpty } = useNewOperationals();
 
@@ -186,6 +186,13 @@ export default function NewOperationalsPage() {
 
   // branch/day keys with unsaved inline slot edits
   const [pendingDays, setPendingDays] = useState(() => new Set());
+
+  // Add Branch state
+  const [showAddBranchModal, setShowAddBranchModal] = useState(false);
+  const [newBranchName, setNewBranchName] = useState('');
+  const [newBranchUrl, setNewBranchUrl] = useState('');
+  const [newBranchTrialUrl, setNewBranchTrialUrl] = useState('');
+  const [addBranchError, setAddBranchError] = useState('');
 
   // Class Operation table filters
   const [slotBranchFilter, setSlotBranchFilter] = useState('all');
@@ -962,6 +969,71 @@ export default function NewOperationalsPage() {
     return { branchId: b.id, branchName: b.name, day: slotDayFilter };
   }, [branches, slotBranchFilter, slotDayFilter]);
 
+  const handleAddBranchSubmit = async (e) => {
+    if (e) e.preventDefault();
+    setAddBranchError('');
+    const trimmed = newBranchName.trim();
+    if (!trimmed) {
+      setAddBranchError('Branch name is required.');
+      return;
+    }
+    if (branches.some(b => String(b.name || '').toLowerCase() === trimmed.toLowerCase())) {
+      setAddBranchError(`Branch "${trimmed}" already exists.`);
+      return;
+    }
+
+    const id = trimmed.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+    const newBranch = {
+      id,
+      name: trimmed,
+      url: newBranchUrl.trim(),
+      trialUrl: newBranchTrialUrl.trim(),
+    };
+
+    const updatedBranches = [...branches, newBranch];
+    try {
+      await updateBranches(updatedBranches);
+      
+      // Initialize default open days for the new branch in draft state
+      setDraft(prev => ({
+        ...prev,
+        [id]: new Set(DAY_NAMES)
+      }));
+      setDirty(true);
+
+      showToast({
+        title: `Branch "${trimmed}" added successfully`,
+        message: 'Open days enabled for all days by default. Click "Save Changes" to commit rules.',
+        variant: 'success',
+      });
+      setShowAddBranchModal(false);
+      setNewBranchName('');
+      setNewBranchUrl('');
+      setNewBranchTrialUrl('');
+    } catch (err) {
+      console.error('Failed to add branch:', err);
+      setAddBranchError(err?.message || 'Failed to add branch');
+    }
+  };
+
+  const handleDeleteBranch = async (branchId, branchName) => {
+    if (!window.confirm(`Are you sure you want to delete branch "${branchName}"?`)) return;
+    try {
+      const updated = branches.filter(b => b.id !== branchId);
+      await updateBranches(updated);
+      showToast({
+        title: `Branch "${branchName}" deleted successfully`,
+        variant: 'success',
+      });
+    } catch (err) {
+      console.error('Failed to delete branch:', err);
+      showToast({
+        title: 'Failed to delete branch',
+        variant: 'error',
+      });
+    }
+  };
+
   return (
     <section className="dashboard-view active">
       <div className="panel" style={{ margin: 0 }}>
@@ -974,15 +1046,35 @@ export default function NewOperationalsPage() {
               Set which branches are open on each day, and use the clock icon to set that day&apos;s operating hours. Exact class slots are managed in the Class Operation table below. Stored in PostgreSQL and served by <code>/api/new/operationals</code>.
             </p>
           </div>
-          <button
-            onClick={handleSave}
-            disabled={saving || capacity.totalConflicts > 0}
-            title={capacity.totalConflicts > 0 ? 'Resolve the instructor capacity conflicts below first' : 'Save operational settings'}
-            className="btn btn-primary"
-            style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', borderRadius: '10px', padding: '0.5rem 1.2rem', fontSize: '0.85rem' }}
-          >
-            <Save size={16} /> {saving ? 'Saving…' : 'Save Changes'}
-          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <button
+              type="button"
+              onClick={() => setShowAddBranchModal(true)}
+              className="btn"
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.4rem',
+                borderRadius: '10px',
+                padding: '0.5rem 1.2rem',
+                fontSize: '0.85rem',
+                background: 'transparent',
+                border: '1px solid var(--border-color)',
+                cursor: 'pointer',
+              }}
+            >
+              <Plus size={16} /> Add Branch
+            </button>
+            <button
+              onClick={handleSave}
+              disabled={saving || capacity.totalConflicts > 0}
+              title={capacity.totalConflicts > 0 ? 'Resolve the instructor capacity conflicts below first' : 'Save operational settings'}
+              className="btn btn-primary"
+              style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', borderRadius: '10px', padding: '0.5rem 1.2rem', fontSize: '0.85rem' }}
+            >
+              <Save size={16} /> {saving ? 'Saving…' : 'Save Changes'}
+            </button>
+          </div>
         </div>
 
         {rulesError && (
@@ -1046,14 +1138,35 @@ export default function NewOperationalsPage() {
                   return (
                     <tr key={b.id}>
                       <td style={{ fontWeight: 600 }}>
-                        <span style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                          <MapPin size={14} style={{ color: 'var(--text-muted)' }} />
-                          <span>
-                            {b.name}
-                            <span style={{ display: 'block', fontSize: '0.7rem', fontWeight: 400, color: 'var(--text-muted)' }}>
-                              {openCount === 0 ? 'Closed all week' : `Open ${openCount} day${openCount === 1 ? '' : 's'}`}
+                        <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.4rem' }}>
+                          <span style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                            <MapPin size={14} style={{ color: 'var(--text-muted)' }} />
+                            <span>
+                              {b.name}
+                              <span style={{ display: 'block', fontSize: '0.7rem', fontWeight: 400, color: 'var(--text-muted)' }}>
+                                {openCount === 0 ? 'Closed all week' : `Open ${openCount} day${openCount === 1 ? '' : 's'}`}
+                              </span>
                             </span>
                           </span>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteBranch(b.id, b.name)}
+                            title={`Delete ${b.name}`}
+                            style={{
+                              background: 'transparent',
+                              border: 'none',
+                              color: 'var(--text-muted)',
+                              cursor: 'pointer',
+                              padding: '0.2rem',
+                              borderRadius: '4px',
+                              display: 'flex',
+                              alignItems: 'center'
+                            }}
+                            onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--danger)'; }}
+                            onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-muted)'; }}
+                          >
+                            <Trash2 size={13} />
+                          </button>
                         </span>
                       </td>
                       {DAY_NAMES.map((d) => {
@@ -2011,6 +2124,132 @@ export default function NewOperationalsPage() {
                 Set Hours
               </button>
             </div>
+          </div>
+        </div>
+      )}
+      {/* Add Branch Modal */}
+      {showAddBranchModal && (
+        <div
+          style={{
+            position: 'fixed',
+            top: 0, left: 0, right: 0, bottom: 0,
+            background: 'rgba(0, 0, 0, 0.45)',
+            backdropFilter: 'blur(4px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 9999,
+            padding: '1rem',
+          }}
+        >
+          <div
+            style={{
+              background: 'var(--panel-bg)',
+              width: '100%',
+              maxWidth: '480px',
+              borderRadius: '16px',
+              boxShadow: '0 12px 32px rgba(0,0,0,0.18)',
+              display: 'flex',
+              flexDirection: 'column',
+              overflow: 'hidden',
+              border: '1px solid var(--border-color)',
+              animation: 'modalAppear 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards',
+            }}
+          >
+            <div style={{
+              padding: '1.25rem 1.5rem',
+              borderBottom: '1px solid var(--border-color)',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              background: 'var(--bg-color)',
+            }}>
+              <h2 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <Building2 size={18} style={{ color: 'var(--primary-blue, #4f46e5)' }} /> Add New Branch
+              </h2>
+              <button
+                type="button"
+                onClick={() => setShowAddBranchModal(false)}
+                style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: '0.25rem' }}
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <form onSubmit={handleAddBranchSubmit}>
+              <div style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                <div>
+                  <label className="modal-form-label">Branch Name <span style={{ color: 'var(--danger)' }}>*</span></label>
+                  <input
+                    type="text"
+                    placeholder="e.g. Bekasi, Bintaro, Kemang, Bandung..."
+                    value={newBranchName}
+                    onChange={(e) => setNewBranchName(e.target.value)}
+                    className="modal-input-field"
+                    autoFocus
+                  />
+                </div>
+
+                <div>
+                  <label className="modal-form-label">Schedule Publish URL (Optional)</label>
+                  <input
+                    type="text"
+                    placeholder="Google Sheets pubhtml link..."
+                    value={newBranchUrl}
+                    onChange={(e) => setNewBranchUrl(e.target.value)}
+                    className="modal-input-field"
+                  />
+                  <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '0.2rem', display: 'block' }}>
+                    Google Sheets HTML publish link for synchronizing schedule data.
+                  </span>
+                </div>
+
+                <div>
+                  <label className="modal-form-label">Trial Submit URL (Optional)</label>
+                  <input
+                    type="text"
+                    placeholder="Apps Script Web App URL..."
+                    value={newBranchTrialUrl}
+                    onChange={(e) => setNewBranchTrialUrl(e.target.value)}
+                    className="modal-input-field"
+                  />
+                  <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '0.2rem', display: 'block' }}>
+                    Apps Script Web App URL for submitting trial lead bookings.
+                  </span>
+                </div>
+
+                {addBranchError && (
+                  <div style={{ padding: '0.6rem 0.8rem', borderRadius: '8px', background: 'rgba(239,68,68,0.1)', color: 'var(--danger)', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                    <AlertTriangle size={15} /> {addBranchError}
+                  </div>
+                )}
+              </div>
+
+              <div style={{
+                padding: '1rem 1.5rem',
+                borderTop: '1px solid var(--border-color)',
+                display: 'flex',
+                justifyContent: 'flex-end',
+                gap: '0.75rem',
+                background: 'var(--bg-color)',
+              }}>
+                <button
+                  type="button"
+                  onClick={() => setShowAddBranchModal(false)}
+                  className="btn"
+                  style={{ background: 'transparent', border: '1px solid var(--border-color)', borderRadius: '10px', padding: '0.5rem 1.2rem', fontSize: '0.85rem' }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="btn btn-primary"
+                  style={{ borderRadius: '10px', padding: '0.5rem 1.5rem', fontSize: '0.85rem' }}
+                >
+                  Add Branch
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
