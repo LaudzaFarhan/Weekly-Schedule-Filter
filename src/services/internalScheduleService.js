@@ -110,3 +110,24 @@ export async function deleteInternalClass(classId) {
     throw error;
   }
 }
+
+/**
+ * Bulk create internal schedule classes
+ */
+export async function bulkCreateInternalClasses(classesArray) {
+  try {
+    const res = await fetch(`${API_PATH}/bulk`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ classes: classesArray })
+    });
+    if (!res.ok) {
+      const errData = await res.json();
+      throw new Error(errData.error || 'Failed to bulk import schedule classes');
+    }
+    return await res.json();
+  } catch (error) {
+    console.error('Error bulk importing schedule classes:', error);
+    throw error;
+  }
+}

@@ -27,7 +27,21 @@ import {
   buildWipeSuccessMessage,
   resolveAuditUser,
 } from '../lib/wipeReporting';
+import { bulkCreateInternalClasses } from '../services/internalScheduleService';
 import { STUDENT_LEVELS, normaliseCoderLevel } from '../lib/programRules';
+
+function normaliseDayName(dayStr) {
+  if (!dayStr) return 'Monday';
+  const str = String(dayStr).trim().toLowerCase();
+  if (str.startsWith('mon')) return 'Monday';
+  if (str.startsWith('tue')) return 'Tuesday';
+  if (str.startsWith('wed')) return 'Wednesday';
+  if (str.startsWith('thu')) return 'Thursday';
+  if (str.startsWith('fri')) return 'Friday';
+  if (str.startsWith('sat')) return 'Saturday';
+  if (str.startsWith('sun')) return 'Sunday';
+  return str.charAt(0).toUpperCase() + str.slice(1);
+}
 import { filterStudents } from '../lib/studentFilter';
 import { Plus, Pencil, Trash2, FileText, Search, X, MapPin, User, GraduationCap, Phone, CheckCircle, HelpCircle, AlertTriangle, Upload } from 'lucide-react';
 
@@ -254,8 +268,33 @@ export default function NewStudentsPage({ onNavigate } = {}) {
   const handleBulkImport = async (studentsList) => {
     try {
       const res = await bulkCreateInternalStudents(studentsList);
+
+      // Automatically sync schedule placements (DAYS, TIME, INSTRUCTOR) to schedule database
+      const scheduleRows = studentsList
+        .filter((s) => s.rawDays && s.rawTime && (s.rawInstructor || s.teacher))
+        .map((s) => ({
+          day: normaliseDayName(s.rawDays),
+          time: String(s.rawTime).trim(),
+          program: String(s.rawTerm || s.rawProgram || s.level || 'General').trim(),
+          student: String(s.name).trim(),
+          teacher: String(s.rawInstructor || s.teacher).trim(),
+          branchName: String(s.branchName || 'Bekasi').trim(),
+          classType: 'Regular',
+          remarks: s.rawRemarks || s.remarks || null,
+        }));
+
+      let scheduleMsg = '';
+      if (scheduleRows.length > 0) {
+        try {
+          const classRes = await bulkCreateInternalClasses(scheduleRows);
+          scheduleMsg = ` & ${classRes.count || scheduleRows.length} class schedules`;
+        } catch (schedErr) {
+          console.warn('Could not auto-create schedule classes during student import:', schedErr);
+        }
+      }
+
       showToast({
-        title: `Successfully imported ${res.count || studentsList.length} students!`,
+        title: `Successfully imported ${res.count || studentsList.length} students${scheduleMsg}!`,
         variant: 'success',
       });
       setShowImportModal(false);
