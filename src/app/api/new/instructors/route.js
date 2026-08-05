@@ -103,6 +103,13 @@ export async function PUT(req) {
 export async function DELETE(req) {
   try {
     const { searchParams } = new URL(req.url);
+    const all = searchParams.get('all');
+
+    if (all === 'true') {
+      const res = await query('DELETE FROM internal_instructors RETURNING *');
+      return NextResponse.json({ success: true, count: res.rowCount, message: 'All instructors deleted successfully' });
+    }
+
     const id = searchParams.get('id');
 
     if (!id) {

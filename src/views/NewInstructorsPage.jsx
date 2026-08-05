@@ -8,11 +8,14 @@ import {
   createInternalInstructor, 
   updateInternalInstructor, 
   deleteInternalInstructor,
-  bulkCreateInternalInstructors
+  bulkCreateInternalInstructors,
+  wipeAllInternalInstructors
 } from '../services/internalInstructorService';
 import Pagination from '../components/ui/Pagination';
-import { Plus, Pencil, Trash2, Search, X, MapPin, User, ShieldAlert, CheckCircle, Phone, Award, HelpCircle, Upload } from 'lucide-react';
+import { Plus, Pencil, Trash2, Search, X, MapPin, User, ShieldAlert, CheckCircle, Phone, Award, HelpCircle, Upload, AlertTriangle } from 'lucide-react';
 import ImportInstructorsModal from '../components/operations/ImportInstructorsModal';
+import { useAuth } from '../contexts/AuthContext';
+import { isAdmin } from '../utils/roles';
 
 const INSTRUCTOR_LEVELS = [
   'Kinder and Junior',
@@ -22,8 +25,11 @@ const INSTRUCTOR_LEVELS = [
 const INSTRUCTORS_PAGE_SIZE = 8;
 
 export default function NewInstructorsPage() {
-  const { enabledBranches, branches } = useSchedule();
+  const { enabledBranches, branches, users } = useSchedule();
+  const { user } = useAuth();
   const { showToast } = useToast();
+  const [wiping, setWiping] = useState(false);
+  const canWipeAll = isAdmin(users, user?.email, user);
 
   // State
   const [instructors, setInstructors] = useState([]);
@@ -141,6 +147,30 @@ export default function NewInstructorsPage() {
     }
   };
 
+  const handleWipeAll = async () => {
+    if (!window.confirm('WARNING: Are you sure you want to delete ALL instructors? This action cannot be undone.')) {
+      return;
+    }
+    setWiping(true);
+    try {
+      const res = await wipeAllInternalInstructors();
+      showToast({
+        title: 'Wipe Complete',
+        message: `Successfully deleted all ${res.count || 0} instructors.`,
+        variant: 'success',
+      });
+    } catch (err) {
+      console.error(err);
+      showToast({
+        title: 'Wipe Failed',
+        message: err.message || 'Failed to delete all instructors',
+        variant: 'error',
+      });
+    } finally {
+      setWiping(false);
+    }
+  };
+
   const openEditModal = (inst) => {
     setEditingInstructor(inst);
     setForm({
@@ -246,6 +276,28 @@ export default function NewInstructorsPage() {
           </div>
           
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            {canWipeAll && (
+              <button 
+                onClick={handleWipeAll} 
+                disabled={wiping || instructors.length === 0}
+                className="btn btn-danger"
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.4rem',
+                  borderRadius: '10px',
+                  padding: '0.5rem 1.2rem',
+                  fontSize: '0.85rem',
+                  background: 'rgba(239, 68, 68, 0.1)',
+                  color: 'var(--danger, #ef4444)',
+                  border: '1px solid rgba(239, 68, 68, 0.25)',
+                  cursor: wiping || instructors.length === 0 ? 'not-allowed' : 'pointer',
+                  opacity: instructors.length === 0 ? 0.6 : 1
+                }}
+              >
+                <Trash2 size={16} /> Delete All
+              </button>
+            )}
             <button 
               onClick={() => setShowImportModal(true)} 
               className="btn"
