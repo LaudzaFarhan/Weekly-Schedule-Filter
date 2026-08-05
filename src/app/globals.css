@@ -2566,3 +2566,188 @@ body {
   .tour-scrim { animation: none; }
   .tour-dot { transition: none; }
 }
+
+/* ── Old Operations sunset ── */
+
+/* The strip that announces the retirement of Old Operations, mounted between
+   the header and `.dashboard-views` so it cannot scroll away.
+
+   The surface is `var(--panel-bg)` — the same white the header uses — and NOT
+   `--card-bg`, which does not exist in this repo and would silently resolve to
+   nothing, leaving the banner transparent over the page behind it. Tone is
+   carried by the left accent, the icon and the ink, never by tinting the
+   surface: keeping the surface at `--panel-bg` is what makes the contrast
+   figures below true (Req 9.8).
+
+   `currentColor` does the tone work. Each tone class sets exactly one `color`,
+   and the accent border, the icon and the pulse all follow it, so a tone is one
+   declaration rather than four that have to agree. */
+.ops-sunset-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 0.8rem 1.5rem;
+  background: var(--panel-bg);
+  border-bottom: 1px solid var(--border-color);
+  border-left: 3px solid currentColor;
+  animation: ops-sunset-slide-down 220ms ease-out 1;
+}
+
+/* Entrance only — 220ms, once. A banner that keeps moving after it has arrived
+   is read as a fault rather than as news. */
+@keyframes ops-sunset-slide-down {
+  from { opacity: 0; transform: translateY(-6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.ops-sunset-icon {
+  flex-shrink: 0;
+  margin-top: 0.1rem;
+  color: currentColor;
+  animation: ops-sunset-icon-in 220ms ease-out 1;
+}
+
+@keyframes ops-sunset-icon-in {
+  from { opacity: 0; transform: scale(0.9); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
+.ops-sunset-text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* Headline takes the tone ink; weight and size separate it from the detail, so
+   the distinction survives with all colour removed (Req 9.4). */
+.ops-sunset-headline {
+  margin: 0;
+  font-family: 'Outfit', sans-serif;
+  font-size: 0.92rem;
+  font-weight: 600;
+  line-height: 1.3;
+  color: inherit;
+}
+
+/* One neutral ink for the detail in every tone. #334155 on #ffffff is 10.3:1. */
+.ops-sunset-detail {
+  margin: 0;
+  font-size: 0.78rem;
+  line-height: 1.5;
+  color: #334155;
+}
+
+.ops-sunset-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-shrink: 0;
+}
+
+/* The tour trigger. Tone ink on the panel surface with a matching outline, so
+   its label carries the same contrast figure as the headline. */
+.ops-sunset-cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.4rem 0.8rem;
+  border: 1px solid currentColor;
+  border-radius: 8px;
+  background: var(--panel-bg);
+  color: inherit;
+  font-family: inherit;
+  font-size: 0.76rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.ops-sunset-cta:hover {
+  background: var(--bg-color);
+}
+
+/* #475569 on #ffffff is 7.6:1. Quiet, but still well past the 4.5:1 floor. */
+.ops-sunset-dismiss {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: #475569;
+  cursor: pointer;
+}
+
+.ops-sunset-dismiss:hover {
+  background: var(--bg-color);
+  color: var(--text-main);
+}
+
+/* One tone class per phase, tone name equal to phase name. Every value is a
+   literal hex measured against `--panel-bg` (#ffffff):
+     notice   #1d4ed8  6.7:1
+     warning  #b45309  5.0:1   — the amber the severity map in Header.jsx uses
+     urgent   #b91c1c  6.5:1
+     final    #991b1b  8.3:1
+     past     #475569  7.6:1
+   All five clear the 4.5:1 floor for the headline, the detail and every button
+   label the banner renders (Req 9.8). */
+.ops-sunset-banner-notice  { color: #1d4ed8; }
+.ops-sunset-banner-warning { color: #b45309; }
+.ops-sunset-banner-urgent  { color: #b91c1c; }
+.ops-sunset-banner-final   { color: #991b1b; }
+.ops-sunset-banner-past    { color: #475569; }
+
+/* A slow border pulse in the two phases that mean "now": `urgent` and `final`.
+   2400ms deliberately, close to `tour-pulse`'s 2000ms cadence rather than a
+   fraction of it, so when the tour spotlights the banner the two breathe at
+   nearly the same rate instead of beating against each other. The entrance
+   still runs once ahead of it. */
+.ops-sunset-banner-urgent,
+.ops-sunset-banner-final {
+  animation:
+    ops-sunset-slide-down 220ms ease-out 1,
+    ops-sunset-pulse 2400ms ease-in-out infinite;
+}
+
+@keyframes ops-sunset-pulse {
+  0%   { box-shadow: inset 0 0 0 0 transparent; }
+  50%  { box-shadow: inset 0 0 0 1px currentColor; }
+  100% { box-shadow: inset 0 0 0 0 transparent; }
+}
+
+/* The switcher pill day count. No animation and no transition of any kind: it
+   lives inside a control the user clicks, and movement there reads as a fault
+   rather than as emphasis (Req 8.4). `tabular-nums` and the fixed line box keep
+   the tab label in exactly the same place between renders at the same value. */
+.ops-sunset-badge {
+  display: inline-block;
+  margin-left: 0.35rem;
+  padding: 1px 6px;
+  border-radius: 99px;
+  background: rgba(255, 255, 255, 0.16);
+  color: #ffffff;
+  font-size: 0.66rem;
+  font-weight: 700;
+  line-height: 1.4;
+  letter-spacing: 0.02em;
+  font-variant-numeric: tabular-nums;
+  vertical-align: baseline;
+}
+
+/* Reduced motion takes the movement away and nothing else. Position, size and
+   every colour stay exactly as they are, because the message was always the
+   text — the entrance and the pulse were only ever emphasis (Req 9.7). */
+@media (prefers-reduced-motion: reduce) {
+  .ops-sunset-banner,
+  .ops-sunset-banner-urgent,
+  .ops-sunset-banner-final,
+  .ops-sunset-icon,
+  .ops-sunset-badge {
+    animation: none;
+  }
+}

@@ -69,6 +69,35 @@ export function clearTourSeen(tourId, storage) {
 }
 
 /**
+ * Which tour, if any, to offer automatically.
+ *
+ * Strict precedence rather than a race: two tours wanting the same moment have
+ * to resolve deterministically, or one of them silently loses. `welcome` always
+ * wins, and nothing else is even considered while it is unseen — there is no
+ * point urging someone across a switcher they have not been shown yet.
+ *
+ * Pure, like the rest of this module: every field is passed in, so the caller
+ * owns the storage reads and the clock.
+ */
+export function chooseAutoTour({
+  welcomeSeen, sunsetSeen, opsMode, sidebarCollapsed, sunsetLive,
+} = {}) {
+  if (!welcomeSeen) return 'welcome';
+
+  if (sunsetSeen) return null;
+  if (opsMode !== 'old') return null;
+  if (!sunsetLive) return null;
+
+  // The sunset tour's subject is a control inside the sidebar. Collapsed,
+  // `visibleSteps` drops that step and the tour runs without ever showing the
+  // thing it is about — so wait for a visit with the sidebar open rather than
+  // opening it uninvited. The banner's button is the invited path.
+  if (sidebarCollapsed) return null;
+
+  return 'ops-sunset';
+}
+
+/**
  * Drop steps whose target is not on the page.
  *
  * Tours are written against the fullest version of a screen, but panels come and

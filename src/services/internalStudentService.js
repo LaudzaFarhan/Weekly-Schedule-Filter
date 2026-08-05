@@ -102,6 +102,27 @@ export async function createInternalStudent(studentData) {
 }
 
 /**
+ * Bulk create internal students
+ */
+export async function bulkCreateInternalStudents(studentsArray) {
+  try {
+    const res = await fetch(`${API_PATH}/bulk`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ students: studentsArray })
+    });
+    if (!res.ok) {
+      const errData = await res.json();
+      throw new Error(errData.error || 'Failed to bulk import students');
+    }
+    return await res.json();
+  } catch (error) {
+    console.error('Error bulk importing students:', error);
+    throw error;
+  }
+}
+
+/**
  * Update an existing internal student
  */
 export async function updateInternalStudent(studentId, updates) {

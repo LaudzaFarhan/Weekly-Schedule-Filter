@@ -19,6 +19,7 @@ import { query } from '@/lib/db';
 import { ensureTable } from '@/lib/ensureSchema';
 import { auditAccountAction, canAdminAccounts, identify, isAuthenticated } from '@/lib/apiIdentity';
 import { ROLES } from '@/lib/authSession';
+import { isoDayIndex } from '@/lib/opsSunset';
 
 /**
  * Settings this route will accept, with the default served when unset.
@@ -39,6 +40,12 @@ const SETTINGS = {
   featureToggles: { default: {}, describe: 'Map of page id to boolean.' },
   /** Free-text operational notes shown on the dashboard. */
   announcements: { default: [], describe: 'Notices to show on the dashboard, newest first.' },
+  /**
+   * Retirement date for Old Operations. `null` means the shipped constant in
+   * `@/lib/opsSunset` stands, so unsetting this key is a safe reset rather than a
+   * way to switch the notice off.
+   */
+  oldOpsSunset: { default: null, describe: 'Retirement date for Old Operations, as "YYYY-MM-DD" in WIB.' },
 };
 
 const KEYS = Object.keys(SETTINGS);
@@ -103,6 +110,20 @@ function validate(key, value) {
 
   if (key === 'announcements') {
     if (!Array.isArray(value)) return 'announcements must be an array.';
+    return null;
+  }
+
+  if (key === 'oldOpsSunset') {
+    // `null` is the reset: the shipped constant takes over.
+    if (value === null) return null;
+    // The same reader the notice itself uses, so a date the route accepts is a
+    // date the countdown can count to. It refuses non-strings, sloppy formats
+    // like "2026-9-1", padded strings, and dates that do not exist
+    // (`2026-02-30`, `2027-02-29`), while allowing real leap days.
+    if (isoDayIndex(value) === null) {
+      return 'oldOpsSunset must be null, or a real calendar date as "YYYY-MM-DD" in WIB, for example "2026-09-01".';
+    }
+    // No range check: moving the deadline into the past is a valid action.
     return null;
   }
 

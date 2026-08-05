@@ -5,7 +5,7 @@ import {
 } from 'react';
 import GuidedTour from './GuidedTour';
 import { TOURS, tourForPage } from '@/lib/tourSteps';
-import { hasSeenTour, markTourSeen } from '@/lib/tour';
+import { chooseAutoTour, hasSeenTour, markTourSeen, tourStorageKey } from '@/lib/tour';
 
 /**
  * How long to wait after a page swap before offering a tour. Long enough for
@@ -32,6 +32,19 @@ function safeStorage() {
 }
 
 /**
+ * Seen state for one tour, read without the swallowing that `hasSeenTour` does.
+ *
+ * The automatic offer needs to tell "not seen" from "cannot read storage": the
+ * first should offer a tour, the second should offer nothing at all. So a
+ * storage failure is left to throw here and handled by the caller.
+ */
+function readSeen(tourId, storage) {
+  const tour = TOURS[tourId];
+  if (!tour) return true;
+  return storage.getItem(tourStorageKey(tourId)) === String(tour.version);
+}
+
+/**
  * Owns which tour is running.
  *
  * The welcome tour runs itself once, because someone who does not understand the
@@ -39,8 +52,14 @@ function safeStorage() {
  * being interrupted on every new screen is its own kind of confusing — but the
  * help button glows while the current page has one you have not seen, so it is
  * still discoverable.
+ *
+ * `sunsetLive` and `sidebarCollapsed` feed the automatic offer only: they decide
+ * whether the `ops-sunset` tour is worth running, never whether it can be run by
+ * hand from the banner's button.
  */
-export default function TourProvider({ children, page, opsMode }) {
+export default function TourProvider({
+  children, page, opsMode, sunsetLive = false, sidebarCollapsed = false,
+}) {
   const [activeId, setActiveId] = useState(null);
   const storage = useMemo(safeStorage, []);
 
@@ -86,19 +105,34 @@ export default function TourProvider({ children, page, opsMode }) {
     setActiveId(null);
   }, [activeId, storage]);
 
-  // First run: offer the welcome tour once the app has settled.
+  // Offer one tour automatically, once the app has settled. `chooseAutoTour`
+  // holds the whole precedence rule, so welcome and ops-sunset cannot race:
+  // there is one decision, taken in one place.
   useEffect(() => {
     if (autoStarted.current || !storage) return undefined;
-    if (hasSeenTour('welcome', TOURS.welcome.version, storage)) {
-      autoStarted.current = true;
+
+    let choice = null;
+    try {
+      choice = chooseAutoTour({
+        welcomeSeen: readSeen('welcome', storage),
+        sunsetSeen: readSeen('ops-sunset', storage),
+        opsMode,
+        sidebarCollapsed,
+        sunsetLive,
+      });
+    } catch {
+      // Unreadable storage: offer nothing rather than guess. The help button and
+      // the banner's button still start tours on request.
       return undefined;
     }
+    if (!choice) return undefined;
+
     const t = setTimeout(() => {
       autoStarted.current = true;
-      setActiveId((current) => current || 'welcome');
+      setActiveId((current) => current || choice);
     }, SETTLE_MS);
     return () => clearTimeout(t);
-  }, [storage]);
+  }, [storage, opsMode, sidebarCollapsed, sunsetLive]);
 
   // A tour is written against one screen. If the page changes underneath it —
   // a notification link, browser back — the anchors are gone, so stop rather

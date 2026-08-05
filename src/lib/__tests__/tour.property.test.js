@@ -13,6 +13,7 @@ import {
   CALLOUT_GAP,
   VIEWPORT_MARGIN,
   caretOffset,
+  chooseAutoTour,
   clampSpotlight,
   clearTourSeen,
   hasSeenTour,
@@ -371,5 +372,60 @@ describe('seen state', () => {
     // `sidebarCollapsed` already lives in localStorage unprefixed.
     expect(tourStorageKey('welcome')).toBe('tour.seen.welcome');
     expect(tourStorageKey('welcome').startsWith('tour.')).toBe(true);
+  });
+});
+describe('chooseAutoTour', () => {
+  /**
+   * The five fields the precedence rule reads, generated together.
+   *
+   * `opsMode` carries `'Old'` alongside the two real values because the rule
+   * tests it with `=== 'old'`, and a case-insensitive relaxation later would be
+   * a silent widening of when the sunset tour is allowed to fire.
+   */
+  const tourState = () => fc.record({
+    welcomeSeen: fc.boolean(),
+    sunsetSeen: fc.boolean(),
+    opsMode: fc.constantFrom('old', 'new', 'Old'),
+    sidebarCollapsed: fc.boolean(),
+    sunsetLive: fc.boolean(),
+  });
+
+  // Feature: old-operations-sunset-notice, Property 21: The welcome tour always wins
+  it('Property 21: the welcome tour always wins', () => {
+    fc.assert(
+      fc.property(tourState(), (state) => {
+        fc.pre(state.welcomeSeen === false);
+        // Req 7.4: an unseen `welcome` selects 'welcome' for every combination of
+        // opsMode, sidebar state, phase liveness and sunset seen state, so the
+        // sunset tour can never pre-empt the introduction.
+        expect(chooseAutoTour({ ...state, welcomeSeen: false })).toBe('welcome');
+      }),
+      RUNS
+    );
+  });
+
+  // Feature: old-operations-sunset-notice, Property 22: The sunset tour is offered only under all four conditions
+  it('Property 22: the sunset tour is offered only under all four conditions', () => {
+    fc.assert(
+      fc.property(tourState(), (state) => {
+        const chosen = chooseAutoTour(state);
+
+        // One biconditional rather than four separate implications: a later
+        // change that loosens any single condition breaks this, where a set of
+        // one-way checks would still pass.
+        const allowed = state.welcomeSeen
+          && !state.sunsetSeen          // Req 7.7: already seen at version 1
+          && state.opsMode === 'old'    // Req 7.7: only inside Old Operations
+          && state.sunsetLive           // Req 6.7, 7.7: never in the `past` phase
+          && !state.sidebarCollapsed;   // Req 7.6: collapsed sidebar suppresses it
+
+        expect(chosen === 'ops-sunset').toBe(allowed);
+
+        // Req 7.5: under all four conditions it is 'ops-sunset' and nothing else;
+        // Req 7.7: otherwise, with `welcome` seen, no automatic tour at all.
+        expect(chosen).toBe(allowed ? 'ops-sunset' : (state.welcomeSeen ? null : 'welcome'));
+      }),
+      RUNS
+    );
   });
 });

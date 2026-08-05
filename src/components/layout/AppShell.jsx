@@ -5,10 +5,12 @@ import { useAuth } from '@/contexts/AuthContext';
 import { ScheduleProvider } from '@/contexts/ScheduleContext';
 import { ToastProvider } from '@/components/ui/Toast';
 import LoginOverlay from '@/components/auth/LoginOverlay';
-import TourProvider from '@/components/tour/TourProvider';
+import TourProvider, { useTour } from '@/components/tour/TourProvider';
 import Sidebar from '@/components/layout/Sidebar';
 import Header from '@/components/layout/Header';
 import StudentSearchSidebar from '@/components/layout/StudentSearchSidebar';
+import OpsSunsetBanner from '@/components/ops/OpsSunsetBanner';
+import { useSunsetNotice } from '@/components/ops/useSunsetNotice';
 import HomePage from '@/views/HomePage';
 import ConflictsPage from '@/views/ConflictsPage';
 import AvailabilityPage from '@/views/AvailabilityPage';
@@ -68,6 +70,38 @@ function parsePath(pathname) {
   return { mode: 'old', page: 'home' };
 }
 
+/**
+ * The sunset banner, plus the one callback that has to reach the tour.
+ *
+ * This exists as its own component for a single reason: `useTour()` only works
+ * inside the tree `TourProvider` wraps, and `AppShell`'s own body sits outside
+ * it. Rendering the banner here — a child of the provider — puts `start` within
+ * reach without moving the provider or the layout around it.
+ *
+ * It holds no state of its own and decides nothing about the notice; the model,
+ * the dismissal and the sidebar state all arrive as props.
+ */
+function SunsetBannerSlot({ notice, onDismiss, sidebarCollapsed, onExpandSidebar }) {
+  const { start } = useTour();
+
+  const showMeNewOps = useCallback(() => {
+    // The tour's first stop after the banner is the switcher pill, which lives
+    // in the sidebar. A collapsed sidebar has no laid-out switcher to measure,
+    // so expand it first and start on the next frame — by then React has
+    // committed and the anchor has a box. Req 4.11, 6.11, 7.9
+    if (sidebarCollapsed) onExpandSidebar();
+
+    const raf = typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function'
+      ? window.requestAnimationFrame.bind(window)
+      : (cb) => setTimeout(cb, 0);
+    raf(() => start('ops-sunset'));
+  }, [sidebarCollapsed, onExpandSidebar, start]);
+
+  return (
+    <OpsSunsetBanner notice={notice} onDismiss={onDismiss} onShowMe={showMeNewOps} />
+  );
+}
+
 export default function AppShell() {
   const { user, loading } = useAuth();
   const [currentPage, setCurrentPage] = useState('home');
@@ -91,6 +125,25 @@ export default function AppShell() {
       return next;
     });
   };
+
+  /**
+   * Open the sidebar, whatever state it is in. Used before the sunset tour runs,
+   * because its second step points at a control the collapsed rail does not lay
+   * out. Persisted like any other collapse change, so the tour does not leave the
+   * preference disagreeing with what is on screen.
+   */
+  const expandSidebar = useCallback(() => {
+    setSidebarCollapsed(false);
+    try { localStorage.setItem('sidebarCollapsed', JSON.stringify(false)); } catch { /* ignore */ }
+  }, []);
+
+  // The sunset notice. `opsMode` is reported as `'new'` until there is a signed-in
+  // user, so the login screen starts no clock and issues no config request; the
+  // hook picks both up on the switch to `'old'` once the session resolves.
+  // Nothing about the shell varies with the phase beyond the fields the banner
+  // and the badge render: no redirect, no `opsMode` change, no read-only views.
+  // Req 6.5, 6.10, 13.6
+  const { notice, dismiss } = useSunsetNotice(user ? opsMode : 'new');
 
   // Sync the view from the URL on first mount, then only on browser back /
   // forward. Navigation itself uses history.pushState (see handleNavigate), so
@@ -192,7 +245,12 @@ export default function AppShell() {
         {/* Inside the providers, so a tour step can describe anything the app
             renders; outside the page, so switching pages cannot unmount a
             running tour mid-step. */}
-        <TourProvider page={currentPage} opsMode={opsMode}>
+        <TourProvider
+          page={currentPage}
+          opsMode={opsMode}
+          sunsetLive={notice.phase !== 'past'}
+          sidebarCollapsed={sidebarCollapsed}
+        >
         <div className={`app-layout ${sidebarCollapsed ? 'sidebar-collapsed' : ''}`}>
           <Sidebar 
             currentPage={currentPage} 
@@ -201,9 +259,21 @@ export default function AppShell() {
             opsMode={opsMode}
             setOpsMode={handleSetOpsMode}
             onToggleSidebar={toggleSidebar}
+            sunsetBadge={notice.badge}
           />
           <main className="dashboard-container">
             <Header onToggleSearch={() => setIsSearchOpen(true)} opsMode={opsMode} onToggleSidebar={toggleSidebar} sidebarCollapsed={sidebarCollapsed} onNavigate={handleNavigate} />
+            {/* Between the Header and the scrolling views, outside both: above the
+                scroll region so it cannot scroll away, and outside PageComponent so
+                it is one mount whichever page is active. Req 4.1, 4.3, 4.4 */}
+            {opsMode === 'old' && (
+              <SunsetBannerSlot
+                notice={notice}
+                onDismiss={dismiss}
+                sidebarCollapsed={sidebarCollapsed}
+                onExpandSidebar={expandSidebar}
+              />
+            )}
             <div className={`dashboard-views ${opsMode === 'new' ? 'new-ops-anim' : ''}`}>
               <PageComponent onNavigate={handleNavigate} params={pageParams} />
             </div>

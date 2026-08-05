@@ -174,6 +174,38 @@ export const TOURS = {
       },
     ],
   },
+
+  // Not a page tour, so it is absent from TOUR_ORDER and from tourForPage. It is
+  // offered automatically by the sunset rule in chooseAutoTour, and on demand by
+  // the banner's own button.
+  'ops-sunset': {
+    id: 'ops-sunset',
+    version: 1,
+    title: 'Moving to New Operations',
+    steps: [
+      {
+        id: 'why',
+        target: '[data-tour="sunset-banner"]',
+        placement: 'bottom',
+        title: 'Old Operations is being retired',
+        body: 'This strip counts down to the date it closes. It changes wording as the date gets closer, and it only appears while you are in Old Operations.',
+      },
+      {
+        id: 'switch',
+        target: '[data-tour="ops-switcher"]',
+        placement: 'right',
+        title: 'New Operations is the one to use',
+        body: 'Press the right half of this pill. The sidebar changes completely — New Operations reads the database rather than the Google Sheet, so it is the side with current data.',
+      },
+      {
+        id: 'where',
+        target: '[data-tour="sidebar-nav"]',
+        placement: 'right',
+        title: 'Everything has a home over there',
+        body: 'Schedule, students, report cards and CRM all have New Operations versions. If a screen you use daily looks missing, it is folded into a group with a chevron.',
+      },
+    ],
+  },
 };
 
 /** Tour ids in the order a new user should meet them. */

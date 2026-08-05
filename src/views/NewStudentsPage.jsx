@@ -11,11 +11,13 @@ import {
   updateInternalStudent, 
   deleteInternalStudent,
   bulkDeleteAllStudents,
+  bulkCreateInternalStudents,
   isWipeUnconfirmedError
 } from '../services/internalStudentService';
 import { logActivity } from '../services/newActivityService';
 import Pagination from '../components/ui/Pagination';
 import WipeStudentsDialog from '../components/operations/WipeStudentsDialog';
+import ImportStudentsModal from '../components/operations/ImportStudentsModal';
 import { isAdmin, ADMIN_ROLE } from '../utils/roles';
 import { WIPE_CONFIRMATION_PHRASE } from '../lib/wipeConfirmation';
 import {
@@ -27,7 +29,7 @@ import {
 } from '../lib/wipeReporting';
 import { STUDENT_LEVELS, normaliseCoderLevel } from '../lib/programRules';
 import { filterStudents } from '../lib/studentFilter';
-import { Plus, Pencil, Trash2, FileText, Search, X, MapPin, User, GraduationCap, Phone, CheckCircle, HelpCircle, AlertTriangle } from 'lucide-react';
+import { Plus, Pencil, Trash2, FileText, Search, X, MapPin, User, GraduationCap, Phone, CheckCircle, HelpCircle, AlertTriangle, Upload } from 'lucide-react';
 
 const STUDENTS_PAGE_SIZE = 5;
 
@@ -83,7 +85,7 @@ export default function NewStudentsPage({ onNavigate } = {}) {
   // True from dispatch until the request settles, so a repeat activation sends
   // no second request. Req 6.7
   const wipeInFlightRef = useRef(false);
-  const canWipeAll = isAdmin(users, user?.email);
+  const canWipeAll = isAdmin(users, user?.email, user);
 
   /**
    * A role change while the dialog is open closes it within the same commit.
@@ -96,6 +98,7 @@ export default function NewStudentsPage({ onNavigate } = {}) {
 
   // Modal/Form State
   const [showModal, setShowModal] = useState(false);
+  const [showImportModal, setShowImportModal] = useState(false);
   const [editingStudent, setEditingStudent] = useState(null);
   const [branchHistory, setBranchHistory] = useState([]);
   
@@ -248,6 +251,26 @@ export default function NewStudentsPage({ onNavigate } = {}) {
     }
   };
 
+  const handleBulkImport = async (studentsList) => {
+    try {
+      const res = await bulkCreateInternalStudents(studentsList);
+      showToast({
+        title: `Successfully imported ${res.count || studentsList.length} students!`,
+        variant: 'success',
+      });
+      setShowImportModal(false);
+      reloadStudents();
+    } catch (err) {
+      console.error('Bulk import error:', err);
+      showToast({
+        title: 'Failed to import students',
+        message: err?.message || 'Please check your file format and retry.',
+        variant: 'error',
+      });
+      throw err;
+    }
+  };
+
   /** Close the wipe dialog and hand keyboard focus back to the control. Req 3.13 */
   const closeWipeDialog = () => {
     setWipeOpen(false);
@@ -316,7 +339,7 @@ export default function NewStudentsPage({ onNavigate } = {}) {
 
     // Re-checked here, not just at render, so a defeated client-side guard
     // still dispatches no request. Req 1.8
-    if (!isAdmin(users, user?.email)) {
+    if (!isAdmin(users, user?.email, user)) {
       showToast({
         title: `Deleting all student records requires the ${ADMIN_ROLE} role`,
         message: 'Your account does not hold that role, so no records were deleted.',
@@ -452,6 +475,24 @@ export default function NewStudentsPage({ onNavigate } = {}) {
               <Plus size={16} /> Add Student
             </button>
 
+            <button
+              onClick={() => setShowImportModal(true)}
+              className="btn"
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.4rem',
+                borderRadius: '10px',
+                padding: '0.5rem 1.2rem',
+                fontSize: '0.85rem',
+                background: 'transparent',
+                border: '1px solid var(--border-color)',
+                cursor: 'pointer',
+              }}
+            >
+              <Upload size={16} /> Bulk Import
+            </button>
+
             {/*
               Admin-only, and absent from the DOM for every other role rather than
               hidden or merely disabled. Sitting immediately after Add Student in
@@ -470,8 +511,17 @@ export default function NewStudentsPage({ onNavigate } = {}) {
                   : 'Delete all student records — cannot be undone'}
                 className="btn"
                 style={{
-                  background: 'transparent', border: '1px solid var(--danger-border)', cursor: 'pointer',
-                  padding: '0.3rem', borderRadius: '6px', color: 'var(--danger)', display: 'flex'
+                  background: 'transparent',
+                  border: '1px solid var(--danger-border)',
+                  cursor: students.length === 0 ? 'not-allowed' : 'pointer',
+                  padding: '0.5rem 1.2rem',
+                  borderRadius: '10px',
+                  color: 'var(--danger)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.4rem',
+                  fontSize: '0.85rem',
+                  opacity: students.length === 0 ? 0.6 : 1
                 }}
               >
                 <Trash2 size={16} /> Delete All
@@ -911,6 +961,16 @@ export default function NewStudentsPage({ onNavigate } = {}) {
           students={students}
           onCancel={closeWipeDialog}
           onConfirm={handleWipeConfirm}
+        />
+      )}
+
+      {/* Bulk Import Modal */}
+      {showImportModal && (
+        <ImportStudentsModal
+          branches={enabledBranches || branches}
+          defaultBranch={filterBranch !== 'all' ? filterBranch : 'Bekasi'}
+          onClose={() => setShowImportModal(false)}
+          onImportComplete={handleBulkImport}
         />
       )}
 

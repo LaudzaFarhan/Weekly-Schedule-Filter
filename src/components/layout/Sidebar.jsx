@@ -69,7 +69,13 @@ const LIVE_PROGRESS_PAGES = [
   { id: 'progress-coder', label: 'Coder Progress' },
 ];
 
-export default function Sidebar({ currentPage, onNavigate, onToggleSearch, opsMode = 'old', setOpsMode, onToggleSidebar }) {
+/**
+ * `sunsetBadge` is the `badge` string from the sunset notice model — decoration
+ * on the Old Operations tab, never a control. Anything that is not a non-empty
+ * string renders no badge at all, so a failed config read or a missing model
+ * leaves the tab exactly as it was rather than printing `undefined`.
+ */
+export default function Sidebar({ currentPage, onNavigate, onToggleSearch, opsMode = 'old', setOpsMode, onToggleSidebar, sunsetBadge }) {
   const { user, logout } = useAuth();
   const { roleToggles, users, featureToggles } = useSchedule();
 
@@ -158,6 +164,11 @@ export default function Sidebar({ currentPage, onNavigate, onToggleSearch, opsMo
           style={{ fontSize: '0.7rem' }}
         >
           Old Operations
+          {/* aria-hidden: the banner already announces this day count, and
+              hearing it twice per page is worse than not hearing it here. */}
+          {typeof sunsetBadge === 'string' && sunsetBadge !== '' && (
+            <span className="ops-sunset-badge" aria-hidden="true">{sunsetBadge}</span>
+          )}
         </button>
         <button 
           className={`switcher-tab ${opsMode === 'new' ? 'active' : ''}`}
