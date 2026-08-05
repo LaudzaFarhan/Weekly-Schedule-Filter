@@ -24,12 +24,16 @@ const mapRow = (row) => ({
  */
 export async function GET(req) {
   try {
-    // Proactively ensure columns exist in PostgreSQL
-    await query(`
-      ALTER TABLE internal_instructors 
-      ADD COLUMN IF NOT EXISTS employment_type VARCHAR(50) DEFAULT 'Full-Time' NOT NULL,
-      ADD COLUMN IF NOT EXISTS available_days TEXT[] DEFAULT '{}' NOT NULL
-    `);
+    // Proactively ensure columns exist in PostgreSQL (silently ignore if db user is not table owner)
+    try {
+      await query(`
+        ALTER TABLE internal_instructors 
+        ADD COLUMN IF NOT EXISTS employment_type VARCHAR(50) DEFAULT 'Full-Time' NOT NULL,
+        ADD COLUMN IF NOT EXISTS available_days TEXT[] DEFAULT '{}' NOT NULL
+      `);
+    } catch (schemaError) {
+      console.warn('Skipped ALTER TABLE internal_instructors schema update:', schemaError.message);
+    }
 
     const { searchParams } = new URL(req.url);
     const { clause, params, limit } = buildListQuery(searchParams, {
