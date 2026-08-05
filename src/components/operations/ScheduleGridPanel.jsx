@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { LayoutGrid } from 'lucide-react';
+import { LayoutGrid, Video } from 'lucide-react';
 import { useSchedule } from '../../contexts/ScheduleContext';
 import { useToast } from '../ui/Toast';
 import { useAuth } from '../../contexts/AuthContext';
@@ -334,6 +334,15 @@ export default function ScheduleGridPanel({ onNavigate } = {}) {
             Drag a card to move it, drag its bottom edge to change length.
           </p>
         </div>
+        {onNavigate && (
+          <button
+            onClick={() => onNavigate('meetings')}
+            className="btn btn-primary"
+            style={{ fontSize: '0.8rem', padding: '0.45rem 0.9rem', display: 'inline-flex', alignItems: 'center', gap: '0.4rem', borderRadius: '8px' }}
+          >
+            <Video size={15} /> Schedule Meeting
+          </button>
+        )}
       </div>
 
       <ScheduleGrid

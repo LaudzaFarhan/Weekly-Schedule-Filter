@@ -42,7 +42,7 @@ import NewTrialAvailabilityPage from '@/views/NewTrialAvailabilityPage';
 import NewActivityPage from '@/views/NewActivityPage';
 import NewKinderProgressPage from '@/views/NewKinderProgressPage';
 import NewJuniorProgressPage from '@/views/NewJuniorProgressPage';
-import NewCoderProgressPage from '@/views/NewCoderProgressPage';
+import NewMeetingsPage from '@/views/NewMeetingsPage';
 
 const PAGE_MAP = {
   home: HomePage,
@@ -190,6 +190,8 @@ export default function AppShell() {
       PageComponent = NewInstructorsPage;
     } else if (currentPage === 'crm') {
       PageComponent = NewCrmPage;
+    } else if (currentPage === 'meetings') {
+      PageComponent = NewMeetingsPage;
     } else if (currentPage === 'workload') {
       PageComponent = NewWorkloadPage;
     } else if (currentPage === 'leave') {

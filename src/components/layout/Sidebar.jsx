@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useSchedule } from '@/contexts/ScheduleContext';
 import {
-  Home, AlertTriangle, Calendar, Activity, Star,
+  Home, AlertTriangle, Calendar, Activity, Star, Video,
   Search, FileText, PenLine, Terminal, Settings, LogOut, User, BarChart3, ClipboardList, Users, Building2, PanelLeftClose, CalendarOff,
   TrendingUp, ChevronDown, ChevronRight, ShieldCheck
 } from 'lucide-react';
@@ -283,6 +283,16 @@ export default function Sidebar({ currentPage, onNavigate, onToggleSearch, opsMo
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
                 <Users size={20} />
                 CRM Pipeline
+              </div>
+            </button>
+            <button
+              className={`nav-item ${currentPage === 'meetings' ? 'active' : ''}`}
+              onClick={() => onNavigate('meetings')}
+              style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                <Video size={20} />
+                Meetings
               </div>
             </button>
             <button

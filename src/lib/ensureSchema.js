@@ -451,6 +451,30 @@ const DEFINITIONS = {
       table: 'internal_student_terms',
     },
   ],
+
+  internal_meetings: [
+    `CREATE TABLE IF NOT EXISTS internal_meetings (
+        id SERIAL PRIMARY KEY,
+        title VARCHAR(255) NOT NULL,
+        meeting_date DATE NOT NULL,
+        day VARCHAR(50) NOT NULL,
+        time VARCHAR(100) NOT NULL,
+        branch_name VARCHAR(255) NOT NULL,
+        location VARCHAR(255),
+        agenda TEXT,
+        invited_teachers JSONB DEFAULT '[]'::jsonb NOT NULL,
+        status VARCHAR(50) DEFAULT 'Scheduled' NOT NULL,
+        created_by VARCHAR(255),
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    )`,
+    `CREATE INDEX IF NOT EXISTS internal_meetings_date_idx ON internal_meetings (meeting_date, day)`,
+    `CREATE INDEX IF NOT EXISTS internal_meetings_branch_idx ON internal_meetings (branch_name)`,
+    {
+      trigger: 'update_internal_meetings_changetimestamp',
+      table: 'internal_meetings',
+    },
+  ],
 };
 
 // table name -> Promise, so concurrent requests share one bootstrap.
