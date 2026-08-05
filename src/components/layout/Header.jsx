@@ -11,6 +11,7 @@ import {
   AlertTriangle, AlertCircle, Info, X, CheckCheck, History, HelpCircle,
 } from 'lucide-react';
 import { useTour } from '../tour/TourProvider';
+import { APP_VERSION } from '../../config/version';
 
 /**
  * How long the notification panel's exit animation runs, matching the
@@ -252,7 +253,25 @@ export default function Header({ onToggleSearch, opsMode = 'old', onToggleSideba
             </button>
           )}
           <div>
-            <h1 style={{ fontFamily: "'Outfit', sans-serif", fontSize: '1.3rem', color: 'var(--text-main)', margin: 0 }}>The Lab Operation System</h1>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <h1 style={{ fontFamily: "'Outfit', sans-serif", fontSize: '1.3rem', color: 'var(--text-main)', margin: 0 }}>The Lab Operation System</h1>
+              <span
+                style={{
+                  fontSize: '0.68rem',
+                  fontWeight: 700,
+                  padding: '0.15rem 0.5rem',
+                  borderRadius: '999px',
+                  background: 'rgba(79, 70, 229, 0.1)',
+                  color: 'var(--primary-blue, #4f46e5)',
+                  border: '1px solid rgba(79, 70, 229, 0.25)',
+                  lineHeight: '1.2',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                }}
+              >
+                {APP_VERSION}
+              </span>
+            </div>
             <p style={{ color: 'var(--text-muted)', fontSize: '0.75rem', margin: 0 }}>
               {opsMode === 'new' ? 'New Operations Portal' : 'School Operations, Live'}
             </p>
