@@ -79,6 +79,30 @@ function shortReason(code, conflict) {
   }
 }
 
+function instructorHasLevel(instructor, levelCategory, classGroups) {
+  if (!levelCategory || levelCategory === 'all') return true;
+  if (!instructor) return false;
+
+  if (levelCovers(instructor.level, levelCategory)) return true;
+
+  if (Array.isArray(classGroups)) {
+    const hasMatchingClass = classGroups.some((g) => {
+      if (g.teacher !== instructor.name) return false;
+      const progs = Array.isArray(g.programs) ? g.programs : [g.program];
+      return progs.some((p) => {
+        const str = String(p || '').toLowerCase();
+        if (levelCategory === 'Kinder' && (str.includes('kinder') || /^kf?\d/i.test(str))) return true;
+        if (levelCategory === 'Junior' && (str.includes('junior') || /^jf?\d/i.test(str))) return true;
+        if (levelCategory === 'Coder' && (str.includes('coder') || /^c\d/i.test(str))) return true;
+        return false;
+      });
+    });
+    if (hasMatchingClass) return true;
+  }
+
+  return false;
+}
+
 /**
  * Time-by-instructor planning grid for Class Operation slots.
  *
@@ -186,16 +210,22 @@ export default function ScheduleGrid({
     [daySlots]
   );
 
+  const pool = useMemo(() => {
+    return allBranches ? instructors : instructorsAtBranch(instructors, branch?.name);
+  }, [allBranches, instructors, branch]);
+
   const columns = useMemo(() => {
-    const pool = allBranches ? instructors : instructorsAtBranch(instructors, branch?.name);
     const sorted = [...pool].sort((a, b) => String(a.name).localeCompare(String(b.name)));
-    return teacher === 'all' ? sorted : sorted.filter((i) => i.name === teacher);
-  }, [allBranches, instructors, branch, teacher]);
+    if (teacher === 'all') return sorted;
+    if (teacher === 'Kinder' || teacher === 'Junior' || teacher === 'Coder') {
+      return sorted.filter((i) => instructorHasLevel(i, teacher, classGroups));
+    }
+    return sorted.filter((i) => i.name === teacher);
+  }, [pool, teacher, classGroups]);
 
   const teacherOptions = useMemo(() => {
-    const pool = allBranches ? instructors : instructorsAtBranch(instructors, branch?.name);
     return [...pool].map((i) => i.name).sort((a, b) => String(a).localeCompare(String(b)));
-  }, [allBranches, instructors, branch]);
+  }, [pool]);
 
   const date = useMemo(() => dateForDay(day, week), [day, week]);
 
@@ -935,15 +965,22 @@ export default function ScheduleGrid({
             </select>
           </label>
           <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600 }}>
-            Teacher
+            Level
             <select
               value={teacher}
               onChange={(e) => setTeacher(e.target.value)}
               className="modal-select-field field-compact"
               style={{ minWidth: '175px' }}
             >
-              <option value="all">All Teachers ({teacherOptions.length})</option>
-              {teacherOptions.map((n) => <option key={n} value={n}>{n}</option>)}
+              <option value="all">All Levels ({pool.length})</option>
+              <optgroup label="Filter by Level">
+                <option value="Kinder">Kinder</option>
+                <option value="Junior">Junior</option>
+                <option value="Coder">Coder</option>
+              </optgroup>
+              <optgroup label="Filter by Teacher">
+                {teacherOptions.map((n) => <option key={n} value={n}>{n}</option>)}
+              </optgroup>
             </select>
           </label>
         </div>
