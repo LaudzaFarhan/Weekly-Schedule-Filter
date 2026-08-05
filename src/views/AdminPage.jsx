@@ -120,6 +120,10 @@ export default function AdminPage() {
   const [userLoading, setUserLoading] = useState(false);
   const [createdUser, setCreatedUser] = useState(null);
   const [resetStatus, setResetStatus] = useState('');
+  // Branch writes go through the server and can be refused (403 for non-Admins,
+  // 400 for a malformed list). `updateBranches` rolls its own optimistic update
+  // back, so all this needs to do is say why the value snapped back.
+  const [branchError, setBranchError] = useState('');
   const [userSearch, setUserSearch] = useState('');
   const [userRoleFilter, setUserRoleFilter] = useState('all');
   const [userPage, setUserPage] = useState(1);
@@ -534,6 +538,19 @@ export default function AdminPage() {
               </div>
             </div>
             <div className="panel-body">
+              {branchError && (
+                <div role="alert" style={{ marginBottom: '1rem', padding: '0.75rem', borderRadius: '6px', background: '#fee2e2', color: '#991b1b', fontSize: '0.85rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.75rem' }}>
+                  <span>{branchError}</span>
+                  <button
+                    type="button"
+                    onClick={() => setBranchError('')}
+                    aria-label="Dismiss branch error"
+                    style={{ background: 'none', border: 'none', color: '#991b1b', cursor: 'pointer', textDecoration: 'underline', fontSize: '0.8rem', flexShrink: 0 }}
+                  >
+                    Dismiss
+                  </button>
+                </div>
+              )}
               {(!branches || branches.length === 0) ? (
                 <div className="empty-state"><p>No branches configured yet.</p></div>
               ) : (
@@ -585,13 +602,20 @@ export default function AdminPage() {
                             type="text"
                             placeholder="Apps Script Web App URL for this branch's spreadsheet"
                             defaultValue={b.trialUrl || ''}
-                            onBlur={(e) => {
+                            onBlur={async (e) => {
                               const next = e.target.value.trim();
                               if ((b.trialUrl || '') === next) return;
                               const updated = branches.map((br) =>
                                 br.id === b.id ? { ...br, trialUrl: next || undefined } : br
                               );
-                              updateBranches(updated);
+                              setBranchError('');
+                              try {
+                                await updateBranches(updated);
+                              } catch (err) {
+                                // The field keeps what was typed so it can be
+                                // saved again once the reason is cleared.
+                                setBranchError(`Error saving Trial Submit URL for ${b.name}: ${err?.message || 'the save was refused.'}`);
+                              }
                             }}
                             style={{
                               flex: 1,
