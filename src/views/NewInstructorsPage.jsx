@@ -7,10 +7,12 @@ import {
   subscribeToInternalInstructors, 
   createInternalInstructor, 
   updateInternalInstructor, 
-  deleteInternalInstructor 
+  deleteInternalInstructor,
+  bulkCreateInternalInstructors
 } from '../services/internalInstructorService';
 import Pagination from '../components/ui/Pagination';
-import { Plus, Pencil, Trash2, Search, X, MapPin, User, ShieldAlert, CheckCircle, Phone, Award, HelpCircle } from 'lucide-react';
+import { Plus, Pencil, Trash2, Search, X, MapPin, User, ShieldAlert, CheckCircle, Phone, Award, HelpCircle, Upload } from 'lucide-react';
+import ImportInstructorsModal from '../components/operations/ImportInstructorsModal';
 
 const INSTRUCTOR_LEVELS = [
   'Kinder and Junior',
@@ -47,6 +49,7 @@ export default function NewInstructorsPage() {
   });
 
   const [formErrors, setFormErrors] = useState({});
+  const [showImportModal, setShowImportModal] = useState(false);
 
   // Subscribe to real-time updates from Firestore
   useEffect(() => {
@@ -117,6 +120,25 @@ export default function NewInstructorsPage() {
     });
     setFormErrors({});
     setShowModal(true);
+  };
+
+  const handleBulkImport = async (instructorsArray) => {
+    try {
+      await bulkCreateInternalInstructors(instructorsArray);
+      showToast({
+        title: 'Bulk Import Success',
+        message: `Successfully imported ${instructorsArray.length} instructors.`,
+        variant: 'success',
+      });
+      setShowImportModal(false);
+    } catch (err) {
+      console.error(err);
+      showToast({
+        title: 'Import Failed',
+        message: err.message || 'Failed to bulk import instructors',
+        variant: 'error',
+      });
+    }
   };
 
   const openEditModal = (inst) => {
@@ -223,13 +245,32 @@ export default function NewInstructorsPage() {
             </p>
           </div>
           
-          <button 
-            onClick={openAddModal} 
-            className="btn btn-primary"
-            style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', borderRadius: '10px', padding: '0.5rem 1.2rem', fontSize: '0.85rem' }}
-          >
-            <Plus size={16} /> Add Instructor
-          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <button 
+              onClick={() => setShowImportModal(true)} 
+              className="btn"
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.4rem',
+                borderRadius: '10px',
+                padding: '0.5rem 1.2rem',
+                fontSize: '0.85rem',
+                background: 'transparent',
+                border: '1px solid var(--border-color)',
+                cursor: 'pointer',
+              }}
+            >
+              <Upload size={16} /> Bulk Import
+            </button>
+            <button 
+              onClick={openAddModal} 
+              className="btn btn-primary"
+              style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', borderRadius: '10px', padding: '0.5rem 1.2rem', fontSize: '0.85rem' }}
+            >
+              <Plus size={16} /> Add Instructor
+            </button>
+          </div>
         </div>
 
         {/* Filter Toolbar */}
@@ -637,6 +678,14 @@ export default function NewInstructorsPage() {
             </form>
           </div>
         </div>
+      )}
+
+      {showImportModal && (
+        <ImportInstructorsModal
+          branches={branches}
+          onClose={() => setShowImportModal(false)}
+          onImportComplete={handleBulkImport}
+        />
       )}
 
       {/* Modal animation style */}
