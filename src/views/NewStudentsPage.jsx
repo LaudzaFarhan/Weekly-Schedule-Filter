@@ -27,7 +27,7 @@ import {
   buildWipeSuccessMessage,
   resolveAuditUser,
 } from '../lib/wipeReporting';
-import { bulkCreateInternalClasses } from '../services/internalScheduleService';
+import { bulkCreateInternalClasses, subscribeToInternalClasses } from '../services/internalScheduleService';
 import { STUDENT_LEVELS, normaliseCoderLevel } from '../lib/programRules';
 
 function normaliseDayName(dayStr) {
@@ -43,7 +43,7 @@ function normaliseDayName(dayStr) {
   return str.charAt(0).toUpperCase() + str.slice(1);
 }
 import { filterStudents } from '../lib/studentFilter';
-import { Plus, Pencil, Trash2, FileText, Search, X, MapPin, User, GraduationCap, Phone, CheckCircle, HelpCircle, AlertTriangle, Upload } from 'lucide-react';
+import { Plus, Pencil, Trash2, FileText, Search, X, MapPin, User, UserCheck, GraduationCap, Phone, CheckCircle, HelpCircle, AlertTriangle, Upload } from 'lucide-react';
 
 const STUDENTS_PAGE_SIZE = 5;
 
@@ -128,7 +128,9 @@ export default function NewStudentsPage({ onNavigate } = {}) {
 
   const [formErrors, setFormErrors] = useState({});
 
-  // Subscribe to real-time updates from Firestore
+  const [classes, setClasses] = useState([]);
+
+  // Subscribe to real-time updates from internal students
   useEffect(() => {
     const unsubscribe = subscribeToInternalStudents((data) => {
       setStudents(data);
@@ -136,6 +138,29 @@ export default function NewStudentsPage({ onNavigate } = {}) {
     });
     return () => unsubscribe();
   }, []);
+
+  // Subscribe to schedule classes to look up assigned instructors
+  useEffect(() => {
+    const unsubClasses = subscribeToInternalClasses((data) => {
+      setClasses(data || []);
+    });
+    return () => unsubClasses();
+  }, []);
+
+  // Helper: Find assigned instructor for a student (from schedule or remarks)
+  const getInstructorForStudent = (st) => {
+    if (!st) return null;
+    if (st.name && Array.isArray(classes) && classes.length > 0) {
+      const targetName = String(st.name).toLowerCase().trim();
+      const match = classes.find(c => c.student && String(c.student).toLowerCase().trim() === targetName && c.teacher);
+      if (match?.teacher) return match.teacher;
+    }
+    if (st.remarks) {
+      const m = String(st.remarks).match(/Instructor:\s*([^|]+)/i);
+      if (m && m[1].trim()) return m[1].trim();
+    }
+    return null;
+  };
 
   const branchList = [...new Set([...(enabledBranches || []).map(b => b.name), ...(branches || []).map(b => b.name)])].filter(Boolean);
 
@@ -635,9 +660,10 @@ export default function NewStudentsPage({ onNavigate } = {}) {
               <thead>
                 <tr>
                   <th>Student Name</th>
-                  <th style={{ width: '220px' }}>Level / Program</th>
-                  <th style={{ width: '150px' }}>Branch</th>
-                  <th style={{ width: '220px' }}>Parent Contact</th>
+                  <th style={{ width: '180px' }}>Level / Program</th>
+                  <th style={{ width: '130px' }}>Branch</th>
+                  <th style={{ width: '140px' }}>Instructor</th>
+                  <th style={{ width: '180px' }}>Parent Contact</th>
                   <th style={{ width: '100px', textAlign: 'center' }}>Status</th>
                   <th>Remarks</th>
                   {/* 140px rather than 100px: the cell holds three icon buttons now. */}
@@ -647,7 +673,7 @@ export default function NewStudentsPage({ onNavigate } = {}) {
               <tbody>
                 {students.length === 0 ? (
                   <tr>
-                    <td colSpan="7" style={{ textAlign: 'center', padding: '3rem 1.5rem', color: 'var(--text-muted)' }}>
+                    <td colSpan="8" style={{ textAlign: 'center', padding: '3rem 1.5rem', color: 'var(--text-muted)' }}>
                       <AlertTriangle size={32} style={{ color: 'var(--warning)', marginBottom: '0.5rem' }} />
                       <div style={{ fontWeight: 600 }}>No Students Registered</div>
                       <div style={{ fontSize: '0.8rem', marginTop: '0.2rem' }}>Click "Add Student" to create your first student record.</div>
@@ -655,7 +681,7 @@ export default function NewStudentsPage({ onNavigate } = {}) {
                   </tr>
                 ) : paged.length === 0 ? (
                   <tr>
-                    <td colSpan="7" style={{ textAlign: 'center', padding: '3rem 1.5rem', color: 'var(--text-muted)' }}>
+                    <td colSpan="8" style={{ textAlign: 'center', padding: '3rem 1.5rem', color: 'var(--text-muted)' }}>
                       <div style={{ fontWeight: 600 }}>No students match your filter settings.</div>
                     </td>
                   </tr>
@@ -694,6 +720,29 @@ export default function NewStudentsPage({ onNavigate } = {}) {
                             <MapPin size={13} style={{ color: 'var(--text-muted)' }} />
                             {st.branchName}
                           </span>
+                        </td>
+                        <td>
+                          {(() => {
+                            const instructor = getInstructorForStudent(st);
+                            if (!instructor) return <span style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>—</span>;
+                            return (
+                              <span style={{ 
+                                display: 'inline-flex', 
+                                alignItems: 'center', 
+                                gap: '0.3rem', 
+                                fontSize: '0.78rem',
+                                fontWeight: 600,
+                                color: 'var(--primary-blue, #4f46e5)',
+                                background: 'rgba(79, 70, 229, 0.08)',
+                                border: '1px solid rgba(79, 70, 229, 0.2)',
+                                padding: '0.2rem 0.55rem',
+                                borderRadius: '6px'
+                              }}>
+                                <UserCheck size={12} />
+                                {instructor}
+                              </span>
+                            );
+                          })()}
                         </td>
                         <td>
                           <div style={{ fontSize: '0.85rem' }}>
