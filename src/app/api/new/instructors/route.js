@@ -10,6 +10,8 @@ const mapRow = (row) => ({
   contact: row.contact,
   status: row.status,
   remarks: row.remarks,
+  employmentType: row.employment_type || 'Full-Time',
+  availableDays: row.available_days || [],
   createdAt: row.created_at,
   updatedAt: row.updated_at
 });
@@ -22,6 +24,13 @@ const mapRow = (row) => ({
  */
 export async function GET(req) {
   try {
+    // Proactively ensure columns exist in PostgreSQL
+    await query(`
+      ALTER TABLE internal_instructors 
+      ADD COLUMN IF NOT EXISTS employment_type VARCHAR(50) DEFAULT 'Full-Time' NOT NULL,
+      ADD COLUMN IF NOT EXISTS available_days TEXT[] DEFAULT '{}' NOT NULL
+    `);
+
     const { searchParams } = new URL(req.url);
     const { clause, params, limit } = buildListQuery(searchParams, {
       searchColumns: ['name', 'level', 'contact'],
@@ -46,20 +55,29 @@ export async function GET(req) {
 export async function POST(req) {
   try {
     const body = await req.json();
-    const { name, level, branches, contact, status, remarks } = body;
-
+    const { name, level, branches, contact, status, remarks, employmentType, availableDays } = body;
+ 
     if (!name || !level || !branches || !contact) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
     }
-
+ 
     const sql = `
-      INSERT INTO internal_instructors (name, level, branches, contact, status, remarks)
-      VALUES ($1, $2, $3, $4, $5, $6)
+      INSERT INTO internal_instructors (name, level, branches, contact, status, remarks, employment_type, available_days)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
       RETURNING *
     `;
-    const params = [name, level, branches || [], contact, status || 'Active', remarks || null];
+    const params = [
+      name, 
+      level, 
+      branches || [], 
+      contact, 
+      status || 'Active', 
+      remarks || null,
+      employmentType || 'Full-Time',
+      availableDays || []
+    ];
     const res = await query(sql, params);
-
+ 
     return NextResponse.json(mapRow(res.rows[0]));
   } catch (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
@@ -72,25 +90,35 @@ export async function POST(req) {
 export async function PUT(req) {
   try {
     const body = await req.json();
-    const { id, name, level, branches, contact, status, remarks } = body;
-
+    const { id, name, level, branches, contact, status, remarks, employmentType, availableDays } = body;
+ 
     if (!id) {
       return NextResponse.json({ error: 'Missing instructor ID' }, { status: 400 });
     }
-
+ 
     const sql = `
       UPDATE internal_instructors
-      SET name = $1, level = $2, branches = $3, contact = $4, status = $5, remarks = $6
-      WHERE id = $7
+      SET name = $1, level = $2, branches = $3, contact = $4, status = $5, remarks = $6, employment_type = $7, available_days = $8
+      WHERE id = $9
       RETURNING *
     `;
-    const params = [name, level, branches || [], contact, status || 'Active', remarks || null, id];
+    const params = [
+      name, 
+      level, 
+      branches || [], 
+      contact, 
+      status || 'Active', 
+      remarks || null, 
+      employmentType || 'Full-Time',
+      availableDays || [],
+      id
+    ];
     const res = await query(sql, params);
-
+ 
     if (res.rowCount === 0) {
       return NextResponse.json({ error: 'Instructor not found' }, { status: 404 });
     }
-
+ 
     return NextResponse.json(mapRow(res.rows[0]));
   } catch (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });

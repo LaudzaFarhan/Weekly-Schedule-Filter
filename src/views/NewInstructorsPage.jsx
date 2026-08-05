@@ -23,6 +23,7 @@ const INSTRUCTOR_LEVELS = [
 ];
 
 const INSTRUCTORS_PAGE_SIZE = 8;
+const WEEK_DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
 export default function NewInstructorsPage() {
   const { enabledBranches, branches, users } = useSchedule();
@@ -51,7 +52,9 @@ export default function NewInstructorsPage() {
     branches: [], // Array of branch names
     contact: '',
     status: 'Active',
-    remarks: ''
+    remarks: '',
+    employmentType: 'Full-Time',
+    availableDays: []
   });
 
   const [formErrors, setFormErrors] = useState({});
@@ -122,7 +125,9 @@ export default function NewInstructorsPage() {
       branches: branchList.length > 0 ? [branchList[0]] : [],
       contact: '',
       status: 'Active',
-      remarks: ''
+      remarks: '',
+      employmentType: 'Full-Time',
+      availableDays: []
     });
     setFormErrors({});
     setShowModal(true);
@@ -179,7 +184,9 @@ export default function NewInstructorsPage() {
       branches: Array.isArray(inst.branches) ? inst.branches : [],
       contact: inst.contact || '',
       status: inst.status || 'Active',
-      remarks: inst.remarks || ''
+      remarks: inst.remarks || '',
+      employmentType: inst.employmentType || 'Full-Time',
+      availableDays: Array.isArray(inst.availableDays) ? inst.availableDays : []
     });
     setFormErrors({});
     setShowModal(true);
@@ -196,12 +203,26 @@ export default function NewInstructorsPage() {
     setForm({ ...form, branches: current });
   };
 
+  const handleDayCheckboxChange = (dayName) => {
+    const current = [...form.availableDays];
+    const index = current.indexOf(dayName);
+    if (index > -1) {
+      current.splice(index, 1);
+    } else {
+      current.push(dayName);
+    }
+    setForm({ ...form, availableDays: current });
+  };
+
   const validateForm = () => {
     const errors = {};
     if (!form.name.trim()) errors.name = 'Instructor Name is required';
     if (!form.level) errors.level = 'Teaching Level selection is required';
     if (!form.branches || form.branches.length === 0) errors.branches = 'Select at least one branch';
     if (!form.contact.trim()) errors.contact = 'Contact details are required';
+    if (form.employmentType === 'Part-Time' && (!form.availableDays || form.availableDays.length === 0)) {
+      errors.availableDays = 'Select at least one available day';
+    }
     
     setFormErrors(errors);
     return Object.keys(errors).length === 0;
@@ -408,6 +429,7 @@ export default function NewInstructorsPage() {
               <thead>
                 <tr>
                   <th>Instructor Name</th>
+                  <th style={{ width: '160px' }}>Employment</th>
                   <th style={{ width: '200px' }}>Teaching Level</th>
                   <th style={{ width: '280px' }}>Teaching Branches</th>
                   <th style={{ width: '180px' }}>Contact Info</th>
@@ -419,7 +441,7 @@ export default function NewInstructorsPage() {
               <tbody>
                 {instructors.length === 0 ? (
                   <tr>
-                    <td colSpan="7" style={{ textAlign: 'center', padding: '3rem 1.5rem', color: 'var(--text-muted)' }}>
+                    <td colSpan="8" style={{ textAlign: 'center', padding: '3rem 1.5rem', color: 'var(--text-muted)' }}>
                       <ShieldAlert size={32} style={{ color: 'var(--warning)', marginBottom: '0.5rem' }} />
                       <div style={{ fontWeight: 600 }}>No Instructors Registered</div>
                       <div style={{ fontSize: '0.8rem', marginTop: '0.2rem' }}>Click "Add Instructor" to register instructor profiles.</div>
@@ -427,7 +449,7 @@ export default function NewInstructorsPage() {
                   </tr>
                 ) : paged.length === 0 ? (
                   <tr>
-                    <td colSpan="7" style={{ textAlign: 'center', padding: '3rem 1.5rem', color: 'var(--text-muted)' }}>
+                    <td colSpan="8" style={{ textAlign: 'center', padding: '3rem 1.5rem', color: 'var(--text-muted)' }}>
                       <div style={{ fontWeight: 600 }}>No instructors match your filters.</div>
                     </td>
                   </tr>
@@ -440,6 +462,16 @@ export default function NewInstructorsPage() {
                           <span style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
                             <User size={14} style={{ color: 'var(--text-muted)' }} />
                             {inst.name}
+                          </span>
+                        </td>
+                        <td>
+                          <span style={{ fontSize: '0.8rem', fontWeight: 500, color: 'var(--text-main)' }}>
+                            {inst.employmentType || 'Full-Time'}
+                            {inst.employmentType === 'Part-Time' && inst.availableDays && inst.availableDays.length > 0 && (
+                              <span style={{ display: 'block', fontSize: '0.7rem', color: 'var(--text-secondary)', marginTop: '0.15rem' }}>
+                                {inst.availableDays.map(d => d.slice(0, 3)).join(', ')}
+                              </span>
+                            )}
                           </span>
                         </td>
                         <td>
@@ -622,6 +654,61 @@ export default function NewInstructorsPage() {
                     {INSTRUCTOR_LEVELS.map(level => <option key={level} value={level}>{level}</option>)}
                   </select>
                 </div>
+
+                {/* Employment Type */}
+                <div>
+                  <label className="modal-form-label">Employment Type *</label>
+                  <select
+                    value={form.employmentType}
+                    onChange={(e) => setForm({ ...form, employmentType: e.target.value, availableDays: e.target.value === 'Full-Time' ? [] : form.availableDays })}
+                    className="modal-select-field"
+                  >
+                    <option value="Full-Time">Full-Time (Follows Branch Operational Hours)</option>
+                    <option value="Part-Time">Part-Time (Specific Days Availability)</option>
+                  </select>
+                </div>
+
+                {/* Day selection for Part-Timers */}
+                {form.employmentType === 'Part-Time' && (
+                  <div>
+                    <label className="modal-form-label" style={{ marginBottom: '0.5rem' }}>Available Days *</label>
+                    <div style={{ 
+                      display: 'grid', 
+                      gridTemplateColumns: 'repeat(3, 1fr)', 
+                      gap: '0.5rem 0.75rem', 
+                      padding: '0.75rem 1rem', 
+                      background: 'var(--bg-color)', 
+                      borderRadius: '10px',
+                      border: formErrors.availableDays ? '1.5px solid var(--danger)' : '1px solid var(--border-color)' 
+                    }}>
+                      {WEEK_DAYS.map((day) => {
+                        const isChecked = form.availableDays.includes(day);
+                        return (
+                          <label 
+                            key={day} 
+                            style={{ 
+                              display: 'flex', 
+                              alignItems: 'center', 
+                              gap: '0.4rem', 
+                              fontSize: '0.8rem', 
+                              cursor: 'pointer',
+                              color: 'var(--text-main)'
+                            }}
+                          >
+                            <input 
+                              type="checkbox" 
+                              checked={isChecked}
+                              onChange={() => handleDayCheckboxChange(day)}
+                              style={{ width: '14px', height: '14px', cursor: 'pointer' }}
+                            />
+                            {day.slice(0, 3)}
+                          </label>
+                        );
+                      })}
+                    </div>
+                    {formErrors.availableDays && <span style={{ fontSize: '0.72rem', color: 'var(--danger)', marginTop: '0.2rem', display: 'block' }}>{formErrors.availableDays}</span>}
+                  </div>
+                )}
 
                 {/* Branches Multi Selection using check boxes */}
                 <div>

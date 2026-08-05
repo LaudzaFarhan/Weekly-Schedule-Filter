@@ -26,6 +26,7 @@ export const AVAIL = {
   ON_LEAVE: 'on_leave',
   BLOCKED: 'blocked',
   OUTSIDE_HOURS: 'outside_hours',
+  NOT_AVAILABLE_ON_DAY: 'not_available_on_day',
 };
 
 /** Leave statuses that do NOT stop someone from teaching. */
@@ -341,6 +342,19 @@ export function availabilityFor(instructor, ctx) {
   } = ctx || {};
 
   const name = instructor?.name;
+
+  // 0. Part-time day constraint check.
+  if (instructor?.employmentType === 'Part-Time' && day) {
+    const avDays = Array.isArray(instructor.availableDays) ? instructor.availableDays : [];
+    if (!avDays.includes(day)) {
+      return {
+        free: false,
+        code: AVAIL.NOT_AVAILABLE_ON_DAY,
+        reason: `Part-time instructor not available on ${day}`,
+        conflict: null,
+      };
+    }
+  }
 
   // 1. Outside the branch's operating hours.
   if (hours) {
