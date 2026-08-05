@@ -107,3 +107,25 @@ export async function deleteInternalInstructor(instructorId) {
     throw error;
   }
 }
+
+/**
+ * Bulk create internal instructors
+ */
+export async function bulkCreateInternalInstructors(instructorsArray) {
+  try {
+    const res = await fetch(`${API_PATH}/bulk`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ instructors: instructorsArray })
+    });
+    if (!res.ok) {
+      const errData = await res.json();
+      throw new Error(errData.error || 'Failed to bulk import instructors');
+    }
+    return await res.json();
+  } catch (error) {
+    console.error('Error bulk importing instructors:', error);
+    throw error;
+  }
+}
+
