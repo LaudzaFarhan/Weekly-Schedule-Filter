@@ -49,6 +49,7 @@ export default function ImportInstructorsModal({
         const branchKey = keys.find(k => /BRANCH/i.test(k));
         const phoneKey = keys.find(k => /WHATSAPP|PHONE|NUMBER|CONTACT/i.test(k));
         const emailKey = keys.find(k => /EMAIL/i.test(k));
+        const remarksKey = keys.find(k => /REMARKS?|NOTES?|CATATAN|KETERANGAN/i.test(k));
 
         if (!nameKey) {
           setParseError('Column header "Name" is required.');
@@ -68,6 +69,12 @@ export default function ImportInstructorsModal({
 
           const contact = phoneKey ? String(row[phoneKey] || '').trim() : 'N/A';
           const email = emailKey ? String(row[emailKey] || '').trim() : '';
+          const rawRemarks = remarksKey ? String(row[remarksKey] || '').trim() : '';
+
+          const remarksParts = [];
+          if (email) remarksParts.push(`Email: ${email}`);
+          if (rawRemarks) remarksParts.push(rawRemarks);
+          const remarks = remarksParts.join(' | ');
 
           extracted.push({
             name,
@@ -75,9 +82,10 @@ export default function ImportInstructorsModal({
             branches: branchesArray,
             contact: contact || 'N/A',
             status: 'Active',
-            remarks: email ? `Email: ${email}` : '',
+            remarks: remarks || '',
             // for preview display
             email,
+            rawRemarks,
             branchString: branchesArray.join(', '),
           });
         });

@@ -87,6 +87,7 @@ export default function ImportStudentsModal({
         const branchIdx = headers.findIndex((h) => /BRANCH/i.test(h));
         const parentIdx = headers.findIndex((h) => /PARENT/i.test(h));
         const contactIdx = headers.findIndex((h) => /CONTACT|PHONE/i.test(h));
+        const remarksIdx = headers.findIndex((h) => /REMARKS?|NOTES?|CATATAN|KETERANGAN/i.test(h));
 
         const extracted = [];
         for (let r = headerRowIndex + 1; r < matrix.length; r++) {
@@ -105,15 +106,17 @@ export default function ImportStudentsModal({
           const rawBranch = branchIdx !== -1 ? String(row[branchIdx] || '').trim() : '';
           const rawParent = parentIdx !== -1 ? String(row[parentIdx] || '').trim() : '';
           const rawContact = contactIdx !== -1 ? String(row[contactIdx] || '').trim() : '';
+          const rawRemarks = remarksIdx !== -1 ? String(row[remarksIdx] || '').trim() : '';
 
           const level = normaliseProgramLevel(rawProgram, rawTerm);
 
-          // Build comprehensive remarks from TERM, DAYS, TIME, INSTRUCTOR
+          // Build comprehensive remarks from TERM, DAYS, TIME, INSTRUCTOR and any explicit REMARKS column
           const remarksParts = [];
           if (rawProgram) remarksParts.push(`Program: ${rawProgram}`);
           if (rawTerm) remarksParts.push(`Term: ${rawTerm}`);
           if (rawDays || rawTime) remarksParts.push(`Schedule: ${rawDays} ${rawTime}`.trim());
           if (rawInstructor) remarksParts.push(`Instructor: ${rawInstructor}`);
+          if (rawRemarks) remarksParts.push(rawRemarks);
           const remarks = remarksParts.join(' | ');
 
           extracted.push({
@@ -130,6 +133,7 @@ export default function ImportStudentsModal({
             rawDays,
             rawTime,
             rawInstructor,
+            rawRemarks,
           });
         }
 
@@ -344,6 +348,7 @@ export default function ImportStudentsModal({
                       <th style={{ padding: '0.5rem 0.75rem' }}>Term</th>
                       <th style={{ padding: '0.5rem 0.75rem' }}>Schedule</th>
                       <th style={{ padding: '0.5rem 0.75rem' }}>Instructor</th>
+                      <th style={{ padding: '0.5rem 0.75rem' }}>Remarks</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -355,6 +360,7 @@ export default function ImportStudentsModal({
                         <td style={{ padding: '0.45rem 0.75rem' }}>{r.rawTerm || '—'}</td>
                         <td style={{ padding: '0.45rem 0.75rem' }}>{r.rawDays} {r.rawTime}</td>
                         <td style={{ padding: '0.45rem 0.75rem' }}>{r.rawInstructor || '—'}</td>
+                        <td style={{ padding: '0.45rem 0.75rem', color: 'var(--text-secondary)' }}>{r.rawRemarks || r.remarks || '—'}</td>
                       </tr>
                     ))}
                   </tbody>
