@@ -71,10 +71,7 @@ export default function ImportInstructorsModal({
           const email = emailKey ? String(row[emailKey] || '').trim() : '';
           const rawRemarks = remarksKey ? String(row[remarksKey] || '').trim() : '';
 
-          const remarksParts = [];
-          if (email) remarksParts.push(`Email: ${email}`);
-          if (rawRemarks) remarksParts.push(rawRemarks);
-          const remarks = remarksParts.join(' | ');
+          const remarks = rawRemarks ? rawRemarks : (email ? `Email: ${email}` : '');
 
           extracted.push({
             name,

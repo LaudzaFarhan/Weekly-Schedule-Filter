@@ -110,14 +110,14 @@ export default function ImportStudentsModal({
 
           const level = normaliseProgramLevel(rawProgram, rawTerm);
 
-          // Build comprehensive remarks from TERM, DAYS, TIME, INSTRUCTOR and any explicit REMARKS column
-          const remarksParts = [];
-          if (rawProgram) remarksParts.push(`Program: ${rawProgram}`);
-          if (rawTerm) remarksParts.push(`Term: ${rawTerm}`);
-          if (rawDays || rawTime) remarksParts.push(`Schedule: ${rawDays} ${rawTime}`.trim());
-          if (rawInstructor) remarksParts.push(`Instructor: ${rawInstructor}`);
-          if (rawRemarks) remarksParts.push(rawRemarks);
-          const remarks = remarksParts.join(' | ');
+          // If explicit REMARKS column is present in CSV, use it directly; otherwise fallback to auto-generated program/schedule details
+          const fallbackParts = [];
+          if (rawProgram) fallbackParts.push(`Program: ${rawProgram}`);
+          if (rawTerm) fallbackParts.push(`Term: ${rawTerm}`);
+          if (rawDays || rawTime) fallbackParts.push(`Schedule: ${rawDays} ${rawTime}`.trim());
+          if (rawInstructor) fallbackParts.push(`Instructor: ${rawInstructor}`);
+          
+          const remarks = rawRemarks ? rawRemarks : (fallbackParts.join(' | ') || null);
 
           extracted.push({
             name,
@@ -126,7 +126,7 @@ export default function ImportStudentsModal({
             parentName: rawParent || null,
             contact: rawContact || '',
             status: 'Active',
-            remarks: remarks || null,
+            remarks: remarks,
             // Extra info for preview display
             rawProgram,
             rawTerm,
