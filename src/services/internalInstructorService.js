@@ -129,3 +129,23 @@ export async function bulkCreateInternalInstructors(instructorsArray) {
   }
 }
 
+/**
+ * Wipe all internal instructors
+ */
+export async function wipeAllInternalInstructors() {
+  try {
+    const res = await fetch(`${API_PATH}?all=true`, {
+      method: 'DELETE'
+    });
+    if (!res.ok) {
+      const errData = await res.json();
+      throw new Error(errData.error || 'Failed to wipe instructors');
+    }
+    return await res.json();
+  } catch (error) {
+    console.error('Error wiping all internal instructors:', error);
+    throw error;
+  }
+}
+
+
