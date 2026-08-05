@@ -422,7 +422,7 @@ export default function NewInstructorsPage() {
           {loading ? (
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '4rem 0', color: 'var(--text-muted)' }}>
               <div className="loading-spinner" style={{ marginBottom: '1rem' }} />
-              <p>Fetching instructors registry from Firestore...</p>
+              <p>Fetching instructors registry from Database...</p>
             </div>
           ) : (
             <table id="schedule-table">
