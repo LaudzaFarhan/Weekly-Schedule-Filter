@@ -966,7 +966,7 @@ export default function ScheduleGrid({
             {[
               { id: 'all', label: 'All', color: 'var(--primary-blue)', bg: 'var(--primary-blue)', textColor: '#fff' },
               { id: 'Kinder', label: 'K', color: '#d97706', bg: '#fef08a', textColor: '#78350f', border: '#f59e0b' },
-              { id: 'Junior', label: 'J', color: '#0284c7', bg: '#e0f2fe', textColor: '#0369a1', border: '#38bdf8' },
+              { id: 'Junior', label: 'J', color: '#00c7d4', bg: '#00FFFF', textColor: '#082f49', border: '#00e5ff' },
               { id: 'Coder', label: 'C', color: '#60a5fa', bg: '#1e3a8a', textColor: '#ffffff', border: '#1e40af' },
             ].map((cat) => {
               const isSelected = teacher === cat.id;

@@ -7,7 +7,7 @@
  */
 export const SLOT_TYPES = [
   { key: 'kinder',   label: 'Kinder Class',   category: 'Kinder', bookable: true,  color: '#d97706', border: '#f59e0b', bg: '#fef08a', text: '#78350f' },
-  { key: 'junior',   label: 'Junior Class',   category: 'Junior', bookable: true,  color: '#0284c7', border: '#38bdf8', bg: '#e0f2fe', text: '#0369a1' },
+  { key: 'junior',   label: 'Junior Class',   category: 'Junior', bookable: true,  color: '#00c7d4', border: '#00e5ff', bg: '#00FFFF', text: '#082f49' },
   { key: 'coder',    label: 'Coder Class',    category: 'Coder',  bookable: true,  color: '#60a5fa', border: '#1e3a8a', bg: '#0f172a', text: '#ffffff', isDark: true },
   { key: 'any',      label: 'Any Class',      category: null,     bookable: true,  color: '#059669', border: '#10b981', bg: 'rgba(5,150,105,0.15)', text: '#065f46' },
   { key: 'break',    label: 'Break',          category: null,     bookable: false, color: '#b45309', border: '#f59e0b', bg: 'rgba(245,158,11,0.12)', text: '#92400e' },
@@ -18,7 +18,7 @@ export const SLOT_TYPES = [
 export const slotTypeMeta = (key) =>
   SLOT_TYPES.find((t) => t.key === key) || SLOT_TYPES[SLOT_TYPES.length - 1];
 
-/** Category color definitions for Schedule Grid: Kinder (Yellow), Junior (Light Blue), Coder (Navy) */
+/** Category color definitions for Schedule Grid: Kinder (Yellow), Junior (Cyan #00FFFF), Coder (Navy) */
 export function getCategoryColorStyle(category) {
   const cat = String(category || '').toLowerCase();
 
@@ -41,14 +41,14 @@ export function getCategoryColorStyle(category) {
     return {
       key: 'junior',
       label: 'Junior',
-      color: '#0284c7',
-      border: '#38bdf8',
-      bg: '#e0f2fe',
-      pillBg: '#e0f2fe',
-      pillColor: '#0369a1',
-      textColor: '#0369a1',
-      subtextColor: '#075985',
-      badgeBg: 'rgba(2, 132, 199, 0.15)',
+      color: '#00c7d4',
+      border: '#00e5ff',
+      bg: '#00FFFF',
+      pillBg: '#00FFFF',
+      pillColor: '#082f49',
+      textColor: '#082f49',
+      subtextColor: '#0369a1',
+      badgeBg: 'rgba(0, 255, 255, 0.25)',
     };
   }
 

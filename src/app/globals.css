@@ -1751,8 +1751,8 @@ body {
 }
 
 .badge-program-junior {
-  background: #e0f2fe;
-  color: var(--junior);
+  background: #00FFFF;
+  color: #082f49;
 }
 
 .badge-program-coder {
