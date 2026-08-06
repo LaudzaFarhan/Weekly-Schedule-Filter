@@ -378,7 +378,7 @@ const cancelFrame = (handle) => {
  * @param {(page: string, params?: object) => void} [props.onNavigate]
  * @param {{ studentId?: number|string, studentName?: string }|null} [props.params]
  */
-export default function NewStudentReportCardsPage({ onNavigate, params } = {}) {
+export default function NewStudentReportCardsPage({ onNavigate, params, initialMode = 'evaluate', page } = {}) {
   const { user } = useAuth();
   const { showToast } = useToast();
 
