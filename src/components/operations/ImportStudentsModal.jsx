@@ -4,6 +4,8 @@ import React, { useState, useRef } from 'react';
 import { X, Upload, Download, FileSpreadsheet, CheckCircle2, AlertTriangle, FileText } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
+import { formatNormalizedTimeSlot } from '../../utils/timeUtils';
+
 /**
  * Normalise level/program to standard options if possible
  */
@@ -21,6 +23,9 @@ function normaliseProgramLevel(rawProgram, rawTerm) {
   
   return str;
 }
+
+const DAY_MATCH_REGEX = /\b(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday|Mon|Tue|Wed|Thu|Fri|Sat|Sun|Senin|Selasa|Rabu|Kamis|Jumat|Sabtu|Minggu)\b/i;
+const TIME_MATCH_REGEX = /(\d{1,3}[:.]\d{2}\s*[-–—]\s*\d{1,2}[:.]\d{2}\s*(?:am|pm)?|\d{1,2}\s*(?:am|pm)?\s*[-–—]\s*\d{1,2}\s*(?:am|pm)?)/i;
 
 export default function ImportStudentsModal({
   branches = [],
@@ -77,17 +82,17 @@ export default function ImportStudentsModal({
 
         const headers = (matrix[headerRowIndex] || []).map((h) => String(h || '').trim());
         
-        // Map header indices
-        const nameIdx = headers.findIndex((h) => /NAME/i.test(h));
+        // Map header indices with expanded regexes for multi-language support
+        const nameIdx = headers.findIndex((h) => /NAME|STUDENT/i.test(h));
         const progIdx = headers.findIndex((h) => /PROGRAM|LEVEL/i.test(h));
         const termIdx = headers.findIndex((h) => /TERM/i.test(h));
-        const daysIdx = headers.findIndex((h) => /DAYS?|DAY/i.test(h));
-        const timeIdx = headers.findIndex((h) => /TIME/i.test(h));
-        const instructorIdx = headers.findIndex((h) => /INSTRUCTOR|TEACHER/i.test(h));
-        const branchIdx = headers.findIndex((h) => /BRANCH/i.test(h));
-        const parentIdx = headers.findIndex((h) => /PARENT/i.test(h));
-        const contactIdx = headers.findIndex((h) => /CONTACT|PHONE/i.test(h));
-        const remarksIdx = headers.findIndex((h) => /REMARKS?|NOTES?|CATATAN|KETERANGAN/i.test(h));
+        const daysIdx = headers.findIndex((h) => /DAYS?|DAY|HARI/i.test(h));
+        const timeIdx = headers.findIndex((h) => /TIME|JAM|WAKTU|SLOT|JADWAL/i.test(h));
+        const instructorIdx = headers.findIndex((h) => /INSTRUCTOR|TEACHER|GURU|PENGAJAR/i.test(h));
+        const branchIdx = headers.findIndex((h) => /BRANCH|CABANG/i.test(h));
+        const parentIdx = headers.findIndex((h) => /PARENT|ORANG\s*TUA/i.test(h));
+        const contactIdx = headers.findIndex((h) => /CONTACT|PHONE|TELP|WA/i.test(h));
+        const remarksIdx = headers.findIndex((h) => /REMARKS?|NOTES?|CATATAN|KETERANGAN|INFO/i.test(h));
 
         const extracted = [];
         for (let r = headerRowIndex + 1; r < matrix.length; r++) {
@@ -100,13 +105,39 @@ export default function ImportStudentsModal({
           const name = String(rawName).trim();
           const rawProgram = progIdx !== -1 ? String(row[progIdx] || '').trim() : '';
           const rawTerm = termIdx !== -1 ? String(row[termIdx] || '').trim() : '';
-          const rawDays = daysIdx !== -1 ? String(row[daysIdx] || '').trim() : '';
-          const rawTime = timeIdx !== -1 ? String(row[timeIdx] || '').trim() : '';
-          const rawInstructor = instructorIdx !== -1 ? String(row[instructorIdx] || '').trim() : '';
+          let rawDays = daysIdx !== -1 ? String(row[daysIdx] || '').trim() : '';
+          let rawTime = timeIdx !== -1 ? String(row[timeIdx] || '').trim() : '';
+          let rawInstructor = instructorIdx !== -1 ? String(row[instructorIdx] || '').trim() : '';
           const rawBranch = branchIdx !== -1 ? String(row[branchIdx] || '').trim() : '';
           const rawParent = parentIdx !== -1 ? String(row[parentIdx] || '').trim() : '';
           const rawContact = contactIdx !== -1 ? String(row[contactIdx] || '').trim() : '';
           const rawRemarks = remarksIdx !== -1 ? String(row[remarksIdx] || '').trim() : '';
+
+          // Smart extraction: if rawTime contains a Day name (e.g. "Monday 1.00-2.30pm")
+          if (!rawDays && rawTime) {
+            const dayM = rawTime.match(DAY_MATCH_REGEX);
+            if (dayM) {
+              rawDays = dayM[1];
+              rawTime = rawTime.replace(dayM[0], '').trim();
+            }
+          }
+          if (!rawDays && rawRemarks) {
+            const dayM = rawRemarks.match(DAY_MATCH_REGEX);
+            if (dayM) rawDays = dayM[1];
+          }
+          if (!rawTime && rawRemarks) {
+            const timeM = rawRemarks.match(TIME_MATCH_REGEX);
+            if (timeM) rawTime = timeM[1];
+          }
+          if (!rawInstructor && rawRemarks) {
+            const instM = rawRemarks.match(/(?:Instructor|Teacher|Pengajar|Guru):\s*([^|\n]+)/i);
+            if (instM) rawInstructor = instM[1].trim();
+          }
+
+          // Format time using standard normalizer (handles 010.00-11.30am, 1.00-2.30pm, etc.)
+          if (rawTime) {
+            rawTime = formatNormalizedTimeSlot(rawTime);
+          }
 
           const level = normaliseProgramLevel(rawProgram, rawTerm);
 
@@ -127,7 +158,7 @@ export default function ImportStudentsModal({
             contact: rawContact || '',
             status: 'Active',
             remarks: remarks,
-            // Extra info for preview display
+            // Extra info for schedule auto-creation
             rawProgram,
             rawTerm,
             rawDays,

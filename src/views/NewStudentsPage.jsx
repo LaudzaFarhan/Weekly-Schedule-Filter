@@ -42,6 +42,7 @@ function normaliseDayName(dayStr) {
   if (str.startsWith('sun')) return 'Sunday';
   return str.charAt(0).toUpperCase() + str.slice(1);
 }
+import { formatNormalizedTimeSlot } from '../utils/timeUtils';
 import { filterStudents } from '../lib/studentFilter';
 import { Plus, Pencil, Trash2, FileText, Search, X, MapPin, User, UserCheck, GraduationCap, Phone, CheckCircle, HelpCircle, AlertTriangle, Upload } from 'lucide-react';
 
@@ -295,18 +296,46 @@ export default function NewStudentsPage({ onNavigate } = {}) {
       const res = await bulkCreateInternalStudents(studentsList);
 
       // Automatically sync schedule placements (DAYS, TIME, INSTRUCTOR) to schedule database
-      const scheduleRows = studentsList
-        .filter((s) => s.rawDays && s.rawTime && (s.rawInstructor || s.teacher))
-        .map((s) => ({
-          day: normaliseDayName(s.rawDays),
-          time: String(s.rawTime).trim(),
-          program: String(s.rawTerm || s.rawProgram || s.level || 'General').trim(),
-          student: String(s.name).trim(),
-          teacher: String(s.rawInstructor || s.teacher).trim(),
-          branchName: String(s.branchName || 'Bekasi').trim(),
-          classType: 'Regular',
-          remarks: s.rawRemarks || s.remarks || null,
-        }));
+      const scheduleRows = [];
+      for (const s of studentsList) {
+        let dayRaw = s.rawDays;
+        let timeRaw = s.rawTime;
+        let teacherRaw = s.rawInstructor || s.teacher;
+        const remarksStr = String(s.rawRemarks || s.remarks || '');
+
+        // Fallback Day extraction if missing
+        if (!dayRaw) {
+          const dayM = (timeRaw + ' ' + remarksStr).match(/\b(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday|Mon|Tue|Wed|Thu|Fri|Sat|Sun|Senin|Selasa|Rabu|Kamis|Jumat|Sabtu|Minggu)\b/i);
+          if (dayM) dayRaw = dayM[1];
+        }
+
+        // Fallback Time extraction if missing
+        if (!timeRaw && remarksStr) {
+          const timeM = remarksStr.match(/(\d{1,3}[:.]\d{2}\s*[-–—]\s*\d{1,2}[:.]\d{2}\s*(?:am|pm)?|\d{1,2}\s*(?:am|pm)?\s*[-–—]\s*\d{1,2}\s*(?:am|pm)?)/i);
+          if (timeM) timeRaw = timeM[1];
+        }
+
+        // Fallback Teacher extraction if missing
+        if (!teacherRaw && remarksStr) {
+          const instM = remarksStr.match(/(?:Instructor|Teacher|Pengajar|Guru):\s*([^|\n]+)/i);
+          if (instM) teacherRaw = instM[1].trim();
+        }
+
+        const normTime = formatNormalizedTimeSlot(timeRaw);
+
+        if (normTime && s.name) {
+          scheduleRows.push({
+            day: normaliseDayName(dayRaw || 'Monday'),
+            time: normTime,
+            program: String(s.rawTerm || s.rawProgram || s.level || 'General').trim(),
+            student: String(s.name).trim(),
+            teacher: teacherRaw ? String(teacherRaw).trim() : 'TBD',
+            branchName: String(s.branchName || 'Bekasi').trim(),
+            classType: 'Regular',
+            remarks: s.rawRemarks || s.remarks || null,
+          });
+        }
+      }
 
       let scheduleMsg = '';
       if (scheduleRows.length > 0) {

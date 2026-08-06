@@ -7,7 +7,8 @@ import {
   subscribeToInternalClasses, 
   createInternalClass, 
   updateInternalClass, 
-  deleteInternalClass 
+  deleteInternalClass,
+  bulkDeleteAllClasses
 } from '../services/internalScheduleService';
 import { subscribeToInternalStudents } from '../services/internalStudentService';
 import { subscribeToInternalInstructors } from '../services/internalInstructorService';
@@ -22,7 +23,7 @@ import {
 } from '../lib/instructorAvailability';
 import { subscribeToActivity, logActivity, deleteActivity, displayUser } from '../services/newActivityService';
 import { useAuth } from '../contexts/AuthContext';
-import { doTimeSlotsOverlap } from '../utils/timeUtils';
+import { doTimeSlotsOverlap, formatNormalizedTimeSlot } from '../utils/timeUtils';
 import { DAY_NAMES, SCHEDULE_PAGE_SIZE } from '../utils/constants';
 import Pagination from '../components/ui/Pagination';
 import { Plus, Pencil, Trash2, Search, X, Calendar, CalendarPlus, MapPin, Repeat, User, Users, UserX, BookOpen, Clock, AlertTriangle, Upload, History, Trash, FileDown, CheckCircle2, ChevronDown, Check } from 'lucide-react';
@@ -46,12 +47,22 @@ function parseBulkSchedule(text) {
     const lineNo = idx + 1;
     const dayMatch = DAY_NAMES.find((d) => d.toLowerCase() === String(day || '').toLowerCase());
     if (!dayMatch) { errors.push({ line: lineNo, msg: `Invalid/missing day: "${day || ''}"` }); return; }
-    if (!time || !program || !student || !teacher || !branchName) {
-      errors.push({ line: lineNo, msg: 'Missing required field (need Day, Time, Program, Student, Teacher, Branch)' });
+    if (!time || !student) {
+      errors.push({ line: lineNo, msg: 'Missing required field (need Day, Time, Student)' });
       return;
     }
     const ct = /trial/i.test(classType || '') ? 'Trial' : 'Regular';
-    rows.push({ day: dayMatch, time, program, student, teacher, branchName, classType: ct, remarks: '' });
+    const normTime = formatNormalizedTimeSlot(time);
+    rows.push({
+      day: dayMatch,
+      time: normTime,
+      program: program || 'General',
+      student,
+      teacher: teacher || 'TBD',
+      branchName: branchName || 'Bekasi',
+      classType: ct,
+      remarks: '',
+    });
   });
   return { rows, errors };
 }
@@ -1429,6 +1440,38 @@ export default function NewSchedulePage({ onNavigate }) {
     }
   };
 
+  const handleClearAllClasses = async () => {
+    const classCount = classes.length;
+    if (classCount === 0) {
+      showToast({ title: 'No schedule classes to clear', variant: 'warning' });
+      return;
+    }
+    if (!window.confirm(`Are you sure you want to remove ALL ${classCount} schedule entries from Internal Operations?\n\nThis action cannot be undone.`)) {
+      return;
+    }
+    try {
+      const res = await bulkDeleteAllClasses();
+      setClasses([]);
+      await logActivity({
+        action: 'delete',
+        summary: `Cleared all ${res.count || classCount} internal schedule classes`,
+        source: 'schedule',
+        userEmail: user?.email || null,
+      });
+      showToast({
+        title: `Successfully cleared ${res.count || classCount} schedule entries!`,
+        variant: 'success',
+      });
+    } catch (err) {
+      console.error('Error clearing internal schedule classes:', err);
+      showToast({
+        title: 'Failed to clear schedule classes',
+        message: err?.message || 'Please retry.',
+        variant: 'error',
+      });
+    }
+  };
+
   // Read an uploaded workbook into preview rows.
   const handleBulkFile = async (file) => {
     if (!file) return;
@@ -2152,6 +2195,20 @@ export default function NewSchedulePage({ onNavigate }) {
                   {unallocatedStudents.length}
                 </span>
               )}
+            </button>
+            <button
+              onClick={handleClearAllClasses}
+              className="btn"
+              title="Remove all schedule data in Internal Operations"
+              style={{
+                display: 'flex', alignItems: 'center', gap: '0.4rem', borderRadius: '10px', padding: '0.5rem 0.9rem', fontSize: '0.82rem',
+                border: '1px solid var(--danger, #ef4444)', background: 'rgba(239, 68, 68, 0.08)', color: 'var(--danger, #ef4444)',
+                cursor: classes.length === 0 ? 'not-allowed' : 'pointer',
+                opacity: classes.length === 0 ? 0.6 : 1,
+              }}
+              disabled={classes.length === 0}
+            >
+              <Trash2 size={15} /> Clear All Data
             </button>
             <button 
               onClick={openAddModal} 

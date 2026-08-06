@@ -91,6 +91,38 @@ export function doTimeSlotsOverlap(slot1, slot2) {
 }
 
 /**
+ * Normalise raw time strings (e.g. "010.00-11.30am", "1.00-2.30pm", "3.00-4.30pm", "4.30-6.00pm", "2.30-4.00pm", "4.00-5.30pm")
+ * into a clean, canonical time slot string like "10.00 - 11.30 am" or "1.00 - 2.30 pm".
+ */
+export function formatNormalizedTimeSlot(rawTimeStr) {
+  if (!rawTimeStr || typeof rawTimeStr !== 'string') return '';
+  const cleaned = rawTimeStr.trim().replace(/(^|[-–—\s])0+(\d{1,2}[:.])/g, '$1$2');
+  const parsed = parseTimeSlot(cleaned);
+  if (!parsed || isNaN(parsed.start) || isNaN(parsed.end)) {
+    return rawTimeStr.trim();
+  }
+
+  const formatClock = (mins) => {
+    const h24 = Math.floor(mins / 60) % 24;
+    const m = mins % 60;
+    const isPM = h24 >= 12;
+    const displayH = h24 > 12 ? h24 - 12 : (h24 === 0 ? 12 : h24);
+    const ampm = isPM ? 'pm' : 'am';
+    return `${displayH}.${String(m).padStart(2, '0')} ${ampm}`;
+  };
+
+  const startStr = formatClock(parsed.start);
+  const endStr = formatClock(parsed.end);
+  const startIsPM = parsed.start >= 12 * 60;
+  const endIsPM = parsed.end >= 12 * 60;
+
+  if (startIsPM === endIsPM) {
+    return `${startStr.replace(/ am| pm/g, '')} - ${endStr}`;
+  }
+  return `${startStr} - ${endStr}`;
+}
+
+/**
  * Generate 1-hour trial slots for a given day (e.g. "Monday").
  */
 export function generateTrialSlots(dayName) {
@@ -127,3 +159,4 @@ export function generateTrialSlots(dayName) {
   }
   return slots;
 }
+

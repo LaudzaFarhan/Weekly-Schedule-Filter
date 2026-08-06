@@ -169,7 +169,7 @@ export default function ScheduleGrid({
     return DAY_NAMES.filter((d) => draft[branch.id]?.has(d));
   }, [allBranches, selectable, branch, draft]);
 
-  const day = openDays.includes(dayChoice) ? dayChoice : (openDays[0] || '');
+  const day = DAY_NAMES.includes(dayChoice) ? dayChoice : (DAY_NAMES[0] || 'Monday');
 
   const hours = useMemo(() => {
     if (allBranches) {
@@ -916,12 +916,7 @@ export default function ScheduleGrid({
           <Filter size={13} /> Day
         </span>
         <div style={{ display: 'flex', gap: '0.3rem', flexWrap: 'wrap' }} role="group" aria-label="Day filter">
-          {openDays.length === 0 && (
-            <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
-              No open days for this branch yet.
-            </span>
-          )}
-          {openDays.map((d) => (
+          {DAY_NAMES.map((d) => (
             <button
               key={d}
               type="button"

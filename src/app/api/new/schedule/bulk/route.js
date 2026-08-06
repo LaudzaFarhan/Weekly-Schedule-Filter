@@ -15,9 +15,13 @@ export async function POST(req) {
       return NextResponse.json({ error: 'No class schedule records provided' }, { status: 400 });
     }
 
-    const validClasses = classes.filter(
-      (c) => c && typeof c === 'object' && c.day && c.time && c.student && c.teacher && c.branchName
-    );
+    const validClasses = classes
+      .filter((c) => c && typeof c === 'object' && c.day && c.time && c.student)
+      .map((c) => ({
+        ...c,
+        teacher: c.teacher ? String(c.teacher).trim() : 'TBD',
+        branchName: c.branchName ? String(c.branchName).trim() : 'Bekasi',
+      }));
 
     if (validClasses.length === 0) {
       return NextResponse.json({ error: 'No valid class records with required fields found' }, { status: 400 });

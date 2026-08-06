@@ -47,7 +47,19 @@ export async function POST(req) {
       });
     }
 
-    // 2. Fetch teaching classes matching the day and time slot
+    // 2. Fetch branch operation status for the day from internal_operationals
+    let branchOps = [];
+    try {
+      const opRes = await query(
+        `SELECT branch_name, slots, is_open FROM internal_operationals WHERE LOWER(day) = LOWER($1)`,
+        [day]
+      );
+      branchOps = opRes.rows;
+    } catch (e) {
+      console.warn('Could not query internal_operationals:', e);
+    }
+
+    // 3. Fetch teaching classes matching the day and time slot
     const classesRes = await query(
       `SELECT teacher, program, student, branch_name, time, class_type
        FROM internal_classes
@@ -56,7 +68,7 @@ export async function POST(req) {
     );
     const assignedClasses = classesRes.rows;
 
-    // 3. Fetch approved leaves overlapping meetingDate
+    // 4. Fetch approved leaves overlapping meetingDate
     const leavesRes = await query(
       `SELECT instructor_name, reason, start_date, end_date
        FROM internal_leaves
@@ -66,10 +78,43 @@ export async function POST(req) {
     );
     const activeLeaves = leavesRes.rows;
 
-    // 4. Build prediction report for each teacher
+    // 5. Build prediction report for each teacher
     const predictions = allTeachers.map(teacher => {
       const tName = teacher.name;
       const lowerTName = tName.toLowerCase();
+      const teacherBranches = Array.isArray(teacher.branches) ? teacher.branches : [];
+
+      // Check branch OFF / non-operational status
+      let isBranchOff = false;
+      let offBranchName = '';
+
+      if (branchName && branchName !== 'All Branches' && branchName !== 'all') {
+        const op = branchOps.find(b => String(b.branch_name).toLowerCase() === String(branchName).toLowerCase());
+        if (op && (op.is_open === false || (Array.isArray(op.slots) && op.slots.length === 0))) {
+          isBranchOff = true;
+          offBranchName = branchName;
+        }
+      } else if (teacherBranches.length > 0 && branchOps.length > 0) {
+        const openForTeacher = teacherBranches.some(tb => {
+          const op = branchOps.find(b => String(b.branch_name).toLowerCase() === String(tb).toLowerCase());
+          return !op || op.is_open !== false;
+        });
+        if (!openForTeacher) {
+          isBranchOff = true;
+          offBranchName = teacherBranches.join(', ');
+        }
+      }
+
+      if (isBranchOff) {
+        return {
+          name: tName,
+          status: 'branch_off',
+          available: false,
+          badgeColor: 'secondary',
+          badgeText: 'Branch OFF',
+          details: `Branch ${offBranchName ? `(${offBranchName})` : ''} is OFF / non-operational on ${day}`
+        };
+      }
 
       // Check leave status
       const leave = activeLeaves.find(l => String(l.instructor_name || '').toLowerCase() === lowerTName);

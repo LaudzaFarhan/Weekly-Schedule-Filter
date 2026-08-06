@@ -228,6 +228,17 @@ export async function DELETE(req) {
     await ready();
     const { searchParams } = new URL(req.url);
     const id = searchParams.get('id');
+    const all = searchParams.get('all');
+
+    if (all === 'true' || id === 'all') {
+      const res = await query('DELETE FROM internal_classes RETURNING *');
+      await query('DELETE FROM internal_class_sessions');
+      return NextResponse.json({
+        success: true,
+        count: res.rowCount,
+        message: 'All internal schedule classes deleted successfully',
+      });
+    }
 
     if (!id) {
       return NextResponse.json({ error: 'Missing class ID in query parameter' }, { status: 400 });
