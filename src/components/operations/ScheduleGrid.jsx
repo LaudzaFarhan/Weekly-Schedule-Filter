@@ -13,7 +13,7 @@ import {
 } from '../../lib/instructorAvailability';
 import {
   SLOT_TYPES, SESSION_TYPES, slotTypeMeta, slotKeyForCategory,
-  durationForCategory, isInstructorScoped,
+  durationForCategory, isInstructorScoped, getCategoryColorStyle,
 } from '../../lib/slotTypes';
 import { maxStudentsFor } from '../../lib/programRules';
 import { DAY_NAMES } from '../../utils/constants';
@@ -934,6 +934,39 @@ export default function ScheduleGrid({
               {d.slice(0, 3)}
             </button>
           ))}
+        </div>
+
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)', marginLeft: '0.4rem' }}>
+          Program
+        </span>
+        <div style={{ display: 'flex', gap: '0.3rem', flexWrap: 'wrap' }} role="group" aria-label="Program level filter">
+          {[
+            { id: 'all', label: 'All', color: 'var(--primary-blue)', bg: 'var(--primary-blue)', textColor: '#fff' },
+            { id: 'Kinder', label: 'K - Kinder', color: '#d97706', bg: '#fef08a', textColor: '#78350f', border: '#f59e0b' },
+            { id: 'Junior', label: 'J - Junior', color: '#0284c7', bg: '#e0f2fe', textColor: '#0369a1', border: '#38bdf8' },
+            { id: 'Coder', label: 'C - Coder', color: '#60a5fa', bg: '#1e3a8a', textColor: '#ffffff', border: '#1e40af' },
+          ].map((cat) => {
+            const isSelected = teacher === cat.id;
+            return (
+              <button
+                key={cat.id}
+                type="button"
+                onClick={() => setTeacher(cat.id)}
+                aria-pressed={isSelected}
+                style={{
+                  borderRadius: '8px', padding: '0.35rem 0.85rem', fontSize: '0.78rem', fontWeight: 700,
+                  cursor: 'pointer', border: '1px solid',
+                  borderColor: isSelected ? (cat.border || cat.color) : 'var(--border-color)',
+                  background: isSelected ? cat.bg : 'transparent',
+                  color: isSelected ? cat.textColor : 'var(--text-secondary)',
+                  boxShadow: isSelected ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
+                  transition: 'all 0.15s ease-in-out',
+                }}
+              >
+                {cat.label}
+              </button>
+            );
+          })}
         </div>
 
         <div style={{ marginLeft: 'auto', display: 'flex', gap: '0.9rem', alignItems: 'center', flexWrap: 'wrap' }}>
@@ -2308,7 +2341,7 @@ function Cell({
 
   if (cell.kind === 'class') {
     const cls = cell.cls;
-    const meta = slotTypeMeta(slotKeyForCategory(cell.category));
+    const meta = getCategoryColorStyle(cell.category);
     const seats = maxStudentsFor(cls.programs[0] || cell.category, rules);
     const occ = occupancyForWeek(cls, week);
     const item = {
@@ -2339,17 +2372,16 @@ function Cell({
         title={allBranches ? undefined : 'Open the roster — add or remove students'}
         style={{
           position: 'relative', height: boxH, borderRadius: cardRadius(cell.buttedPrev, cell.buttedNext),
-          border: `1px solid ${meta.color}`, background: meta.bg,
+          border: `1px solid ${meta.border || meta.color}`, background: meta.bg,
           padding: cardPadding(edgeMarks, gripped),
-          // The seam chip has to be allowed past the card's own edge.
           overflow: cell.buttedNext ? 'visible' : 'hidden',
           cursor: allBranches ? 'default' : 'pointer',
-          outline: resizing ? `2px solid ${meta.color}` : 'none',
+          outline: resizing ? `2px solid ${meta.border || meta.color}` : 'none',
         }}
       >
         {edgeMarks && (
           <EdgeMarks
-            color={meta.color}
+            color={meta.textColor}
             startLabel={clockLabel(cls.startMin)}
             endLabel={clockLabel(shownEnd)}
             gripped={gripped}
@@ -2358,32 +2390,32 @@ function Cell({
           />
         )}
         <span style={{ display: 'flex', alignItems: 'center', gap: '0.2rem' }}>
-          {!allBranches && <GripVertical size={11} style={{ color: meta.color, flexShrink: 0 }} aria-hidden="true" />}
-          <span style={{ fontSize: '0.73rem', fontWeight: 700, color: 'var(--text-main)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {!allBranches && <GripVertical size={11} style={{ color: meta.textColor, flexShrink: 0 }} aria-hidden="true" />}
+          <span style={{ fontSize: '0.73rem', fontWeight: 700, color: meta.textColor, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             {[...new Set(cls.programs)].join(', ') || 'Class'}
           </span>
         </span>
-        <span style={{ display: 'block', fontSize: '0.61rem', color: 'var(--text-muted)', fontVariantNumeric: 'tabular-nums' }}>
+        <span style={{ display: 'block', fontSize: '0.61rem', color: meta.subtextColor || 'var(--text-muted)', fontVariantNumeric: 'tabular-nums' }}>
           {clockLabel(cls.startMin)}–{clockLabel(shownEnd)} · {shownEnd - cls.startMin}m
         </span>
         <span style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.3rem', marginTop: '0.15rem' }}>
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.2rem', fontSize: '0.63rem', color: 'var(--text-secondary)' }}>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.2rem', fontSize: '0.63rem', color: meta.subtextColor || 'var(--text-secondary)' }}>
             <Users size={9} /> {occ.regular} reg
-            {occ.guests > 0 && <span style={{ color: '#6d28d9', fontWeight: 700 }}>+{occ.guests}</span>}
+            {occ.guests > 0 && <span style={{ color: meta.isDark ? '#e9d5ff' : '#6d28d9', fontWeight: 700 }}>+{occ.guests}</span>}
           </span>
           <span style={{
-            fontSize: '0.63rem', fontWeight: 700, color: meta.color,
-            background: 'var(--panel-bg)', borderRadius: '5px', padding: '0.05rem 0.28rem',
+            fontSize: '0.63rem', fontWeight: 700, color: meta.textColor,
+            background: meta.badgeBg || 'var(--panel-bg)', borderRadius: '5px', padding: '0.05rem 0.28rem',
           }}>
             {occ.total}/{seats} Pax
           </span>
         </span>
         {allBranches && cls.branchName && (
-          <span style={{ display: 'block', fontSize: '0.6rem', color: 'var(--text-muted)' }}>{cls.branchName}</span>
+          <span style={{ display: 'block', fontSize: '0.6rem', color: meta.subtextColor || 'var(--text-muted)' }}>{cls.branchName}</span>
         )}
         {!allBranches && (
           <ResizeGrip
-            color={meta.color}
+            color={meta.textColor}
             label={item.label}
             disabled={saving || !!moving}
             onStart={(y) => beginResize(item, y)}
