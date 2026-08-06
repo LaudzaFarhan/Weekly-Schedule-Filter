@@ -1221,130 +1221,142 @@ export default function NewStudentReportCardsPage({ onNavigate, params, initialM
                 `report-cards-rubric`, so this page has two modes rather than
                 three. The compact reference beside the form stays. */}
             {(
-              <>
-                {/* Evaluation form — already carries `no-print` on its own root. */}
-                <EvaluationForm
-                  evaluation={editingEvaluation}
-                  lessonNumber={selectedLesson}
-                  onLessonChange={handleLessonChange}
-                  recordedLessons={recordedLessons}
-                  date={date}
-                  onDateChange={setDate}
-                  evaluations={shownEvaluations}
-                  student={selectedStudent}
-                  instructorNames={instructorNames}
-                  onSave={handleSave}
-                  saving={saving}
-                />
-
-                {/*
-                  On-screen chart panels. The wrapper is not part of the report,
-                  so it carries `no-print`; the printed radar comes from the
-                  document itself.
-                */}
-                <div
-                  className="no-print"
-                  style={{
-                    display: 'grid',
-                    gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
-                    gap: '1.25rem',
-                  }}
-                >
-                  <div className="panel" style={{ margin: 0 }}>
-                    <div className="panel-header" style={{ display: 'block' }}>
-                      <h3
-                        style={{
-                          fontSize: '0.95rem',
-                          fontWeight: 600,
-                          margin: 0,
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '0.4rem',
-                        }}
-                      >
-                        <Award size={16} aria-hidden="true" />
-                        Competency Map
-                      </h3>
-                      <p
-                        style={{
-                          fontSize: '0.75rem',
-                          color: 'var(--text-secondary)',
-                          margin: '0.2rem 0 0',
-                        }}
-                      >
-                        The average of every evaluation on record.
-                      </p>
-                    </div>
-                    <div
-                      data-tour="radar"
-                      className="panel-body"
-                      style={{
-                        padding: '1rem',
-                        display: 'flex',
-                        justifyContent: 'center',
-                        minHeight: `${SCREEN_RADAR_SIZE.height}px`,
-                      }}
-                    >
-                      <ChartBoundary averages={averages}>
-                        <CompetencyRadarChart averages={averages} size={SCREEN_RADAR_SIZE} />
-                      </ChartBoundary>
-                    </div>
-                  </div>
-
-                  <div className="panel" style={{ margin: 0 }}>
-                    <div className="panel-header" style={{ display: 'block' }}>
-                      <h3
-                        style={{
-                          fontSize: '0.95rem',
-                          fontWeight: 600,
-                          margin: 0,
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '0.4rem',
-                        }}
-                      >
-                        <TrendingUp size={16} aria-hidden="true" />
-                        Average Progress Trend
-                      </h3>
-                      <p
-                        style={{
-                          fontSize: '0.75rem',
-                          color: 'var(--text-secondary)',
-                          margin: '0.2rem 0 0',
-                        }}
-                      >
-                        One point per lesson, labelled with its place in the whole history.
-                      </p>
-                    </div>
-                    <div
-                      className="panel-body"
-                      style={{
-                        padding: '1rem',
-                        display: 'flex',
-                        justifyContent: 'center',
-                        minHeight: `${SCREEN_TREND_SIZE.height}px`,
-                      }}
-                    >
-                      {/*
-                        `averages` is passed alongside `series` so the Req 3.9
-                        fallback has the numbers to print; the chart itself reads
-                        only `series` and `size`.
-                      */}
-                      <ChartBoundary averages={averages}>
-                        <ProgressTrendChart
-                          series={series}
-                          averages={averages}
-                          size={SCREEN_TREND_SIZE}
-                        />
-                      </ChartBoundary>
-                    </div>
-                  </div>
-                </div>
-
-                {/* The compact rubric reference beside the form (Req 1.16). */}
-                <div className="no-print">
+              <div
+                className="no-print"
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'minmax(260px, 320px) minmax(0, 1fr)',
+                  gap: '1.25rem',
+                  alignItems: 'start',
+                }}
+              >
+                {/* LEFT COLUMN: Scoring Guidelines — sticky so it stays visible while scrolling the form */}
+                <div style={{ position: 'sticky', top: '1rem', maxHeight: 'calc(100vh - 2rem)', overflowY: 'auto' }}>
                   <ScoringGuidelinesPanel variant="compact" />
                 </div>
+
+                {/* RIGHT COLUMN: Evaluation Form + Charts */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem', minWidth: 0 }}>
+                  {/* Evaluation form — already carries `no-print` on its own root. */}
+                  <EvaluationForm
+                    evaluation={editingEvaluation}
+                    lessonNumber={selectedLesson}
+                    onLessonChange={handleLessonChange}
+                    recordedLessons={recordedLessons}
+                    date={date}
+                    onDateChange={setDate}
+                    evaluations={shownEvaluations}
+                    student={selectedStudent}
+                    instructorNames={instructorNames}
+                    onSave={handleSave}
+                    saving={saving}
+                  />
+
+                  {/*
+                    On-screen chart panels. The wrapper is not part of the report,
+                    so it carries `no-print`; the printed radar comes from the
+                    document itself.
+                  */}
+                  <div
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
+                      gap: '1.25rem',
+                    }}
+                  >
+                    <div className="panel" style={{ margin: 0 }}>
+                      <div className="panel-header" style={{ display: 'block' }}>
+                        <h3
+                          style={{
+                            fontSize: '0.95rem',
+                            fontWeight: 600,
+                            margin: 0,
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '0.4rem',
+                          }}
+                        >
+                          <Award size={16} aria-hidden="true" />
+                          Competency Map
+                        </h3>
+                        <p
+                          style={{
+                            fontSize: '0.75rem',
+                            color: 'var(--text-secondary)',
+                            margin: '0.2rem 0 0',
+                          }}
+                        >
+                          The average of every evaluation on record.
+                        </p>
+                      </div>
+                      <div
+                        data-tour="radar"
+                        className="panel-body"
+                        style={{
+                          padding: '1rem',
+                          display: 'flex',
+                          justifyContent: 'center',
+                          minHeight: `${SCREEN_RADAR_SIZE.height}px`,
+                        }}
+                      >
+                        <ChartBoundary averages={averages}>
+                          <CompetencyRadarChart averages={averages} size={SCREEN_RADAR_SIZE} />
+                        </ChartBoundary>
+                      </div>
+                    </div>
+
+                    <div className="panel" style={{ margin: 0 }}>
+                      <div className="panel-header" style={{ display: 'block' }}>
+                        <h3
+                          style={{
+                            fontSize: '0.95rem',
+                            fontWeight: 600,
+                            margin: 0,
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '0.4rem',
+                          }}
+                        >
+                          <TrendingUp size={16} aria-hidden="true" />
+                          Average Progress Trend
+                        </h3>
+                        <p
+                          style={{
+                            fontSize: '0.75rem',
+                            color: 'var(--text-secondary)',
+                            margin: '0.2rem 0 0',
+                          }}
+                        >
+                          One point per lesson, labelled with its place in the whole history.
+                        </p>
+                      </div>
+                      <div
+                        className="panel-body"
+                        style={{
+                          padding: '1rem',
+                          display: 'flex',
+                          justifyContent: 'center',
+                          minHeight: `${SCREEN_TREND_SIZE.height}px`,
+                        }}
+                      >
+                        {/*
+                          `averages` is passed alongside `series` so the Req 3.9
+                          fallback has the numbers to print; the chart itself reads
+                          only `series` and `size`.
+                        */}
+                        <ChartBoundary averages={averages}>
+                          <ProgressTrendChart
+                            series={series}
+                            averages={averages}
+                            size={SCREEN_TREND_SIZE}
+                          />
+                        </ChartBoundary>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
 
                 <div
                   className="no-print"
@@ -1367,8 +1379,6 @@ export default function NewStudentReportCardsPage({ onNavigate, params, initialM
                       : 'No evaluation data loaded for this student yet.'}
                   </span>
                 </div>
-              </>
-            )}
           </div>
       )}
 
