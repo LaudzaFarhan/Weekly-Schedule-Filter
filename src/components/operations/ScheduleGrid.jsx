@@ -1375,6 +1375,7 @@ export default function ScheduleGrid({
                             saving={saving}
                             moving={moving}
                             isTarget={isTarget}
+                            liveProgressMap={liveProgressMap}
                             resizing={resizingThis ? resizing : null}
                             openPicker={openPicker}
                             rowIdx={rowIdx}
@@ -1725,7 +1726,7 @@ export default function ScheduleGrid({
                         const thisWeek = attendsInWeek(m, week);
                         const spent = isExpired(m, todayISO);
 
-                        const progRecord = liveProgressMap.get(String(m.student || '').toLowerCase().trim());
+                        const progRecord = liveProgressMap?.get ? liveProgressMap.get(String(m.student || '').toLowerCase().trim()) : null;
                         const progressStatus = getProgressUpdateStatus(m, progRecord);
                         const badgeInfo = progressStatus ? PROGRESS_UPDATE_BADGES[progressStatus] : null;
 
@@ -2357,7 +2358,7 @@ function cardRadius(buttedPrev, buttedNext) {
 
 /** One cell's content. */
 function Cell({
-  cell, inst, start, height, allBranches, rules, saving, week,
+  cell, inst, start, height, allBranches, rules, saving, week, liveProgressMap,
   moving, isTarget, resizing, openPicker, openEditor, openRoster, onRemoveSlot,
   beginMoveClass, beginMoveSlot, setMoving, applyMove, beginResize, nudge,
   rowIdx, beginDraw, inDraw, drawAnchor, drawnDuration, drawnRows,
@@ -2559,7 +2560,7 @@ function Cell({
           let scheduledCount = 0;
           if (Array.isArray(cls.members)) {
             for (const m of cls.members) {
-              const progRecord = liveProgressMap.get(String(m.student || '').toLowerCase().trim());
+              const progRecord = liveProgressMap?.get ? liveProgressMap.get(String(m.student || '').toLowerCase().trim()) : null;
               const st = getProgressUpdateStatus(m, progRecord);
               if (st === 'Need update progress') needUpdateCount += 1;
               else if (st === 'Update Offer') offerCount += 1;
