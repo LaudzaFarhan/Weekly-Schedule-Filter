@@ -47,9 +47,34 @@ export default function Header({ onToggleSearch, opsMode = 'old', onToggleSideba
   // the row would just vanish again with nothing said. Same inline style the
   // failed-sync strip below already uses — the header has no toast of its own.
   const [branchError, setBranchError] = useState(null);
-  const [savingBranches, setSavingBranches] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
   const [showAnimationTutorial, setShowAnimationTutorial] = useState(false);
+
+  // Auto-open Animation Tutorial for first-time visitors
+  useEffect(() => {
+    try {
+      if (typeof window !== 'undefined') {
+        const seen = localStorage.getItem('lab_animation_tutorial_seen');
+        if (!seen) {
+          const timer = setTimeout(() => {
+            setShowAnimationTutorial(true);
+          }, 900);
+          return () => clearTimeout(timer);
+        }
+      }
+    } catch (e) {
+      // safe fallback
+    }
+  }, []);
+
+  const handleCloseAnimationTutorial = () => {
+    setShowAnimationTutorial(false);
+    try {
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('lab_animation_tutorial_seen', 'true');
+      }
+    } catch (e) {}
+  };
   // The panel stays mounted for the length of its exit animation, so it can
   // collapse back toward the bell instead of vanishing.
   const [notifClosing, setNotifClosing] = useState(false);
@@ -467,15 +492,15 @@ export default function Header({ onToggleSearch, opsMode = 'old', onToggleSideba
           <button
             type="button"
             data-tour="help"
-            onClick={startForCurrentPage}
+            onClick={() => setShowAnimationTutorial(true)}
             className={hasUnseenPageTour ? 'tour-help-nudge' : undefined}
-            title={pageTourTitle ? `Show me around: ${pageTourTitle}` : 'Show me around'}
-            aria-label={pageTourTitle ? `Start the tour: ${pageTourTitle}` : 'Start the tour'}
+            title="Animation Tutorial & Help"
+            aria-label="Animation Tutorial & Help"
             style={{
               display: 'flex', alignItems: 'center', justifyContent: 'center',
               width: '32px', height: '32px', borderRadius: '10px', cursor: 'pointer',
               border: 'none', background: 'transparent',
-              color: hasUnseenPageTour ? 'var(--primary-blue)' : 'var(--text-muted)',
+              color: 'var(--primary-blue)',
               transition: 'color 0.15s ease',
             }}
           >
@@ -495,7 +520,7 @@ export default function Header({ onToggleSearch, opsMode = 'old', onToggleSideba
 
       <AnimationTutorialModal
         isOpen={showAnimationTutorial}
-        onClose={() => setShowAnimationTutorial(false)}
+        onClose={handleCloseAnimationTutorial}
         onToggleSidebar={onToggleSidebar}
         onNavigate={onNavigate}
       />
