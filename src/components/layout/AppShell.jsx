@@ -45,6 +45,7 @@ import NewJuniorProgressPage from '@/views/NewJuniorProgressPage';
 import NewCoderProgressPage from '@/views/NewCoderProgressPage';
 import NewMeetingsPage from '@/views/NewMeetingsPage';
 import NewStudentSubscriptionsPage from '@/views/NewStudentSubscriptionsPage';
+import VercelMigrationNotice from '@/components/layout/VercelMigrationNotice';
 
 const PAGE_MAP = {
   home: HomePage,
@@ -162,6 +163,22 @@ export default function AppShell() {
     window.addEventListener('popstate', syncFromLocation);
     return () => window.removeEventListener('popstate', syncFromLocation);
   }, [syncFromLocation]);
+
+  const [isVercelDomain, setIsVercelDomain] = useState(false);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const hostname = window.location.hostname;
+      const searchParams = new URLSearchParams(window.location.search);
+      if (hostname.includes('vercel.app') || searchParams.get('migration') === 'true') {
+        setIsVercelDomain(true);
+      }
+    }
+  }, []);
+
+  if (isVercelDomain) {
+    return <VercelMigrationNotice />;
+  }
 
   if (loading) {
     return (
