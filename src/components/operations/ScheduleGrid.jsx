@@ -2405,7 +2405,7 @@ function Cell({
           </span>
           <span style={{
             fontSize: '0.63rem', fontWeight: 700, color: meta.textColor,
-            background: meta.badgeBg || 'var(--panel-bg)', borderRadius: '5px', padding: '0.05rem 0.28rem',
+            background: meta.isDark ? 'rgba(255, 255, 255, 0.18)' : 'rgba(0, 0, 0, 0.06)', borderRadius: '5px', padding: '0.05rem 0.28rem',
           }}>
             {occ.total}/{seats} Pax
           </span>
