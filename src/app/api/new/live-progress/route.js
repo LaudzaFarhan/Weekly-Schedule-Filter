@@ -1,7 +1,7 @@
 import { query } from '@/lib/db';
 import { ensureTable } from '@/lib/ensureSchema';
 import { NextResponse } from 'next/server';
-import { CONTINUATION_OPTIONS, LESSONS_PER_LEVEL, CATEGORIES } from '@/lib/programRules';
+import { CONTINUATION_OPTIONS, LESSONS_PER_LEVEL, CATEGORIES, lessonsForCategory } from '@/lib/programRules';
 
 /** Progress lives in a table added later; create it on first use. */
 const ready = () => ensureTable('internal_live_progress');
@@ -30,16 +30,17 @@ const mapRow = (row) => ({
  * grid cannot parse, would show as a silently missing tick, which is worse than
  * a failed save.
  */
-function normaliseAttendance(value) {
+function normaliseAttendance(value, category) {
   if (value == null) return { attendance: {} };
   if (typeof value !== 'object' || Array.isArray(value)) {
     return { error: 'attendance must be an object keyed by lesson number' };
   }
+  const maxLessons = lessonsForCategory(category);
   const out = {};
   for (const [key, entry] of Object.entries(value)) {
     const n = Number(key);
-    if (!Number.isInteger(n) || n < 1 || n > LESSONS_PER_LEVEL) {
-      return { error: `attendance key "${key}" is not a lesson from 1 to ${LESSONS_PER_LEVEL}` };
+    if (!Number.isInteger(n) || n < 1 || n > maxLessons) {
+      return { error: `attendance key "${key}" is not a lesson from 1 to ${maxLessons}` };
     }
     if (entry == null) continue; // an explicit null clears the tick
     if (typeof entry !== 'object' || Array.isArray(entry)) {
@@ -142,7 +143,7 @@ export async function PUT(req) {
       );
     }
 
-    const att = normaliseAttendance(body.attendance);
+    const att = normaliseAttendance(body.attendance, category);
     if (att.error) return NextResponse.json({ error: att.error }, { status: 400 });
     const vid = normaliseVideos(body.videos);
     if (vid.error) return NextResponse.json({ error: vid.error }, { status: 400 });

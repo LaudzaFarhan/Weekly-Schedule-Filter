@@ -46,9 +46,31 @@ function normaliseDayName(dayStr) {
 }
 import { formatNormalizedTimeSlot } from '../utils/timeUtils';
 import { filterStudents } from '../lib/studentFilter';
-import { Plus, Pencil, Trash2, FileText, Search, X, MapPin, User, UserCheck, GraduationCap, Phone, CheckCircle, HelpCircle, AlertTriangle, Upload } from 'lucide-react';
+import { Plus, Pencil, Trash2, FileText, Search, X, MapPin, User, UserCheck, GraduationCap, Phone, CheckCircle, HelpCircle, AlertTriangle, Upload, Clock, Sparkles } from 'lucide-react';
 
 const STUDENTS_PAGE_SIZE = 5;
+
+/**
+ * Helper to determine a student's subscription status badge.
+ * Defaults: Coder -> 3 Months, Kinder/Junior -> 1 Month, Trial -> Trial.
+ */
+export function getStudentSubscriptionStatus(st) {
+  if (!st) return '3 Months';
+  if (st.subscriptionStatus) return st.subscriptionStatus;
+  if (st.subscription_status) return st.subscription_status;
+
+  if (st.remarks && typeof st.remarks === 'string') {
+    const match = st.remarks.match(/\[Subscription:\s*([^\]]+)\]/i);
+    if (match && match[1]) {
+      return match[1].trim();
+    }
+  }
+
+  const status = String(st.status || '').toLowerCase();
+  if (status.includes('trial')) return 'Trial';
+
+  return '3 Months';
+}
 
 // Per-student branch assignment history (localStorage). Keyed by student id.
 const BRANCH_HISTORY_KEY = 'newOpsStudentBranchHistory';
@@ -93,6 +115,7 @@ export default function NewStudentsPage({ onNavigate } = {}) {
   const [filterLevel, setFilterLevel] = useState('all');
   const [filterBranch, setFilterBranch] = useState('all');
   const [filterStatus, setFilterStatus] = useState('all');
+  const [filterSubscription, setFilterSubscription] = useState('all');
   const [page, setPage] = useState(1);
 
   // Bulk wipe (Admin only). The control lives in the panel header, the dialog
@@ -126,6 +149,7 @@ export default function NewStudentsPage({ onNavigate } = {}) {
     parentName: '',
     contact: '',
     status: 'Active',
+    subscriptionStatus: '1 Month',
     remarks: ''
   });
 
@@ -136,7 +160,7 @@ export default function NewStudentsPage({ onNavigate } = {}) {
   // Subscribe to real-time updates from internal students
   useEffect(() => {
     const unsubscribe = subscribeToInternalStudents((data) => {
-      setStudents(data);
+      setStudents(data || []);
       setLoading(false);
     });
     return () => unsubscribe();
@@ -174,39 +198,29 @@ export default function NewStudentsPage({ onNavigate } = {}) {
   const branchList = [...new Set([...(enabledBranches || []).map(b => b.name), ...(branches || []).map(b => b.name)])].filter(Boolean);
 
   // Filters & Search.
-  //
-  // The predicate lives in `src/lib/studentFilter.js` and is shared with the report
-  // cards Student_Selector_Panel, so the two screens cannot filter differently
-  // (Req 6.8). It is a transcription of the expression that used to sit here —
-  // folded-level comparison, strict branch and status equality, and a lower-cased
-  // `includes` search across name, parent name, contact and remarks — and it returns a
-  // subset in the input's order, so the sort and the paging below are unchanged.
-  const filtered = useMemo(
-    () => filterStudents(students, {
+  const filtered = useMemo(() => {
+    const base = filterStudents(students, {
       search,
       level: filterLevel,
       branch: filterBranch,
       status: filterStatus,
-    }),
-    [students, search, filterLevel, filterBranch, filterStatus],
-  );
+    });
+    if (filterSubscription === 'all') return base;
+    return base.filter((st) => getStudentSubscriptionStatus(st) === filterSubscription);
+  }, [students, search, filterLevel, filterBranch, filterStatus, filterSubscription]);
 
   const sortedFiltered = useMemo(() => {
     return [...filtered].sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
   }, [filtered]);
 
   const totalPages = Math.max(1, Math.ceil(sortedFiltered.length / STUDENTS_PAGE_SIZE));
-  // The list updates live, so it can shrink out from under the current page — a
-  // poll removing a student, or a filter narrowing the results. Clamping here
-  // falls back to the last real page instead of rendering an empty table, and
-  // avoids correcting the page from an effect.
   const safePage = Math.min(Math.max(1, page), totalPages);
   const paged = sortedFiltered.slice((safePage - 1) * STUDENTS_PAGE_SIZE, safePage * STUDENTS_PAGE_SIZE);
 
   // Any of the four controls off its unfiltered default narrows the view, which
   // the wipe dialog discloses because the wipe itself is never narrowed. Req 3.9
   const filtersActive =
-    search !== '' || filterLevel !== 'all' || filterBranch !== 'all' || filterStatus !== 'all';
+    search !== '' || filterLevel !== 'all' || filterBranch !== 'all' || filterStatus !== 'all' || filterSubscription !== 'all';
 
   const openAddModal = () => {
     setEditingStudent(null);
@@ -218,6 +232,7 @@ export default function NewStudentsPage({ onNavigate } = {}) {
       parentName: '',
       contact: '',
       status: 'Active',
+      subscriptionStatus: '3 Months',
       remarks: ''
     });
     setFormErrors({});
@@ -242,6 +257,7 @@ export default function NewStudentsPage({ onNavigate } = {}) {
       parentName: st.parentName || '',
       contact: st.contact || '',
       status: st.status || 'Active',
+      subscriptionStatus: getStudentSubscriptionStatus(st),
       remarks: st.remarks || ''
     });
     setFormErrors({});
@@ -263,15 +279,25 @@ export default function NewStudentsPage({ onNavigate } = {}) {
     if (!validateForm()) return;
 
     try {
+      const subStatus = form.subscriptionStatus || getStudentSubscriptionStatus(form);
+      const cleanRemarks = (form.remarks || '').replace(/\[Subscription:[^\]]+\]\s*/g, '').trim();
+      const updatedRemarks = `${cleanRemarks ? `${cleanRemarks} ` : ''}[Subscription: ${subStatus}]`.trim();
+
+      const payload = {
+        ...form,
+        remarks: updatedRemarks,
+        subscriptionStatus: subStatus,
+      };
+
       if (editingStudent) {
-        await updateInternalStudent(editingStudent.id, form);
+        await updateInternalStudent(editingStudent.id, payload);
         // Record a branch-history entry when the branch changes.
         if (form.branchName && form.branchName !== editingStudent.branchName) {
           setBranchHistory(appendStudentBranchHistory(editingStudent.id, form.branchName));
         }
         showToast({ title: 'Student updated successfully', variant: 'success' });
       } else {
-        const created = await createInternalStudent(form);
+        const created = await createInternalStudent(payload);
         if (created?.id && form.branchName) {
           appendStudentBranchHistory(created.id, form.branchName);
         }
@@ -684,6 +710,23 @@ export default function NewStudentsPage({ onNavigate } = {}) {
               <option value="Inactive">Inactive</option>
             </select>
           </div>
+
+          <div className="input-group" style={{ margin: 0, width: '150px' }}>
+            <label style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '0.3rem', display: 'block' }}>Subscription</label>
+            <select
+              value={filterSubscription}
+              onChange={(e) => { setFilterSubscription(e.target.value); setPage(1); }}
+              style={{ width: '100%' }}
+            >
+              <option value="all">All Subscriptions</option>
+              <option value="1 Month">1 Month</option>
+              <option value="3 Months">3 Months</option>
+              <option value="6 Months">6 Months</option>
+              <option value="1 Year">1 Year</option>
+              <option value="Trial">Trial</option>
+              <option value="Need Renewal">Need Renewal</option>
+            </select>
+          </div>
         </div>
 
         {/* Main Student List Table */}
@@ -698,11 +741,12 @@ export default function NewStudentsPage({ onNavigate } = {}) {
               <thead>
                 <tr>
                   <th>Student Name</th>
-                  <th style={{ width: '180px' }}>Level / Program</th>
-                  <th style={{ width: '130px' }}>Branch</th>
-                  <th style={{ width: '140px' }}>Instructor</th>
-                  <th style={{ width: '180px' }}>Parent Contact</th>
-                  <th style={{ width: '100px', textAlign: 'center' }}>Status</th>
+                  <th style={{ width: '160px' }}>Level / Program</th>
+                  <th style={{ width: '120px' }}>Branch</th>
+                  <th style={{ width: '130px' }}>Instructor</th>
+                  <th style={{ width: '160px' }}>Parent Contact</th>
+                  <th style={{ width: '130px', textAlign: 'center' }}>Subscription</th>
+                  <th style={{ width: '90px', textAlign: 'center' }}>Status</th>
                   <th>Remarks</th>
                   {/* 140px rather than 100px: the cell holds three icon buttons now. */}
                   <th style={{ width: '140px', textAlign: 'center' }}>Actions</th>
@@ -790,6 +834,40 @@ export default function NewStudentsPage({ onNavigate } = {}) {
                               {st.contact}
                             </div>
                           </div>
+                        </td>
+                        <td style={{ textAlign: 'center' }}>
+                          {(() => {
+                            const sub = getStudentSubscriptionStatus(st);
+                            const is3Month = sub === '3 Months';
+                            const is6MonthOrYear = sub === '6 Months' || sub === '1 Year';
+                            const isTrial = sub === 'Trial';
+                            const isRenewal = sub === 'Need Renewal';
+
+                            const color = isRenewal ? '#dc2626' : is3Month ? '#4f46e5' : is6MonthOrYear ? '#059669' : isTrial ? '#ea580c' : '#2563eb';
+                            const bg = isRenewal ? 'rgba(220, 38, 38, 0.1)' : is3Month ? 'rgba(79, 70, 229, 0.1)' : is6MonthOrYear ? 'rgba(16, 185, 129, 0.1)' : isTrial ? 'rgba(234, 88, 12, 0.1)' : 'rgba(37, 99, 235, 0.1)';
+                            const border = isRenewal ? 'rgba(220, 38, 38, 0.25)' : is3Month ? 'rgba(79, 70, 229, 0.25)' : is6MonthOrYear ? 'rgba(16, 185, 129, 0.25)' : isTrial ? 'rgba(234, 88, 12, 0.25)' : 'rgba(37, 99, 235, 0.25)';
+
+                            return (
+                              <span
+                                style={{
+                                  background: bg,
+                                  color: color,
+                                  border: `1px solid ${border}`,
+                                  padding: '0.18rem 0.55rem',
+                                  borderRadius: '999px',
+                                  fontSize: '0.72rem',
+                                  fontWeight: 600,
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: '0.25rem',
+                                  whiteSpace: 'nowrap',
+                                }}
+                              >
+                                <Clock size={10} />
+                                {sub}
+                              </span>
+                            );
+                          })()}
                         </td>
                         <td style={{ textAlign: 'center' }}>
                           <span style={{
@@ -983,17 +1061,36 @@ export default function NewStudentsPage({ onNavigate } = {}) {
                   </div>
                 </div>
 
-                {/* Status */}
-                <div>
-                  <label className="modal-form-label">Status</label>
-                  <select
-                    value={form.status}
-                    onChange={(e) => setForm({ ...form, status: e.target.value })}
-                    className="modal-select-field"
-                  >
-                    <option value="Active">Active</option>
-                    <option value="Inactive">Inactive</option>
-                  </select>
+                {/* Status and Subscription Status Row */}
+                <div style={{ display: 'flex', gap: '1rem' }}>
+                  <div style={{ flex: 1 }}>
+                    <label className="modal-form-label">Status</label>
+                    <select
+                      value={form.status}
+                      onChange={(e) => setForm({ ...form, status: e.target.value })}
+                      className="modal-select-field"
+                    >
+                      <option value="Active">Active</option>
+                      <option value="Inactive">Inactive</option>
+                      <option value="Trial">Trial</option>
+                    </select>
+                  </div>
+
+                  <div style={{ flex: 1 }}>
+                    <label className="modal-form-label">Subscription Status</label>
+                    <select
+                      value={form.subscriptionStatus || getStudentSubscriptionStatus(form)}
+                      onChange={(e) => setForm({ ...form, subscriptionStatus: e.target.value })}
+                      className="modal-select-field"
+                    >
+                      <option value="1 Month">1 Month (10 meetings)</option>
+                      <option value="3 Months">3 Months (12 meetings - Coder)</option>
+                      <option value="6 Months">6 Months</option>
+                      <option value="1 Year">1 Year</option>
+                      <option value="Trial">Trial</option>
+                      <option value="Need Renewal">Need Renewal</option>
+                    </select>
+                  </div>
                 </div>
 
                 {/* Remarks */}

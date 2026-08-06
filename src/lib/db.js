@@ -9,7 +9,10 @@ const CONNECTION_STRING = process.env.DATABASE_URL;
 // Lazily create the pool so a missing DATABASE_URL doesn't crash the whole
 // serverless function at import time — only the routes that actually hit the
 // DB will surface the configuration error.
-let pool = null;
+// Lazily create the pool as a global singleton so Next.js HMR/dev reloads
+// do not instantiate multiple pools and exceed PostgreSQL client limits ("too many clients").
+let pool = globalThis.postgresPool || null;
+
 function getPool() {
   if (!CONNECTION_STRING) {
     throw new Error(
@@ -22,9 +25,15 @@ function getPool() {
   if (!pool) {
     pool = new Pool({
       connectionString: CONNECTION_STRING,
+      max: 10,
+      idleTimeoutMillis: 30000,
+      connectionTimeoutMillis: 5000,
       // Enable SSL for remote/secure PostgreSQL instances.
       ssl: process.env.DATABASE_SSL === 'true' ? { rejectUnauthorized: false } : undefined,
     });
+    if (process.env.NODE_ENV !== 'production') {
+      globalThis.postgresPool = pool;
+    }
   }
   return pool;
 }

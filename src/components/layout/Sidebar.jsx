@@ -40,9 +40,14 @@ const navItems = [
  * falls back to the Schedule view, so Schedule is the one that highlights.
  */
 const NEW_OPS_PAGES = [
-  'home', 'dashboard', 'operationals', 'students', 'report-cards', 'report-cards-list', 'report-cards-rubric', 'instructors',
+  'home', 'dashboard', 'operationals', 'students', 'student-subscriptions', 'report-cards', 'report-cards-list', 'report-cards-rubric', 'instructors',
   'crm', 'workload', 'leave', 'trial-availability', 'activity', 'users', 'api',
   'progress-kinder', 'progress-junior', 'progress-coder',
+];
+
+const STUDENT_PAGES = [
+  { id: 'students', label: 'Student Database' },
+  { id: 'student-subscriptions', label: 'Subscription Management' },
 ];
 
 /**
@@ -94,6 +99,9 @@ export default function Sidebar({ currentPage, onNavigate, onToggleSearch, opsMo
    * another set-state-in-effect error to this file.
    */
   const [liveProgressOpen, setLiveProgressOpen] = useState(() => liveProgressActive);
+
+  const studentPagesActive = STUDENT_PAGES.some((p) => p.id === currentPage) || currentPage === 'students';
+  const [studentsOpen, setStudentsOpen] = useState(() => studentPagesActive);
 
   const reportCardsActive = REPORT_CARD_PAGES.some((p) => p.id === currentPage);
   /** Expanded when one of its pages is showing, seeded the same way as above. */
@@ -209,15 +217,41 @@ export default function Sidebar({ currentPage, onNavigate, onToggleSearch, opsMo
             </button>
             <button
               data-tour="nav-students"
-              className={`nav-item ${currentPage === 'students' ? 'active' : ''}`}
-              onClick={() => onNavigate('students')}
+              className={`nav-item ${studentPagesActive ? 'active' : ''}`}
+              onClick={() => { setStudentsOpen(true); onNavigate('students'); }}
               style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
             >
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
                 <Users size={20} />
                 Students
               </div>
+              <span
+                role="button"
+                tabIndex={0}
+                aria-label={studentsOpen ? 'Collapse Students' : 'Expand Students'}
+                aria-expanded={studentsOpen}
+                onClick={(e) => { e.stopPropagation(); setStudentsOpen((v) => !v); }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault(); e.stopPropagation(); setStudentsOpen((v) => !v);
+                  }
+                }}
+                style={{ display: 'inline-flex', alignItems: 'center', cursor: 'pointer' }}
+              >
+                {studentsOpen ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+              </span>
             </button>
+            {studentsOpen && STUDENT_PAGES.map((sub) => (
+              <button
+                key={sub.id}
+                className={`nav-item nav-subitem ${currentPage === sub.id ? 'active' : ''}`}
+                onClick={() => onNavigate(sub.id)}
+                style={{ display: 'flex', justifyContent: 'flex-start', alignItems: 'center' }}
+              >
+                <span aria-hidden="true" className="nav-subitem-dash" />
+                {sub.label}
+              </button>
+            ))}
             {/* Report Cards — a destination AND a disclosure. The label navigates
                 to Evaluate; the chevron is a separate control for opening the
                 group, so one click still gets to the page anyone actually wants

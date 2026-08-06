@@ -62,8 +62,15 @@ export function levelsForCategory(category) {
   return CATEGORY_LEVELS[category] || [];
 }
 
-/** Lessons in one level — the span of the attendance ticks. */
+/** Lessons in one level — the default span of the attendance ticks. */
 export const LESSONS_PER_LEVEL = 10;
+
+/** Lessons in one level / subscription period for a given category. Coder runs 12 meetings (3-month subscription); Kinder and Junior run 10. */
+export function lessonsForCategory(category) {
+  const cat = String(category || '').trim();
+  if (/^coder/i.test(cat)) return 12;
+  return 10;
+}
 
 /**
  * How likely a student is to carry on after their current level.

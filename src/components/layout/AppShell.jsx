@@ -44,6 +44,7 @@ import NewKinderProgressPage from '@/views/NewKinderProgressPage';
 import NewJuniorProgressPage from '@/views/NewJuniorProgressPage';
 import NewCoderProgressPage from '@/views/NewCoderProgressPage';
 import NewMeetingsPage from '@/views/NewMeetingsPage';
+import NewStudentSubscriptionsPage from '@/views/NewStudentSubscriptionsPage';
 
 const PAGE_MAP = {
   home: HomePage,
@@ -183,6 +184,8 @@ export default function AppShell() {
       PageComponent = NewOperationalsPage;
     } else if (currentPage === 'students') {
       PageComponent = NewStudentsPage;
+    } else if (currentPage === 'student-subscriptions') {
+      PageComponent = NewStudentSubscriptionsPage;
     } else if (currentPage === 'report-cards' || currentPage === 'report-cards-list') {
       PageComponent = NewStudentReportCardsPage;
     } else if (currentPage === 'report-cards-rubric') {

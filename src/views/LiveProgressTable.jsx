@@ -20,7 +20,7 @@ import { useSchedule } from '../contexts/ScheduleContext';
 import Pagination from '../components/ui/Pagination';
 import {
   parseProgram, levelsForCategory, LESSONS_PER_LEVEL, CONTINUATION_OPTIONS,
-  normaliseCoderLevel,
+  normaliseCoderLevel, lessonsForCategory,
 } from '../lib/programRules';
 import { isoOf } from '../lib/instructorAvailability';
 import {
@@ -29,7 +29,6 @@ import {
 } from 'lucide-react';
 
 const PAGE_SIZE = 5;
-const LESSONS = Array.from({ length: LESSONS_PER_LEVEL }, (_, i) => i + 1);
 
 /** Colour per continuation answer, so a table of them can be read at a glance. */
 const CONTINUATION_TINT = {
@@ -47,6 +46,9 @@ const keyOf = (studentName, programCode) =>
 export default function LiveProgressTable({ category }) {
   const { showToast } = useToast();
   const { enabledBranches, branches } = useSchedule();
+
+  const maxLessons = useMemo(() => lessonsForCategory(category), [category]);
+  const lessons = useMemo(() => Array.from({ length: maxLessons }, (_, i) => i + 1), [maxLessons]);
 
   const [classes, setClasses] = useState([]);
   const [progress, setProgress] = useState([]);
@@ -389,7 +391,7 @@ export default function LiveProgressTable({ category }) {
                   <th style={{ width: '100px' }}>Day</th>
                   <th style={{ width: '130px' }}>Time</th>
                   <th style={{ width: '110px' }}>Program</th>
-                  <th style={{ minWidth: '250px' }}>Attendance 1–{LESSONS_PER_LEVEL}</th>
+                  <th style={{ minWidth: category === 'Coder' ? '290px' : '250px' }}>Attendance 1–{maxLessons}</th>
                   <th style={{ minWidth: '180px' }}>Video Sent</th>
                   <th style={{ width: '160px' }}>Continuation</th>
                 </tr>
@@ -453,7 +455,7 @@ export default function LiveProgressTable({ category }) {
                             so hovering answers "when, and what happened". */}
                         <td>
                           <div style={{ display: 'flex', gap: '0.2rem', flexWrap: 'wrap' }}>
-                            {LESSONS.map((n) => {
+                            {lessons.map((n) => {
                               const entry = r.attendance[n];
                               const done = !!entry;
                               const isOpen = editing?.rowKey === r.rowKey &&
@@ -584,7 +586,7 @@ export default function LiveProgressTable({ category }) {
             <div style={{ padding: '1.1rem 1.3rem', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '0.75rem' }}>
               <div>
                 <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 600 }}>
-                  Lesson {editing.lesson} of {LESSONS_PER_LEVEL}
+                  Lesson {editing.lesson} of {maxLessons}
                 </h3>
                 <p style={{ margin: '0.25rem 0 0', fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
                   {editingRow.studentName} · {editingRow.program} · {editingRow.instructor}
