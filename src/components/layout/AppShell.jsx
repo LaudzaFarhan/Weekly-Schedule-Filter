@@ -42,6 +42,7 @@ import NewTrialAvailabilityPage from '@/views/NewTrialAvailabilityPage';
 import NewActivityPage from '@/views/NewActivityPage';
 import NewKinderProgressPage from '@/views/NewKinderProgressPage';
 import NewJuniorProgressPage from '@/views/NewJuniorProgressPage';
+import NewCoderProgressPage from '@/views/NewCoderProgressPage';
 import NewMeetingsPage from '@/views/NewMeetingsPage';
 
 const PAGE_MAP = {
