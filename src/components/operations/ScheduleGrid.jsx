@@ -1660,7 +1660,7 @@ export default function ScheduleGrid({
             onClick={(e) => e.stopPropagation()}
             style={{
               background: 'var(--panel-bg)', border: '1px solid var(--border-color)', borderRadius: '16px',
-              width: '100%', maxWidth: '540px', maxHeight: '92vh', display: 'flex', flexDirection: 'column',
+              width: '100%', maxWidth: '780px', maxHeight: '92vh', display: 'flex', flexDirection: 'column',
               boxShadow: '0 12px 32px rgba(0,0,0,0.18)', overflow: 'hidden',
               animation: 'modalAppear 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards',
             }}
@@ -1734,8 +1734,8 @@ export default function ScheduleGrid({
                           <div
                             key={m.id}
                             style={{
-                              display: 'flex', alignItems: 'flex-start', gap: '0.6rem',
-                              padding: '0.6rem 0.7rem', borderRadius: '10px',
+                              display: 'flex', alignItems: 'center', gap: '0.75rem',
+                              padding: '0.65rem 0.8rem', borderRadius: '10px',
                               border: isIzin ? '1px dashed #f59e0b' : '1px solid var(--border-color)',
                               background: isIzin ? 'rgba(254, 243, 199, 0.25)' : thisWeek ? 'transparent' : 'var(--bg-color)',
                               opacity: spent ? 0.5 : (thisWeek || isIzin) ? 1 : 0.65,
