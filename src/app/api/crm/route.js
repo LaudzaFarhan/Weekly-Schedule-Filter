@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { query } from '@/lib/db';
 import { GET as getSchedule } from '../schedule/route';
 import { getAllConfig, isConfigured } from '@/lib/googleSheets';
 import { generateTrialSlots, doTimeSlotsOverlap } from '@/utils/timeUtils';
@@ -232,6 +233,25 @@ export async function POST(request) {
     // Log the activity to Firestore logs
     await logActivityRest('api-webhook@whatsapp.bot', 'added CRM lead (via Webhook)', `Added lead "${name}"`);
 
+    // Dual-write to PostgreSQL new_crm_leads table
+    try {
+      await query(
+        `INSERT INTO new_crm_leads (name, phone, message, status, branch, trial_date, notes)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+        [
+          name.trim(),
+          phone.trim(),
+          message || null,
+          status || 'interest_trial',
+          branch || null,
+          trialDate || null,
+          notes || null,
+        ]
+      );
+    } catch (pgErr) {
+      console.error('Dual-write to new_crm_leads failed:', pgErr.message);
+    }
+
     return NextResponse.json({
       success: true,
       message: 'CRM lead successfully created',
@@ -312,8 +332,53 @@ export async function PATCH(request) {
     const otherVals = updatedFieldsList.filter(f => f !== 'status').join(', ');
     const changeDetail = [statusVal, otherVals ? `updated ${otherVals}` : ''].filter(Boolean).join(' and ');
     
-    // Log the activity to Firestore logs
-    await logActivityRest('api-webhook@whatsapp.bot', 'updated CRM lead (via Webhook)', `Lead ID: ${leadId}. ${changeDetail}`);
+    // Dual-write to PostgreSQL new_crm_leads table
+    try {
+      const setClauses = [];
+      const pgParams = [];
+      let idx = 1;
+
+      if (body.status !== undefined) { setClauses.push(`status = $${idx++}`); pgParams.push(body.status); }
+      if (body.notes !== undefined) { setClauses.push(`notes = $${idx++}`); pgParams.push(body.notes); }
+      if (body.message !== undefined) { setClauses.push(`message = $${idx++}`); pgParams.push(body.message); }
+      if (body.name !== undefined) { setClauses.push(`name = $${idx++}`); pgParams.push(body.name); }
+      if (body.phone !== undefined || body.phone_number !== undefined) {
+        setClauses.push(`phone = $${idx++}`);
+        pgParams.push(String(body.phone || body.phone_number).trim());
+      }
+      if (body.branch !== undefined || body.location !== undefined) {
+        setClauses.push(`branch = $${idx++}`);
+        pgParams.push(body.branch || body.location || null);
+      }
+      if (body.trialDate !== undefined || body.trial_date !== undefined) {
+        setClauses.push(`trial_date = $${idx++}`);
+        pgParams.push(body.trialDate || body.trial_date || null);
+      }
+
+      if (setClauses.length > 0) {
+        setClauses.push(`updated_at = NOW()`);
+        const searchPhone = body.phone || body.phone_number || '';
+        const searchName = body.name || '';
+        
+        let whereClause = `WHERE id = $${idx}`;
+        pgParams.push(leadId);
+
+        if (isNaN(Number(leadId)) && (searchPhone || searchName)) {
+          if (searchPhone) {
+            whereClause = `WHERE phone = $${idx} OR LOWER(name) LIKE LOWER($${idx + 1})`;
+            pgParams[idx - 1] = searchPhone;
+            pgParams.push(`%${searchPhone}%`);
+          } else {
+            whereClause = `WHERE LOWER(name) LIKE LOWER($${idx})`;
+            pgParams[idx - 1] = `%${searchName}%`;
+          }
+        }
+
+        await query(`UPDATE new_crm_leads SET ${setClauses.join(', ')} ${whereClause}`, pgParams);
+      }
+    } catch (pgErr) {
+      console.error('Dual-write update to new_crm_leads failed:', pgErr.message);
+    }
 
     return NextResponse.json({
       success: true,

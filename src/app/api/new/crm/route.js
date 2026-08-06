@@ -18,7 +18,6 @@ const mapRow = (row) => ({
 /**
  * GET: Fetch new CRM leads.
  * Optional: ?search=&status=&branch=&limit=
- * With no parameters this returns every lead, as before.
  */
 export async function GET(req) {
   try {
@@ -40,12 +39,33 @@ export async function GET(req) {
 }
 
 /**
+ * Helper to extract normalized fields from various payload key conventions
+ */
+function extractLeadFields(body) {
+  const parentName = body.parent_name || '';
+  const childName = body.child_name || '';
+  let name = body.name;
+  if (!name && (parentName || childName)) {
+    name = parentName && childName ? `${parentName} (Parent of ${childName})` : parentName || childName;
+  }
+
+  const phone = body.phone || body.phone_number || body.wa_id || body.contact || '';
+  const branch = body.branch || body.branchName || body.branch_name || body.location || null;
+  const trialDate = body.trialDate || body.trial_date || body.date || null;
+  const status = body.status || 'interest_trial';
+  const message = body.message || null;
+  const notes = body.notes || null;
+
+  return { name, phone, branch, trialDate, status, message, notes };
+}
+
+/**
  * POST: Create a new CRM lead record
  */
 export async function POST(req) {
   try {
     const body = await req.json();
-    const { name, phone, message, status, branch, trialDate, notes } = body;
+    const { name, phone, branch, trialDate, status, message, notes } = extractLeadFields(body);
 
     if (!name || !phone) {
       return NextResponse.json({ error: 'Name and phone contact are required' }, { status: 400 });
@@ -61,39 +81,105 @@ export async function POST(req) {
 
     return NextResponse.json(mapRow(res.rows[0]));
   } catch (error) {
+    console.error('Error creating CRM lead:', error);
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
 
 /**
- * PUT: Update an existing CRM lead record
+ * Handler for PUT and PATCH requests to dynamically update lead details without nullifying missing fields.
  */
-export async function PUT(req) {
+async function handleUpdate(req) {
   try {
     const body = await req.json();
-    const { id, name, phone, message, status, branch, trialDate, notes } = body;
+    let targetId = body.id || body.leadId || body.lead_id;
 
-    if (!id) {
-      return NextResponse.json({ error: 'Missing lead ID' }, { status: 400 });
+    // Search by phone or name if ID is omitted
+    if (!targetId) {
+      const searchPhone = body.phone || body.phone_number || body.wa_id || body.contact;
+      const searchName = body.name || body.parent_name || body.child_name;
+
+      if (searchPhone) {
+        const findRes = await query(`SELECT id FROM new_crm_leads WHERE phone = $1 OR LOWER(name) LIKE LOWER($2) ORDER BY updated_at DESC LIMIT 1`, [String(searchPhone).trim(), `%${searchPhone}%`]);
+        if (findRes.rowCount > 0) targetId = findRes.rows[0].id;
+      } else if (searchName) {
+        const findRes = await query(`SELECT id FROM new_crm_leads WHERE LOWER(name) LIKE LOWER($1) ORDER BY updated_at DESC LIMIT 1`, [`%${searchName}%`]);
+        if (findRes.rowCount > 0) targetId = findRes.rows[0].id;
+      }
     }
+
+    if (!targetId) {
+      return NextResponse.json({ error: 'Missing lead ID or matching search criteria' }, { status: 400 });
+    }
+
+    const fieldValues = {};
+
+    if (body.name !== undefined || body.parent_name !== undefined || body.child_name !== undefined) {
+      const parentName = body.parent_name || '';
+      const childName = body.child_name || '';
+      const nameVal = body.name || (parentName && childName ? `${parentName} (Parent of ${childName})` : parentName || childName);
+      if (nameVal) fieldValues.name = nameVal;
+    }
+    if (body.phone !== undefined || body.phone_number !== undefined || body.wa_id !== undefined || body.contact !== undefined) {
+      const phoneVal = body.phone || body.phone_number || body.wa_id || body.contact;
+      if (phoneVal) fieldValues.phone = String(phoneVal).trim();
+    }
+    if (body.message !== undefined) {
+      fieldValues.message = body.message;
+    }
+    if (body.status !== undefined) {
+      fieldValues.status = body.status;
+    }
+    if (body.branch !== undefined || body.branchName !== undefined || body.branch_name !== undefined || body.location !== undefined) {
+      const branchVal = body.branch || body.branchName || body.branch_name || body.location;
+      fieldValues.branch = branchVal || null;
+    }
+    if (body.trialDate !== undefined || body.trial_date !== undefined || body.date !== undefined) {
+      const trialVal = body.trialDate || body.trial_date || body.date;
+      fieldValues.trial_date = trialVal || null;
+    }
+    if (body.notes !== undefined) {
+      fieldValues.notes = body.notes;
+    }
+
+    const setClauses = [];
+    const params = [];
+    let paramIdx = 1;
+
+    for (const [col, val] of Object.entries(fieldValues)) {
+      setClauses.push(`${col} = $${paramIdx}`);
+      params.push(val);
+      paramIdx++;
+    }
+
+    setClauses.push(`updated_at = NOW()`);
+    params.push(targetId);
 
     const sql = `
       UPDATE new_crm_leads
-      SET name = $1, phone = $2, message = $3, status = $4, branch = $5, trial_date = $6, notes = $7
-      WHERE id = $8
+      SET ${setClauses.join(', ')}
+      WHERE id = $${paramIdx}
       RETURNING *
     `;
-    const params = [name, phone, message || null, status || 'interest_trial', branch || null, trialDate || null, notes || null, id];
-    const res = await query(sql, params);
 
+    const res = await query(sql, params);
     if (res.rowCount === 0) {
       return NextResponse.json({ error: 'Lead not found' }, { status: 404 });
     }
 
     return NextResponse.json(mapRow(res.rows[0]));
   } catch (error) {
+    console.error('Error updating CRM lead:', error);
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
+}
+
+export async function PUT(req) {
+  return handleUpdate(req);
+}
+
+export async function PATCH(req) {
+  return handleUpdate(req);
 }
 
 /**
