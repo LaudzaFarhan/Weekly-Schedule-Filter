@@ -904,6 +904,58 @@ body {
 .toggle-switch input:checked + .toggle-slider { background-color: var(--primary-blue); }
 .toggle-switch input:checked + .toggle-slider::before { transform: translateX(20px); }
 
+/* ── Premium Custom Scrollbar ────────────────────────── */
+/* Thin, rounded, translucent — fades in on hover for a premium feel. */
+.custom-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(148, 163, 184, 0.35) transparent;
+}
+.custom-scrollbar::-webkit-scrollbar {
+  width: 5px;
+}
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+  border-radius: 10px;
+  margin: 4px 0;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.3);
+  border-radius: 10px;
+  transition: background 0.2s;
+}
+.custom-scrollbar:hover::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.55);
+}
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(100, 116, 139, 0.65);
+}
+.custom-scrollbar::-webkit-scrollbar-thumb:active {
+  background: rgba(71, 85, 105, 0.75);
+}
+
+/* Scoring guidelines sidebar — uses custom-scrollbar class */
+.guidelines-scroll-sidebar {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(148, 163, 184, 0.25) transparent;
+}
+.guidelines-scroll-sidebar::-webkit-scrollbar {
+  width: 4px;
+}
+.guidelines-scroll-sidebar::-webkit-scrollbar-track {
+  background: transparent;
+  margin: 8px 0;
+}
+.guidelines-scroll-sidebar::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.2);
+  border-radius: 10px;
+}
+.guidelines-scroll-sidebar:hover::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.45);
+}
+.guidelines-scroll-sidebar::-webkit-scrollbar-thumb:hover {
+  background: rgba(100, 116, 139, 0.6);
+}
+
 /* ── Date Picker ──────────────────────────────────────── */
 .date-scroll-container { display: flex; gap: 0.5rem; overflow-x: auto; padding-bottom: 0.5rem; }
 .date-scroll-container::-webkit-scrollbar { height: 6px; }

@@ -1240,7 +1240,7 @@ export default function NewStudentReportCardsPage({ onNavigate, params, initialM
                 }}
               >
                 {/* LEFT COLUMN: Scoring Guidelines — sticky so it stays visible while scrolling the form */}
-                <div style={{ position: 'sticky', top: '1rem', maxHeight: 'calc(100vh - 2rem)', overflowY: 'auto' }}>
+                <div className="guidelines-scroll-sidebar" style={{ position: 'sticky', top: '1rem', maxHeight: 'calc(100vh - 2rem)', overflowY: 'auto', paddingRight: '0.25rem' }}>
                   <ScoringGuidelinesPanel variant="compact" />
                 </div>
 

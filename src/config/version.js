@@ -2,4 +2,4 @@
  * Application Version Counter
  * Updated on each release to confirm deployment updates.
  */
-export const APP_VERSION = 'v3.1.1';
+export const APP_VERSION = 'v3.2.0';
