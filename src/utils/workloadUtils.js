@@ -267,7 +267,8 @@ function computeForInstructor(rows) {
       // the class effectively didn't run — it must NOT add hours or count as a
       // session. We still keep it as a "leave session" so the UI can explain a
       // FREE TIME cell as izin (vs. genuinely no class).
-      const allOnLeave = bucket.length > 0 && bucket.every((b) => b.notArranged);
+      const isStudentIzin = (b) => !!(b.notArranged || b.isIzin || (typeof b.remarks === 'string' && b.remarks.toLowerCase().includes('izin')));
+      const allOnLeave = bucket.length > 0 && bucket.every((b) => isStudentIzin(b));
 
       const studentsInSlot = new Set();
       bucket.forEach((b) => {
@@ -284,7 +285,8 @@ function computeForInstructor(rows) {
         fullProgram: b.fullProgram || '',
         branchName: b.branchName || '',
         remarks: b.remarks || '',
-        notArranged: !!b.notArranged,
+        notArranged: isStudentIzin(b),
+        isIzin: isStudentIzin(b),
       }));
       const programs = Array.from(
         new Set(bucket.map((b) => b.lessonDetail || b.program).filter(Boolean))

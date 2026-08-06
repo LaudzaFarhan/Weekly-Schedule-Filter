@@ -292,11 +292,35 @@ export default function NewWorkloadPage() {
                   </div>
                   {(s.studentDetails?.length || 0) > 0 && (
                     <div style={{ marginTop: '0.55rem', display: 'flex', flexWrap: 'wrap', gap: '0.4rem' }}>
-                      {s.studentDetails.map((sd, idx) => (
-                        <span key={`${sd.student}-${idx}`} style={{ fontSize: '0.74rem', padding: '0.18rem 0.55rem', borderRadius: '6px', background: 'var(--bg-color)', border: '1px solid var(--border-color)', color: 'var(--text-secondary)' }}>
-                          {sd.student || '—'}
-                        </span>
-                      ))}
+                      {s.studentDetails.map((sd, idx) => {
+                        const isIzin = !!(sd.notArranged || sd.isIzin || (typeof sd.remarks === 'string' && sd.remarks.toLowerCase().includes('izin')));
+                        return (
+                          <span
+                            key={`${sd.student}-${idx}`}
+                            style={{
+                              fontSize: '0.74rem', padding: '0.2rem 0.6rem', borderRadius: '6px',
+                              background: isIzin ? '#fef3c7' : 'var(--bg-color)',
+                              color: isIzin ? '#92400e' : 'var(--text-secondary)',
+                              border: isIzin ? '1px dashed #f59e0b' : '1px solid var(--border-color)',
+                              display: 'inline-flex', alignItems: 'center', gap: '0.35rem',
+                              fontWeight: isIzin ? 600 : 400,
+                            }}
+                          >
+                            <span style={{ textDecoration: isIzin ? 'line-through' : 'none' }}>
+                              {sd.student || '—'}
+                            </span>
+                            {isIzin && (
+                              <span style={{
+                                fontSize: '0.62rem', fontWeight: 700, letterSpacing: '0.02em',
+                                color: '#b45309', background: '#fde68a', border: '1px solid #f59e0b',
+                                padding: '0.05rem 0.35rem', borderRadius: '4px',
+                              }}>
+                                Izin
+                              </span>
+                            )}
+                          </span>
+                        );
+                      })}
                     </div>
                   )}
                 </div>
