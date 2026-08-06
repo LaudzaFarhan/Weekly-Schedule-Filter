@@ -187,6 +187,19 @@ function groupByTeacher(classes) {
   return map;
 }
 
+export function normalizeDayName(d) {
+  if (!d) return null;
+  const str = String(d).trim().toLowerCase();
+  if (str.startsWith('mon') || str === 'senin') return 'Monday';
+  if (str.startsWith('tue') || str === 'selasa') return 'Tuesday';
+  if (str.startsWith('wed') || str === 'rabu') return 'Wednesday';
+  if (str.startsWith('thu') || str === 'kamis') return 'Thursday';
+  if (str.startsWith('fri') || str.startsWith('jumat') || str.startsWith("jum'at")) return 'Friday';
+  if (str.startsWith('sat') || str === 'sabtu') return 'Saturday';
+  if (str.startsWith('sun') || str === 'minggu') return 'Sunday';
+  return null;
+}
+
 /**
  * Compute per-day stats for a single instructor's class rows.
  * Returns { byDay: { Monday: {...}, ... }, weekly: {...} }
@@ -221,13 +234,31 @@ function computeForInstructor(rows) {
       unparsed.push(r);
       continue;
     }
-    if (!dayTimeMap[r.day]) dayTimeMap[r.day] = {};
-    if (!dayTimeMap[r.day][r.time]) dayTimeMap[r.day][r.time] = { rows: [], parsed };
-    dayTimeMap[r.day][r.time].rows.push(r);
+    const day = normalizeDayName(r.day) || String(r.day).trim();
+    if (!dayTimeMap[day]) dayTimeMap[day] = {};
+    if (!dayTimeMap[day][r.time]) dayTimeMap[day][r.time] = { rows: [], parsed };
+    dayTimeMap[day][r.time].rows.push(r);
   }
 
   // Aggregate per day
   for (const day of Object.keys(dayTimeMap)) {
+    if (!byDay[day]) {
+      byDay[day] = {
+        day,
+        hours: 0,
+        hoursClipped: 0,
+        sessions: 0,
+        sessionList: [],
+        leaveSessions: [],
+        students: 0,
+        studentSet: new Set(),
+        programs: new Set(),
+        branches: new Set(),
+        busiestStartMin: null,
+        busiestEndMin: null,
+        intervals: [],
+      };
+    }
     const timeMap = dayTimeMap[day];
     const intervals = [];
 
