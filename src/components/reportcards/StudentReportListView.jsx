@@ -10,6 +10,7 @@ import {
   PROGRAM_CATEGORIES,
   UNFILTERED,
   filterStudents,
+  matchesStudentFilter,
   partitionByProgramCategory,
   studentProgramCategory,
 } from '../../lib/studentFilter';
@@ -107,7 +108,7 @@ export default function StudentReportListView({
           return false;
         }
         // 2. Standard criteria: search, branch, status
-        if (!filterStudents(st, { search, branch: filterBranch, status: filterStatus })) {
+        if (!matchesStudentFilter(st, { search, branch: filterBranch, status: filterStatus })) {
           return false;
         }
         // 3. Report Result filter: assessed vs unassessed

@@ -972,426 +972,421 @@ export default function NewStudentReportCardsPage({ onNavigate, params, initialM
           )}
         </div>
       ) : (
-        <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns: 'minmax(240px, 300px) minmax(0, 1fr)',
-            gap: '1.25rem',
-            alignItems: 'start',
-          }}
-        >
-          {/* Selector panel — already carries `no-print` on its own root. */}
-          <StudentSelectorPanel
-            students={students}
-            category={activeCategory}
-            onCategoryChange={(next) => {
-              setCategory(next);
-              // Req 6.6 — dropping the pick lets the derived selection fall to
-              // the first student of the newly chosen tab.
-              setPickedStudentId(null);
-            }}
-            selectedStudentId={selectedStudentId}
-            onSelectStudent={(id) => setPickedStudentId(id)}
-          />
-
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem', minWidth: 0 }}>
-            {/* Student header: name, instructor, start term, current term, badges. */}
-            <div className="panel no-print" style={{ margin: 0 }}>
-              <div className="panel-body" style={{ padding: '1rem 1.25rem' }}>
-                {!selectedStudent ? (
-                  <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem', width: '100%' }}>
+          {/* Student header: name, instructor, start term, current term, badges. */}
+          <div className="panel no-print" style={{ margin: 0 }}>
+            <div className="panel-body" style={{ padding: '1rem 1.25rem' }}>
+              {!selectedStudent ? (
+                <div style={{ padding: '1.5rem', textAlign: 'center' }}>
+                  <p style={{ margin: '0 0 1rem', fontSize: '0.88rem', color: 'var(--text-muted)' }}>
                     {studentsLoading
                       ? 'Loading students…'
-                      : 'Select a student from the list to record an evaluation and build a report.'}
+                      : 'No student selected yet. Pick a student from the Report List to record an evaluation.'}
                   </p>
-                ) : (
-                  <div
+                  <button
+                    type="button"
+                    className="btn btn-primary"
+                    onClick={() => onNavigate ? onNavigate('report-cards-list') : setMode('list')}
                     style={{
-                      display: 'flex',
-                      flexWrap: 'wrap',
-                      gap: '1.25rem',
-                      alignItems: 'flex-start',
-                      justifyContent: 'space-between',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '0.4rem',
+                      borderRadius: '10px',
+                      padding: '0.5rem 1rem',
+                      fontSize: '0.8rem',
                     }}
                   >
-                    <div style={{ display: 'grid', gap: '0.35rem', minWidth: 0 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
-                        <span
-                          style={{
-                            fontSize: '1.15rem',
-                            fontWeight: 700,
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '0.4rem',
-                          }}
-                        >
-                          <User size={18} aria-hidden="true" />
-                          {selectedStudent.name || EM_DASH}
-                        </span>
-                        <button
-                          type="button"
-                          className="btn btn-secondary btn-sm"
-                          onClick={() => setMode('list')}
-                          style={{
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: '0.35rem',
-                            borderRadius: '8px',
-                            padding: '0.3rem 0.65rem',
-                            fontSize: '0.75rem',
-                            color: 'var(--text-secondary)',
-                            border: '1px solid var(--border-color)',
-                            background: 'var(--bg-color)',
-                            cursor: 'pointer',
-                          }}
-                        >
-                          <Users size={13} aria-hidden="true" />
-                          Change Student (Report List)
-                        </button>
-                      </div>
+                    <Users size={15} aria-hidden="true" />
+                    Open Report List
+                  </button>
+                </div>
+              ) : (
+                <div
+                  style={{
+                    display: 'flex',
+                    flexWrap: 'wrap',
+                    gap: '1.25rem',
+                    alignItems: 'flex-start',
+                    justifyContent: 'space-between',
+                  }}
+                >
+                  <div style={{ display: 'grid', gap: '0.35rem', minWidth: 0 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
                       <span
                         style={{
-                          display: 'flex',
-                          flexWrap: 'wrap',
-                          gap: '0.9rem',
-                          fontSize: '0.78rem',
-                          color: 'var(--text-secondary)',
-                        }}
-                      >
-                        <span>{`Instructor: ${headerInstructor}`}</span>
-                        {/* Req 4.6 — an em dash, never a term label, when there is none. */}
-                        <span>{`Start term: ${termPointLabel(terms.startTerm)}`}</span>
-                        {/* Req 4.5 — an em dash when no term is paid. */}
-                        <span>{`Current term: ${termPointLabel(terms.currentTerm)}`}</span>
-                        <span>{`${selectedStudent.level || EM_DASH} · ${
-                          selectedStudent.branchName || EM_DASH
-                        }`}</span>
-                      </span>
-
-                      {/*
-                        Req 4.9 — paid, unpaid and absent are three visually
-                        distinct styles from `globals.css`, and the current badge
-                        adds a ring on top of its state colour, so the two axes
-                        stay independently readable. Each badge is a real button,
-                        so the state is also in the accessible name rather than
-                        carried by colour alone.
-                      */}
-                      <span data-tour="term-badges" className="term-badge-row">
-                        {terms.badges.map((badge) => (
-                          <button
-                            key={badge.termNumber}
-                            type="button"
-                            className={[
-                              'term-badge',
-                              `term-badge-${badge.state}`,
-                              badge.current ? 'term-badge-current' : '',
-                            ]
-                              .filter(Boolean)
-                              .join(' ')}
-                            onClick={() => handleToggleTerm(badge)}
-                            disabled={savingTerm === badge.termNumber}
-                            aria-label={`${badge.label} ${terms.year}: ${badge.state}${
-                              badge.current ? ', current term' : ''
-                            }. Mark ${badge.state === 'paid' ? 'unpaid' : 'paid'}.`}
-                            title={`${badge.label} ${terms.year} — ${badge.state}${
-                              badge.current ? ' (current term)' : ''
-                            }`}
-                            style={{ cursor: 'pointer' }}
-                          >
-                            {badge.label}
-                          </button>
-                        ))}
-                        <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
-                          {`Terms ${terms.year}`}
-                        </span>
-                      </span>
-
-                      {/*
-                        What the badge colours mean. Req 4.9 asks for three
-                        visually distinct states, but "distinct" is not the same
-                        as "self-explanatory": green and amber say nothing about
-                        which is paid until something says so. The swatches reuse
-                        the `.term-badge-*` classes, so this legend cannot drift
-                        from the badges above it.
-
-                        `no-print`: the printed report card is
-                        `ReportCardDocument`, and a parent has no business reading
-                        an interaction hint about clicking.
-                      */}
-                      <span className="term-legend no-print">
-                        {TERM_LEGEND.map(({ state, label }) => (
-                          <span key={state} className="term-legend-item">
-                            <span
-                              aria-hidden="true"
-                              className={`term-badge term-badge-${state} term-legend-swatch`}
-                            />
-                            {label}
-                          </span>
-                        ))}
-                        <span className="term-legend-item">
-                          <span
-                            aria-hidden="true"
-                            className="term-badge term-badge-paid term-badge-current term-legend-swatch"
-                          />
-                          Current term
-                        </span>
-                        <span className="term-legend-hint">
-                          Click a term to switch it between paid and unpaid.
-                        </span>
-                      </span>
-                    </div>
-
-                    <div style={{ textAlign: 'right', display: 'grid', gap: '0.15rem' }}>
-                      <span
-                        style={{
-                          fontSize: '0.65rem',
+                          fontSize: '1.15rem',
                           fontWeight: 700,
-                          letterSpacing: '0.08em',
-                          textTransform: 'uppercase',
-                          color: 'var(--text-secondary)',
                           display: 'flex',
                           alignItems: 'center',
-                          gap: '0.3rem',
-                          justifyContent: 'flex-end',
+                          gap: '0.4rem',
                         }}
                       >
-                        <Award size={13} aria-hidden="true" />
-                        Overall grade
+                        <User size={18} aria-hidden="true" />
+                        {selectedStudent.name || EM_DASH}
                       </span>
-                      {/* Req 3.4 — no number and no `/5` text at all when unassessed. */}
-                      {dataLoading && !dataReady ? (
-                        <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
-                          Loading…
-                        </span>
-                      ) : (
-                        <>
-                          {assessed ? (
-                            <span style={{ fontSize: '1.15rem', fontWeight: 700 }}>
-                              {`${grade.score.toFixed(1)} / 5.0`}
-                            </span>
-                          ) : null}
-                          <span
-                            style={{
-                              fontSize: '0.7rem',
-                              fontWeight: 700,
-                              letterSpacing: '0.05em',
-                              color: assessed ? 'var(--primary-blue)' : 'var(--text-muted)',
-                            }}
-                          >
-                            {grade.label}
-                          </span>
-                        </>
-                      )}
+                      <button
+                        type="button"
+                        className="btn btn-secondary btn-sm"
+                        onClick={() => setMode('list')}
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '0.35rem',
+                          borderRadius: '8px',
+                          padding: '0.3rem 0.65rem',
+                          fontSize: '0.75rem',
+                          color: 'var(--text-secondary)',
+                          border: '1px solid var(--border-color)',
+                          background: 'var(--bg-color)',
+                          cursor: 'pointer',
+                        }}
+                      >
+                        <Users size={13} aria-hidden="true" />
+                        Change Student (Report List)
+                      </button>
                     </div>
-                  </div>
-                )}
-
-                {/* Req 2.14 — the retry is reachable without waiting for a toast. */}
-                {dataError && !dataReady ? (
-                  <div
-                    role="alert"
-                    style={{
-                      marginTop: '0.9rem',
-                      display: 'flex',
-                      flexWrap: 'wrap',
-                      alignItems: 'center',
-                      gap: '0.6rem',
-                      border: '1px solid var(--danger-border)',
-                      background: 'var(--danger-bg)',
-                      color: 'var(--danger)',
-                      borderRadius: '8px',
-                      padding: '0.6rem 0.75rem',
-                      fontSize: '0.78rem',
-                    }}
-                  >
-                    <span>{dataError}</span>
-                    <button
-                      type="button"
-                      onClick={() => setReloadToken((token) => token + 1)}
+                    <span
                       style={{
+                        display: 'flex',
+                        flexWrap: 'wrap',
+                        gap: '0.9rem',
+                        fontSize: '0.78rem',
+                        color: 'var(--text-secondary)',
+                      }}
+                    >
+                      <span>{`Instructor: ${headerInstructor}`}</span>
+                      {/* Req 4.6 — an em dash, never a term label, when there is none. */}
+                      <span>{`Start term: ${termPointLabel(terms.startTerm)}`}</span>
+                      {/* Req 4.5 — an em dash when no term is paid. */}
+                      <span>{`Current term: ${termPointLabel(terms.currentTerm)}`}</span>
+                      <span>{`${selectedStudent.level || EM_DASH} · ${
+                        selectedStudent.branchName || EM_DASH
+                      }`}</span>
+                    </span>
+
+                    {/*
+                      Req 4.9 — paid, unpaid and absent are three visually
+                      distinct styles from `globals.css`, and the current badge
+                      adds a ring on top of its state colour, so the two axes
+                      stay independently readable. Each badge is a real button,
+                      so the state is also in the accessible name rather than
+                      carried by colour alone.
+                    */}
+                    <span data-tour="term-badges" className="term-badge-row">
+                      {terms.badges.map((badge) => (
+                        <button
+                          key={badge.termNumber}
+                          type="button"
+                          className={[
+                            'term-badge',
+                            `term-badge-${badge.state}`,
+                            badge.current ? 'term-badge-current' : '',
+                          ]
+                            .filter(Boolean)
+                            .join(' ')}
+                          onClick={() => handleToggleTerm(badge)}
+                          disabled={savingTerm === badge.termNumber}
+                          aria-label={`${badge.label} ${terms.year}: ${badge.state}${
+                            badge.current ? ', current term' : ''
+                          }. Mark ${badge.state === 'paid' ? 'unpaid' : 'paid'}.`}
+                          title={`${badge.label} ${terms.year} — ${badge.state}${
+                            badge.current ? ' (current term)' : ''
+                          }`}
+                          style={{ cursor: 'pointer' }}
+                        >
+                          {badge.label}
+                        </button>
+                      ))}
+                      <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+                        {`Terms ${terms.year}`}
+                      </span>
+                    </span>
+
+                    {/*
+                      What the badge colours mean. Req 4.9 asks for three
+                      visually distinct states, but "distinct" is not the same
+                      as "self-explanatory": green and amber say nothing about
+                      which is paid until something says so. The swatches reuse
+                      the `.term-badge-*` classes, so this legend cannot drift
+                      from the badges above it.
+
+                      `no-print`: the printed report card is
+                      `ReportCardDocument`, and a parent has no business reading
+                      an interaction hint about clicking.
+                    */}
+                    <span className="term-legend no-print">
+                      {TERM_LEGEND.map(({ state, label }) => (
+                        <span key={state} className="term-legend-item">
+                          <span
+                            aria-hidden="true"
+                            className={`term-badge term-badge-${state} term-legend-swatch`}
+                          />
+                          {label}
+                        </span>
+                      ))}
+                      <span className="term-legend-item">
+                        <span
+                          aria-hidden="true"
+                          className="term-badge term-badge-paid term-badge-current term-legend-swatch"
+                        />
+                        Current term
+                      </span>
+                      <span className="term-legend-hint">
+                        Click a term to switch it between paid and unpaid.
+                      </span>
+                    </span>
+                  </div>
+
+                  <div style={{ textAlign: 'right', display: 'grid', gap: '0.15rem' }}>
+                    <span
+                      style={{
+                        fontSize: '0.65rem',
+                        fontWeight: 700,
+                        letterSpacing: '0.08em',
+                        textTransform: 'uppercase',
+                        color: 'var(--text-secondary)',
                         display: 'flex',
                         alignItems: 'center',
                         gap: '0.3rem',
-                        cursor: 'pointer',
-                        borderRadius: '8px',
-                        padding: '0.3rem 0.7rem',
-                        fontSize: '0.75rem',
-                        fontWeight: 600,
-                        background: 'transparent',
-                        color: 'var(--danger)',
-                        border: '1px solid var(--danger-border)',
+                        justifyContent: 'flex-end',
                       }}
                     >
-                      <RefreshCw size={13} aria-hidden="true" />
-                      Retry
-                    </button>
+                      <Award size={13} aria-hidden="true" />
+                      Overall grade
+                    </span>
+                    {/* Req 3.4 — no number and no `/5` text at all when unassessed. */}
+                    {dataLoading && !dataReady ? (
+                      <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+                        Loading…
+                      </span>
+                    ) : (
+                      <>
+                        {assessed ? (
+                          <span style={{ fontSize: '1.15rem', fontWeight: 700 }}>
+                            {`${grade.score.toFixed(1)} / 5.0`}
+                          </span>
+                        ) : null}
+                        <span
+                          style={{
+                            fontSize: '0.7rem',
+                            fontWeight: 700,
+                            letterSpacing: '0.05em',
+                            color: assessed ? 'var(--primary-blue)' : 'var(--text-muted)',
+                          }}
+                        >
+                          {grade.label}
+                        </span>
+                      </>
+                    )}
                   </div>
-                ) : null}
-              </div>
-            </div>
-
-            {/* The standalone guidelines view moved to its own page,
-                `report-cards-rubric`, so this page has two modes rather than
-                three. The compact reference beside the form stays. */}
-            {selectedStudent && (
-              <div
-                className="no-print"
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns: 'minmax(260px, 320px) minmax(0, 1fr)',
-                  gap: '1.25rem',
-                  alignItems: 'start',
-                }}
-              >
-                {/* LEFT COLUMN: Scoring Guidelines — sticky so it stays visible while scrolling the form */}
-                <div className="guidelines-scroll-sidebar" style={{ position: 'sticky', top: '1rem', maxHeight: 'calc(100vh - 2rem)', overflowY: 'auto', paddingRight: '0.25rem' }}>
-                  <ScoringGuidelinesPanel variant="compact" />
                 </div>
+              )}
 
-                {/* RIGHT COLUMN: Evaluation Form + Charts */}
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem', minWidth: 0 }}>
-                  {/* Evaluation form — already carries `no-print` on its own root. */}
-                  <EvaluationForm
-                    evaluation={editingEvaluation}
-                    lessonNumber={selectedLesson}
-                    onLessonChange={handleLessonChange}
-                    recordedLessons={recordedLessons}
-                    date={date}
-                    onDateChange={setDate}
-                    evaluations={shownEvaluations}
-                    student={selectedStudent}
-                    instructorNames={instructorNames}
-                    onSave={handleSave}
-                    saving={saving}
-                  />
-
-                  {/*
-                    On-screen chart panels. The wrapper is not part of the report,
-                    so it carries `no-print`; the printed radar comes from the
-                    document itself.
-                  */}
-                  <div
+              {/* Req 2.14 — the retry is reachable without waiting for a toast. */}
+              {dataError && !dataReady ? (
+                <div
+                  role="alert"
+                  style={{
+                    marginTop: '0.9rem',
+                    display: 'flex',
+                    flexWrap: 'wrap',
+                    alignItems: 'center',
+                    gap: '0.6rem',
+                    border: '1px solid var(--danger-border)',
+                    background: 'var(--danger-bg)',
+                    color: 'var(--danger)',
+                    borderRadius: '8px',
+                    padding: '0.6rem 0.75rem',
+                    fontSize: '0.78rem',
+                  }}
+                >
+                  <span>{dataError}</span>
+                  <button
+                    type="button"
+                    onClick={() => setReloadToken((token) => token + 1)}
                     style={{
-                      display: 'grid',
-                      gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
-                      gap: '1.25rem',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.3rem',
+                      cursor: 'pointer',
+                      borderRadius: '8px',
+                      padding: '0.3rem 0.7rem',
+                      fontSize: '0.75rem',
+                      fontWeight: 600,
+                      background: 'transparent',
+                      color: 'var(--danger)',
+                      border: '1px solid var(--danger-border)',
                     }}
                   >
-                    <div className="panel" style={{ margin: 0 }}>
-                      <div className="panel-header" style={{ display: 'block' }}>
-                        <h3
-                          style={{
-                            fontSize: '0.95rem',
-                            fontWeight: 600,
-                            margin: 0,
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '0.4rem',
-                          }}
-                        >
-                          <Award size={16} aria-hidden="true" />
-                          Competency Map
-                        </h3>
-                        <p
-                          style={{
-                            fontSize: '0.75rem',
-                            color: 'var(--text-secondary)',
-                            margin: '0.2rem 0 0',
-                          }}
-                        >
-                          The average of every evaluation on record.
-                        </p>
-                      </div>
-                      <div
-                        data-tour="radar"
-                        className="panel-body"
-                        style={{
-                          padding: '1rem',
-                          display: 'flex',
-                          justifyContent: 'center',
-                          minHeight: `${SCREEN_RADAR_SIZE.height}px`,
-                        }}
-                      >
-                        <ChartBoundary averages={averages}>
-                          <CompetencyRadarChart averages={averages} size={SCREEN_RADAR_SIZE} />
-                        </ChartBoundary>
-                      </div>
-                    </div>
-
-                    <div className="panel" style={{ margin: 0 }}>
-                      <div className="panel-header" style={{ display: 'block' }}>
-                        <h3
-                          style={{
-                            fontSize: '0.95rem',
-                            fontWeight: 600,
-                            margin: 0,
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '0.4rem',
-                          }}
-                        >
-                          <TrendingUp size={16} aria-hidden="true" />
-                          Average Progress Trend
-                        </h3>
-                        <p
-                          style={{
-                            fontSize: '0.75rem',
-                            color: 'var(--text-secondary)',
-                            margin: '0.2rem 0 0',
-                          }}
-                        >
-                          One point per lesson, labelled with its place in the whole history.
-                        </p>
-                      </div>
-                      <div
-                        className="panel-body"
-                        style={{
-                          padding: '1rem',
-                          display: 'flex',
-                          justifyContent: 'center',
-                          minHeight: `${SCREEN_TREND_SIZE.height}px`,
-                        }}
-                      >
-                        {/*
-                          `averages` is passed alongside `series` so the Req 3.9
-                          fallback has the numbers to print; the chart itself reads
-                          only `series` and `size`.
-                        */}
-                        <ChartBoundary averages={averages}>
-                          <ProgressTrendChart
-                            series={series}
-                            averages={averages}
-                            size={SCREEN_TREND_SIZE}
-                          />
-                        </ChartBoundary>
-                      </div>
-                    </div>
-                  </div>
+                    <RefreshCw size={13} aria-hidden="true" />
+                    Retry
+                  </button>
                 </div>
-              </div>
-            )}
+              ) : null}
+            </div>
+          </div>
 
+          {/* The standalone guidelines view moved to its own page,
+              `report-cards-rubric`, so this page has two modes rather than
+              three. The compact reference beside the form stays. */}
+          {selectedStudent && (
             <div
               className="no-print"
               style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '0.5rem',
-                fontSize: '0.75rem',
-                color: 'var(--text-muted)',
+                display: 'grid',
+                gridTemplateColumns: 'minmax(260px, 320px) minmax(0, 1fr)',
+                gap: '1.25rem',
+                alignItems: 'start',
               }}
             >
-              <CalendarDays size={14} aria-hidden="true" />
-              <span>
-                {dataReady
-                  ? `${shownEvaluations.length} evaluation${
-                      shownEvaluations.length === 1 ? '' : 's'
-                    } on record${
-                      onNavigate ? ' · open the Student Database to edit this student' : ''
-                    }`
-                  : 'No evaluation data loaded for this student yet.'}
-              </span>
+              {/* LEFT COLUMN: Scoring Guidelines — sticky so it stays visible while scrolling the form */}
+              <div className="guidelines-scroll-sidebar" style={{ position: 'sticky', top: '1rem', maxHeight: 'calc(100vh - 2rem)', overflowY: 'auto', paddingRight: '0.25rem' }}>
+                <ScoringGuidelinesPanel variant="compact" />
+              </div>
+
+              {/* RIGHT COLUMN: Evaluation Form + Charts */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem', minWidth: 0 }}>
+                {/* Evaluation form — already carries `no-print` on its own root. */}
+                <EvaluationForm
+                  evaluation={editingEvaluation}
+                  lessonNumber={selectedLesson}
+                  onLessonChange={handleLessonChange}
+                  recordedLessons={recordedLessons}
+                  date={date}
+                  onDateChange={setDate}
+                  evaluations={shownEvaluations}
+                  student={selectedStudent}
+                  instructorNames={instructorNames}
+                  onSave={handleSave}
+                  saving={saving}
+                />
+
+                {/*
+                  On-screen chart panels. The wrapper is not part of the report,
+                  so it carries `no-print`; the printed radar comes from the
+                  document itself.
+                */}
+                <div
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
+                    gap: '1.25rem',
+                  }}
+                >
+                  <div className="panel" style={{ margin: 0 }}>
+                    <div className="panel-header" style={{ display: 'block' }}>
+                      <h3
+                        style={{
+                          fontSize: '0.95rem',
+                          fontWeight: 600,
+                          margin: 0,
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '0.4rem',
+                        }}
+                      >
+                        <Award size={16} aria-hidden="true" />
+                        Competency Map
+                      </h3>
+                      <p
+                        style={{
+                          fontSize: '0.75rem',
+                          color: 'var(--text-secondary)',
+                          margin: '0.2rem 0 0',
+                        }}
+                      >
+                        The average of every evaluation on record.
+                      </p>
+                    </div>
+                    <div
+                      data-tour="radar"
+                      className="panel-body"
+                      style={{
+                        padding: '1rem',
+                        display: 'flex',
+                        justifyContent: 'center',
+                        minHeight: `${SCREEN_RADAR_SIZE.height}px`,
+                      }}
+                    >
+                      <ChartBoundary averages={averages}>
+                        <CompetencyRadarChart averages={averages} size={SCREEN_RADAR_SIZE} />
+                      </ChartBoundary>
+                    </div>
+                  </div>
+
+                  <div className="panel" style={{ margin: 0 }}>
+                    <div className="panel-header" style={{ display: 'block' }}>
+                      <h3
+                        style={{
+                          fontSize: '0.95rem',
+                          fontWeight: 600,
+                          margin: 0,
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '0.4rem',
+                        }}
+                      >
+                        <TrendingUp size={16} aria-hidden="true" />
+                        Average Progress Trend
+                      </h3>
+                      <p
+                        style={{
+                          fontSize: '0.75rem',
+                          color: 'var(--text-secondary)',
+                          margin: '0.2rem 0 0',
+                        }}
+                      >
+                        One point per lesson, labelled with its place in the whole history.
+                      </p>
+                    </div>
+                    <div
+                      className="panel-body"
+                      style={{
+                        padding: '1rem',
+                        display: 'flex',
+                        justifyContent: 'center',
+                        minHeight: `${SCREEN_TREND_SIZE.height}px`,
+                      }}
+                    >
+                      {/*
+                        `averages` is passed alongside `series` so the Req 3.9
+                        fallback has the numbers to print; the chart itself reads
+                        only `series` and `size`.
+                      */}
+                      <ChartBoundary averages={averages}>
+                        <ProgressTrendChart
+                          series={series}
+                          averages={averages}
+                          size={SCREEN_TREND_SIZE}
+                        />
+                      </ChartBoundary>
+                    </div>
+                  </div>
+                </div>
+              </div>
             </div>
+          )}
+
+          <div
+            className="no-print"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.5rem',
+              fontSize: '0.75rem',
+              color: 'var(--text-muted)',
+            }}
+          >
+            <CalendarDays size={14} aria-hidden="true" />
+            <span>
+              {dataReady
+                ? `${shownEvaluations.length} evaluation${
+                    shownEvaluations.length === 1 ? '' : 's'
+                  } on record${
+                    onNavigate ? ' · open the Student Database to edit this student' : ''
+                  }`
+                : 'No evaluation data loaded for this student yet.'}
+            </span>
           </div>
         </div>
       )}
