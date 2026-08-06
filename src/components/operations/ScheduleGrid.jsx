@@ -2150,13 +2150,14 @@ const SEAM_CHIP_H = 15;
  * Hidden from assistive tech: the card already states the range in text, and
  * repeating it would just be noise.
  */
-function EdgeMarks({ color, startLabel, endLabel, gripped, buttedNext, buttedPrev }) {
+function EdgeMarks({ color, textColor, startLabel, endLabel, gripped, buttedNext, buttedPrev, isDark }) {
+  const markColor = textColor || color;
   const band = {
     position: 'absolute', pointerEvents: 'none', left: 0, right: 0,
     display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.3rem',
     padding: '0 0.4rem', lineHeight: 1,
     fontSize: '0.5rem', fontWeight: 800, letterSpacing: '0.09em',
-    color, opacity: 0.8, fontVariantNumeric: 'tabular-nums',
+    color: markColor, opacity: 0.9, fontVariantNumeric: 'tabular-nums',
   };
   return (
     <>
@@ -2181,10 +2182,11 @@ function EdgeMarks({ color, startLabel, endLabel, gripped, buttedNext, buttedPre
             position: 'absolute', pointerEvents: 'none',
             right: '0.45rem', bottom: `-${SEAM_CHIP_H / 2}px`, height: `${SEAM_CHIP_H}px`,
             display: 'inline-flex', alignItems: 'center', padding: '0 0.4rem',
-            borderRadius: '999px', border: `1px solid ${color}`,
-            background: 'var(--panel-bg)',
+            borderRadius: '999px', border: `1px solid ${color || markColor}`,
+            background: isDark ? '#1e293b' : 'var(--panel-bg)',
             fontSize: '0.5rem', fontWeight: 800, letterSpacing: '0.06em',
-            color, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap',
+            color: isDark ? '#ffffff' : markColor, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap',
+            zIndex: 3,
           }}
         >
           {endLabel}
@@ -2381,12 +2383,14 @@ function Cell({
       >
         {edgeMarks && (
           <EdgeMarks
-            color={meta.textColor}
+            color={meta.border || meta.color}
+            textColor={meta.textColor}
             startLabel={clockLabel(cls.startMin)}
             endLabel={clockLabel(shownEnd)}
             gripped={gripped}
             buttedNext={cell.buttedNext}
             buttedPrev={cell.buttedPrev}
+            isDark={meta.isDark}
           />
         )}
         <span style={{ display: 'flex', alignItems: 'center', gap: '0.2rem' }}>
