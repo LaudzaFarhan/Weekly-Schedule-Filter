@@ -17,6 +17,7 @@ import {
 } from '../../lib/slotTypes';
 import { maxStudentsFor } from '../../lib/programRules';
 import { DAY_NAMES } from '../../utils/constants';
+import { isSameTeacher } from '../../utils/instructorUtils';
 
 const CATEGORIES = ['Kinder', 'Junior', 'Coder'];
 
@@ -220,7 +221,7 @@ export default function ScheduleGrid({
     if (teacher === 'Kinder' || teacher === 'Junior' || teacher === 'Coder') {
       return sorted.filter((i) => instructorHasLevel(i, teacher, classGroups));
     }
-    return sorted.filter((i) => i.name === teacher);
+    return sorted.filter((i) => isSameTeacher(i.name, teacher));
   }, [pool, teacher, classGroups]);
 
   const teacherOptions = useMemo(() => {
@@ -238,7 +239,7 @@ export default function ScheduleGrid({
     }
     for (const g of classGroups) {
       if (g.day !== day || g.startMin == null) continue;
-      if (!columns.some((i) => i.name === g.teacher)) continue;
+      if (!columns.some((i) => isSameTeacher(i.name, g.teacher))) continue;
       set.add(g.startMin);
     }
     return [...set].sort((a, b) => a - b);
@@ -266,7 +267,7 @@ export default function ScheduleGrid({
       ? classGroups.filter((g) => g.key !== excludeClassKey)
       : classGroups;
     const mine = daySlots.filter((s) =>
-      s.instructor === inst.name && slotTypeMeta(s.type).bookable && !sameSlot(s)
+      isSameTeacher(s.instructor, inst.name) && slotTypeMeta(s.type).bookable && !sameSlot(s)
     );
     const blocking = [
       ...branchBlocks.filter((s) => !sameSlot(s)),
@@ -303,10 +304,10 @@ export default function ScheduleGrid({
     for (const s of branchBlocks) consider(toMinutes(s.start));
     for (const s of personalBlocks(inst.name)) consider(toMinutes(s.start));
     for (const s of daySlots) {
-      if (s.instructor === inst.name && slotTypeMeta(s.type).bookable) consider(toMinutes(s.start));
+      if (isSameTeacher(s.instructor, inst.name) && slotTypeMeta(s.type).bookable) consider(toMinutes(s.start));
     }
     for (const g of classGroups) {
-      if (g.teacher === inst.name && g.day === day) consider(g.startMin);
+      if (isSameTeacher(g.teacher, inst.name) && g.day === day) consider(g.startMin);
     }
     return soonest;
   }, [closeMin, branchBlocks, personalBlocks, daySlots, classGroups, day]);
@@ -317,9 +318,9 @@ export default function ScheduleGrid({
 
     for (const inst of columns) {
       const cells = new Array(rowStarts.length).fill(null);
-      const mineClasses = daySlots.filter((s) => s.instructor === inst.name && slotTypeMeta(s.type).bookable);
+      const mineClasses = daySlots.filter((s) => isSameTeacher(s.instructor, inst.name) && slotTypeMeta(s.type).bookable);
       const mineBlocks = personalBlocks(inst.name);
-      const teaching = classGroups.filter((g) => g.teacher === inst.name && g.day === day);
+      const teaching = classGroups.filter((g) => isSameTeacher(g.teacher, inst.name) && g.day === day);
 
       let i = 0;
       while (i < rowStarts.length) {
@@ -399,8 +400,8 @@ export default function ScheduleGrid({
   const load = useMemo(() => {
     const out = new Map();
     for (const inst of columns) {
-      const teaching = classGroups.filter((g) => g.teacher === inst.name && g.day === day);
-      const planned = daySlots.filter((s) => s.instructor === inst.name && slotTypeMeta(s.type).bookable);
+      const teaching = classGroups.filter((g) => isSameTeacher(g.teacher, inst.name) && g.day === day);
+      const planned = daySlots.filter((s) => isSameTeacher(s.instructor, inst.name) && slotTypeMeta(s.type).bookable);
       const minutes = teaching.reduce(
         (sum, g) => sum + (g.endMin != null && g.startMin != null ? g.endMin - g.startMin : 0), 0
       );

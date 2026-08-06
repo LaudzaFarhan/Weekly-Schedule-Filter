@@ -15,6 +15,7 @@
 
 import { parseTimeSlot } from '../utils/timeUtils';
 import { DAY_NAMES } from '../utils/constants';
+import { isSameTeacher } from '../utils/instructorUtils';
 
 /** Stable reason codes so callers can style or filter by cause. */
 export const AVAIL = {
@@ -309,7 +310,7 @@ export function expiredMembers(group, todayISO) {
 
 /** Classes a named instructor teaches on a day, anywhere. */
 export function classesForInstructor(groups, instructorName, day) {
-  return (groups || []).filter((g) => g.teacher === instructorName && g.day === day);
+  return (groups || []).filter((g) => isSameTeacher(g.teacher, instructorName) && g.day === day);
 }
 
 // ── the verdict ──────────────────────────────────────────────────────────────

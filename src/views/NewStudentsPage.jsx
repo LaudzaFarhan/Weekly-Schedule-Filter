@@ -28,6 +28,8 @@ import {
   resolveAuditUser,
 } from '../lib/wipeReporting';
 import { bulkCreateInternalClasses, subscribeToInternalClasses } from '../services/internalScheduleService';
+import { subscribeToInternalInstructors } from '../services/internalInstructorService';
+import { resolveCanonicalTeacherName } from '../utils/instructorUtils';
 import { STUDENT_LEVELS, normaliseCoderLevel } from '../lib/programRules';
 
 function normaliseDayName(dayStr) {
@@ -142,10 +144,16 @@ export default function NewStudentsPage({ onNavigate } = {}) {
 
   // Subscribe to schedule classes to look up assigned instructors
   useEffect(() => {
-    const unsubClasses = subscribeToInternalClasses((data) => {
-      setClasses(data || []);
+    const unsubscribe = subscribeToInternalClasses((data) => {
+      setClasses(data);
     });
-    return () => unsubClasses();
+    return () => unsubscribe();
+  }, []);
+
+  const [instructorsList, setInstructorsList] = useState([]);
+  useEffect(() => {
+    const unsub = subscribeToInternalInstructors((data) => setInstructorsList(data || []));
+    return () => unsub();
   }, []);
 
   // Helper: Find assigned instructor for a student (from schedule or remarks)
@@ -322,6 +330,7 @@ export default function NewStudentsPage({ onNavigate } = {}) {
         }
 
         const normTime = formatNormalizedTimeSlot(timeRaw);
+        const canonicalTeacher = resolveCanonicalTeacherName(teacherRaw, instructorsList);
 
         if (normTime && s.name) {
           scheduleRows.push({
@@ -329,7 +338,7 @@ export default function NewStudentsPage({ onNavigate } = {}) {
             time: normTime,
             program: String(s.rawTerm || s.rawProgram || s.level || 'General').trim(),
             student: String(s.name).trim(),
-            teacher: teacherRaw ? String(teacherRaw).trim() : 'TBD',
+            teacher: canonicalTeacher,
             branchName: String(s.branchName || 'Bekasi').trim(),
             classType: 'Regular',
             remarks: s.rawRemarks || s.remarks || null,

@@ -135,3 +135,56 @@ export function getInstructorBranch(instructorName, instructorProfiles = [], ove
 
   return 'Unknown';
 }
+
+/**
+ * Flexible comparison between two teacher names (handles nicknames, partial names, casing).
+ * e.g., "Ziyah" matches "FAUZIYAH AMIRA ZAHRA", "Helen" matches "HELEN TERESIA".
+ */
+export function isSameTeacher(t1, t2) {
+  if (!t1 || !t2) return false;
+  const s1 = String(t1).toLowerCase().trim();
+  const s2 = String(t2).toLowerCase().trim();
+  if (s1 === s2) return true;
+
+  // Common nickname aliases map
+  const ALIAS_MAP = {
+    ziyah: 'fauziyah',
+  };
+
+  const norm1 = ALIAS_MAP[s1] || s1;
+  const norm2 = ALIAS_MAP[s2] || s2;
+  if (norm1 === norm2) return true;
+
+  // Token matching
+  const tokens1 = norm1.split(/\s+/).filter((t) => t.length >= 3);
+  const tokens2 = norm2.split(/\s+/).filter((t) => t.length >= 3);
+
+  for (const tok1 of tokens1) {
+    for (const tok2 of tokens2) {
+      if (tok1 === tok2 || tok1.includes(tok2) || tok2.includes(tok1)) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+/**
+ * Resolve a raw teacher name string against a list of known instructor objects/names.
+ * Returns the canonical full name if matched, or the trimmed raw name if no match is found.
+ */
+export function resolveCanonicalTeacherName(rawName, knownInstructors = []) {
+  if (!rawName) return 'TBD';
+  const trimmed = String(rawName).trim();
+  if (!trimmed || trimmed === '-' || trimmed.toUpperCase() === 'TBD') return 'TBD';
+
+  for (const inst of knownInstructors) {
+    const instName = typeof inst === 'string' ? inst : (inst?.name || inst?.fullname || inst?.nickname);
+    if (instName && isSameTeacher(trimmed, instName)) {
+      return instName;
+    }
+  }
+
+  return trimmed;
+}
+
