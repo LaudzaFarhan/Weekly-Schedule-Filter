@@ -277,6 +277,9 @@ export function isExpired(member, todayISO) {
  */
 export function attendsInWeek(member, weekStart) {
   if (!member) return false;
+  if (member.isIzin || member.notArranged || (typeof member.remarks === 'string' && member.remarks.toLowerCase().includes('izin'))) {
+    return false;
+  }
   if (member.classType === ATTENDANCE.REGULAR) return true;
   if (!weekStart) return (member.sessionDates || []).length === 0;
   const dates = member.sessionDates || [];
@@ -288,9 +291,15 @@ export function attendsInWeek(member, weekStart) {
 /** Seats taken in a class for a given week: regulars plus that week's guests. */
 export function occupancyForWeek(group, weekStart) {
   const members = group?.members || [];
-  const regular = members.filter((m) => m.classType === ATTENDANCE.REGULAR);
+  const regular = members.filter((m) => m.classType === ATTENDANCE.REGULAR && attendsInWeek(m, weekStart));
   const guests = members.filter((m) => m.classType !== ATTENDANCE.REGULAR && attendsInWeek(m, weekStart));
-  return { regular: regular.length, guests: guests.length, total: regular.length + guests.length };
+  const izin = members.filter((m) => m.isIzin || m.notArranged || (typeof m.remarks === 'string' && m.remarks.toLowerCase().includes('izin')));
+  return {
+    regular: regular.length,
+    guests: guests.length,
+    izin: izin.length,
+    total: regular.length + guests.length,
+  };
 }
 
 /**

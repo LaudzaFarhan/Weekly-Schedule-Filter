@@ -4,7 +4,7 @@ import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react'
 import {
   Users, Filter, Trash2, X, CalendarDays, CalendarPlus, AlertTriangle, Clock,
   GripVertical, ChevronUp, ChevronDown, ChevronLeft, ChevronRight,
-  Plus, Pencil, Building2, UserPlus, Repeat, FileText,
+  Plus, Pencil, Building2, UserPlus, Repeat, FileText, UserX, Sparkles,
 } from 'lucide-react';
 import {
   AVAIL, ATTENDANCE, isExpired, isoOf, availabilityFor, toMinutes, fromMinutes, clockLabel, slotLabelFor,
@@ -1650,17 +1650,31 @@ export default function ScheduleGrid({
               display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '0.75rem',
               padding: '1.1rem 1.3rem', borderBottom: '1px solid var(--border-color)',
             }}>
-              <div>
-                <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 600, color: 'var(--text-main)' }}>
-                  {[...new Set(roster.programs)].join(', ') || 'Class'} · {roster.time}
-                </h3>
-                <p style={{ margin: '0.3rem 0 0', fontSize: '0.78rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
-                  <strong style={{ color: 'var(--text-main)' }}>{roster.teacher}</strong> · {roster.branchName} · {roster.day}
-                  <br />
-                  {rosterOccupancy.total}/{rosterSeats} seats for the week of {week}
-                  {rosterOccupancy.guests > 0 && ` · ${rosterOccupancy.regular} regular + ${rosterOccupancy.guests} this week`}
-                </p>
-              </div>
+              {(() => {
+                const izinCount = roster.members.filter((m) => m.notArranged || m.isIzin || (typeof m.remarks === 'string' && m.remarks.toLowerCase().includes('izin'))).length;
+                const attendingCount = Math.max(0, rosterOccupancy.total - izinCount);
+                const openReplacementSeats = Math.max(0, rosterSeats - attendingCount);
+
+                return (
+                  <div>
+                    <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 600, color: 'var(--text-main)' }}>
+                      {[...new Set(roster.programs)].join(', ') || 'Class'} · {roster.time}
+                    </h3>
+                    <p style={{ margin: '0.3rem 0 0', fontSize: '0.78rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+                      <strong style={{ color: 'var(--text-main)' }}>{roster.teacher}</strong> · {roster.branchName} · {roster.day}
+                      <br />
+                      <strong style={{ color: openReplacementSeats > 0 ? '#059669' : 'var(--text-main)' }}>
+                        {attendingCount}/{rosterSeats} Attending
+                      </strong>
+                      {izinCount > 0 && (
+                        <span style={{ color: '#b45309', fontWeight: 600, marginLeft: '0.4rem' }}>
+                          ({izinCount} Izin · {openReplacementSeats} Replacement Seat{openReplacementSeats === 1 ? '' : 's'} Open)
+                        </span>
+                      )}
+                    </p>
+                  </div>
+                );
+              })()}
               <button
                 type="button"
                 onClick={() => setRosterKey(null)}
@@ -1672,131 +1686,180 @@ export default function ScheduleGrid({
             </div>
 
             <div style={{ padding: '1rem 1.3rem', overflowY: 'auto', flex: 1 }}>
-              <p style={{ margin: '0 0 0.5rem', fontSize: '0.72rem', fontWeight: 700, letterSpacing: '0.04em', color: 'var(--text-muted)' }}>
-                STUDENTS ({roster.members.length})
-              </p>
+              {(() => {
+                const izinCount = roster.members.filter((m) => m.notArranged || m.isIzin || (typeof m.remarks === 'string' && m.remarks.toLowerCase().includes('izin'))).length;
+                const attendingCount = Math.max(0, rosterOccupancy.total - izinCount);
+                const openReplacementSeats = Math.max(0, rosterSeats - attendingCount);
 
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.45rem' }}>
-                {roster.members.map((m) => {
-                  const replacement = m.classType === ATTENDANCE.REPLACEMENT;
-                  const additional = m.classType === ATTENDANCE.ADDITIONAL;
-                  const trial = m.classType === ATTENDANCE.TRIAL;
-                  const tint = replacement ? '#7c3aed' : additional ? '#0891b2' : trial ? '#ea580c' : '#059669';
-                  const thisWeek = attendsInWeek(m, week);
-                  // A dated place whose dates have all passed is over: it is
-                  // shown struck through rather than as a current member.
-                  const spent = isExpired(m, todayISO);
-                  return (
-                    <div
-                      key={m.id}
-                      style={{
-                        display: 'flex', alignItems: 'flex-start', gap: '0.6rem',
-                        padding: '0.6rem 0.7rem', borderRadius: '10px',
-                        border: '1px solid var(--border-color)',
-                        background: thisWeek ? 'transparent' : 'var(--bg-color)',
-                        opacity: spent ? 0.5 : thisWeek ? 1 : 0.65,
-                      }}
-                    >
-                      <span style={{ flex: 1, minWidth: 0 }}>
-                        <span style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
-                          <span style={{
-                            fontSize: '0.86rem', fontWeight: 600, color: 'var(--text-main)',
-                            textDecoration: spent ? 'line-through' : 'none',
-                          }}>
-                            {m.student || 'Unnamed'}
-                          </span>
-                          <span style={{
-                            fontSize: '0.63rem', fontWeight: 700, letterSpacing: '0.02em',
-                            color: tint, background: `${tint}1a`,
-                            borderRadius: '5px', padding: '0.1rem 0.35rem',
-                            display: 'inline-flex', alignItems: 'center', gap: '0.2rem',
-                          }}>
-                            {replacement && <Repeat size={9} />}
-                            {additional && <CalendarPlus size={9} />}
-                            {m.classType.toUpperCase()}
-                          </span>
-                          {m.program && (
-                            <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{m.program}</span>
-                          )}
-                        </span>
-                        <span style={{ display: 'block', fontSize: '0.72rem', color: 'var(--text-secondary)', marginTop: '0.15rem' }}>
-                          {m.classType === ATTENDANCE.REGULAR
-                            ? 'Every week at this time'
-                            : m.sessionDates.length
-                              ? `${m.sessionDates.length} session${m.sessionDates.length === 1 ? '' : 's'}: ${m.sessionDates.join(', ')}`
-                              : 'No dates recorded yet'}
-                          {spent ? ' · past, off the schedule' : !thisWeek ? ' · not this week' : ''}
-                        </span>
-                      </span>
+                return (
+                  <>
+                    <p style={{ margin: '0 0 0.5rem', fontSize: '0.72rem', fontWeight: 700, letterSpacing: '0.04em', color: 'var(--text-muted)' }}>
+                      STUDENTS ({roster.members.length})
+                    </p>
 
-                      <span style={{ display: 'flex', gap: '0.3rem', flexShrink: 0 }}>
-                        <button
-                          type="button"
-                          disabled={saving}
-                          onClick={() => onUpdateStudent?.(m, {
-                            classType: m.classType === ATTENDANCE.REGULAR
-                              ? ATTENDANCE.REPLACEMENT
-                              : ATTENDANCE.REGULAR,
-                            // Moving to replacement seeds the week being planned;
-                            // moving back to regular clears the dates.
-                            sessionDates: m.classType === ATTENDANCE.REGULAR
-                              ? [dateForDay(roster.day, week)].filter(Boolean)
-                              : [],
-                          })}
-                          title={m.classType === ATTENDANCE.REGULAR
-                            ? 'Make this a one-off replacement instead'
-                            : 'Make this a fixed weekly place'}
-                          className="btn"
-                          style={{ border: '1px solid var(--border-color)', background: 'transparent', color: 'var(--text-secondary)', borderRadius: '8px', padding: '0.3rem 0.55rem', fontSize: '0.72rem', cursor: 'pointer' }}
-                        >
-                          {m.classType === ATTENDANCE.REGULAR ? 'To replacement' : 'To regular'}
-                        </button>
-                        {/* Straight to this student's report card. Hidden rather
-                            than disabled when there is no navigation handler, so
-                            it never looks like a broken control. */}
-                        {onOpenStudentReport && m.student && (
-                          <button
-                            type="button"
-                            onClick={() => onOpenStudentReport(m.student)}
-                            title={`Open ${m.student}'s report card`}
-                            aria-label={`Report card for ${m.student}`}
-                            className="btn"
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.45rem' }}>
+                      {roster.members.map((m) => {
+                        const replacement = m.classType === ATTENDANCE.REPLACEMENT;
+                        const additional = m.classType === ATTENDANCE.ADDITIONAL;
+                        const trial = m.classType === ATTENDANCE.TRIAL;
+                        const isIzin = !!(m.isIzin || m.notArranged || (typeof m.remarks === 'string' && m.remarks.toLowerCase().includes('izin')));
+                        const tint = isIzin ? '#b45309' : replacement ? '#7c3aed' : additional ? '#0891b2' : trial ? '#ea580c' : '#059669';
+                        const thisWeek = attendsInWeek(m, week);
+                        const spent = isExpired(m, todayISO);
+                        return (
+                          <div
+                            key={m.id}
                             style={{
-                              display: 'inline-flex', alignItems: 'center', gap: '0.25rem',
-                              border: '1px solid var(--border-color)', background: 'transparent',
-                              color: 'var(--text-secondary)', borderRadius: '8px',
-                              padding: '0.3rem 0.55rem', fontSize: '0.72rem', cursor: 'pointer',
+                              display: 'flex', alignItems: 'flex-start', gap: '0.6rem',
+                              padding: '0.6rem 0.7rem', borderRadius: '10px',
+                              border: isIzin ? '1px dashed #f59e0b' : '1px solid var(--border-color)',
+                              background: isIzin ? 'rgba(254, 243, 199, 0.25)' : thisWeek ? 'transparent' : 'var(--bg-color)',
+                              opacity: spent ? 0.5 : (thisWeek || isIzin) ? 1 : 0.65,
                             }}
                           >
-                            <FileText size={12} aria-hidden="true" /> Report
-                          </button>
-                        )}
-                        <button
-                          type="button"
-                          disabled={saving}
-                          onClick={() => onRemoveStudent?.(m, roster)}
-                          title={`Remove ${m.student} from this class`}
-                          aria-label={`Remove ${m.student}`}
-                          style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--danger)', padding: '0.3rem', lineHeight: 0 }}
-                        >
-                          <Trash2 size={14} />
-                        </button>
-                      </span>
+                            <span style={{ flex: 1, minWidth: 0 }}>
+                              <span style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
+                                <span style={{
+                                  fontSize: '0.86rem', fontWeight: 600, color: 'var(--text-main)',
+                                  textDecoration: (spent || isIzin) ? 'line-through' : 'none',
+                                }}>
+                                  {m.student || 'Unnamed'}
+                                </span>
+                                {isIzin ? (
+                                  <span style={{
+                                    fontSize: '0.63rem', fontWeight: 700, letterSpacing: '0.02em',
+                                    color: '#b45309', background: '#fde68a', border: '1px solid #f59e0b',
+                                    borderRadius: '5px', padding: '0.1rem 0.35rem',
+                                    display: 'inline-flex', alignItems: 'center', gap: '0.2rem',
+                                  }}>
+                                    <UserX size={9} /> IZIN (ON LEAVE)
+                                  </span>
+                                ) : (
+                                  <span style={{
+                                    fontSize: '0.63rem', fontWeight: 700, letterSpacing: '0.02em',
+                                    color: tint, background: `${tint}1a`,
+                                    borderRadius: '5px', padding: '0.1rem 0.35rem',
+                                    display: 'inline-flex', alignItems: 'center', gap: '0.2rem',
+                                  }}>
+                                    {replacement && <Repeat size={9} />}
+                                    {additional && <CalendarPlus size={9} />}
+                                    {m.classType.toUpperCase()}
+                                  </span>
+                                )}
+                                {m.program && (
+                                  <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{m.program}</span>
+                                )}
+                              </span>
+                              <span style={{ display: 'block', fontSize: '0.72rem', color: isIzin ? '#b45309' : 'var(--text-secondary)', marginTop: '0.15rem' }}>
+                                {isIzin ? 'On Leave for this week · Open replacement seat available' : m.classType === ATTENDANCE.REGULAR
+                                  ? 'Every week at this time'
+                                  : m.sessionDates.length
+                                    ? `${m.sessionDates.length} session${m.sessionDates.length === 1 ? '' : 's'}: ${m.sessionDates.join(', ')}`
+                                    : 'No dates recorded yet'}
+                                {spent ? ' · past, off the schedule' : (!thisWeek && !isIzin) ? ' · not this week' : ''}
+                              </span>
+                            </span>
+
+                            <span style={{ display: 'flex', gap: '0.3rem', flexShrink: 0 }}>
+                              <button
+                                type="button"
+                                disabled={saving}
+                                onClick={() => onUpdateStudent?.(m, {
+                                  isIzin: !isIzin,
+                                  notArranged: !isIzin,
+                                  remarks: !isIzin ? 'Izin' : '',
+                                })}
+                                title={isIzin ? 'Mark as Present / Attending' : 'Mark as Izin (Not attending this week)'}
+                                className="btn"
+                                style={{
+                                  border: '1px solid',
+                                  borderColor: isIzin ? '#f59e0b' : 'var(--border-color)',
+                                  background: isIzin ? '#fef3c7' : 'transparent',
+                                  color: isIzin ? '#b45309' : 'var(--text-secondary)',
+                                  borderRadius: '8px', padding: '0.3rem 0.55rem', fontSize: '0.72rem', fontWeight: 600,
+                                  cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '0.25rem',
+                                }}
+                              >
+                                <UserX size={12} /> {isIzin ? 'Izin' : 'Izin'}
+                              </button>
+                              <button
+                                type="button"
+                                disabled={saving}
+                                onClick={() => onUpdateStudent?.(m, {
+                                  classType: m.classType === ATTENDANCE.REGULAR
+                                    ? ATTENDANCE.REPLACEMENT
+                                    : ATTENDANCE.REGULAR,
+                                  sessionDates: m.classType === ATTENDANCE.REGULAR
+                                    ? [dateForDay(roster.day, week)].filter(Boolean)
+                                    : [],
+                                })}
+                                title={m.classType === ATTENDANCE.REGULAR
+                                  ? 'Make this a one-off replacement instead'
+                                  : 'Make this a fixed weekly place'}
+                                className="btn"
+                                style={{ border: '1px solid var(--border-color)', background: 'transparent', color: 'var(--text-secondary)', borderRadius: '8px', padding: '0.3rem 0.55rem', fontSize: '0.72rem', cursor: 'pointer' }}
+                              >
+                                {m.classType === ATTENDANCE.REGULAR ? 'To replacement' : 'To regular'}
+                              </button>
+                              {onOpenStudentReport && m.student && (
+                                <button
+                                  type="button"
+                                  onClick={() => onOpenStudentReport(m.student)}
+                                  title={`Open ${m.student}'s report card`}
+                                  aria-label={`Report card for ${m.student}`}
+                                  className="btn"
+                                  style={{
+                                    display: 'inline-flex', alignItems: 'center', gap: '0.25rem',
+                                    border: '1px solid var(--border-color)', background: 'transparent',
+                                    color: 'var(--text-secondary)', borderRadius: '8px',
+                                    padding: '0.3rem 0.55rem', fontSize: '0.72rem', cursor: 'pointer',
+                                  }}
+                                >
+                                  <FileText size={12} aria-hidden="true" /> Report
+                                </button>
+                              )}
+                              <button
+                                type="button"
+                                disabled={saving}
+                                onClick={() => onRemoveStudent?.(m, roster)}
+                                title={`Remove ${m.student} from this class`}
+                                aria-label={`Remove ${m.student}`}
+                                style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--danger)', padding: '0.3rem', lineHeight: 0 }}
+                              >
+                                <Trash2 size={14} />
+                              </button>
+                            </span>
+                          </div>
+                        );
+                      })}
                     </div>
-                  );
-                })}
-              </div>
 
-              <p style={{ margin: '1.1rem 0 0.5rem', fontSize: '0.72rem', fontWeight: 700, letterSpacing: '0.04em', color: 'var(--text-muted)' }}>
-                ADD A STUDENT
-              </p>
+                    <p style={{ margin: '1.1rem 0 0.5rem', fontSize: '0.72rem', fontWeight: 700, letterSpacing: '0.04em', color: 'var(--text-muted)' }}>
+                      ADD A STUDENT
+                    </p>
 
-              {rosterOccupancy.total >= rosterSeats && (
-                <p style={{ display: 'flex', gap: '0.4rem', margin: '0 0 0.5rem', fontSize: '0.75rem', color: 'var(--danger)' }}>
-                  <AlertTriangle size={13} style={{ flexShrink: 0, marginTop: '0.1rem' }} />
-                  This class is at capacity for the week of {week} ({rosterOccupancy.total}/{rosterSeats}).
-                </p>
-              )}
+                    {openReplacementSeats > 0 && (
+                      <div style={{
+                        margin: '0.5rem 0 0.8rem', padding: '0.65rem 0.85rem', borderRadius: '8px',
+                        background: 'rgba(16, 185, 129, 0.12)', border: '1px solid #10b981',
+                        fontSize: '0.78rem', color: '#047857', display: 'flex', alignItems: 'center', gap: '0.5rem',
+                      }}>
+                        <Sparkles size={16} style={{ flexShrink: 0, color: '#10b981' }} />
+                        <span>
+                          <strong>{openReplacementSeats} Replacement Seat{openReplacementSeats === 1 ? '' : 's'} Open!</strong> {izinCount} student{izinCount === 1 ? ' is' : 's are'} on Izin this week. You can add a replacement student to fill this slot.
+                        </span>
+                      </div>
+                    )}
+
+                    {attendingCount >= rosterSeats && openReplacementSeats === 0 && (
+                      <p style={{ display: 'flex', gap: '0.4rem', margin: '0 0 0.5rem', fontSize: '0.75rem', color: 'var(--danger)' }}>
+                        <AlertTriangle size={13} style={{ flexShrink: 0, marginTop: '0.1rem' }} />
+                        This class is at capacity for the week of {week} ({attendingCount}/{rosterSeats}).
+                      </p>
+                    )}
+                  </>
+                );
+              })()}
 
               <div style={{ display: 'flex', gap: '0.6rem', flexWrap: 'wrap' }}>
                 <div style={{ flex: '1 1 180px' }}>

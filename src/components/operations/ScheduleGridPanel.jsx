@@ -300,6 +300,10 @@ export default function ScheduleGridPanel({ onNavigate } = {}) {
   const updateStudent = (member, patch) => withSaving(async () => {
     const row = classes.find((c) => c.id === member.id);
     if (!row) return;
+    const isIzinPatch = patch.isIzin !== undefined ? patch.isIzin : (patch.notArranged !== undefined ? patch.notArranged : undefined);
+    const newIzinState = isIzinPatch !== undefined ? isIzinPatch : !!(row.notArranged || row.isIzin || (typeof row.remarks === 'string' && row.remarks.toLowerCase().includes('izin')));
+    const remarks = newIzinState ? 'Izin' : (patch.remarks !== undefined ? patch.remarks : (row.remarks === 'Izin' ? '' : row.remarks));
+
     const updated = await updateInternalClass(member.id, {
       day: row.day,
       time: row.time,
@@ -308,16 +312,14 @@ export default function ScheduleGridPanel({ onNavigate } = {}) {
       teacher: row.teacher,
       branchName: row.branchName,
       classType: patch.classType ?? row.classType,
-      remarks: row.remarks,
+      remarks: remarks,
       sessionDates: patch.sessionDates ?? row.sessionDates ?? [],
     });
-    setClasses((prev) => prev.map((c) => (c.id === member.id ? { ...c, ...updated } : c)));
+    setClasses((prev) => prev.map((c) => (c.id === member.id ? { ...c, ...updated, notArranged: newIzinState, isIzin: newIzinState, remarks: remarks } : c)));
     showToast({
-      title: `${row.student} is now ${patch.classType || row.classType}`,
-      message: patch.classType === 'Regular'
-        ? 'Fixed weekly place.'
-        : `Attends ${(patch.sessionDates || []).join(', ') || 'the dates you set'}.`,
-      variant: 'success',
+      title: `${row.student} ${newIzinState ? 'marked Izin (On Leave)' : 'marked Present'}`,
+      message: newIzinState ? '1 open replacement seat created for this slot.' : 'Status updated.',
+      variant: newIzinState ? 'warning' : 'success',
     });
   }, 'Could not update the student');
 
