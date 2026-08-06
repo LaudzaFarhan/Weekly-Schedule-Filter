@@ -8,9 +8,10 @@ import {
 } from '../../services/newNotificationService';
 import {
   RefreshCw, Plus, Trash2, Bell, EyeOff, ChevronLeft, ChevronRight, Search, PanelLeft,
-  AlertTriangle, AlertCircle, Info, X, CheckCheck, History, HelpCircle,
+  AlertTriangle, AlertCircle, Info, X, CheckCheck, History, HelpCircle, Compass,
 } from 'lucide-react';
 import { useTour } from '../tour/TourProvider';
+import AnimationTutorialModal from '../tour/AnimationTutorialModal';
 import { APP_VERSION } from '../../config/version';
 
 /**
@@ -48,6 +49,7 @@ export default function Header({ onToggleSearch, opsMode = 'old', onToggleSideba
   const [branchError, setBranchError] = useState(null);
   const [savingBranches, setSavingBranches] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
+  const [showAnimationTutorial, setShowAnimationTutorial] = useState(false);
   // The panel stays mounted for the length of its exit animation, so it can
   // collapse back toward the bell instead of vanishing.
   const [notifClosing, setNotifClosing] = useState(false);
@@ -448,6 +450,22 @@ export default function Header({ onToggleSearch, opsMode = 'old', onToggleSideba
               current screen has one nobody on this browser has taken. */}
           <button
             type="button"
+            onClick={() => setShowAnimationTutorial(true)}
+            title="Open Animation Tutorial"
+            aria-label="Open Animation Tutorial"
+            style={{
+              display: 'flex', alignItems: 'center', gap: '0.35rem',
+              padding: '0.35rem 0.75rem', borderRadius: '10px', cursor: 'pointer',
+              border: '1px solid rgba(59, 130, 246, 0.3)',
+              background: 'linear-gradient(135deg, rgba(59,130,246,0.12) 0%, rgba(99,102,241,0.12) 100%)',
+              color: 'var(--primary-blue)', fontSize: '0.76rem', fontWeight: 600,
+              transition: 'all 0.15s ease',
+            }}
+          >
+            <Compass size={15} /> Animation Tutorial
+          </button>
+          <button
+            type="button"
             data-tour="help"
             onClick={startForCurrentPage}
             className={hasUnseenPageTour ? 'tour-help-nudge' : undefined}
@@ -474,6 +492,13 @@ export default function Header({ onToggleSearch, opsMode = 'old', onToggleSideba
           </div>
         </div>
       </header>
+
+      <AnimationTutorialModal
+        isOpen={showAnimationTutorial}
+        onClose={() => setShowAnimationTutorial(false)}
+        onToggleSidebar={onToggleSidebar}
+        onNavigate={onNavigate}
+      />
 
       {/* Sub Bar: Branch Tabs (left) + Sync Buttons (right) — outside header */}
       {opsMode === 'old' && (
