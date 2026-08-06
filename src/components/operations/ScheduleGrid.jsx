@@ -913,7 +913,7 @@ export default function ScheduleGrid({
         display: 'flex', flexDirection: 'column', gap: '0.75rem',
         padding: '0.9rem 1.5rem', borderBottom: '1px solid var(--border-color)',
       }}>
-        {/* Row 1: Day Filter & Dropdowns */}
+        {/* Row 1: Day Filter */}
         <div style={{ display: 'flex', gap: '0.9rem', flexWrap: 'wrap', alignItems: 'center', width: '100%' }}>
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)', minWidth: '68px' }}>
             <Filter size={13} /> Day
@@ -936,6 +936,43 @@ export default function ScheduleGrid({
                 {d.slice(0, 3)}
               </button>
             ))}
+          </div>
+        </div>
+
+        {/* Row 2: Program Filter Pills (Left) & Controls (Right) - 1 horizontal line */}
+        <div style={{ display: 'flex', gap: '0.9rem', alignItems: 'center', flexWrap: 'wrap', width: '100%' }}>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)', minWidth: '68px' }}>
+            Program
+          </span>
+          <div style={{ display: 'flex', gap: '0.3rem', flexWrap: 'wrap' }} role="group" aria-label="Program level filter">
+            {[
+              { id: 'all', label: 'All', color: 'var(--primary-blue)', bg: 'var(--primary-blue)', textColor: '#fff' },
+              { id: 'Kinder', label: 'K', color: '#d97706', bg: '#fef08a', textColor: '#78350f', border: '#f59e0b' },
+              { id: 'Junior', label: 'J', color: '#0284c7', bg: '#e0f2fe', textColor: '#0369a1', border: '#38bdf8' },
+              { id: 'Coder', label: 'C', color: '#60a5fa', bg: '#1e3a8a', textColor: '#ffffff', border: '#1e40af' },
+            ].map((cat) => {
+              const isSelected = teacher === cat.id;
+              return (
+                <button
+                  key={cat.id}
+                  type="button"
+                  onClick={() => setTeacher(cat.id)}
+                  aria-pressed={isSelected}
+                  title={cat.id === 'all' ? 'All Programs' : `${cat.id} Class`}
+                  style={{
+                    borderRadius: '8px', padding: '0.35rem 0.85rem', fontSize: '0.78rem', fontWeight: 700,
+                    cursor: 'pointer', border: '1px solid',
+                    borderColor: isSelected ? (cat.border || cat.color) : 'var(--border-color)',
+                    background: isSelected ? cat.bg : 'transparent',
+                    color: isSelected ? cat.textColor : 'var(--text-secondary)',
+                    boxShadow: isSelected ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
+                    transition: 'all 0.15s ease-in-out',
+                  }}
+                >
+                  {cat.label}
+                </button>
+              );
+            })}
           </div>
 
           <div style={{ marginLeft: 'auto', display: 'flex', gap: '0.9rem', alignItems: 'center', flexWrap: 'wrap' }}>
@@ -981,42 +1018,6 @@ export default function ScheduleGrid({
                 </optgroup>
               </select>
             </label>
-          </div>
-        </div>
-
-        {/* Row 2: Program Filter Pills (Below Weekdays) */}
-        <div style={{ display: 'flex', gap: '0.9rem', alignItems: 'center', flexWrap: 'wrap' }}>
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)', minWidth: '68px' }}>
-            Program
-          </span>
-          <div style={{ display: 'flex', gap: '0.3rem', flexWrap: 'wrap' }} role="group" aria-label="Program level filter">
-            {[
-              { id: 'all', label: 'All', color: 'var(--primary-blue)', bg: 'var(--primary-blue)', textColor: '#fff' },
-              { id: 'Kinder', label: 'K - Kinder', color: '#d97706', bg: '#fef08a', textColor: '#78350f', border: '#f59e0b' },
-              { id: 'Junior', label: 'J - Junior', color: '#0284c7', bg: '#e0f2fe', textColor: '#0369a1', border: '#38bdf8' },
-              { id: 'Coder', label: 'C - Coder', color: '#60a5fa', bg: '#1e3a8a', textColor: '#ffffff', border: '#1e40af' },
-            ].map((cat) => {
-              const isSelected = teacher === cat.id;
-              return (
-                <button
-                  key={cat.id}
-                  type="button"
-                  onClick={() => setTeacher(cat.id)}
-                  aria-pressed={isSelected}
-                  style={{
-                    borderRadius: '8px', padding: '0.35rem 0.85rem', fontSize: '0.78rem', fontWeight: 700,
-                    cursor: 'pointer', border: '1px solid',
-                    borderColor: isSelected ? (cat.border || cat.color) : 'var(--border-color)',
-                    background: isSelected ? cat.bg : 'transparent',
-                    color: isSelected ? cat.textColor : 'var(--text-secondary)',
-                    boxShadow: isSelected ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
-                    transition: 'all 0.15s ease-in-out',
-                  }}
-                >
-                  {cat.label}
-                </button>
-              );
-            })}
           </div>
         </div>
       </div>
