@@ -219,7 +219,7 @@ export const TOUR_ORDER = ['welcome', 'schedule', 'report-cards', 'students'];
  */
 export function tourForPage(page) {
   if (!page) return null;
-  if (page === 'report-cards-rubric') return TOURS['report-cards'] || null;
+  if (page === 'report-cards-rubric' || page === 'report-cards-list') return TOURS['report-cards'] || null;
   if (page === 'dashboard') return TOURS.home || null;
   return TOURS[page] || null;
 }

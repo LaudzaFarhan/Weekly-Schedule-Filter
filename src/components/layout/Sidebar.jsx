@@ -40,26 +40,20 @@ const navItems = [
  * falls back to the Schedule view, so Schedule is the one that highlights.
  */
 const NEW_OPS_PAGES = [
-  'home', 'dashboard', 'operationals', 'students', 'report-cards', 'report-cards-rubric', 'instructors',
+  'home', 'dashboard', 'operationals', 'students', 'report-cards', 'report-cards-list', 'report-cards-rubric', 'instructors',
   'crm', 'workload', 'leave', 'trial-availability', 'activity', 'users', 'api',
   'progress-kinder', 'progress-junior', 'progress-coder',
 ];
 
 /**
- * Live Progress and its three category pages.
+ * Report Cards and its pages.
  *
- * The parent is a disclosure, not a destination — there is no combined view, so
- * pressing it expands rather than navigating somewhere that does not exist.
- */
-/**
- * Report Cards and its two pages.
- *
- * Unlike Live Progress, the parent IS a destination: clicking it goes to
- * Evaluate, which is the thing anyone opening Report Cards almost always wants.
- * The disclosure is for reaching Rubrics and Setup, which is occasional.
+ * The parent is a destination: clicking it goes to Evaluate, which is the main screen.
+ * Sub-sidebar pages include Evaluate, Report List, and Rubrics and Setup.
  */
 const REPORT_CARD_PAGES = [
   { id: 'report-cards', label: 'Evaluate' },
+  { id: 'report-cards-list', label: 'Report List' },
   { id: 'report-cards-rubric', label: 'Rubrics and Setup' },
 ];
 

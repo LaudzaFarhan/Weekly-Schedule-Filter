@@ -182,7 +182,7 @@ export default function AppShell() {
       PageComponent = NewOperationalsPage;
     } else if (currentPage === 'students') {
       PageComponent = NewStudentsPage;
-    } else if (currentPage === 'report-cards') {
+    } else if (currentPage === 'report-cards' || currentPage === 'report-cards-list') {
       PageComponent = NewStudentReportCardsPage;
     } else if (currentPage === 'report-cards-rubric') {
       PageComponent = NewRubricSetupPage;
