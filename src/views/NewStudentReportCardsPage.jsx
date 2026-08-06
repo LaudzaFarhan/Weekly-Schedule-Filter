@@ -844,7 +844,7 @@ export default function NewStudentReportCardsPage({ onNavigate, params, initialM
         </div>
       ) : null}
 
-      {/* Page header and the mode switch — chrome, so it never prints. */}
+      {/* Page header — chrome, so it never prints. */}
       <div
         className="panel no-print"
         style={{ margin: '0 0 1.25rem' }}
@@ -871,7 +871,7 @@ export default function NewStudentReportCardsPage({ onNavigate, params, initialM
               }}
             >
               <ClipboardList size={20} aria-hidden="true" />
-              {mode === 'list' ? 'Report List' : 'Report Cards'}
+              {mode === 'list' ? 'Report List' : 'Report Cards — Evaluate'}
             </h2>
             <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', margin: '0.2rem 0 0' }}>
               {mode === 'list'
@@ -880,28 +880,29 @@ export default function NewStudentReportCardsPage({ onNavigate, params, initialM
             </p>
           </div>
 
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem', alignItems: 'center' }}>
-            {modeButton('list', 'Report List', Users)}
-            {modeButton('evaluate', 'Evaluate', ClipboardList)}
-            {modeButton('preview', 'Preview Report', Eye)}
+          {mode !== 'list' && (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem', alignItems: 'center' }}>
+              {modeButton('evaluate', 'Evaluate', ClipboardList)}
+              {modeButton('preview', 'Preview Report', Eye)}
 
-            <button
-              type="button"
-              className="btn btn-primary"
-              onClick={handlePrint}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '0.4rem',
-                borderRadius: '10px',
-                padding: '0.5rem 1rem',
-                fontSize: '0.8rem',
-              }}
-            >
-              <Printer size={15} aria-hidden="true" />
-              Print / Export PDF
-            </button>
-          </div>
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={handlePrint}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.4rem',
+                  borderRadius: '10px',
+                  padding: '0.5rem 1rem',
+                  fontSize: '0.8rem',
+                }}
+              >
+                <Printer size={15} aria-hidden="true" />
+                Print / Export PDF
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
@@ -909,12 +910,20 @@ export default function NewStudentReportCardsPage({ onNavigate, params, initialM
         <StudentReportListView
           students={students}
           onSelectStudentAndEvaluate={(id) => {
-            setPickedStudentId(id);
-            setMode('evaluate');
+            if (onNavigate) {
+              onNavigate('report-cards', { studentId: id });
+            } else {
+              setPickedStudentId(id);
+              setMode('evaluate');
+            }
           }}
           onSelectStudentAndPreview={(id) => {
-            setPickedStudentId(id);
-            setMode('preview');
+            if (onNavigate) {
+              onNavigate('report-cards', { studentId: id });
+            } else {
+              setPickedStudentId(id);
+              setMode('preview');
+            }
           }}
         />
       ) : mode === 'preview' ? (
@@ -977,7 +986,7 @@ export default function NewStudentReportCardsPage({ onNavigate, params, initialM
                   <button
                     type="button"
                     className="btn btn-primary"
-                    onClick={() => setMode('list')}
+                    onClick={() => onNavigate ? onNavigate('report-cards-list') : setMode('list')}
                     style={{
                       display: 'inline-flex',
                       alignItems: 'center',

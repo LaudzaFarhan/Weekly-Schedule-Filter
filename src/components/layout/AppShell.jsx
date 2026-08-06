@@ -277,7 +277,7 @@ export default function AppShell() {
               />
             )}
             <div className={`dashboard-views ${opsMode === 'new' ? 'new-ops-anim' : ''}`}>
-              <PageComponent onNavigate={handleNavigate} params={pageParams} />
+              <PageComponent onNavigate={handleNavigate} params={pageParams} page={currentPage} />
             </div>
           </main>
           {opsMode === 'old' && (
