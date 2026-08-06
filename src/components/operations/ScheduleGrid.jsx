@@ -4,8 +4,13 @@ import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react'
 import {
   Users, Filter, Trash2, X, CalendarDays, CalendarPlus, AlertTriangle, Clock,
   GripVertical, ChevronUp, ChevronDown, ChevronLeft, ChevronRight,
-  Plus, Pencil, Building2, UserPlus, Repeat, FileText, UserX, Sparkles,
+  Plus, Pencil, Building2, UserPlus, Repeat, FileText, UserX, Sparkles, Send, Calendar,
 } from 'lucide-react';
+import {
+  getProgressUpdateStatus,
+  PROGRESS_UPDATE_STATUSES,
+  PROGRESS_UPDATE_BADGES,
+} from '../../utils/progressUpdateUtils';
 import {
   AVAIL, ATTENDANCE, isExpired, isoOf, availabilityFor, toMinutes, fromMinutes, clockLabel, slotLabelFor,
   overlaps, instructorsAtBranch, categoriesFor, levelCovers, weekStartISO, dateForDay,
@@ -118,6 +123,7 @@ export default function ScheduleGrid({
   instructors = [],
   classGroups = [],
   leaves = [],
+  liveProgress = [],
   draft = {},
   draftOps = {},
   draftHours = {},
@@ -134,6 +140,18 @@ export default function ScheduleGrid({
   onOpenStudentReport,
   onUpdateStudent,
 }) {
+  const liveProgressMap = useMemo(() => {
+    const map = new Map();
+    if (Array.isArray(liveProgress)) {
+      for (const p of liveProgress) {
+        if (p.studentName) {
+          map.set(String(p.studentName).toLowerCase().trim(), p);
+        }
+      }
+    }
+    return map;
+  }, [liveProgress]);
+
   const selectable = useMemo(
     () => branches.filter((b) => b.name !== 'Default Branch'),
     [branches]
@@ -1706,6 +1724,11 @@ export default function ScheduleGrid({
                         const tint = isIzin ? '#b45309' : replacement ? '#7c3aed' : additional ? '#0891b2' : trial ? '#ea580c' : '#059669';
                         const thisWeek = attendsInWeek(m, week);
                         const spent = isExpired(m, todayISO);
+
+                        const progRecord = liveProgressMap.get(String(m.student || '').toLowerCase().trim());
+                        const progressStatus = getProgressUpdateStatus(m, progRecord);
+                        const badgeInfo = progressStatus ? PROGRESS_UPDATE_BADGES[progressStatus] : null;
+
                         return (
                           <div
                             key={m.id}
@@ -1749,6 +1772,29 @@ export default function ScheduleGrid({
                                 {m.program && (
                                   <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{m.program}</span>
                                 )}
+
+                                {badgeInfo && (
+                                  <span
+                                    style={{
+                                      fontSize: '0.63rem',
+                                      fontWeight: 700,
+                                      letterSpacing: '0.02em',
+                                      color: badgeInfo.color,
+                                      background: badgeInfo.bg,
+                                      border: `1px solid ${badgeInfo.borderColor}`,
+                                      borderRadius: '5px',
+                                      padding: '0.1rem 0.35rem',
+                                      display: 'inline-flex',
+                                      alignItems: 'center',
+                                      gap: '0.2rem',
+                                    }}
+                                  >
+                                    {progressStatus === 'Need update progress' && <Clock size={9} />}
+                                    {progressStatus === 'Update Offer' && <Send size={9} />}
+                                    {progressStatus === 'Update Scheduled' && <Calendar size={9} />}
+                                    {badgeInfo.label}
+                                  </span>
+                                )}
                               </span>
                               <span style={{ display: 'block', fontSize: '0.72rem', color: isIzin ? '#b45309' : 'var(--text-secondary)', marginTop: '0.15rem' }}>
                                 {isIzin ? 'On Leave for this week · Open replacement seat available' : m.classType === ATTENDANCE.REGULAR
@@ -1760,7 +1806,30 @@ export default function ScheduleGrid({
                               </span>
                             </span>
 
-                            <span style={{ display: 'flex', gap: '0.3rem', flexShrink: 0 }}>
+                            <span style={{ display: 'flex', gap: '0.3rem', flexShrink: 0, alignItems: 'center' }}>
+                              <select
+                                value={progressStatus || ''}
+                                onChange={(e) => {
+                                  const val = e.target.value;
+                                  onUpdateStudent?.(m, { progressUpdateStatus: val || 'Completed' });
+                                }}
+                                title="Update progress tracking status"
+                                style={{
+                                  border: '1px solid var(--border-color)',
+                                  background: 'var(--bg-color)',
+                                  color: 'var(--text-secondary)',
+                                  borderRadius: '8px',
+                                  padding: '0.25rem 0.45rem',
+                                  fontSize: '0.71rem',
+                                  cursor: 'pointer',
+                                }}
+                              >
+                                <option value="">Progress: None</option>
+                                <option value="Need update progress">Need update progress</option>
+                                <option value="Update Offer">Update Offer</option>
+                                <option value="Update Scheduled">Update Scheduled</option>
+                                <option value="Completed">Completed / Clear</option>
+                              </select>
                               <button
                                 type="button"
                                 disabled={saving}
@@ -2484,6 +2553,84 @@ function Cell({
             {occ.total}/{seats} Pax
           </span>
         </span>
+        {(() => {
+          let needUpdateCount = 0;
+          let offerCount = 0;
+          let scheduledCount = 0;
+          if (Array.isArray(cls.members)) {
+            for (const m of cls.members) {
+              const progRecord = liveProgressMap.get(String(m.student || '').toLowerCase().trim());
+              const st = getProgressUpdateStatus(m, progRecord);
+              if (st === 'Need update progress') needUpdateCount += 1;
+              else if (st === 'Update Offer') offerCount += 1;
+              else if (st === 'Update Scheduled') scheduledCount += 1;
+            }
+          }
+
+          if (needUpdateCount === 0 && offerCount === 0 && scheduledCount === 0) return null;
+
+          return (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.2rem', marginTop: '0.25rem' }}>
+              {needUpdateCount > 0 && (
+                <span
+                  style={{
+                    fontSize: '0.58rem',
+                    fontWeight: 700,
+                    color: '#b45309',
+                    background: '#fef3c7',
+                    border: '1px solid #f59e0b',
+                    borderRadius: '4px',
+                    padding: '0.05rem 0.28rem',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '0.15rem',
+                  }}
+                  title={`${needUpdateCount} student(s) need progress update`}
+                >
+                  <Clock size={8} /> Need Update {needUpdateCount > 1 ? `(${needUpdateCount})` : ''}
+                </span>
+              )}
+              {offerCount > 0 && (
+                <span
+                  style={{
+                    fontSize: '0.58rem',
+                    fontWeight: 700,
+                    color: '#1d4ed8',
+                    background: '#eff6ff',
+                    border: '1px solid #3b82f6',
+                    borderRadius: '4px',
+                    padding: '0.05rem 0.28rem',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '0.15rem',
+                  }}
+                  title={`${offerCount} student(s) update offer sent`}
+                >
+                  <Send size={8} /> Offer ({offerCount})
+                </span>
+              )}
+              {scheduledCount > 0 && (
+                <span
+                  style={{
+                    fontSize: '0.58rem',
+                    fontWeight: 700,
+                    color: '#6d28d9',
+                    background: '#f3e8ff',
+                    border: '1px solid #8b5cf6',
+                    borderRadius: '4px',
+                    padding: '0.05rem 0.28rem',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '0.15rem',
+                  }}
+                  title={`${scheduledCount} student(s) update scheduled`}
+                >
+                  <Calendar size={8} /> Scheduled ({scheduledCount})
+                </span>
+              )}
+            </div>
+          );
+        })()}
         {allBranches && cls.branchName && (
           <span style={{ display: 'block', fontSize: '0.6rem', color: meta.subtextColor || 'var(--text-muted)' }}>{cls.branchName}</span>
         )}

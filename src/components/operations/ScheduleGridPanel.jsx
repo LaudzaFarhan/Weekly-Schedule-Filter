@@ -13,6 +13,7 @@ import {
   updateInternalClass, deleteInternalClass,
 } from '../../services/internalScheduleService';
 import { subscribeToLeaves } from '../../services/newLeaveService';
+import { subscribeToLiveProgress, saveLiveProgress } from '../../services/newLiveProgressService';
 import { saveOperational } from '../../services/newOperationalsService';
 import { logActivity } from '../../services/newActivityService';
 import { groupClasses } from '../../lib/instructorAvailability';
@@ -38,6 +39,7 @@ export default function ScheduleGridPanel({ onNavigate } = {}) {
   const [instructors, setInstructors] = useState([]);
   const [classes, setClasses] = useState([]);
   const [leaves, setLeaves] = useState([]);
+  const [liveProgress, setLiveProgress] = useState([]);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -58,6 +60,11 @@ export default function ScheduleGridPanel({ onNavigate } = {}) {
       (data) => setLeaves(data || []),
       () => { /* leave is optional context */ }
     );
+    return () => unsub();
+  }, []);
+
+  useEffect(() => {
+    const unsub = subscribeToLiveProgress((data) => setLiveProgress(data || []));
     return () => unsub();
   }, []);
 
@@ -304,6 +311,19 @@ export default function ScheduleGridPanel({ onNavigate } = {}) {
     const newIzinState = isIzinPatch !== undefined ? isIzinPatch : !!(row.notArranged || row.isIzin || (typeof row.remarks === 'string' && row.remarks.toLowerCase().includes('izin')));
     const remarks = newIzinState ? 'Izin' : (patch.remarks !== undefined ? patch.remarks : (row.remarks === 'Izin' ? '' : row.remarks));
 
+    // Handle explicit progressUpdateStatus update
+    if (patch.progressUpdateStatus !== undefined) {
+      try {
+        await saveLiveProgress({
+          studentName: row.student,
+          programCode: row.program || 'General',
+          progressUpdateStatus: patch.progressUpdateStatus,
+        });
+      } catch (e) {
+        console.warn('Could not save live progress status:', e);
+      }
+    }
+
     const updated = await updateInternalClass(member.id, {
       day: row.day,
       time: row.time,
@@ -315,10 +335,29 @@ export default function ScheduleGridPanel({ onNavigate } = {}) {
       remarks: remarks,
       sessionDates: patch.sessionDates ?? row.sessionDates ?? [],
     });
-    setClasses((prev) => prev.map((c) => (c.id === member.id ? { ...c, ...updated, notArranged: newIzinState, isIzin: newIzinState, remarks: remarks } : c)));
+
+    setClasses((prev) =>
+      prev.map((c) =>
+        c.id === member.id
+          ? {
+              ...c,
+              ...updated,
+              notArranged: newIzinState,
+              isIzin: newIzinState,
+              remarks: remarks,
+              progressUpdateStatus: patch.progressUpdateStatus ?? c.progressUpdateStatus,
+            }
+          : c
+      )
+    );
+
     showToast({
-      title: `${row.student} ${newIzinState ? 'marked Izin (On Leave)' : 'marked Present'}`,
-      message: newIzinState ? '1 open replacement seat created for this slot.' : 'Status updated.',
+      title: patch.progressUpdateStatus
+        ? `Updated progress status for ${row.student}`
+        : `${row.student} ${newIzinState ? 'marked Izin (On Leave)' : 'marked Present'}`,
+      message: patch.progressUpdateStatus
+        ? `Status set to "${patch.progressUpdateStatus}".`
+        : newIzinState ? '1 open replacement seat created for this slot.' : 'Status updated.',
       variant: newIzinState ? 'warning' : 'success',
     });
   }, 'Could not update the student');
@@ -352,6 +391,7 @@ export default function ScheduleGridPanel({ onNavigate } = {}) {
         instructors={instructors}
         classGroups={classGroups}
         leaves={leaves}
+        liveProgress={liveProgress}
         draft={draft}
         draftOps={draftOps}
         draftHours={draftHours}
