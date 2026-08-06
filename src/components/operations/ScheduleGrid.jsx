@@ -910,108 +910,114 @@ export default function ScheduleGrid({
     <div>
       {/* Filters */}
       <div style={{
-        display: 'flex', gap: '0.9rem', flexWrap: 'wrap', alignItems: 'center',
+        display: 'flex', flexDirection: 'column', gap: '0.75rem',
         padding: '0.9rem 1.5rem', borderBottom: '1px solid var(--border-color)',
       }}>
-        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)' }}>
-          <Filter size={13} /> Day
-        </span>
-        <div style={{ display: 'flex', gap: '0.3rem', flexWrap: 'wrap' }} role="group" aria-label="Day filter">
-          {DAY_NAMES.map((d) => (
-            <button
-              key={d}
-              type="button"
-              onClick={() => setDayChoice(d)}
-              aria-pressed={d === day}
-              style={{
-                borderRadius: '8px', padding: '0.35rem 0.85rem', fontSize: '0.78rem', fontWeight: 600,
-                cursor: 'pointer', border: '1px solid',
-                borderColor: d === day ? 'var(--primary-blue)' : 'var(--border-color)',
-                background: d === day ? 'var(--primary-blue)' : 'transparent',
-                color: d === day ? '#fff' : 'var(--text-secondary)',
-              }}
-            >
-              {d.slice(0, 3)}
-            </button>
-          ))}
-        </div>
-
-        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)', marginLeft: '0.4rem' }}>
-          Program
-        </span>
-        <div style={{ display: 'flex', gap: '0.3rem', flexWrap: 'wrap' }} role="group" aria-label="Program level filter">
-          {[
-            { id: 'all', label: 'All', color: 'var(--primary-blue)', bg: 'var(--primary-blue)', textColor: '#fff' },
-            { id: 'Kinder', label: 'K - Kinder', color: '#d97706', bg: '#fef08a', textColor: '#78350f', border: '#f59e0b' },
-            { id: 'Junior', label: 'J - Junior', color: '#0284c7', bg: '#e0f2fe', textColor: '#0369a1', border: '#38bdf8' },
-            { id: 'Coder', label: 'C - Coder', color: '#60a5fa', bg: '#1e3a8a', textColor: '#ffffff', border: '#1e40af' },
-          ].map((cat) => {
-            const isSelected = teacher === cat.id;
-            return (
+        {/* Row 1: Day Filter & Dropdowns */}
+        <div style={{ display: 'flex', gap: '0.9rem', flexWrap: 'wrap', alignItems: 'center', width: '100%' }}>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)' }}>
+            <Filter size={13} /> Day
+          </span>
+          <div style={{ display: 'flex', gap: '0.3rem', flexWrap: 'wrap' }} role="group" aria-label="Day filter">
+            {DAY_NAMES.map((d) => (
               <button
-                key={cat.id}
+                key={d}
                 type="button"
-                onClick={() => setTeacher(cat.id)}
-                aria-pressed={isSelected}
+                onClick={() => setDayChoice(d)}
+                aria-pressed={d === day}
                 style={{
-                  borderRadius: '8px', padding: '0.35rem 0.85rem', fontSize: '0.78rem', fontWeight: 700,
+                  borderRadius: '8px', padding: '0.35rem 0.85rem', fontSize: '0.78rem', fontWeight: 600,
                   cursor: 'pointer', border: '1px solid',
-                  borderColor: isSelected ? (cat.border || cat.color) : 'var(--border-color)',
-                  background: isSelected ? cat.bg : 'transparent',
-                  color: isSelected ? cat.textColor : 'var(--text-secondary)',
-                  boxShadow: isSelected ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
-                  transition: 'all 0.15s ease-in-out',
+                  borderColor: d === day ? 'var(--primary-blue)' : 'var(--border-color)',
+                  background: d === day ? 'var(--primary-blue)' : 'transparent',
+                  color: d === day ? '#fff' : 'var(--text-secondary)',
                 }}
               >
-                {cat.label}
+                {d.slice(0, 3)}
               </button>
-            );
-          })}
+            ))}
+          </div>
+
+          <div style={{ marginLeft: 'auto', display: 'flex', gap: '0.9rem', alignItems: 'center', flexWrap: 'wrap' }}>
+            <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600 }}>
+              <CalendarDays size={13} /> Week of
+              <input
+                type="date"
+                value={week}
+                onChange={(e) => setWeek(e.target.value)}
+                className="modal-input-field field-compact"
+                title="Leave is date-specific, so the grid needs to know which week it is planning"
+                style={{ width: '150px' }}
+              />
+            </label>
+            <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600 }}>
+              Branch
+              <select
+                value={branchId}
+                onChange={(e) => { setBranchChoice(e.target.value); setTeacher('all'); }}
+                className="modal-select-field field-compact"
+                style={{ minWidth: '160px' }}
+              >
+                {selectable.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+                <option value="all">All Branches (view only)</option>
+              </select>
+            </label>
+            <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600 }}>
+              Level
+              <select
+                value={teacher}
+                onChange={(e) => setTeacher(e.target.value)}
+                className="modal-select-field field-compact"
+                style={{ minWidth: '175px' }}
+              >
+                <option value="all">All Levels ({pool.length})</option>
+                <optgroup label="Filter by Level">
+                  <option value="Kinder">Kinder</option>
+                  <option value="Junior">Junior</option>
+                  <option value="Coder">Coder</option>
+                </optgroup>
+                <optgroup label="Filter by Teacher">
+                  {teacherOptions.map((n) => <option key={n} value={n}>{n}</option>)}
+                </optgroup>
+              </select>
+            </label>
+          </div>
         </div>
 
-        <div style={{ marginLeft: 'auto', display: 'flex', gap: '0.9rem', alignItems: 'center', flexWrap: 'wrap' }}>
-          <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600 }}>
-            <CalendarDays size={13} /> Week of
-            <input
-              type="date"
-              value={week}
-              onChange={(e) => setWeek(e.target.value)}
-              className="modal-input-field field-compact"
-              title="Leave is date-specific, so the grid needs to know which week it is planning"
-              style={{ width: '150px' }}
-            />
-          </label>
-          <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600 }}>
-            Branch
-            <select
-              value={branchId}
-              onChange={(e) => { setBranchChoice(e.target.value); setTeacher('all'); }}
-              className="modal-select-field field-compact"
-              style={{ minWidth: '160px' }}
-            >
-              {selectable.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
-              <option value="all">All Branches (view only)</option>
-            </select>
-          </label>
-          <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600 }}>
-            Level
-            <select
-              value={teacher}
-              onChange={(e) => setTeacher(e.target.value)}
-              className="modal-select-field field-compact"
-              style={{ minWidth: '175px' }}
-            >
-              <option value="all">All Levels ({pool.length})</option>
-              <optgroup label="Filter by Level">
-                <option value="Kinder">Kinder</option>
-                <option value="Junior">Junior</option>
-                <option value="Coder">Coder</option>
-              </optgroup>
-              <optgroup label="Filter by Teacher">
-                {teacherOptions.map((n) => <option key={n} value={n}>{n}</option>)}
-              </optgroup>
-            </select>
-          </label>
+        {/* Row 2: Program Filter Pills (Below Weekdays) */}
+        <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', flexWrap: 'wrap' }}>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)', minWidth: '40px' }}>
+            Program
+          </span>
+          <div style={{ display: 'flex', gap: '0.3rem', flexWrap: 'wrap' }} role="group" aria-label="Program level filter">
+            {[
+              { id: 'all', label: 'All', color: 'var(--primary-blue)', bg: 'var(--primary-blue)', textColor: '#fff' },
+              { id: 'Kinder', label: 'K - Kinder', color: '#d97706', bg: '#fef08a', textColor: '#78350f', border: '#f59e0b' },
+              { id: 'Junior', label: 'J - Junior', color: '#0284c7', bg: '#e0f2fe', textColor: '#0369a1', border: '#38bdf8' },
+              { id: 'Coder', label: 'C - Coder', color: '#60a5fa', bg: '#1e3a8a', textColor: '#ffffff', border: '#1e40af' },
+            ].map((cat) => {
+              const isSelected = teacher === cat.id;
+              return (
+                <button
+                  key={cat.id}
+                  type="button"
+                  onClick={() => setTeacher(cat.id)}
+                  aria-pressed={isSelected}
+                  style={{
+                    borderRadius: '8px', padding: '0.35rem 0.85rem', fontSize: '0.78rem', fontWeight: 700,
+                    cursor: 'pointer', border: '1px solid',
+                    borderColor: isSelected ? (cat.border || cat.color) : 'var(--border-color)',
+                    background: isSelected ? cat.bg : 'transparent',
+                    color: isSelected ? cat.textColor : 'var(--text-secondary)',
+                    boxShadow: isSelected ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
+                    transition: 'all 0.15s ease-in-out',
+                  }}
+                >
+                  {cat.label}
+                </button>
+              );
+            })}
+          </div>
         </div>
       </div>
 
