@@ -972,79 +972,83 @@ export default function NewStudentReportCardsPage({ onNavigate, params, initialM
           )}
         </div>
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem', width: '100%' }}>
-          {/* Student header: name, instructor, start term, current term, badges. */}
-          <div className="panel no-print" style={{ margin: 0 }}>
-            <div className="panel-body" style={{ padding: '1rem 1.25rem' }}>
-              {!selectedStudent ? (
-                <div style={{ padding: '1.5rem', textAlign: 'center' }}>
-                  <p style={{ margin: '0 0 1rem', fontSize: '0.88rem', color: 'var(--text-muted)' }}>
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'minmax(240px, 300px) minmax(0, 1fr)',
+            gap: '1.25rem',
+            alignItems: 'start',
+          }}
+        >
+          {/* Selector panel — already carries `no-print` on its own root. */}
+          <StudentSelectorPanel
+            students={students}
+            category={activeCategory}
+            onCategoryChange={(next) => {
+              setCategory(next);
+              // Req 6.6 — dropping the pick lets the derived selection fall to
+              // the first student of the newly chosen tab.
+              setPickedStudentId(null);
+            }}
+            selectedStudentId={selectedStudentId}
+            onSelectStudent={(id) => setPickedStudentId(id)}
+          />
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem', minWidth: 0 }}>
+            {/* Student header: name, instructor, start term, current term, badges. */}
+            <div className="panel no-print" style={{ margin: 0 }}>
+              <div className="panel-body" style={{ padding: '1rem 1.25rem' }}>
+                {!selectedStudent ? (
+                  <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--text-muted)' }}>
                     {studentsLoading
                       ? 'Loading students…'
-                      : 'No student selected yet. Pick a student from the Report List to record an evaluation.'}
+                      : 'Select a student from the list to record an evaluation and build a report.'}
                   </p>
-                  <button
-                    type="button"
-                    className="btn btn-primary"
-                    onClick={() => onNavigate ? onNavigate('report-cards-list') : setMode('list')}
+                ) : (
+                  <div
                     style={{
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: '0.4rem',
-                      borderRadius: '10px',
-                      padding: '0.5rem 1rem',
-                      fontSize: '0.8rem',
+                      display: 'flex',
+                      flexWrap: 'wrap',
+                      gap: '1.25rem',
+                      alignItems: 'flex-start',
+                      justifyContent: 'space-between',
                     }}
                   >
-                    <Users size={15} aria-hidden="true" />
-                    Open Report List
-                  </button>
-                </div>
-              ) : (
-                <div
-                  style={{
-                    display: 'flex',
-                    flexWrap: 'wrap',
-                    gap: '1.25rem',
-                    alignItems: 'flex-start',
-                    justifyContent: 'space-between',
-                  }}
-                >
-                  <div style={{ display: 'grid', gap: '0.35rem', minWidth: 0 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
-                      <span
-                        style={{
-                          fontSize: '1.15rem',
-                          fontWeight: 700,
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '0.4rem',
-                        }}
-                      >
-                        <User size={18} aria-hidden="true" />
-                        {selectedStudent.name || EM_DASH}
-                      </span>
-                      <button
-                        type="button"
-                        className="btn btn-secondary btn-sm"
-                        onClick={() => setMode('list')}
-                        style={{
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: '0.35rem',
-                          borderRadius: '8px',
-                          padding: '0.3rem 0.65rem',
-                          fontSize: '0.75rem',
-                          color: 'var(--text-secondary)',
-                          border: '1px solid var(--border-color)',
-                          background: 'var(--bg-color)',
-                          cursor: 'pointer',
-                        }}
-                      >
-                        <Users size={13} aria-hidden="true" />
-                        Change Student (Report List)
-                      </button>
-                    </div>
+                    <div style={{ display: 'grid', gap: '0.35rem', minWidth: 0 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
+                        <span
+                          style={{
+                            fontSize: '1.15rem',
+                            fontWeight: 700,
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '0.4rem',
+                          }}
+                        >
+                          <User size={18} aria-hidden="true" />
+                          {selectedStudent.name || EM_DASH}
+                        </span>
+                        <button
+                          type="button"
+                          className="btn btn-secondary btn-sm"
+                          onClick={() => setMode('list')}
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '0.35rem',
+                            borderRadius: '8px',
+                            padding: '0.3rem 0.65rem',
+                            fontSize: '0.75rem',
+                            color: 'var(--text-secondary)',
+                            border: '1px solid var(--border-color)',
+                            background: 'var(--bg-color)',
+                            cursor: 'pointer',
+                          }}
+                        >
+                          <Users size={13} aria-hidden="true" />
+                          Change Student (Report List)
+                        </button>
+                      </div>
                       <span
                         style={{
                           display: 'flex',
@@ -1229,7 +1233,7 @@ export default function NewStudentReportCardsPage({ onNavigate, params, initialM
             {/* The standalone guidelines view moved to its own page,
                 `report-cards-rubric`, so this page has two modes rather than
                 three. The compact reference beside the form stays. */}
-            {(
+            {selectedStudent && (
               <div
                 className="no-print"
                 style={{
@@ -1367,28 +1371,29 @@ export default function NewStudentReportCardsPage({ onNavigate, params, initialM
               </div>
             )}
 
-                <div
-                  className="no-print"
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '0.5rem',
-                    fontSize: '0.75rem',
-                    color: 'var(--text-muted)',
-                  }}
-                >
-                  <CalendarDays size={14} aria-hidden="true" />
-                  <span>
-                    {dataReady
-                      ? `${shownEvaluations.length} evaluation${
-                          shownEvaluations.length === 1 ? '' : 's'
-                        } on record${
-                          onNavigate ? ' · open the Student Database to edit this student' : ''
-                        }`
-                      : 'No evaluation data loaded for this student yet.'}
-                  </span>
-                </div>
+            <div
+              className="no-print"
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.5rem',
+                fontSize: '0.75rem',
+                color: 'var(--text-muted)',
+              }}
+            >
+              <CalendarDays size={14} aria-hidden="true" />
+              <span>
+                {dataReady
+                  ? `${shownEvaluations.length} evaluation${
+                      shownEvaluations.length === 1 ? '' : 's'
+                    } on record${
+                      onNavigate ? ' · open the Student Database to edit this student' : ''
+                    }`
+                  : 'No evaluation data loaded for this student yet.'}
+              </span>
+            </div>
           </div>
+        </div>
       )}
 
       {/*
