@@ -24,7 +24,7 @@ import {
 import { subscribeToActivity, logActivity, deleteActivity, displayUser } from '../services/newActivityService';
 import { useAuth } from '../contexts/AuthContext';
 import { doTimeSlotsOverlap, formatNormalizedTimeSlot } from '../utils/timeUtils';
-import { DAY_NAMES, SCHEDULE_PAGE_SIZE } from '../utils/constants';
+import { DAY_NAMES, SCHEDULE_PAGE_SIZE, DEFAULT_BRANCH_LIST, isSameBranch } from '../utils/constants';
 import Pagination from '../components/ui/Pagination';
 import { Plus, Pencil, Trash2, Search, X, Calendar, CalendarPlus, MapPin, Repeat, User, Users, UserX, BookOpen, Clock, AlertTriangle, Upload, History, Trash, FileDown, CheckCircle2, ChevronDown, Check } from 'lucide-react';
 import * as XLSX from 'xlsx';
@@ -642,7 +642,10 @@ export default function NewSchedulePage({ onNavigate }) {
   }, [startTime, form.program, joinTime]);
 
   const sortedTeachers = [...new Set((instructors || []).map(i => i.name))].filter(Boolean).sort();
-  const branchList = [...new Set([...(enabledBranches || []).map(b => b.name), ...(branches || []).map(b => b.name)])].filter(Boolean);
+  const branchList = useMemo(() => {
+    const list = [...new Set([...(enabledBranches || []).map(b => b.name), ...(branches || []).map(b => b.name)])].filter(b => b && b !== 'Default Branch');
+    return list.length ? list : DEFAULT_BRANCH_LIST.map(b => b.name);
+  }, [enabledBranches, branches]);
 
   // Instructors available for a given branch: those whose New Ops profile lists
   // that branch (or "All Branches"). Used by the Add/Edit modal so the teacher
@@ -652,7 +655,7 @@ export default function NewSchedulePage({ onNavigate }) {
       .filter((i) => {
         if (!branchName) return true;
         const brs = Array.isArray(i.branches) ? i.branches : [];
-        return brs.includes(branchName) || brs.includes('All Branches');
+        return brs.some((b) => b === 'All Branches' || isSameBranch(b, branchName));
       })
       .map((i) => i.name);
     return [...new Set(list)].filter(Boolean).sort();
@@ -695,7 +698,7 @@ export default function NewSchedulePage({ onNavigate }) {
   const toolbarInstructors = useMemo(() => {
     if (filterBranch === 'all') return sortedTeachers;
     const names = (instructors || [])
-      .filter((i) => (i.branches || []).includes(filterBranch))
+      .filter((i) => (i.branches || []).some((b) => b === 'All Branches' || isSameBranch(b, filterBranch)))
       .map((i) => i.name);
     return [...new Set(names)].filter(Boolean).sort();
   }, [instructors, filterBranch, sortedTeachers]);
@@ -711,7 +714,7 @@ export default function NewSchedulePage({ onNavigate }) {
     const s = search.toLowerCase();
     return classes.filter((c) => {
       if (filterDay !== 'all' && c.day !== filterDay) return false;
-      if (filterBranch !== 'all' && c.branchName !== filterBranch) return false;
+      if (filterBranch !== 'all' && !isSameBranch(c.branchName, filterBranch)) return false;
       if (filterInstructor !== 'all' && c.teacher !== filterInstructor) return false;
       if (filterProgram !== 'all' && c.program !== filterProgram) return false;
       if (filterTime !== 'all' && c.time !== filterTime) return false;

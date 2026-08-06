@@ -5,6 +5,7 @@ import { X, Upload, Download, FileSpreadsheet, CheckCircle2, AlertTriangle, File
 import * as XLSX from 'xlsx';
 
 import { formatNormalizedTimeSlot } from '../../utils/timeUtils';
+import { DEFAULT_BRANCH_LIST } from '../../utils/constants';
 
 /**
  * Normalise level/program to standard options if possible
@@ -220,7 +221,9 @@ export default function ImportStudentsModal({
     }
   };
 
-  const branchList = Array.isArray(branches) ? branches.map((b) => b.name || b).filter(Boolean) : ['Bekasi', 'Bintaro'];
+  const branchList = (Array.isArray(branches) && branches.length > 0)
+    ? branches.map((b) => b.name || b).filter((b) => b && b !== 'Default Branch')
+    : DEFAULT_BRANCH_LIST.map((b) => b.name);
 
   return (
     <div

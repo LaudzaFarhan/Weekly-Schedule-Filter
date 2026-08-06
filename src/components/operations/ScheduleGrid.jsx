@@ -21,13 +21,14 @@ import {
   durationForCategory, isInstructorScoped, getCategoryColorStyle,
 } from '../../lib/slotTypes';
 import { maxStudentsFor } from '../../lib/programRules';
-import { DAY_NAMES } from '../../utils/constants';
+import { DAY_NAMES, isSameBranch, DEFAULT_BRANCH_LIST } from '../../utils/constants';
 import { isSameTeacher } from '../../utils/instructorUtils';
 
 const CATEGORIES = ['Kinder', 'Junior', 'Coder'];
 
 /** Timeline granularity. Classes run 90 or 120 minutes, so 30 divides both. */
 const STEP = 30;
+
 /** Pixel height of one STEP row — resize maths converts drag distance with it. */
 const ROW_H = 34;
 /** Shortest session we will let anything be. */
@@ -152,10 +153,10 @@ export default function ScheduleGrid({
     return map;
   }, [liveProgress]);
 
-  const selectable = useMemo(
-    () => branches.filter((b) => b.name !== 'Default Branch'),
-    [branches]
-  );
+  const selectable = useMemo(() => {
+    const list = branches.filter((b) => b.name !== 'Default Branch');
+    return list.length ? list : DEFAULT_BRANCH_LIST;
+  }, [branches]);
 
   const [branchChoice, setBranchChoice] = useState('');
   const [dayChoice, setDayChoice] = useState('');
@@ -182,10 +183,12 @@ export default function ScheduleGrid({
     if (allBranches) {
       const set = new Set();
       for (const b of selectable) for (const d of DAY_NAMES) if (draft[b.id]?.has(d)) set.add(d);
-      return DAY_NAMES.filter((d) => set.has(d));
+      const filtered = DAY_NAMES.filter((d) => set.has(d));
+      return filtered.length ? filtered : DAY_NAMES;
     }
-    if (!branch) return [];
-    return DAY_NAMES.filter((d) => draft[branch.id]?.has(d));
+    if (!branch) return DAY_NAMES;
+    const days = DAY_NAMES.filter((d) => draft[branch.id]?.has(d));
+    return days.length ? days : DAY_NAMES;
   }, [allBranches, selectable, branch, draft]);
 
   const day = DAY_NAMES.includes(dayChoice) ? dayChoice : (DAY_NAMES[0] || 'Monday');
@@ -230,8 +233,8 @@ export default function ScheduleGrid({
   );
 
   const pool = useMemo(() => {
-    return allBranches ? instructors : instructorsAtBranch(instructors, branch?.name);
-  }, [allBranches, instructors, branch]);
+    return allBranches ? instructors : instructorsAtBranch(instructors, branch?.name, classGroups);
+  }, [allBranches, instructors, branch, classGroups]);
 
   const columns = useMemo(() => {
     const sorted = [...pool].sort((a, b) => String(a.name).localeCompare(String(b.name)));

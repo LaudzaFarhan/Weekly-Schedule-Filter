@@ -155,9 +155,10 @@ export function isSameTeacher(t1, t2) {
   const norm2 = ALIAS_MAP[s2] || s2;
   if (norm1 === norm2) return true;
 
-  // Token matching
-  const tokens1 = norm1.split(/\s+/).filter((t) => t.length >= 3);
-  const tokens2 = norm2.split(/\s+/).filter((t) => t.length >= 3);
+  // Token matching (ignoring generic prefix words)
+  const GENERIC_TOKENS = new Set(['teacher', 'guru', 'instructor', 'mr', 'ms', 'mrs']);
+  const tokens1 = norm1.split(/\s+/).filter((t) => t.length >= 3 && !GENERIC_TOKENS.has(t));
+  const tokens2 = norm2.split(/\s+/).filter((t) => t.length >= 3 && !GENERIC_TOKENS.has(t));
 
   for (const tok1 of tokens1) {
     for (const tok2 of tokens2) {

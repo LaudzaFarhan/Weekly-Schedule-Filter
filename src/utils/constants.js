@@ -37,6 +37,16 @@ export const getBranchCode = (branchName) => {
   return key.slice(0, 2).toUpperCase();
 };
 
+export const DEFAULT_BRANCH_LIST = [
+  { id: 'gading-serpong', name: 'Gading Serpong' },
+  { id: 'puri-indah', name: 'Puri Indah' },
+  { id: 'pondok-indah', name: 'Pondok Indah' },
+  { id: 'pluit-village', name: 'Pluit Village' },
+  { id: 'kelapa-gading', name: 'Kelapa Gading' },
+  { id: 'bekasi', name: 'Bekasi' },
+  { id: 'bintaro', name: 'Bintaro' },
+];
+
 // Reverse lookups so we can turn a code ("BTR") or a full name back into a
 // canonical branch name. Built once from BRANCH_CODES.
 const CODE_TO_BRANCH = {};
@@ -45,6 +55,27 @@ for (const [name, code] of Object.entries(BRANCH_CODES)) {
   CODE_TO_BRANCH[code.toLowerCase()] = name;
   NAME_TO_BRANCH[name.toLowerCase()] = name;
 }
+
+export const getCanonicalBranchName = (str) => {
+  if (!str) return '';
+  const s = String(str).trim().toLowerCase();
+  return CODE_TO_BRANCH[s] || NAME_TO_BRANCH[s] || String(str).trim();
+};
+
+/**
+ * Flexible branch matching helper (handles short codes, casing, and trailing spaces).
+ * e.g., "Pondok Indah" matches "PI", "pondok indah", "Pondok Indah ".
+ */
+export const isSameBranch = (b1, b2) => {
+  if (!b1 || !b2) return false;
+  const s1 = String(b1).trim().toLowerCase();
+  const s2 = String(b2).trim().toLowerCase();
+  if (s1 === s2) return true;
+
+  const c1 = getCanonicalBranchName(b1).toLowerCase();
+  const c2 = getCanonicalBranchName(b2).toLowerCase();
+  return c1 === c2;
+};
 
 /**
  * Interpret a "Term-Branch" (column D) value as a cross-branch MEETING tag.

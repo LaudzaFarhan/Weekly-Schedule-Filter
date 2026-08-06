@@ -14,7 +14,7 @@
  */
 
 import { parseTimeSlot } from '../utils/timeUtils';
-import { DAY_NAMES } from '../utils/constants';
+import { DAY_NAMES, isSameBranch } from '../utils/constants';
 import { isSameTeacher } from '../utils/instructorUtils';
 
 /** Stable reason codes so callers can style or filter by cause. */
@@ -103,13 +103,57 @@ export function levelCovers(level, category) {
   return true;
 }
 
-/** Instructors assigned to a branch, explicitly or via "All Branches". */
-export function instructorsAtBranch(instructors, branchName) {
+/** Instructors assigned to a branch, explicitly or via "All Branches" or via active classes in classGroups. */
+export function instructorsAtBranch(instructors, branchName, classGroups = []) {
   if (!branchName) return instructors || [];
-  return (instructors || []).filter((i) => {
+  
+  const result = [];
+  const addedNames = new Set();
+
+  // 1. Instructors explicitly assigned to the branch in their profile/record
+  (instructors || []).forEach((i) => {
     const brs = Array.isArray(i.branches) ? i.branches : [];
-    return brs.includes(branchName) || brs.includes('All Branches');
+    const matches = brs.some((b) => b === 'All Branches' || isSameBranch(b, branchName));
+    if (matches && i.name) {
+      result.push(i);
+      addedNames.add(i.name.toLowerCase());
+    }
   });
+
+  // 2. Instructors who have classes in this branch (even if profile branches doesn't list it yet)
+  (instructors || []).forEach((i) => {
+    if (i.name && !addedNames.has(i.name.toLowerCase())) {
+      const hasClassInBranch = (classGroups || []).some(
+        (g) => isSameBranch(g.branchName, branchName) && isSameTeacher(g.teacher, i.name)
+      );
+      if (hasClassInBranch) {
+        result.push(i);
+        addedNames.add(i.name.toLowerCase());
+      }
+    }
+  });
+
+  // 3. Teachers present in classGroups for this branch who aren't in the instructors array at all
+  (classGroups || []).forEach((g) => {
+    if (g.teacher && isSameBranch(g.branchName, branchName)) {
+      const alreadyIn = (instructors || []).some((i) => isSameTeacher(i.name, g.teacher)) ||
+                        [...addedNames].some((n) => isSameTeacher(n, g.teacher));
+      if (!alreadyIn) {
+        const syntheticInst = {
+          id: `synthetic::${g.teacher}`,
+          name: g.teacher,
+          level: 'All Levels',
+          branches: [branchName],
+          contact: '',
+          status: 'Active',
+        };
+        result.push(syntheticInst);
+        addedNames.add(g.teacher.toLowerCase());
+      }
+    }
+  });
+
+  return result;
 }
 
 /** Categories an instructor's level lets them teach. */

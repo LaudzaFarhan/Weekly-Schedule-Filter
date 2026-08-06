@@ -8,7 +8,7 @@ import { auth } from '../services/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
 import { useToast } from '../components/ui/Toast';
 import { logActivity } from '../services/activityService';
-import { getWorkingDaysForBranch } from '../utils/constants';
+import { getWorkingDaysForBranch, DEFAULT_BRANCH_LIST, isSameBranch } from '../utils/constants';
 import SyncReportModal from '../components/ui/SyncReportModal';
 
 const ScheduleContext = createContext(null);
@@ -238,7 +238,7 @@ export function ScheduleProvider({ children }) {
 
   const allClasses = useMemo(() => {
     if (!activeBranchName) return overallClasses;
-    return overallClasses.filter(c => c.branchName === activeBranchName);
+    return overallClasses.filter(c => isSameBranch(c.branchName, activeBranchName));
   }, [overallClasses, activeBranchName]);
 
   const uniqueTeachers = useMemo(() => {
