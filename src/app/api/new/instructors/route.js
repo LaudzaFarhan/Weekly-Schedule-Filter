@@ -65,22 +65,44 @@ export async function POST(req) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
     }
  
-    const sql = `
-      INSERT INTO internal_instructors (name, level, branches, contact, status, remarks, employment_type, available_days)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-      RETURNING *
-    `;
-    const params = [
-      name, 
-      level, 
-      branches || [], 
-      contact, 
-      status || 'Active', 
-      remarks || null,
-      employmentType || 'Full-Time',
-      availableDays || []
-    ];
-    const res = await query(sql, params);
+    let res;
+    try {
+      const sql = `
+        INSERT INTO internal_instructors (name, level, branches, contact, status, remarks, employment_type, available_days)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        RETURNING *
+      `;
+      const params = [
+        name, 
+        level, 
+        branches || [], 
+        contact, 
+        status || 'Active', 
+        remarks || null,
+        employmentType || 'Full-Time',
+        availableDays || []
+      ];
+      res = await query(sql, params);
+    } catch (dbErr) {
+      if (dbErr.code === '42703') {
+        const fallbackSql = `
+          INSERT INTO internal_instructors (name, level, branches, contact, status, remarks)
+          VALUES ($1, $2, $3, $4, $5, $6)
+          RETURNING *
+        `;
+        const fallbackParams = [
+          name, 
+          level, 
+          branches || [], 
+          contact, 
+          status || 'Active', 
+          remarks || null
+        ];
+        res = await query(fallbackSql, fallbackParams);
+      } else {
+        throw dbErr;
+      }
+    }
  
     return NextResponse.json(mapRow(res.rows[0]));
   } catch (error) {
@@ -100,24 +122,48 @@ export async function PUT(req) {
       return NextResponse.json({ error: 'Missing instructor ID' }, { status: 400 });
     }
  
-    const sql = `
-      UPDATE internal_instructors
-      SET name = $1, level = $2, branches = $3, contact = $4, status = $5, remarks = $6, employment_type = $7, available_days = $8
-      WHERE id = $9
-      RETURNING *
-    `;
-    const params = [
-      name, 
-      level, 
-      branches || [], 
-      contact, 
-      status || 'Active', 
-      remarks || null, 
-      employmentType || 'Full-Time',
-      availableDays || [],
-      id
-    ];
-    const res = await query(sql, params);
+    let res;
+    try {
+      const sql = `
+        UPDATE internal_instructors
+        SET name = $1, level = $2, branches = $3, contact = $4, status = $5, remarks = $6, employment_type = $7, available_days = $8
+        WHERE id = $9
+        RETURNING *
+      `;
+      const params = [
+        name, 
+        level, 
+        branches || [], 
+        contact, 
+        status || 'Active', 
+        remarks || null, 
+        employmentType || 'Full-Time',
+        availableDays || [],
+        id
+      ];
+      res = await query(sql, params);
+    } catch (dbErr) {
+      if (dbErr.code === '42703') {
+        const fallbackSql = `
+          UPDATE internal_instructors
+          SET name = $1, level = $2, branches = $3, contact = $4, status = $5, remarks = $6
+          WHERE id = $7
+          RETURNING *
+        `;
+        const fallbackParams = [
+          name, 
+          level, 
+          branches || [], 
+          contact, 
+          status || 'Active', 
+          remarks || null, 
+          id
+        ];
+        res = await query(fallbackSql, fallbackParams);
+      } else {
+        throw dbErr;
+      }
+    }
  
     if (res.rowCount === 0) {
       return NextResponse.json({ error: 'Instructor not found' }, { status: 404 });
