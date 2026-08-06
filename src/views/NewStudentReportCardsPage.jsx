@@ -72,6 +72,7 @@ import EvaluationForm from '../components/reportcards/EvaluationForm';
 import ReportCardDocument from '../components/reportcards/ReportCardDocument';
 import ScoringGuidelinesPanel from '../components/reportcards/ScoringGuidelinesPanel';
 import StudentSelectorPanel from '../components/reportcards/StudentSelectorPanel';
+import StudentReportListView from '../components/reportcards/StudentReportListView';
 import {
   NOT_ASSESSED,
   competencyAverages,
@@ -905,89 +906,17 @@ export default function NewStudentReportCardsPage({ onNavigate, params, initialM
       </div>
 
       {mode === 'list' ? (
-        <div
-          className="no-print"
-          style={{
-            display: 'grid',
-            gridTemplateColumns: 'minmax(300px, 340px) minmax(0, 1fr)',
-            gap: '1.25rem',
-            alignItems: 'start',
+        <StudentReportListView
+          students={students}
+          onSelectStudentAndEvaluate={(id) => {
+            setPickedStudentId(id);
+            setMode('evaluate');
           }}
-        >
-          {/* Main Student Selector / Report List Panel */}
-          <StudentSelectorPanel
-            students={students}
-            category={activeCategory}
-            onCategoryChange={(next) => {
-              setCategory(next);
-              setPickedStudentId(null);
-            }}
-            selectedStudentId={selectedStudentId}
-            onSelectStudent={(id) => setPickedStudentId(id)}
-          />
-
-          {/* Selected Student Overview & Quick Actions */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem', minWidth: 0 }}>
-            {selectedStudent ? (
-              <div className="panel" style={{ margin: 0 }}>
-                <div className="panel-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem' }}>
-                  <div>
-                    <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 600, color: 'var(--text-main)' }}>{selectedStudent.name}</h3>
-                    <p style={{ margin: '0.2rem 0 0', fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
-                      {selectedStudent.branchName || 'All Branches'} · {selectedStudent.program || 'No program assigned'}
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    className="btn btn-primary"
-                    onClick={() => setMode('evaluate')}
-                    style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', borderRadius: '10px', padding: '0.5rem 1rem', fontSize: '0.8rem' }}
-                  >
-                    <ClipboardList size={15} /> Evaluate Report Card
-                  </button>
-                </div>
-
-                <div className="panel-body" style={{ padding: '1.25rem' }}>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1.25rem' }}>
-                    <div>
-                      <h4 style={{ fontSize: '0.88rem', fontWeight: 600, color: 'var(--text-main)', margin: '0 0 0.5rem' }}>
-                        Competency Mastery Summary
-                      </h4>
-                      <p style={{ fontSize: '0.76rem', color: 'var(--text-secondary)', margin: '0 0 0.8rem' }}>
-                        Average ratings derived from {shownEvaluations.length} evaluation{shownEvaluations.length === 1 ? '' : 's'} on record:
-                      </p>
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
-                        {(COMPETENCIES[activeCategory] || []).map((c) => {
-                          const avg = averages[c.key] || 0;
-                          return (
-                            <div key={c.key} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.78rem', padding: '0.35rem 0.65rem', borderRadius: '8px', background: 'var(--bg-color)', border: '1px solid var(--border-color)' }}>
-                              <span style={{ fontWeight: 500, color: 'var(--text-main)' }}>{c.label}</span>
-                              <span style={{ fontWeight: 700, color: avg > 0 ? 'var(--primary-blue)' : 'var(--text-muted)' }}>
-                                {avg > 0 ? `${avg.toFixed(1)} / 5.0` : 'Unassessed'}
-                              </span>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-
-                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
-                      <ChartBoundary averages={averages}>
-                        <CompetencyRadarChart averages={averages} size={{ width: 250, height: 250 }} />
-                      </ChartBoundary>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            ) : (
-              <div className="panel" style={{ margin: 0, padding: '2.5rem 1.5rem', textAlign: 'center', color: 'var(--text-muted)' }}>
-                <Users size={36} style={{ opacity: 0.4, marginBottom: '0.6rem' }} />
-                <h4 style={{ margin: '0 0 0.3rem', fontSize: '0.95rem', color: 'var(--text-main)' }}>Select a Student</h4>
-                <p style={{ margin: 0, fontSize: '0.82rem' }}>Pick a program tab (K, J, C) and click a student from the Report List on the left to view their report card.</p>
-              </div>
-            )}
-          </div>
-        </div>
+          onSelectStudentAndPreview={(id) => {
+            setPickedStudentId(id);
+            setMode('preview');
+          }}
+        />
       ) : mode === 'preview' ? (
         // Req 5.4 — the document laid out on screen at print proportions, with a
         // way back, and no operating-system dialog opened.
