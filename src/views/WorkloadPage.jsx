@@ -359,19 +359,17 @@ export default function WorkloadPage() {
   const report = useMemo(() => {
     if (branchFilter === 'all') return reportWithIdle;
     return reportWithIdle.filter((r) => {
-      // Check if they have scheduled classes in the selected branch (using identity match)
-      const hasClassesInSelectedBranch = weekFilteredClasses.some(
-        (c) => (isInstructorMatch(c.teacher, r.teacher) || c.teacher === r.teacher) && classBelongsToBranch(c, branchFilter)
-      );
-      if (hasClassesInSelectedBranch) return true;
-
-      // Check profile allocated branches
+      // 1. Instructor Profile branches is the primary source of truth
       const profile = instructorProfiles.find((p) => isInstructorMatch(r.teacher, p));
       if (profile) {
         const brs = Array.isArray(profile.branches) ? profile.branches : [profile.location].filter(Boolean);
         return brs.includes('All Branches') || brs.includes(branchFilter) || profile.location === branchFilter;
       }
-      return false;
+
+      // 2. Unprofiled teachers fallback to schedule class branch check
+      return weekFilteredClasses.some(
+        (c) => (isInstructorMatch(c.teacher, r.teacher) || c.teacher === r.teacher) && classBelongsToBranch(c, branchFilter)
+      );
     });
   }, [reportWithIdle, branchFilter, instructorProfiles, weekFilteredClasses]);
 

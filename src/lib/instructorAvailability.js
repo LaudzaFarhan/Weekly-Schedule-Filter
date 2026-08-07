@@ -103,51 +103,35 @@ export function levelCovers(level, category) {
   return true;
 }
 
-/** Instructors assigned to a branch, explicitly or via "All Branches" or via active classes in classGroups. */
+/** Instructors assigned to a branch, strictly by profile branches or fallback for unprofiled setups. */
 export function instructorsAtBranch(instructors, branchName, classGroups = []) {
   if (!branchName) return instructors || [];
-  
-  const result = [];
-  const addedNames = new Set();
 
-  // 1. Instructors explicitly assigned to the branch in their profile/record
-  (instructors || []).forEach((i) => {
-    const brs = Array.isArray(i.branches) ? i.branches : [];
-    const matches = brs.some((b) => b === 'All Branches' || isSameBranch(b, branchName));
-    if (matches && i.name) {
-      result.push(i);
-      addedNames.add(i.name.toLowerCase());
-    }
+  // 1. Filter instructors strictly by their registered profile branches (or location)
+  const matched = (instructors || []).filter((i) => {
+    const brs = Array.isArray(i.branches) ? i.branches : [i.location].filter(Boolean);
+    return brs.some((b) => b === 'All Branches' || isSameBranch(b, branchName));
   });
 
-  // 2. Instructors who have classes in this branch (even if profile branches doesn't list it yet)
-  (instructors || []).forEach((i) => {
-    if (i.name && !addedNames.has(i.name.toLowerCase())) {
-      const hasClassInBranch = (classGroups || []).some(
-        (g) => isSameBranch(g.branchName, branchName) && isSameTeacher(g.teacher, i.name)
-      );
-      if (hasClassInBranch) {
-        result.push(i);
-        addedNames.add(i.name.toLowerCase());
-      }
-    }
-  });
+  // If instructor profiles exist in the system, return only instructors allocated to this branch
+  if (Array.isArray(instructors) && instructors.length > 0) {
+    return matched;
+  }
 
-  // 3. Teachers present in classGroups for this branch who aren't in the instructors array at all
+  // Fallback for unprofiled setups (when no instructor profiles exist yet)
+  const result = [...matched];
+  const addedNames = new Set(result.map((i) => (i.name || '').toLowerCase()).filter(Boolean));
+
   (classGroups || []).forEach((g) => {
     if (g.teacher && isSameBranch(g.branchName, branchName)) {
-      const alreadyIn = (instructors || []).some((i) => isSameTeacher(i.name, g.teacher)) ||
-                        [...addedNames].some((n) => isSameTeacher(n, g.teacher));
+      const alreadyIn = [...addedNames].some((n) => isSameTeacher(n, g.teacher));
       if (!alreadyIn) {
-        const syntheticInst = {
-          id: `synthetic::${g.teacher}`,
+        result.push({
+          id: `unprofiled_${g.teacher}`,
           name: g.teacher,
-          level: 'All Levels',
           branches: [branchName],
-          contact: '',
-          status: 'Active',
-        };
-        result.push(syntheticInst);
+          level: 'All Levels',
+        });
         addedNames.add(g.teacher.toLowerCase());
       }
     }

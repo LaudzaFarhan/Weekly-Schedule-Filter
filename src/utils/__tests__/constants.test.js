@@ -34,14 +34,13 @@ describe('instructorsAtBranch for Pondok Indah and imported classes', () => {
     { teacher: 'Teacher D', branchName: 'Pondok Indah', day: 'Tuesday' }, // Unregistered / newly imported teacher
   ];
 
-  it('includes profile-matched, class-assigned, and synthetic imported teachers for Pondok Indah', () => {
+  it('includes profile-matched teachers for Pondok Indah', () => {
     const list = instructorsAtBranch(instructors, 'Pondok Indah', classGroups);
     const names = list.map((i) => i.name);
 
     expect(names).toContain('Teacher B'); // Profile matched
     expect(names).toContain('Teacher C'); // All branches
-    expect(names).toContain('Teacher A'); // Class assigned to Pondok Indah
-    expect(names).toContain('Teacher D'); // Synthetic newly imported teacher
+    expect(names).not.toContain('Teacher A'); // Belongs to Puri Indah, excluded from Pondok Indah
   });
 
   it('matches branch codes such as PI', () => {
