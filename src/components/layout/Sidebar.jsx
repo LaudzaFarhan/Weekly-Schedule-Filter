@@ -157,6 +157,8 @@ export default function Sidebar({ currentPage, onNavigate, onToggleSearch, opsMo
             </button>
           )}
         </div>
+      </div>
+
       <nav data-tour="sidebar-nav" className="sidebar-nav">
         <button
           className={`nav-item ${currentPage === 'home' || currentPage === 'dashboard' ? 'active' : ''}`}
