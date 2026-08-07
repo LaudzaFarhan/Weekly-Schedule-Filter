@@ -232,6 +232,10 @@ export async function PUT(req) {
   }
 }
 
+export async function POST(req) {
+  return PUT(req);
+}
+
 export async function DELETE(req) {
   try {
     const identity = await identify(req);

@@ -5,4 +5,4 @@
  * including the New Operations open days / operating hours / class slot plan
  * that the Operationals page writes. The original path stays live.
  */
-export { GET, POST } from '../../config/route';
+export { GET, POST, PUT, DELETE } from '../../config/route';
