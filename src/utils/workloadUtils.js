@@ -281,18 +281,26 @@ function computeForInstructor(rows) {
         if (!allOnLeave && b.program) byDay[day].programs.add(b.program);
       });
       const durationMin = parsed.end - parsed.start;
-      // Capture per-student detail so the heatmap modal can show
-      // "what is being taught at this slot".
-      const studentDetails = bucket.map((b) => ({
-        student: b.student || '',
-        program: b.program || '',
-        lessonDetail: b.lessonDetail || '',
-        fullProgram: b.fullProgram || '',
-        branchName: b.branchName || '',
-        remarks: b.remarks || '',
-        notArranged: isStudentIzin(b),
-        isIzin: isStudentIzin(b),
-      }));
+      // Capture unique per-student detail so the heatmap modal shows
+      // distinct student entries without repeating duplicate rows.
+      const seenStudents = new Set();
+      const studentDetails = [];
+      for (const b of bucket) {
+        const sName = (b.student || '').trim();
+        const key = sName.toLowerCase();
+        if (!sName || seenStudents.has(key)) continue;
+        seenStudents.add(key);
+        studentDetails.push({
+          student: sName,
+          program: b.program || '',
+          lessonDetail: b.lessonDetail || '',
+          fullProgram: b.fullProgram || '',
+          branchName: b.branchName || '',
+          remarks: b.remarks || '',
+          notArranged: isStudentIzin(b),
+          isIzin: isStudentIzin(b),
+        });
+      }
       const programs = Array.from(
         new Set(bucket.map((b) => b.lessonDetail || b.program).filter(Boolean))
       );
