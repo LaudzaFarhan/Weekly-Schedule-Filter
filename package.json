@@ -1,7 +1,7 @@
 {
   "name": "pulse",
   "private": true,
-  "version": "3.3.4",
+  "version": "3.3.5",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
