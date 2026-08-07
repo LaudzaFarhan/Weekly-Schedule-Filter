@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useSchedule } from '../contexts/ScheduleContext';
 import { useToast } from '../components/ui/Toast';
 import { 
@@ -41,6 +41,7 @@ export default function NewInstructorsPage() {
 
   // State
   const [instructors, setInstructors] = useState([]);
+  const mutatingRef = useRef(false); // Prevents polling from overwriting state during mutations
   const [loading, setLoading] = useState(true);
   
   const [search, setSearch] = useState('');
@@ -71,9 +72,12 @@ export default function NewInstructorsPage() {
   const [showImportModal, setShowImportModal] = useState(false);
 
   // Subscribe to real-time updates from Firestore / Database
+  // Polling is gated by mutatingRef to avoid overwriting optimistic state during mutations
   useEffect(() => {
     const unsubscribe = subscribeToInternalInstructors((data) => {
-      setInstructors(data);
+      if (!mutatingRef.current) {
+        setInstructors(data);
+      }
       setLoading(false);
     });
     return () => unsubscribe();
@@ -330,6 +334,14 @@ export default function NewInstructorsPage() {
     setForm(updatedForm);
 
     if (editingInstructor && editingInstructor.id) {
+      // Optimistic update for table behind the modal
+      setInstructors((prev) => prev.map((item) =>
+        String(item.id) === String(editingInstructor.id)
+          ? { ...item, verifiedAliases: updatedVerified }
+          : item
+      ));
+
+      mutatingRef.current = true;
       try {
         const updated = await updateInternalInstructor(editingInstructor.id, updatedForm);
         if (updated && updated.id) {
@@ -338,6 +350,8 @@ export default function NewInstructorsPage() {
         }
       } catch (err) {
         console.error('Error toggling alias verification in modal:', err);
+      } finally {
+        mutatingRef.current = false;
       }
     }
   };
@@ -353,7 +367,12 @@ export default function NewInstructorsPage() {
     const updatedVerified = isVerified
       ? currentVerified.filter(a => String(a).toLowerCase().trim() !== target)
       : [...currentVerified, alias];
-    
+
+    // Optimistic update: immediately reflect the change in the table
+    const optimisticInst = { ...inst, verifiedAliases: updatedVerified };
+    setInstructors((prev) => prev.map((item) => String(item.id) === String(inst.id) ? optimisticInst : item));
+
+    mutatingRef.current = true;
     try {
       const updated = await updateInternalInstructor(inst.id, {
         name: inst.name,
@@ -379,8 +398,12 @@ export default function NewInstructorsPage() {
         variant: 'success'
       });
     } catch (err) {
+      // Revert optimistic update on failure
+      setInstructors((prev) => prev.map((item) => String(item.id) === String(inst.id) ? inst : item));
       console.error('Error updating alias verification:', err);
       showToast({ title: 'Failed to update alias verification', variant: 'error' });
+    } finally {
+      mutatingRef.current = false;
     }
   };
 
@@ -388,11 +411,16 @@ export default function NewInstructorsPage() {
     const currentAliases = Array.isArray(inst.aliases) ? inst.aliases : [];
     const currentVerified = Array.isArray(inst.verifiedAliases) ? inst.verifiedAliases : [];
 
-    if (currentAliases.includes(recAlias)) return;
+    if (currentAliases.some(a => String(a).toLowerCase().trim() === String(recAlias).toLowerCase().trim())) return;
 
     const updatedAliases = [...currentAliases, recAlias];
     const updatedVerified = canWipeAll ? [...currentVerified, recAlias] : currentVerified;
 
+    // Optimistic update: immediately show the alias in the table
+    const optimisticInst = { ...inst, aliases: updatedAliases, verifiedAliases: updatedVerified };
+    setInstructors((prev) => prev.map((item) => String(item.id) === String(inst.id) ? optimisticInst : item));
+
+    mutatingRef.current = true;
     try {
       const updated = await updateInternalInstructor(inst.id, {
         name: inst.name,
@@ -414,8 +442,12 @@ export default function NewInstructorsPage() {
         variant: 'success'
       });
     } catch (err) {
+      // Revert optimistic update on failure
+      setInstructors((prev) => prev.map((item) => String(item.id) === String(inst.id) ? inst : item));
       console.error('Error adding recommended alias:', err);
       showToast({ title: 'Failed to add recommended alias', variant: 'error' });
+    } finally {
+      mutatingRef.current = false;
     }
   };
 
@@ -459,6 +491,7 @@ export default function NewInstructorsPage() {
     e.preventDefault();
     if (!validateForm()) return;
 
+    mutatingRef.current = true;
     try {
       if (editingInstructor) {
         const updated = await updateInternalInstructor(editingInstructor.id, form);
@@ -477,6 +510,8 @@ export default function NewInstructorsPage() {
     } catch (err) {
       console.error('Error saving instructor:', err);
       showToast({ title: 'Failed to save instructor', variant: 'error' });
+    } finally {
+      mutatingRef.current = false;
     }
   };
 
