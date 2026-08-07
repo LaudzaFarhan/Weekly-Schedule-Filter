@@ -127,7 +127,7 @@ export async function PUT(req) {
     if (!id) {
       return NextResponse.json({ error: 'Missing instructor ID' }, { status: 400 });
     }
- 
+  
     // Proactively ensure columns exist in PostgreSQL
     try {
       await query(`
@@ -138,7 +138,7 @@ export async function PUT(req) {
         ADD COLUMN IF NOT EXISTS verified_aliases TEXT[] DEFAULT '{}' NOT NULL
       `);
     } catch (schemaErr) {
-      console.warn('Skipped ALTER TABLE in PUT:', schemaErr.message);
+      console.warn('[PUT] Skipped ALTER TABLE:', schemaErr.message);
     }
 
     let res;
