@@ -41,6 +41,42 @@ export async function GET(req) {
 /**
  * Helper to extract normalized fields from various payload key conventions
  */
+function extractValidPhone(body = {}) {
+  const candidates = [
+    body.phone,
+    body.phone_number,
+    body.wa_id,
+    body.wa_number,
+    body.whatsapp,
+    body.mobile,
+    body.sender_phone,
+    body.customer_phone,
+    body.contact,
+  ];
+
+  for (const raw of candidates) {
+    if (!raw) continue;
+    const str = String(raw).trim();
+    const digitsOnly = str.replace(/[^\d]/g, '');
+    // Must have at least 6 digits and no alphabetic characters
+    if (digitsOnly.length >= 6 && !/[a-zA-Z]/.test(str)) {
+      return str;
+    }
+  }
+
+  // Fallback: extract phone number pattern from message or notes
+  const textBody = `${body.message || ''} ${body.notes || ''}`;
+  const phoneMatch = textBody.match(/(?:\+?62|0)\s*\d{3,4}[-\s]?\d{3,4}[-\s]?\d{3,5}/);
+  if (phoneMatch) {
+    return phoneMatch[0].trim();
+  }
+
+  return '';
+}
+
+/**
+ * Helper to extract normalized fields from various payload key conventions
+ */
 function extractLeadFields(body) {
   const parentName = body.parent_name || '';
   const childName = body.child_name || '';
@@ -49,7 +85,7 @@ function extractLeadFields(body) {
     name = parentName && childName ? `${parentName} (Parent of ${childName})` : parentName || childName;
   }
 
-  const phone = body.phone || body.phone_number || body.wa_id || body.contact || '';
+  const phone = extractValidPhone(body);
   const branch = body.branch || body.branchName || body.branch_name || body.location || null;
   const trialDate = body.trialDate || body.trial_date || body.date || null;
   const status = body.status || 'interest_trial';

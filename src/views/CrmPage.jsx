@@ -441,10 +441,33 @@ export default function CrmPage() {
     return () => unsubscribe();
   }, []);
 
+  // Extract valid numeric phone number from lead fields or message/notes
+  const getValidPhoneNumber = (lead) => {
+    if (!lead) return null;
+    const candidates = [lead.phone, lead.contact, lead.phone_number];
+    for (const raw of candidates) {
+      if (!raw) continue;
+      const str = String(raw).trim();
+      const digitsOnly = str.replace(/[^\d]/g, '');
+      // Must have at least 6 digits, no letters, and not be dummy (e.g. 6280000..., 123456789)
+      if (digitsOnly.length >= 6 && !/[a-zA-Z]/.test(str) && !digitsOnly.startsWith('6280000') && digitsOnly !== '123456789') {
+        return str;
+      }
+    }
+    // Fallback: search for phone pattern in message or notes
+    const text = `${lead.message || ''} ${lead.notes || ''}`;
+    const match = text.match(/(?:\+?62|0)\s*\d{3,4}[-\s]?\d{3,4}[-\s]?\d{3,5}/);
+    if (match) return match[0].trim();
+    return null;
+  };
+
   // Format phone number to WhatsApp link
   const getWhatsAppLink = (phone) => {
     if (!phone) return '#';
-    let cleanPhone = phone.replace(/[^\d+]/g, '');
+    const str = String(phone).trim();
+    if (/[a-zA-Z]/.test(str)) return '#';
+    let cleanPhone = str.replace(/[^\d+]/g, '');
+    if (cleanPhone.length < 6 || cleanPhone.startsWith('6280000') || cleanPhone === '123456789') return '#';
     if (cleanPhone.startsWith('0')) {
       cleanPhone = '62' + cleanPhone.substring(1);
     } else if (cleanPhone.startsWith('+')) {
@@ -1232,29 +1255,40 @@ export default function CrmPage() {
                         )}
                       </td>
                       <td onClick={(e) => e.stopPropagation()}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                          <span style={{ fontSize: '0.85rem' }}>{lead.phone}</span>
-                          <a
-                            href={getWhatsAppLink(lead.phone)}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            style={{
-                              display: 'flex',
-                              alignItems: 'center',
-                              gap: '3px',
-                              background: '#22c55e',
-                              color: 'white',
-                              border: 'none',
-                              borderRadius: '4px',
-                              padding: '2px 6px',
-                              fontSize: '0.7rem',
-                              fontWeight: 600,
-                              textDecoration: 'none'
-                            }}
-                          >
-                            Chat <ExternalLink size={9} />
-                          </a>
-                        </div>
+                        {(() => {
+                          const validPhone = getValidPhoneNumber(lead);
+                          const waUrl = getWhatsAppLink(validPhone);
+                          if (!validPhone) {
+                            return <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem', fontStyle: 'italic' }}>No phone</span>;
+                          }
+                          return (
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                              <span style={{ fontSize: '0.85rem' }}>{validPhone}</span>
+                              {waUrl !== '#' && (
+                                <a
+                                  href={waUrl}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '3px',
+                                    background: '#22c55e',
+                                    color: 'white',
+                                    border: 'none',
+                                    borderRadius: '4px',
+                                    padding: '2px 6px',
+                                    fontSize: '0.7rem',
+                                    fontWeight: 600,
+                                    textDecoration: 'none'
+                                  }}
+                                >
+                                  Chat <ExternalLink size={9} />
+                                </a>
+                              )}
+                            </div>
+                          );
+                        })()}
                       </td>
                       <td>
                         <div style={{
@@ -1520,45 +1554,55 @@ export default function CrmPage() {
                         )}
 
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid #f1f5f9', paddingTop: '0.5rem', marginTop: '0.5rem' }}>
-                          <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '4px', flexWrap: 'wrap' }}>
-                            <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                              <Phone size={11} /> {lead.phone}
-                            </span>
-                            {lead.branch && (
-                              <span style={{
-                                padding: '1px 5px',
-                                borderRadius: '4px',
-                                background: '#f1f5f9',
-                                border: '1px solid #e2e8f0',
-                                fontSize: '0.65rem',
-                                color: 'var(--text-secondary)'
-                              }}>
-                                {lead.branch}
-                              </span>
-                            )}
-                          </span>
-                          <a
-                            href={getWhatsAppLink(lead.phone)}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            onClick={(e) => e.stopPropagation()}
-                            style={{
-                              display: 'flex',
-                              alignItems: 'center',
-                              gap: '3px',
-                              background: '#22c55e',
-                              color: 'white',
-                              border: 'none',
-                              borderRadius: '4px',
-                              padding: '2px 6px',
-                              fontSize: '0.7rem',
-                              fontWeight: 600,
-                              cursor: 'pointer',
-                              textDecoration: 'none'
-                            }}
-                          >
-                            Chat <ExternalLink size={9} />
-                          </a>
+                          {(() => {
+                            const validPhone = getValidPhoneNumber(lead);
+                            const waUrl = getWhatsAppLink(validPhone);
+                            return (
+                              <>
+                                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '4px', flexWrap: 'wrap' }}>
+                                  <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                    <Phone size={11} /> {validPhone || '—'}
+                                  </span>
+                                  {lead.branch && (
+                                    <span style={{
+                                      padding: '1px 5px',
+                                      borderRadius: '4px',
+                                      background: '#f1f5f9',
+                                      border: '1px solid #e2e8f0',
+                                      fontSize: '0.65rem',
+                                      color: 'var(--text-secondary)'
+                                    }}>
+                                      {lead.branch}
+                                    </span>
+                                  )}
+                                </span>
+                                {waUrl !== '#' && (
+                                  <a
+                                    href={waUrl}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    onClick={(e) => e.stopPropagation()}
+                                    style={{
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      gap: '3px',
+                                      background: '#22c55e',
+                                      color: 'white',
+                                      border: 'none',
+                                      borderRadius: '4px',
+                                      padding: '2px 6px',
+                                      fontSize: '0.7rem',
+                                      fontWeight: 600,
+                                      cursor: 'pointer',
+                                      textDecoration: 'none'
+                                    }}
+                                  >
+                                    Chat <ExternalLink size={9} />
+                                  </a>
+                                )}
+                              </>
+                            );
+                          })()}
                         </div>
                       </div>
                       );
