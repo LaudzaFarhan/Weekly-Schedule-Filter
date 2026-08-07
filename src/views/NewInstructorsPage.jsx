@@ -12,10 +12,11 @@ import {
   wipeAllInternalInstructors
 } from '../services/internalInstructorService';
 import Pagination from '../components/ui/Pagination';
-import { Plus, Pencil, Trash2, Search, X, MapPin, User, ShieldAlert, CheckCircle, Phone, Award, HelpCircle, Upload, AlertTriangle } from 'lucide-react';
+import { Plus, Pencil, Trash2, Search, X, MapPin, User, ShieldAlert, CheckCircle, Phone, Award, HelpCircle, Upload, AlertTriangle, Sparkles } from 'lucide-react';
 import ImportInstructorsModal from '../components/operations/ImportInstructorsModal';
 import { useAuth } from '../contexts/AuthContext';
 import { isAdmin } from '../utils/roles';
+import { getRecommendedAliases } from '../utils/instructorUtils';
 
 const INSTRUCTOR_LEVELS = [
   'Kinder and Junior',
@@ -26,7 +27,7 @@ const INSTRUCTORS_PAGE_SIZE = 8;
 const WEEK_DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
 export default function NewInstructorsPage() {
-  const { enabledBranches, branches, users } = useSchedule();
+  const { enabledBranches, branches, users, overallClasses, uniqueTeachers } = useSchedule();
   const { user } = useAuth();
   const { showToast } = useToast();
   const [wiping, setWiping] = useState(false);
@@ -54,13 +55,16 @@ export default function NewInstructorsPage() {
     status: 'Active',
     remarks: '',
     employmentType: 'Full-Time',
-    availableDays: []
+    availableDays: [],
+    aliases: [],
+    verifiedAliases: [],
   });
 
+  const [aliasInput, setAliasInput] = useState('');
   const [formErrors, setFormErrors] = useState({});
   const [showImportModal, setShowImportModal] = useState(false);
 
-  // Subscribe to real-time updates from Firestore
+  // Subscribe to real-time updates from Firestore / Database
   useEffect(() => {
     const unsubscribe = subscribeToInternalInstructors((data) => {
       setInstructors(data);
@@ -79,10 +83,12 @@ export default function NewInstructorsPage() {
       if (filterBranch !== 'all' && !(inst.branches || []).includes(filterBranch)) return false;
       if (filterStatus !== 'all' && inst.status !== filterStatus) return false;
       if (s) {
+        const aliasMatch = (inst.aliases || []).some(a => a && String(a).toLowerCase().includes(s));
         const match =
           (inst.name && inst.name.toLowerCase().includes(s)) ||
           (inst.contact && inst.contact.toLowerCase().includes(s)) ||
-          (inst.remarks && inst.remarks.toLowerCase().includes(s));
+          (inst.remarks && inst.remarks.toLowerCase().includes(s)) ||
+          aliasMatch;
         if (!match) return false;
       }
       return true;
@@ -96,9 +102,7 @@ export default function NewInstructorsPage() {
   const totalPages = Math.ceil(sortedFiltered.length / INSTRUCTORS_PAGE_SIZE);
   const paged = sortedFiltered.slice((page - 1) * INSTRUCTORS_PAGE_SIZE, page * INSTRUCTORS_PAGE_SIZE);
 
-  // Totals per teaching-level category. Respects the branch/status/search
-  // filters (so you can see per-branch counts) but ignores the level filter
-  // so both category cards stay meaningful.
+  // Totals per teaching-level category.
   const levelCounts = useMemo(() => {
     const s = search.toLowerCase();
     const counts = { 'Kinder and Junior': 0, 'Junior and Coder': 0 };
@@ -106,10 +110,12 @@ export default function NewInstructorsPage() {
       if (filterBranch !== 'all' && !(inst.branches || []).includes(filterBranch)) return;
       if (filterStatus !== 'all' && inst.status !== filterStatus) return;
       if (s) {
+        const aliasMatch = (inst.aliases || []).some(a => a && String(a).toLowerCase().includes(s));
         const match =
           (inst.name && inst.name.toLowerCase().includes(s)) ||
           (inst.contact && inst.contact.toLowerCase().includes(s)) ||
-          (inst.remarks && inst.remarks.toLowerCase().includes(s));
+          (inst.remarks && inst.remarks.toLowerCase().includes(s)) ||
+          aliasMatch;
         if (!match) return;
       }
       if (counts[inst.level] !== undefined) counts[inst.level] += 1;
@@ -127,8 +133,11 @@ export default function NewInstructorsPage() {
       status: 'Active',
       remarks: '',
       employmentType: 'Full-Time',
-      availableDays: []
+      availableDays: [],
+      aliases: [],
+      verifiedAliases: []
     });
+    setAliasInput('');
     setFormErrors({});
     setShowModal(true);
   };
@@ -186,10 +195,152 @@ export default function NewInstructorsPage() {
       status: inst.status || 'Active',
       remarks: inst.remarks || '',
       employmentType: inst.employmentType || 'Full-Time',
-      availableDays: Array.isArray(inst.availableDays) ? inst.availableDays : []
+      availableDays: Array.isArray(inst.availableDays) ? inst.availableDays : [],
+      aliases: Array.isArray(inst.aliases) ? inst.aliases : [],
+      verifiedAliases: Array.isArray(inst.verifiedAliases) ? inst.verifiedAliases : []
     });
+    setAliasInput('');
     setFormErrors({});
     setShowModal(true);
+  };
+
+  const handleAddAlias = (e) => {
+    if (e) e.preventDefault();
+    const trimmed = aliasInput.trim();
+    if (!trimmed) return;
+    if (form.aliases.map(a => a.toLowerCase()).includes(trimmed.toLowerCase())) {
+      showToast({ title: `Alias "${trimmed}" is already added`, variant: 'warning' });
+      return;
+    }
+    const updatedAliases = [...form.aliases, trimmed];
+    // If user is Admin, automatically verify newly added alias by default
+    const updatedVerified = canWipeAll ? [...form.verifiedAliases, trimmed] : [...form.verifiedAliases];
+    setForm({
+      ...form,
+      aliases: updatedAliases,
+      verifiedAliases: updatedVerified
+    });
+    setAliasInput('');
+  };
+
+  const scheduleTeacherNames = useMemo(() => {
+    const names = new Set();
+    if (uniqueTeachers) {
+      uniqueTeachers.forEach(t => names.add(t));
+    }
+    if (overallClasses) {
+      overallClasses.forEach(c => { if (c.teacher && c.teacher !== '-') names.add(c.teacher); });
+    }
+    return Array.from(names);
+  }, [uniqueTeachers, overallClasses]);
+
+  const modalRecommendedAliases = useMemo(() => {
+    if (!form.name) return [];
+    return getRecommendedAliases(form.name, form.aliases, scheduleTeacherNames);
+  }, [form.name, form.aliases, scheduleTeacherNames]);
+
+  const handleAddRecommendedAlias = (recAlias) => {
+    if (form.aliases.includes(recAlias)) return;
+    const updatedAliases = [...form.aliases, recAlias];
+    const updatedVerified = canWipeAll ? [...form.verifiedAliases, recAlias] : [...form.verifiedAliases];
+    setForm({
+      ...form,
+      aliases: updatedAliases,
+      verifiedAliases: updatedVerified
+    });
+    showToast({ title: `Added recommended alias "${recAlias}"`, variant: 'success' });
+  };
+
+  const handleRemoveAlias = (aliasToRemove) => {
+    setForm({
+      ...form,
+      aliases: form.aliases.filter(a => a !== aliasToRemove),
+      verifiedAliases: form.verifiedAliases.filter(a => a !== aliasToRemove)
+    });
+  };
+
+  const handleToggleVerifyAliasInForm = (alias) => {
+    if (!canWipeAll) {
+      showToast({ title: 'Only Admins can verify alias names for data sync', variant: 'warning' });
+      return;
+    }
+    const isVerified = form.verifiedAliases.includes(alias);
+    const updatedVerified = isVerified
+      ? form.verifiedAliases.filter(a => a !== alias)
+      : [...form.verifiedAliases, alias];
+    setForm({ ...form, verifiedAliases: updatedVerified });
+  };
+
+  const handleQuickVerifyAlias = async (inst, alias) => {
+    if (!canWipeAll) {
+      showToast({ title: 'Only Admins can verify alias names for data sync', variant: 'warning' });
+      return;
+    }
+    const currentVerified = Array.isArray(inst.verifiedAliases) ? inst.verifiedAliases : [];
+    const isVerified = currentVerified.includes(alias);
+    const updatedVerified = isVerified
+      ? currentVerified.filter(a => a !== alias)
+      : [...currentVerified, alias];
+    
+    try {
+      const updated = await updateInternalInstructor(inst.id, {
+        name: inst.name,
+        level: inst.level,
+        branches: inst.branches,
+        contact: inst.contact,
+        status: inst.status,
+        remarks: inst.remarks,
+        employmentType: inst.employmentType,
+        availableDays: inst.availableDays,
+        aliases: inst.aliases || [],
+        verifiedAliases: updatedVerified
+      });
+      if (updated && updated.id) {
+        setInstructors((prev) => prev.map((item) => String(item.id) === String(updated.id) ? updated : item));
+      }
+      showToast({
+        title: isVerified ? `Alias "${alias}" unverified` : `Alias "${alias}" verified for sync`,
+        variant: 'success'
+      });
+    } catch (err) {
+      console.error('Error updating alias verification:', err);
+      showToast({ title: 'Failed to update alias verification', variant: 'error' });
+    }
+  };
+
+  const handleQuickAddRecommendedAlias = async (inst, recAlias) => {
+    const currentAliases = Array.isArray(inst.aliases) ? inst.aliases : [];
+    const currentVerified = Array.isArray(inst.verifiedAliases) ? inst.verifiedAliases : [];
+
+    if (currentAliases.includes(recAlias)) return;
+
+    const updatedAliases = [...currentAliases, recAlias];
+    const updatedVerified = canWipeAll ? [...currentVerified, recAlias] : currentVerified;
+
+    try {
+      const updated = await updateInternalInstructor(inst.id, {
+        name: inst.name,
+        level: inst.level,
+        branches: inst.branches,
+        contact: inst.contact,
+        status: inst.status,
+        remarks: inst.remarks,
+        employmentType: inst.employmentType,
+        availableDays: inst.availableDays,
+        aliases: updatedAliases,
+        verifiedAliases: updatedVerified
+      });
+      if (updated && updated.id) {
+        setInstructors((prev) => prev.map((item) => String(item.id) === String(updated.id) ? updated : item));
+      }
+      showToast({
+        title: canWipeAll ? `Alias "${recAlias}" added & verified for sync!` : `Alias "${recAlias}" added (pending admin verification)`,
+        variant: 'success'
+      });
+    } catch (err) {
+      console.error('Error adding recommended alias:', err);
+      showToast({ title: 'Failed to add recommended alias', variant: 'error' });
+    }
   };
 
   const handleBranchCheckboxChange = (branchName) => {
@@ -234,10 +385,16 @@ export default function NewInstructorsPage() {
 
     try {
       if (editingInstructor) {
-        await updateInternalInstructor(editingInstructor.id, form);
+        const updated = await updateInternalInstructor(editingInstructor.id, form);
+        if (updated && updated.id) {
+          setInstructors((prev) => prev.map((item) => String(item.id) === String(updated.id) ? updated : item));
+        }
         showToast({ title: 'Instructor updated successfully', variant: 'success' });
       } else {
-        await createInternalInstructor(form);
+        const created = await createInternalInstructor(form);
+        if (created && created.id) {
+          setInstructors((prev) => [created, ...prev]);
+        }
         showToast({ title: 'Instructor added successfully', variant: 'success' });
       }
       setShowModal(false);
@@ -251,6 +408,7 @@ export default function NewInstructorsPage() {
     if (!window.confirm(`Are you sure you want to delete instructor "${instructorName}"?`)) return;
     try {
       await deleteInternalInstructor(instructorId);
+      setInstructors((prev) => prev.filter((item) => String(item.id) !== String(instructorId)));
       showToast({ title: 'Instructor deleted successfully', variant: 'success' });
       if (paged.length === 1 && page > 1) {
         setPage(page - 1);
@@ -429,11 +587,12 @@ export default function NewInstructorsPage() {
               <thead>
                 <tr>
                   <th>Instructor Name</th>
-                  <th style={{ width: '160px' }}>Employment</th>
-                  <th style={{ width: '200px' }}>Teaching Level</th>
-                  <th style={{ width: '280px' }}>Teaching Branches</th>
-                  <th style={{ width: '180px' }}>Contact Info</th>
-                  <th style={{ width: '100px', textAlign: 'center' }}>Status</th>
+                  <th style={{ width: '180px' }}>Aliases & Sync Status</th>
+                  <th style={{ width: '140px' }}>Employment</th>
+                  <th style={{ width: '180px' }}>Teaching Level</th>
+                  <th style={{ width: '220px' }}>Teaching Branches</th>
+                  <th style={{ width: '150px' }}>Contact Info</th>
+                  <th style={{ width: '90px', textAlign: 'center' }}>Status</th>
                   <th>Remarks</th>
                   <th style={{ width: '100px', textAlign: 'center' }}>Actions</th>
                 </tr>
@@ -441,7 +600,7 @@ export default function NewInstructorsPage() {
               <tbody>
                 {instructors.length === 0 ? (
                   <tr>
-                    <td colSpan="8" style={{ textAlign: 'center', padding: '3rem 1.5rem', color: 'var(--text-muted)' }}>
+                    <td colSpan="9" style={{ textAlign: 'center', padding: '3rem 1.5rem', color: 'var(--text-muted)' }}>
                       <ShieldAlert size={32} style={{ color: 'var(--warning)', marginBottom: '0.5rem' }} />
                       <div style={{ fontWeight: 600 }}>No Instructors Registered</div>
                       <div style={{ fontSize: '0.8rem', marginTop: '0.2rem' }}>Click "Add Instructor" to register instructor profiles.</div>
@@ -449,13 +608,17 @@ export default function NewInstructorsPage() {
                   </tr>
                 ) : paged.length === 0 ? (
                   <tr>
-                    <td colSpan="8" style={{ textAlign: 'center', padding: '3rem 1.5rem', color: 'var(--text-muted)' }}>
+                    <td colSpan="9" style={{ textAlign: 'center', padding: '3rem 1.5rem', color: 'var(--text-muted)' }}>
                       <div style={{ fontWeight: 600 }}>No instructors match your filters.</div>
                     </td>
                   </tr>
                 ) : (
                   paged.map((inst) => {
                     const levelStyle = getLevelBadgeStyles(inst.level);
+                    const aliases = Array.isArray(inst.aliases) ? inst.aliases : [];
+                    const verifiedAliases = Array.isArray(inst.verifiedAliases) ? inst.verifiedAliases : [];
+                    const recAliases = getRecommendedAliases(inst.name, aliases, scheduleTeacherNames);
+
                     return (
                       <tr key={inst.id}>
                         <td style={{ fontWeight: 600, color: 'var(--text-main)' }}>
@@ -463,6 +626,80 @@ export default function NewInstructorsPage() {
                             <User size={14} style={{ color: 'var(--text-muted)' }} />
                             {inst.name}
                           </span>
+                        </td>
+                        <td>
+                          <div style={{ display: 'flex', gap: '0.3rem', flexWrap: 'wrap', alignItems: 'center' }}>
+                            {aliases.map((alias) => {
+                              const isVerified = verifiedAliases.includes(alias);
+                              return (
+                                <span
+                                  key={alias}
+                                  style={{
+                                    background: isVerified ? 'rgba(16, 185, 129, 0.1)' : 'rgba(245, 158, 11, 0.12)',
+                                    border: isVerified ? '1px solid rgba(16, 185, 129, 0.3)' : '1px solid rgba(245, 158, 11, 0.4)',
+                                    color: isVerified ? '#059669' : '#b45309',
+                                    padding: '0.15rem 0.45rem',
+                                    borderRadius: '6px',
+                                    fontSize: '0.72rem',
+                                    fontWeight: 600,
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '0.25rem'
+                                  }}
+                                  title={isVerified ? `Verified alias for ${inst.name} (Sync enabled)` : `Pending Admin Verification for ${inst.name} (Sync disabled until verified)`}
+                                >
+                                  {isVerified ? <CheckCircle size={10} /> : <AlertTriangle size={10} />}
+                                  {alias}
+                                  {canWipeAll && (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleQuickVerifyAlias(inst, alias)}
+                                      title={isVerified ? "Click to unverify alias" : "Click to VERIFY alias for sync"}
+                                      style={{
+                                        background: 'transparent',
+                                        border: 'none',
+                                        cursor: 'pointer',
+                                        color: isVerified ? '#059669' : '#b45309',
+                                        fontSize: '0.65rem',
+                                        fontWeight: 700,
+                                        marginLeft: '0.15rem',
+                                        padding: '0 0.15rem',
+                                        borderRadius: '3px'
+                                      }}
+                                    >
+                                      {isVerified ? '✓' : '[Verify]'}
+                                    </button>
+                                  )}
+                                </span>
+                              );
+                            })}
+                            {recAliases.map((rec) => (
+                              <button
+                                key={rec}
+                                type="button"
+                                onClick={() => handleQuickAddRecommendedAlias(inst, rec)}
+                                style={{
+                                  background: 'rgba(79, 70, 229, 0.08)',
+                                  border: '1px dashed rgba(79, 70, 229, 0.45)',
+                                  color: 'var(--primary-blue, #4f46e5)',
+                                  padding: '0.15rem 0.45rem',
+                                  borderRadius: '6px',
+                                  fontSize: '0.72rem',
+                                  fontWeight: 600,
+                                  cursor: 'pointer',
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: '0.25rem'
+                                }}
+                                title={`Click to add and verify "${rec}" from imported schedule as alias for ${inst.name}`}
+                              >
+                                <Sparkles size={10} /> + Add "{rec}"
+                              </button>
+                            ))}
+                            {aliases.length === 0 && recAliases.length === 0 && (
+                              <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>No aliases</span>
+                            )}
+                          </div>
                         </td>
                         <td>
                           <span style={{ fontSize: '0.8rem', fontWeight: 500, color: 'var(--text-main)' }}>
@@ -641,6 +878,138 @@ export default function NewInstructorsPage() {
                     className={`modal-input-field ${formErrors.name ? 'error' : ''}`}
                   />
                   {formErrors.name && <span style={{ fontSize: '0.72rem', color: 'var(--danger)', marginTop: '0.2rem', display: 'block' }}>{formErrors.name}</span>}
+                </div>
+
+                {/* Aliases Section */}
+                <div>
+                  <label className="modal-form-label">Alias Names (Used in Imported Schedules / Worklogs)</label>
+                  
+                  {/* Recommended Aliases from imported schedule */}
+                  {modalRecommendedAliases.length > 0 && (
+                    <div style={{
+                      padding: '0.6rem 0.75rem',
+                      background: 'rgba(79, 70, 229, 0.06)',
+                      border: '1px solid rgba(79, 70, 229, 0.25)',
+                      borderRadius: '10px',
+                      marginBottom: '0.65rem'
+                    }}>
+                      <div style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--primary-blue, #4f46e5)', display: 'flex', alignItems: 'center', gap: '0.3rem', marginBottom: '0.4rem' }}>
+                        <Sparkles size={13} /> Recommended Aliases (Found in Imported Schedule Data)
+                      </div>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem' }}>
+                        {modalRecommendedAliases.map((rec) => (
+                          <button
+                            key={rec}
+                            type="button"
+                            onClick={() => handleAddRecommendedAlias(rec)}
+                            style={{
+                              background: '#ffffff',
+                              border: '1px solid rgba(79, 70, 229, 0.4)',
+                              color: 'var(--primary-blue, #4f46e5)',
+                              padding: '0.2rem 0.55rem',
+                              borderRadius: '6px',
+                              fontSize: '0.75rem',
+                              fontWeight: 600,
+                              cursor: 'pointer',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '0.3rem'
+                            }}
+                            title={`Click to add "${rec}" as alias for ${form.name}`}
+                          >
+                            <span>+ {rec}</span>
+                            <span style={{ fontSize: '0.65rem', opacity: 0.8 }}>(from CSV)</span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.5rem' }}>
+                    <input
+                      type="text"
+                      placeholder="Type nickname or alias name (e.g. Ziyah)"
+                      value={aliasInput}
+                      onChange={(e) => setAliasInput(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddAlias(); } }}
+                      className="modal-input-field"
+                      style={{ flex: 1 }}
+                    />
+                    <button
+                      type="button"
+                      onClick={handleAddAlias}
+                      className="btn btn-secondary"
+                      style={{ borderRadius: '8px', padding: '0.4rem 0.8rem', fontSize: '0.8rem' }}
+                    >
+                      + Add Alias
+                    </button>
+                  </div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem' }}>
+                    {(form.aliases || []).map((alias) => {
+                      const isVerified = (form.verifiedAliases || []).includes(alias);
+                      return (
+                        <div
+                          key={alias}
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '0.35rem',
+                            padding: '0.25rem 0.6rem',
+                            borderRadius: '8px',
+                            fontSize: '0.78rem',
+                            fontWeight: 600,
+                            background: isVerified ? 'rgba(16, 185, 129, 0.12)' : 'rgba(245, 158, 11, 0.12)',
+                            border: isVerified ? '1px solid rgba(16, 185, 129, 0.4)' : '1px solid rgba(245, 158, 11, 0.4)',
+                            color: isVerified ? '#059669' : '#b45309',
+                          }}
+                        >
+                          <span>{alias}</span>
+                          <button
+                            type="button"
+                            onClick={() => handleToggleVerifyAliasInForm(alias)}
+                            title={isVerified ? "Verified for sync. Click to unverify." : "Pending verification. Click as Admin to verify for sync."}
+                            style={{
+                              background: 'transparent',
+                              border: 'none',
+                              cursor: canWipeAll ? 'pointer' : 'default',
+                              fontSize: '0.7rem',
+                              fontWeight: 700,
+                              color: isVerified ? '#059669' : '#b45309',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '0.15rem',
+                              padding: '0.1rem 0.3rem',
+                              borderRadius: '4px',
+                              background: isVerified ? 'rgba(16, 185, 129, 0.15)' : 'rgba(245, 158, 11, 0.2)'
+                            }}
+                          >
+                            {isVerified ? <CheckCircle size={11} /> : <AlertTriangle size={11} />}
+                            {isVerified ? 'Verified' : 'Pending'}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveAlias(alias)}
+                            style={{
+                              background: 'transparent',
+                              border: 'none',
+                              cursor: 'pointer',
+                              color: 'var(--text-muted)',
+                              padding: 0,
+                              marginLeft: '0.2rem',
+                              display: 'flex'
+                            }}
+                          >
+                            <X size={13} />
+                          </button>
+                        </div>
+                      );
+                    })}
+                    {(!form.aliases || form.aliases.length === 0) && (
+                      <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontStyle: 'italic' }}>
+                        No aliases added yet. (Add aliases like "Ziyah" so imported schedules auto-connect to this profile).
+                      </span>
+                    )}
+                  </div>
                 </div>
 
                 {/* Level selection */}

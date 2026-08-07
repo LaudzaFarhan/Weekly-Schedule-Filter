@@ -49,6 +49,7 @@ export default function ImportInstructorsModal({
         const branchKey = keys.find(k => /BRANCH/i.test(k));
         const phoneKey = keys.find(k => /WHATSAPP|PHONE|NUMBER|CONTACT/i.test(k));
         const emailKey = keys.find(k => /EMAIL/i.test(k));
+        const aliasKey = keys.find(k => /ALIAS|ALIASES|NICKNAME|NICK_NAME/i.test(k));
         const remarksKey = keys.find(k => /REMARKS?|NOTES?|CATATAN|KETERANGAN/i.test(k));
 
         if (!nameKey) {
@@ -69,6 +70,10 @@ export default function ImportInstructorsModal({
 
           const contact = phoneKey ? String(row[phoneKey] || '').trim() : 'N/A';
           const email = emailKey ? String(row[emailKey] || '').trim() : '';
+          const rawAlias = aliasKey ? String(row[aliasKey] || '').trim() : '';
+          const aliasesArray = rawAlias
+            ? rawAlias.split(/[,;|]/).map(a => a.trim()).filter(Boolean)
+            : [];
           const rawRemarks = remarksKey ? String(row[remarksKey] || '').trim() : '';
 
           const remarks = rawRemarks ? rawRemarks : (email ? `Email: ${email}` : '');
@@ -80,10 +85,13 @@ export default function ImportInstructorsModal({
             contact: contact || 'N/A',
             status: 'Active',
             remarks: remarks || '',
+            aliases: aliasesArray,
+            verifiedAliases: [], // imported aliases default to pending verification
             // for preview display
             email,
             rawRemarks,
             branchString: branchesArray.join(', '),
+            aliasString: aliasesArray.join(', '),
           });
         });
 
@@ -103,10 +111,10 @@ export default function ImportInstructorsModal({
   };
 
   const handleDownloadTemplate = () => {
-    const csvContent = "Name,Branch,Whatsapp Number,Email\n" +
-      "Supandi,Bekasi,+628123456789,supandi@thelab.com\n" +
-      "Ziyah,\"Bekasi, Bintaro\",+628223456789,ziyah@thelab.com\n" +
-      "Anya,Bintaro,+628323456789,anya@thelab.com\n";
+    const csvContent = "Name,Aliases,Branch,Whatsapp Number,Email\n" +
+      "Supandi,\"Pandi\",Bekasi,+628123456789,supandi@thelab.com\n" +
+      "FAUZIYAH AMIRA ZAHRA,\"Ziyah, Amira\",\"Bekasi, Bintaro\",+628223456789,ziyah@thelab.com\n" +
+      "Anya,\"Miss Anya\",Bintaro,+628323456789,anya@thelab.com\n";
     
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
@@ -256,6 +264,7 @@ export default function ImportInstructorsModal({
                   <thead style={{ background: 'var(--bg-color)', borderBottom: '1px solid var(--border-color)' }}>
                     <tr>
                       <th style={{ padding: '0.5rem 0.75rem' }}>Name</th>
+                      <th style={{ padding: '0.5rem 0.75rem' }}>Aliases</th>
                       <th style={{ padding: '0.5rem 0.75rem' }}>Branch</th>
                       <th style={{ padding: '0.5rem 0.75rem' }}>Whatsapp Number</th>
                       <th style={{ padding: '0.5rem 0.75rem' }}>Email</th>
@@ -265,6 +274,7 @@ export default function ImportInstructorsModal({
                     {parsedRows.map((r, i) => (
                       <tr key={i} style={{ borderBottom: '1px solid var(--border-color)' }}>
                         <td style={{ padding: '0.45rem 0.75rem', fontWeight: 600 }}>{r.name}</td>
+                        <td style={{ padding: '0.45rem 0.75rem' }}>{r.aliasString || '—'}</td>
                         <td style={{ padding: '0.45rem 0.75rem' }}>{r.branchString}</td>
                         <td style={{ padding: '0.45rem 0.75rem' }}>{r.contact}</td>
                         <td style={{ padding: '0.45rem 0.75rem' }}>{r.email || '—'}</td>

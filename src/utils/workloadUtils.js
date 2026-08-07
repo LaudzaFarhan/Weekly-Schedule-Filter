@@ -11,6 +11,7 @@
 
 import { parseTimeSlot } from './timeUtils';
 import { DAY_NAMES } from './constants';
+import { resolveCanonicalTeacherName } from './instructorUtils';
 
 /** Working window in minutes from midnight (10:30 → 18:30). */
 export const WORKING_WINDOW_START_MIN = 10 * 60 + 30;
@@ -175,14 +176,18 @@ function clipToWorkingWindow(intervals) {
 
 /**
  * Group classes by teacher. Each entry is the raw list of class rows for
- * that teacher (one row per student).
+ * that teacher (one row per student). Automatically maps alias teacher names
+ * to canonical instructor profiles when knownInstructors is provided.
  */
-function groupByTeacher(classes) {
+function groupByTeacher(classes, knownInstructors = []) {
   const map = new Map();
   for (const c of classes) {
     if (!c.teacher || c.teacher === '-') continue;
-    if (!map.has(c.teacher)) map.set(c.teacher, []);
-    map.get(c.teacher).push(c);
+    const canonical = knownInstructors && knownInstructors.length > 0
+      ? resolveCanonicalTeacherName(c.teacher, knownInstructors)
+      : c.teacher;
+    if (!map.has(canonical)) map.set(canonical, []);
+    map.get(canonical).push(c);
   }
   return map;
 }
@@ -451,8 +456,8 @@ function computeForInstructor(rows) {
  *
  * Returns an array of `{ teacher, byDay, weekly }` sorted by weekly hours desc.
  */
-export function buildWorkloadReport(classes, { disabledInstructors } = {}) {
-  const grouped = groupByTeacher(classes);
+export function buildWorkloadReport(classes, { disabledInstructors, instructorProfiles = [] } = {}) {
+  const grouped = groupByTeacher(classes, instructorProfiles);
   const rows = [];
   for (const [teacher, list] of grouped) {
     if (disabledInstructors && disabledInstructors.has(teacher)) continue;

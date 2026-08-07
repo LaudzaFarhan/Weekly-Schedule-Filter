@@ -37,28 +37,92 @@ export function isValidTeacherName(name) {
  * @param {Array} classes - All synced classes (overallClasses)
  * @returns {Map} Map of instructor name → identity object
  */
+/**
+ * Helper to get active verified alias strings for an instructor object.
+ * Returns an array of verified alias strings.
+ */
+export function getVerifiedAliases(inst) {
+  if (!inst) return [];
+  if (Array.isArray(inst.verifiedAliases) && inst.verifiedAliases.length > 0) {
+    return inst.verifiedAliases;
+  }
+  if (Array.isArray(inst.aliases)) {
+    // If aliases array contains objects like { name, verified }
+    const verified = inst.aliases
+      .filter((a) => typeof a === 'object' ? a.verified : true)
+      .map((a) => typeof a === 'object' ? a.name : a);
+    return verified;
+  }
+  return [];
+}
+
+/**
+ * Check if an instructor object matches a raw teacher name either by main name or verified alias.
+ */
+export function isInstructorMatch(rawName, inst) {
+  if (!rawName || !inst) return false;
+  const trimmed = String(rawName).trim();
+  const instName = typeof inst === 'string' ? inst : (inst.name || inst.fullname || inst.nickname);
+  
+  if (instName && isSameTeacher(trimmed, instName)) {
+    return true;
+  }
+
+  if (typeof inst === 'object') {
+    const activeAliases = getVerifiedAliases(inst);
+    for (const alias of activeAliases) {
+      if (alias && (String(alias).toLowerCase().trim() === trimmed.toLowerCase() || isSameTeacher(trimmed, alias))) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
+/**
+ * Build a lookup map of instructor identities from profiles and schedule data.
+ * Each instructor gets a unique key based on their profile email (if available)
+ * or a generated key from name + branch.
+ * 
+ * @param {Array} instructorProfiles - Firebase / DB profiles
+ * @param {Array} classes - All synced classes (overallClasses)
+ * @returns {Map} Map of instructor name → identity object
+ */
 export function buildInstructorMap(instructorProfiles = [], classes = []) {
   const map = new Map();
 
-  // 1. Profiles are the source of truth — they have unique IDs (email)
+  // 1. Profiles are the source of truth — they have unique IDs (email or Postgres ID)
   instructorProfiles.forEach(profile => {
-    const name = profile.fullname || profile.nickname || profile.id.split('@')[0];
+    const name = profile.name || profile.fullname || profile.nickname || (profile.id ? String(profile.id).split('@')[0] : null);
     if (!name) return;
 
-    map.set(name, {
-      id: profile.id,
+    const identity = {
+      id: profile.id || name,
       name,
-      branch: profile.location || 'Unknown',
+      branch: profile.location || (Array.isArray(profile.branches) ? profile.branches[0] : 'Unknown'),
       profileId: profile.id,
-      specialization: profile.specialization || '',
+      specialization: profile.specialization || profile.level || '',
+      aliases: profile.aliases || [],
+      verifiedAliases: getVerifiedAliases(profile),
       hasProfile: true,
+    };
+
+    map.set(name, identity);
+
+    // Map verified aliases to the same identity object
+    const verified = getVerifiedAliases(profile);
+    verified.forEach(alias => {
+      if (alias && !map.has(alias)) {
+        map.set(alias, identity);
+      }
     });
   });
 
   // 2. Fill in instructors from schedule data who don't have profiles yet
   classes.forEach(cls => {
     if (!cls.teacher || cls.teacher === '-') return;
-    if (map.has(cls.teacher)) return; // Already resolved via profile
+    if (map.has(cls.teacher)) return; // Already resolved via profile or alias
 
     map.set(cls.teacher, {
       id: `${cls.teacher}::${cls.branchName || 'unknown'}`,
@@ -66,6 +130,8 @@ export function buildInstructorMap(instructorProfiles = [], classes = []) {
       branch: cls.branchName || 'Unknown',
       profileId: null,
       specialization: '',
+      aliases: [],
+      verifiedAliases: [],
       hasProfile: false,
     });
   });
@@ -76,7 +142,7 @@ export function buildInstructorMap(instructorProfiles = [], classes = []) {
 /**
  * Check if an instructor belongs to a specific branch.
  * An instructor "belongs" to a branch if:
- * - Their profile location matches the branch
+ * - Their profile location/branches matches the branch
  * - Their profile location is "All Branches"
  * - They have classes in that branch's schedule
  * 
@@ -88,18 +154,16 @@ export function buildInstructorMap(instructorProfiles = [], classes = []) {
  */
 export function instructorBelongsToBranch(instructorName, branchName, instructorProfiles = [], classes = []) {
   // Check profile location
-  const profile = instructorProfiles.find(p => 
-    p.fullname === instructorName || p.nickname === instructorName
-  );
+  const profile = instructorProfiles.find(p => isInstructorMatch(instructorName, p));
 
   if (profile) {
-    if (profile.location === 'All Branches') return true;
-    if (profile.location === branchName) return true;
+    if (profile.location === 'All Branches' || (Array.isArray(profile.branches) && profile.branches.includes('All Branches'))) return true;
+    if (profile.location === branchName || (Array.isArray(profile.branches) && profile.branches.includes(branchName))) return true;
   }
 
   // Check if they have classes in this branch
   const hasClassesInBranch = classes.some(
-    c => c.teacher === instructorName && c.branchName === branchName
+    c => (c.teacher === instructorName || isSameTeacher(c.teacher, instructorName)) && c.branchName === branchName
   );
 
   return hasClassesInBranch;
@@ -107,7 +171,7 @@ export function instructorBelongsToBranch(instructorName, branchName, instructor
 
 /**
  * Get the primary branch for an instructor.
- * Priority: profile.location > most classes in branch > first seen branch
+ * Priority: profile.location/branches > most classes in branch > first seen branch
  * 
  * @param {string} instructorName
  * @param {Array} instructorProfiles
@@ -116,15 +180,16 @@ export function instructorBelongsToBranch(instructorName, branchName, instructor
  */
 export function getInstructorBranch(instructorName, instructorProfiles = [], overallClasses = []) {
   // 1. Check profile
-  const profile = instructorProfiles.find(p => 
-    p.fullname === instructorName || p.nickname === instructorName
-  );
-  if (profile && profile.location) return profile.location;
+  const profile = instructorProfiles.find(p => isInstructorMatch(instructorName, p));
+  if (profile) {
+    if (profile.location) return profile.location;
+    if (Array.isArray(profile.branches) && profile.branches.length > 0) return profile.branches[0];
+  }
 
   // 2. Count classes per branch
   const branchCounts = {};
   overallClasses.forEach(cls => {
-    if (cls.teacher === instructorName && cls.branchName) {
+    if ((cls.teacher === instructorName || isSameTeacher(cls.teacher, instructorName)) && cls.branchName) {
       branchCounts[cls.branchName] = (branchCounts[cls.branchName] || 0) + 1;
     }
   });
@@ -181,11 +246,48 @@ export function resolveCanonicalTeacherName(rawName, knownInstructors = []) {
 
   for (const inst of knownInstructors) {
     const instName = typeof inst === 'string' ? inst : (inst?.name || inst?.fullname || inst?.nickname);
-    if (instName && isSameTeacher(trimmed, instName)) {
+    if (instName && isInstructorMatch(trimmed, inst)) {
       return instName;
     }
   }
 
   return trimmed;
+}
+
+/**
+ * Scan imported schedule teacher names and extract recommended alias names for an instructor profile.
+ * Returns array of recommended alias strings that are present in the schedule but not yet saved in currentAliases.
+ *
+ * @param {string} instructorName - The primary name of the instructor (e.g. "FAUZIYAH AMIRA ZAHRA")
+ * @param {Array<string>} currentAliases - Already saved aliases for this instructor
+ * @param {Array<string>} importedTeacherNames - List/Set of all teacher names present in imported schedule data
+ * @returns {Array<string>} List of recommended alias strings
+ */
+export function getRecommendedAliases(instructorName, currentAliases = [], importedTeacherNames = []) {
+  if (!instructorName) return [];
+  const canonicalNameLower = String(instructorName).toLowerCase().trim();
+  const existingLower = new Set(
+    (currentAliases || []).map((a) => String(typeof a === 'object' ? a.name : a).toLowerCase().trim())
+  );
+  existingLower.add(canonicalNameLower);
+
+  const recommendations = [];
+
+  for (const rawTeacher of importedTeacherNames) {
+    if (!rawTeacher || rawTeacher === '-' || !isValidTeacherName(rawTeacher)) continue;
+    const rawTrimmed = String(rawTeacher).trim();
+    const rawLower = rawTrimmed.toLowerCase();
+    
+    // Skip if already equals instructor name or is in existing aliases
+    if (existingLower.has(rawLower)) continue;
+
+    // Check if imported teacher name matches instructor identity
+    if (isSameTeacher(rawTrimmed, instructorName)) {
+      recommendations.push(rawTrimmed);
+      existingLower.add(rawLower); // prevent duplicates
+    }
+  }
+
+  return recommendations;
 }
 

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { isSameTeacher, resolveCanonicalTeacherName } from '../instructorUtils';
+import { isSameTeacher, resolveCanonicalTeacherName, getRecommendedAliases } from '../instructorUtils';
 
 describe('isSameTeacher', () => {
   it('matches exact case-insensitive names', () => {
@@ -23,26 +23,59 @@ describe('isSameTeacher', () => {
   });
 });
 
-describe('resolveCanonicalTeacherName', () => {
-  const instructors = [
-    { name: 'FAUZIYAH AMIRA ZAHRA' },
-    { name: 'HELEN TERESIA' },
-    { name: 'IQBAL YUNANTO' },
-    { name: 'KRIANGSKY VAN TANNUWIJAYA' },
-    { name: 'RAYHAN HUGO ABIOCTO' },
-    { name: 'RISAFYA TABRINA AURELIA' },
+describe('resolveCanonicalTeacherName with Aliases & Verification', () => {
+  const instructorsWithAliases = [
+    {
+      name: 'FAUZIYAH AMIRA ZAHRA',
+      aliases: ['Ziyah', 'Amira', 'Teacher Z'],
+      verifiedAliases: ['Ziyah', 'Amira'], // 'Teacher Z' is unverified
+    },
+    {
+      name: 'SUPANDI WIJAYA',
+      aliases: ['Pandi'],
+      verifiedAliases: ['Pandi'],
+    },
   ];
 
-  it('resolves raw first names or nicknames to canonical names', () => {
-    expect(resolveCanonicalTeacherName('Ziyah', instructors)).toBe('FAUZIYAH AMIRA ZAHRA');
-    expect(resolveCanonicalTeacherName('Fauziyah', instructors)).toBe('FAUZIYAH AMIRA ZAHRA');
-    expect(resolveCanonicalTeacherName('Iqbal', instructors)).toBe('IQBAL YUNANTO');
-    expect(resolveCanonicalTeacherName('Rayhan', instructors)).toBe('RAYHAN HUGO ABIOCTO');
-    expect(resolveCanonicalTeacherName('Helen', instructors)).toBe('HELEN TERESIA');
+  it('resolves verified aliases to the canonical instructor name', () => {
+    expect(resolveCanonicalTeacherName('Ziyah', instructorsWithAliases)).toBe('FAUZIYAH AMIRA ZAHRA');
+    expect(resolveCanonicalTeacherName('Amira', instructorsWithAliases)).toBe('FAUZIYAH AMIRA ZAHRA');
+    expect(resolveCanonicalTeacherName('Pandi', instructorsWithAliases)).toBe('SUPANDI WIJAYA');
+  });
+
+  it('does NOT resolve unverified aliases to canonical name', () => {
+    // 'Teacher Z' is unverified, so it returns raw name 'Teacher Z' rather than syncing to FAUZIYAH AMIRA ZAHRA
+    expect(resolveCanonicalTeacherName('Teacher Z', instructorsWithAliases)).toBe('Teacher Z');
   });
 
   it('returns TBD when rawName is empty or missing', () => {
-    expect(resolveCanonicalTeacherName('', instructors)).toBe('TBD');
-    expect(resolveCanonicalTeacherName(null, instructors)).toBe('TBD');
+    expect(resolveCanonicalTeacherName('', instructorsWithAliases)).toBe('TBD');
+    expect(resolveCanonicalTeacherName(null, instructorsWithAliases)).toBe('TBD');
   });
 });
+
+describe('getRecommendedAliases from Imported Schedule Data', () => {
+  const importedScheduleTeachers = [
+    'Ziyah',
+    'Amira',
+    'Kak Ziyah',
+    'FAUZIYAH AMIRA ZAHRA',
+    'Pandi',
+    'Kak Pandi',
+    'Helen Teresia',
+    'Other Random Name'
+  ];
+
+  it('extracts matching unmapped imported teacher names as recommended aliases', () => {
+    const currentAliases = ['Ziyah'];
+    const recs = getRecommendedAliases('FAUZIYAH AMIRA ZAHRA', currentAliases, importedScheduleTeachers);
+
+    // Should include 'Amira' and 'Kak Ziyah', excluding 'Ziyah' (already saved) and exact name 'FAUZIYAH AMIRA ZAHRA'
+    expect(recs).toContain('Amira');
+    expect(recs).toContain('Kak Ziyah');
+    expect(recs).not.toContain('Ziyah');
+    expect(recs).not.toContain('FAUZIYAH AMIRA ZAHRA');
+    expect(recs).not.toContain('Pandi');
+  });
+});
+

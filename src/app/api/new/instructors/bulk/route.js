@@ -41,16 +41,18 @@ export async function POST(req) {
           const contact = inst.contact ? String(inst.contact).trim() : 'N/A';
           const status = inst.status ? String(inst.status).trim() : 'Active';
           const remarks = inst.remarks ? String(inst.remarks).trim() : null;
+          const aliases = Array.isArray(inst.aliases) ? inst.aliases : [];
+          const verifiedAliases = Array.isArray(inst.verifiedAliases) ? inst.verifiedAliases : [];
 
           valueClauses.push(
-            `($${paramIndex}, $${paramIndex + 1}, $${paramIndex + 2}::text[], $${paramIndex + 3}, $${paramIndex + 4}, $${paramIndex + 5})`
+            `($${paramIndex}, $${paramIndex + 1}, $${paramIndex + 2}::text[], $${paramIndex + 3}, $${paramIndex + 4}, $${paramIndex + 5}, $${paramIndex + 6}::text[], $${paramIndex + 7}::text[])`
           );
-          params.push(name, level, branches, contact, status, remarks);
-          paramIndex += 6;
+          params.push(name, level, branches, contact, status, remarks, aliases, verifiedAliases);
+          paramIndex += 8;
         });
 
         const sql = `
-          INSERT INTO internal_instructors (name, level, branches, contact, status, remarks)
+          INSERT INTO internal_instructors (name, level, branches, contact, status, remarks, aliases, verified_aliases)
           VALUES ${valueClauses.join(', ')}
           RETURNING *
         `;

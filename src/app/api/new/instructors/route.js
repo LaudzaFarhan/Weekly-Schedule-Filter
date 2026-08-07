@@ -10,6 +10,8 @@ const mapRow = (row) => ({
   contact: row.contact,
   status: row.status,
   remarks: row.remarks,
+  aliases: row.aliases || [],
+  verifiedAliases: row.verified_aliases || [],
   employmentType: row.employment_type || 'Full-Time',
   availableDays: row.available_days || [],
   createdAt: row.created_at,
@@ -29,7 +31,9 @@ export async function GET(req) {
       await query(`
         ALTER TABLE internal_instructors 
         ADD COLUMN IF NOT EXISTS employment_type VARCHAR(50) DEFAULT 'Full-Time' NOT NULL,
-        ADD COLUMN IF NOT EXISTS available_days TEXT[] DEFAULT '{}' NOT NULL
+        ADD COLUMN IF NOT EXISTS available_days TEXT[] DEFAULT '{}' NOT NULL,
+        ADD COLUMN IF NOT EXISTS aliases TEXT[] DEFAULT '{}' NOT NULL,
+        ADD COLUMN IF NOT EXISTS verified_aliases TEXT[] DEFAULT '{}' NOT NULL
       `);
     } catch (schemaError) {
       console.warn('Skipped ALTER TABLE internal_instructors schema update:', schemaError.message);
@@ -59,7 +63,7 @@ export async function GET(req) {
 export async function POST(req) {
   try {
     const body = await req.json();
-    const { name, level, branches, contact, status, remarks, employmentType, availableDays } = body;
+    const { name, level, branches, contact, status, remarks, employmentType, availableDays, aliases, verifiedAliases } = body;
  
     if (!name || !level || !branches || !contact) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
@@ -68,8 +72,8 @@ export async function POST(req) {
     let res;
     try {
       const sql = `
-        INSERT INTO internal_instructors (name, level, branches, contact, status, remarks, employment_type, available_days)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        INSERT INTO internal_instructors (name, level, branches, contact, status, remarks, employment_type, available_days, aliases, verified_aliases)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
         RETURNING *
       `;
       const params = [
@@ -80,7 +84,9 @@ export async function POST(req) {
         status || 'Active', 
         remarks || null,
         employmentType || 'Full-Time',
-        availableDays || []
+        availableDays || [],
+        aliases || [],
+        verifiedAliases || []
       ];
       res = await query(sql, params);
     } catch (dbErr) {
@@ -116,50 +122,70 @@ export async function POST(req) {
 export async function PUT(req) {
   try {
     const body = await req.json();
-    const { id, name, level, branches, contact, status, remarks, employmentType, availableDays } = body;
+    const { id, name, level, branches, contact, status, remarks, employmentType, availableDays, aliases, verifiedAliases } = body;
  
     if (!id) {
       return NextResponse.json({ error: 'Missing instructor ID' }, { status: 400 });
     }
  
-    let res;
+    // Proactively ensure columns exist in PostgreSQL
     try {
-      const sql = `
-        UPDATE internal_instructors
-        SET name = $1, level = $2, branches = $3, contact = $4, status = $5, remarks = $6, employment_type = $7, available_days = $8
-        WHERE id = $9
-        RETURNING *
-      `;
-      const params = [
-        name, 
-        level, 
-        branches || [], 
-        contact, 
-        status || 'Active', 
-        remarks || null, 
-        employmentType || 'Full-Time',
-        availableDays || [],
-        id
-      ];
+      await query(`
+        ALTER TABLE internal_instructors 
+        ADD COLUMN IF NOT EXISTS employment_type VARCHAR(50) DEFAULT 'Full-Time' NOT NULL,
+        ADD COLUMN IF NOT EXISTS available_days TEXT[] DEFAULT '{}' NOT NULL,
+        ADD COLUMN IF NOT EXISTS aliases TEXT[] DEFAULT '{}' NOT NULL,
+        ADD COLUMN IF NOT EXISTS verified_aliases TEXT[] DEFAULT '{}' NOT NULL
+      `);
+    } catch (schemaErr) {
+      console.warn('Skipped ALTER TABLE in PUT:', schemaErr.message);
+    }
+
+    let res;
+    const sql = `
+      UPDATE internal_instructors
+      SET name = $1, level = $2, branches = $3, contact = $4, status = $5, remarks = $6, employment_type = $7, available_days = $8, aliases = $9, verified_aliases = $10
+      WHERE id = $11
+      RETURNING *
+    `;
+    const params = [
+      name, 
+      level, 
+      branches || [], 
+      contact, 
+      status || 'Active', 
+      remarks || null, 
+      employmentType || 'Full-Time',
+      availableDays || [],
+      aliases || [],
+      verifiedAliases || [],
+      id
+    ];
+
+    try {
       res = await query(sql, params);
     } catch (dbErr) {
       if (dbErr.code === '42703') {
-        const fallbackSql = `
-          UPDATE internal_instructors
-          SET name = $1, level = $2, branches = $3, contact = $4, status = $5, remarks = $6
-          WHERE id = $7
-          RETURNING *
-        `;
-        const fallbackParams = [
-          name, 
-          level, 
-          branches || [], 
-          contact, 
-          status || 'Active', 
-          remarks || null, 
-          id
-        ];
-        res = await query(fallbackSql, fallbackParams);
+        // Retry adding columns explicitly and re-executing
+        try {
+          await query(`
+            ALTER TABLE internal_instructors 
+            ADD COLUMN IF NOT EXISTS aliases TEXT[] DEFAULT '{}' NOT NULL,
+            ADD COLUMN IF NOT EXISTS verified_aliases TEXT[] DEFAULT '{}' NOT NULL
+          `);
+          res = await query(sql, params);
+        } catch (retryErr) {
+          const fallbackSql = `
+            UPDATE internal_instructors
+            SET name = $1, level = $2, branches = $3, contact = $4, status = $5, remarks = $6
+            WHERE id = $7
+            RETURNING *
+          `;
+          const fallbackParams = [
+            name, level, branches || [], contact, status || 'Active', remarks || null, id
+          ];
+          res = await query(fallbackSql, fallbackParams);
+        }
       } else {
         throw dbErr;
       }

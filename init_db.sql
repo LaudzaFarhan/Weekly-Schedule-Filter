@@ -58,6 +58,8 @@ CREATE TABLE IF NOT EXISTS internal_instructors (
     branches TEXT[] NOT NULL, -- PostgreSQL array type for multi-branch allocations
     contact VARCHAR(255) NOT NULL,
     status VARCHAR(50) DEFAULT 'Active' NOT NULL,
+    aliases TEXT[] DEFAULT '{}' NOT NULL,
+    verified_aliases TEXT[] DEFAULT '{}' NOT NULL,
     remarks TEXT,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
