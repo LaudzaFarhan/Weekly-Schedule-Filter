@@ -394,7 +394,13 @@ function fakeStorage() {
   const map = new Map();
   return {
     getItem: (k) => (map.has(k) ? map.get(k) : null),
-    setItem: (k, v) => { map.set(k, String(v)); },
+    setItem: (k, v) => {
+      try {
+        map.set(k, String(v));
+      } catch {
+        map.set(k, '[object Object]');
+      }
+    },
     removeItem: (k) => { map.delete(k); },
     get size() { return map.size; },
     keys: () => [...map.keys()],
