@@ -387,6 +387,7 @@ export default function Sidebar({ currentPage, onNavigate, onToggleSearch, opsMo
                 <Terminal size={20} />
                 API
               </div>
+            </button>
         <div style={{ flexGrow: 1 }} />
         <button className="nav-item logout-btn" onClick={handleLogout}>
           <LogOut size={20} />
