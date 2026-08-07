@@ -13,6 +13,8 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useToast } from '../components/ui/Toast';
 import { subscribeToInternalClasses } from '../services/internalScheduleService';
+import { subscribeToInternalInstructors } from '../services/internalInstructorService';
+import { resolveCanonicalTeacherName } from '../utils/instructorUtils';
 import {
   subscribeToLiveProgress, saveLiveProgress,
 } from '../services/newLiveProgressService';
@@ -52,6 +54,7 @@ export default function LiveProgressTable({ category }) {
 
   const [classes, setClasses] = useState([]);
   const [progress, setProgress] = useState([]);
+  const [instructorProfiles, setInstructorProfiles] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(null);
 
@@ -75,6 +78,11 @@ export default function LiveProgressTable({ category }) {
     ])].filter(Boolean),
     [enabledBranches, branches]
   );
+
+  useEffect(() => {
+    const unsub = subscribeToInternalInstructors((data) => setInstructorProfiles(data || []));
+    return () => unsub();
+  }, []);
 
   useEffect(() => {
     const unsub = subscribeToInternalClasses(
@@ -132,13 +140,15 @@ export default function LiveProgressTable({ category }) {
         ? normaliseCoderLevel(parsed.code)
         : parsed.code;
 
+      const displayInstructor = resolveCanonicalTeacherName(c.teacher, instructorProfiles);
+
       for (const name of names) {
         const stored = progressByKey.get(keyOf(name, levelCode));
         out.push({
           rowKey: keyOf(name, levelCode),
           classId: c.id,
           studentName: name,
-          instructor: c.teacher || '—',
+          instructor: displayInstructor || c.teacher || '—',
           day: c.day || '—',
           time: c.time || '—',
           branchName: c.branchName || '—',
@@ -154,16 +164,15 @@ export default function LiveProgressTable({ category }) {
         });
       }
     }
-    // A student can legitimately appear twice — two levels, or a replacement in
-    // another class — so rows are deduplicated on student + level + class.
+    // Deduplicate student rows by student + level + branch + day + time + program
     const seen = new Set();
     return out.filter((r) => {
-      const id = `${r.rowKey}||${r.classId}`;
+      const id = `${r.studentName.toLowerCase().trim()}||${r.levelCode.toLowerCase()}||${r.branchName.toLowerCase()}||${r.day.toLowerCase()}||${r.time.toLowerCase()}||${r.program.toLowerCase()}`;
       if (seen.has(id)) return false;
       seen.add(id);
       return true;
     });
-  }, [classes, category, progressByKey]);
+  }, [classes, category, progressByKey, instructorProfiles]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
