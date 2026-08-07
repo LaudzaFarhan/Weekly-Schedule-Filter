@@ -6,7 +6,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../components/ui/Toast';
 import { DAY_NAMES, getWorkingDaysForBranch, getBranchCode, classBelongsToBranch, parseMeetingBranches } from '../utils/constants';
 import { parseLooseDate, getMondayOfDate, formatWeekRange } from '../utils/dateUtils';
-import { getInstructorBranch, getInstructorDisplayName } from '../utils/instructorUtils';
+import { getInstructorBranch, getInstructorDisplayName, isInstructorMatch } from '../utils/instructorUtils';
 import {
   buildWorkloadReport,
   buildIdleWorkloadRow,
@@ -359,26 +359,21 @@ export default function WorkloadPage() {
   const report = useMemo(() => {
     if (branchFilter === 'all') return reportWithIdle;
     return reportWithIdle.filter((r) => {
-      // Check if they are scheduled in the selected branch. Meeting rows tagged
-      // in column D (e.g. "Puri, BTR") only count for the branches they name,
-      // not the sheet they were entered on.
+      // Check if they have scheduled classes in the selected branch (using identity match)
       const hasClassesInSelectedBranch = weekFilteredClasses.some(
-        (c) => c.teacher === r.teacher && classBelongsToBranch(c, branchFilter)
+        (c) => (isInstructorMatch(c.teacher, r.teacher) || c.teacher === r.teacher) && classBelongsToBranch(c, branchFilter)
       );
       if (hasClassesInSelectedBranch) return true;
 
-      const profileLoc = profileLocationByName.get(r.teacher);
-      if (profileLoc) {
-        // Profile is the source of truth: only include when their home branch
-        // is exactly the selected branch. "All Branches" instructors only show
-        // here if they actually teach a class in this branch (handled above).
-        return profileLoc === branchFilter;
+      // Check profile allocated branches
+      const profile = instructorProfiles.find((p) => isInstructorMatch(r.teacher, p));
+      if (profile) {
+        const brs = Array.isArray(profile.branches) ? profile.branches : [profile.location].filter(Boolean);
+        return brs.includes('All Branches') || brs.includes(branchFilter) || profile.location === branchFilter;
       }
-      // Unprofiled instructors only appear if they have a class in the selected
-      // branch (already returned true above); otherwise hide them.
       return false;
     });
-  }, [reportWithIdle, branchFilter, profileLocationByName, weekFilteredClasses]);
+  }, [reportWithIdle, branchFilter, instructorProfiles, weekFilteredClasses]);
 
   // Resolve a profile-based "home branch" tag for each instructor in the report.
   // Falls back to the schedule-derived branch when no profile location exists.
