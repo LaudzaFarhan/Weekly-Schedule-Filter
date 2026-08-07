@@ -239,36 +239,98 @@ export default function NewInstructorsPage() {
     return getRecommendedAliases(form.name, form.aliases, scheduleTeacherNames);
   }, [form.name, form.aliases, scheduleTeacherNames]);
 
-  const handleAddRecommendedAlias = (recAlias) => {
-    if (form.aliases.includes(recAlias)) return;
-    const updatedAliases = [...form.aliases, recAlias];
-    const updatedVerified = canWipeAll ? [...form.verifiedAliases, recAlias] : [...form.verifiedAliases];
-    setForm({
+  const handleAddRecommendedAlias = async (recAlias) => {
+    const trimmed = String(recAlias).trim();
+    if (!trimmed) return;
+
+    const existingAliases = Array.isArray(form.aliases) ? form.aliases : [];
+    const existingVerified = Array.isArray(form.verifiedAliases) ? form.verifiedAliases : [];
+
+    const isAlreadyInForm = existingAliases.some(a => String(a).toLowerCase().trim() === trimmed.toLowerCase());
+    if (isAlreadyInForm) return;
+
+    const updatedAliases = [...existingAliases, trimmed];
+    const updatedVerified = canWipeAll
+      ? Array.from(new Set([...existingVerified, trimmed]))
+      : existingVerified;
+
+    const updatedForm = {
       ...form,
       aliases: updatedAliases,
       verifiedAliases: updatedVerified
-    });
-    showToast({ title: `Added recommended alias "${recAlias}"`, variant: 'success' });
+    };
+
+    setForm(updatedForm);
+
+    if (editingInstructor && editingInstructor.id) {
+      try {
+        const updated = await updateInternalInstructor(editingInstructor.id, updatedForm);
+        if (updated && updated.id) {
+          setEditingInstructor(updated);
+          setInstructors((prev) => prev.map((item) => String(item.id) === String(updated.id) ? updated : item));
+        }
+        showToast({ title: `Alias "${trimmed}" added & verified for sync!`, variant: 'success' });
+      } catch (err) {
+        console.error('Error saving recommended alias in modal:', err);
+        showToast({ title: `Added recommended alias "${trimmed}"`, variant: 'success' });
+      }
+    } else {
+      showToast({ title: `Added recommended alias "${trimmed}"`, variant: 'success' });
+    }
   };
 
-  const handleRemoveAlias = (aliasToRemove) => {
-    setForm({
+  const handleRemoveAlias = async (aliasToRemove) => {
+    const existingAliases = Array.isArray(form.aliases) ? form.aliases : [];
+    const existingVerified = Array.isArray(form.verifiedAliases) ? form.verifiedAliases : [];
+
+    const updatedAliases = existingAliases.filter(a => a !== aliasToRemove);
+    const updatedVerified = existingVerified.filter(a => a !== aliasToRemove);
+
+    const updatedForm = {
       ...form,
-      aliases: form.aliases.filter(a => a !== aliasToRemove),
-      verifiedAliases: form.verifiedAliases.filter(a => a !== aliasToRemove)
-    });
+      aliases: updatedAliases,
+      verifiedAliases: updatedVerified
+    };
+    setForm(updatedForm);
+
+    if (editingInstructor && editingInstructor.id) {
+      try {
+        const updated = await updateInternalInstructor(editingInstructor.id, updatedForm);
+        if (updated && updated.id) {
+          setEditingInstructor(updated);
+          setInstructors((prev) => prev.map((item) => String(item.id) === String(updated.id) ? updated : item));
+        }
+      } catch (err) {
+        console.error('Error removing alias in modal:', err);
+      }
+    }
   };
 
-  const handleToggleVerifyAliasInForm = (alias) => {
+  const handleToggleVerifyAliasInForm = async (alias) => {
     if (!canWipeAll) {
       showToast({ title: 'Only Admins can verify alias names for data sync', variant: 'warning' });
       return;
     }
-    const isVerified = form.verifiedAliases.includes(alias);
+    const existingVerified = Array.isArray(form.verifiedAliases) ? form.verifiedAliases : [];
+    const isVerified = existingVerified.includes(alias);
     const updatedVerified = isVerified
-      ? form.verifiedAliases.filter(a => a !== alias)
-      : [...form.verifiedAliases, alias];
-    setForm({ ...form, verifiedAliases: updatedVerified });
+      ? existingVerified.filter(a => a !== alias)
+      : [...existingVerified, alias];
+
+    const updatedForm = { ...form, verifiedAliases: updatedVerified };
+    setForm(updatedForm);
+
+    if (editingInstructor && editingInstructor.id) {
+      try {
+        const updated = await updateInternalInstructor(editingInstructor.id, updatedForm);
+        if (updated && updated.id) {
+          setEditingInstructor(updated);
+          setInstructors((prev) => prev.map((item) => String(item.id) === String(updated.id) ? updated : item));
+        }
+      } catch (err) {
+        console.error('Error toggling alias verification in modal:', err);
+      }
+    }
   };
 
   const handleQuickVerifyAlias = async (inst, alias) => {
