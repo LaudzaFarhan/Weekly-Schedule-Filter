@@ -14,6 +14,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useToast } from '../components/ui/Toast';
 import { subscribeToInternalClasses } from '../services/internalScheduleService';
 import { subscribeToInternalInstructors } from '../services/internalInstructorService';
+import { subscribeToInternalStudents } from '../services/internalStudentService';
 import { resolveCanonicalTeacherName } from '../utils/instructorUtils';
 import {
   subscribeToLiveProgress, saveLiveProgress,
@@ -55,6 +56,7 @@ export default function LiveProgressTable({ category }) {
   const [classes, setClasses] = useState([]);
   const [progress, setProgress] = useState([]);
   const [instructorProfiles, setInstructorProfiles] = useState([]);
+  const [studentRegistry, setStudentRegistry] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(null);
 
@@ -81,6 +83,11 @@ export default function LiveProgressTable({ category }) {
 
   useEffect(() => {
     const unsub = subscribeToInternalInstructors((data) => setInstructorProfiles(data || []));
+    return () => unsub();
+  }, []);
+
+  useEffect(() => {
+    const unsub = subscribeToInternalStudents((data) => setStudentRegistry(data || []));
     return () => unsub();
   }, []);
 
@@ -115,15 +122,23 @@ export default function LiveProgressTable({ category }) {
     return map;
   }, [progress]);
 
+  /** Map student normalized name -> official registered branch in studentRegistry */
+  const studentBranchMap = useMemo(() => {
+    const map = new Map();
+    for (const s of studentRegistry || []) {
+      if (s.name && s.branch_name) {
+        map.set(s.name.trim().toLowerCase(), s.branch_name);
+      }
+    }
+    return map;
+  }, [studentRegistry]);
+
   /**
    * One row per enrolled student in this category.
-   *
-   * A class row already is one student, so no grouping is needed — but the
-   * `student` field can hold several comma-separated names on older rows, so it
-   * is split defensively.
+   * Deduplicated so a student never appears twice for the same program level across multiple branches.
    */
   const rows = useMemo(() => {
-    const out = [];
+    const candidatesByKey = new Map();
     for (const c of classes) {
       const parsed = parseProgram(c.program);
       if (parsed.category !== category) continue;
@@ -143,9 +158,10 @@ export default function LiveProgressTable({ category }) {
       const displayInstructor = resolveCanonicalTeacherName(c.teacher, instructorProfiles);
 
       for (const name of names) {
-        const stored = progressByKey.get(keyOf(name, levelCode));
-        out.push({
-          rowKey: keyOf(name, levelCode),
+        const rowKey = keyOf(name, levelCode);
+        const stored = progressByKey.get(rowKey);
+        const item = {
+          rowKey,
           classId: c.id,
           studentName: name,
           instructor: displayInstructor || c.teacher || '—',
@@ -161,18 +177,36 @@ export default function LiveProgressTable({ category }) {
           videos: stored?.videos || {},
           continuation: stored?.continuation || CONTINUATION_OPTIONS[0],
           continuationNote: stored?.continuationNote || '',
-        });
+        };
+
+        if (!candidatesByKey.has(rowKey)) {
+          candidatesByKey.set(rowKey, []);
+        }
+        candidatesByKey.get(rowKey).push(item);
       }
     }
-    // Deduplicate student rows by student + level + branch + day + time + program
-    const seen = new Set();
-    return out.filter((r) => {
-      const id = `${r.studentName.toLowerCase().trim()}||${r.levelCode.toLowerCase()}||${r.branchName.toLowerCase()}||${r.day.toLowerCase()}||${r.time.toLowerCase()}||${r.program.toLowerCase()}`;
-      if (seen.has(id)) return false;
-      seen.add(id);
-      return true;
-    });
-  }, [classes, category, progressByKey, instructorProfiles]);
+
+    const result = [];
+    for (const [, list] of candidatesByKey.entries()) {
+      if (list.length === 1) {
+        result.push(list[0]);
+        continue;
+      }
+      // If student appears multiple times (e.g. from imported schedule rows under two branches),
+      // prefer the row matching their official branch in studentRegistry!
+      const studentNameClean = list[0].studentName.trim().toLowerCase();
+      const officialBranch = studentBranchMap.get(studentNameClean);
+
+      let best = list[0];
+      if (officialBranch) {
+        const match = list.find((item) => item.branchName.toLowerCase() === officialBranch.toLowerCase());
+        if (match) best = match;
+      }
+      result.push(best);
+    }
+
+    return result;
+  }, [classes, category, progressByKey, instructorProfiles, studentBranchMap]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
