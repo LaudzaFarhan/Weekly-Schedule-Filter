@@ -267,36 +267,24 @@ export default function WorkloadPage() {
 
   // Build the full report once per data change, respecting week filter
   const rawReport = useMemo(
-    () => buildWorkloadReport(weekFilteredClasses, { disabledInstructors }),
-    [weekFilteredClasses, disabledInstructors]
+    () => buildWorkloadReport(weekFilteredClasses, { disabledInstructors, instructorProfiles }),
+    [weekFilteredClasses, disabledInstructors, instructorProfiles]
   );
 
   // Lookup for profile-declared locations — used to filter the workload list
   // by an instructor's HOME BRANCH (per Instructor Profiles), not just the
-  // branch a class row happens to belong to.
-  // Keys are normalised (lowercased + trimmed) so a sheet typo like
-  // "Christian " or "christian" still resolves to the right profile.
+  // branch of their current classes.
   const profileLocationByName = useMemo(() => {
     const map = new Map();
-    const norm = (s) => String(s || '').trim().toLowerCase();
     for (const p of instructorProfiles) {
-      if (!p.location) continue;
-      const candidates = [
-        p.nickname,
-        p.fullname,
-        p.id ? p.id.split('@')[0] : null,
-      ].filter(Boolean);
-      for (const name of candidates) {
-        const key = norm(name);
-        if (key && !map.has(key)) map.set(key, p.location);
-      }
+      const loc = p.location || (Array.isArray(p.branches) ? p.branches[0] : null);
+      if (!loc) continue;
+      const candidates = [p.nickname, p.fullname, p.name, p.id ? p.id.split('@')[0] : null].filter(Boolean);
+      candidates.forEach((c) => map.set(c, loc));
+      if (Array.isArray(p.aliases)) p.aliases.forEach(a => map.set(typeof a === 'object' ? a.name : a, loc));
+      if (Array.isArray(p.verifiedAliases)) p.verifiedAliases.forEach(a => map.set(a, loc));
     }
-    // Wrap in a function-style API so callers don't have to know about the
-    // normalisation — they just call get(rawName).
-    return {
-      get: (rawName) => map.get(norm(rawName)) || null,
-      has: (rawName) => map.has(norm(rawName)),
-    };
+    return map;
   }, [instructorProfiles]);
 
   // Merge profile-only instructors (those with a profile but no class rows
@@ -318,7 +306,10 @@ export default function WorkloadPage() {
     for (const p of instructorProfiles) {
       if (p.nickname) validTeachers.add(norm(p.nickname));
       if (p.fullname) validTeachers.add(norm(p.fullname));
+      if (p.name) validTeachers.add(norm(p.name));
       if (p.id) validTeachers.add(norm(p.id.split('@')[0]));
+      if (Array.isArray(p.aliases)) p.aliases.forEach(a => validTeachers.add(norm(typeof a === 'object' ? a.name : a)));
+      if (Array.isArray(p.verifiedAliases)) p.verifiedAliases.forEach(a => validTeachers.add(norm(a)));
     }
     
     const filteredRaw = rawReport.filter(r => validTeachers.has(norm(r.teacher)));
@@ -463,7 +454,7 @@ export default function WorkloadPage() {
       .filter((c) => classBelongsToBranch(c, branchFilter))
       // Everything here belongs to branchFilter — relabel so cell tags show it.
       .map((c) => (c.branchName === branchFilter ? c : { ...c, branchName: branchFilter }));
-    const scopedReport = buildWorkloadReport(scopedClasses, { disabledInstructors });
+    const scopedReport = buildWorkloadReport(scopedClasses, { disabledInstructors, instructorProfiles });
     const scopedByTeacher = new Map(scopedReport.map((r) => [r.teacher, r]));
 
     return base.map((r) => scopedByTeacher.get(r.teacher) || buildIdleWorkloadRow(r.teacher));
@@ -523,7 +514,7 @@ export default function WorkloadPage() {
     const scoped = weekFilteredClasses
       .filter((c) => classBelongsToBranch(c, branchName))
       .map((c) => (c.branchName === branchName ? c : { ...c, branchName }));
-    const built = buildWorkloadReport(scoped, { disabledInstructors });
+    const built = buildWorkloadReport(scoped, { disabledInstructors, instructorProfiles });
  
     // Inject idle rows for profile-only instructors who belong to this branch.
     const existing = new Set(built.map((r) => r.teacher));

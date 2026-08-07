@@ -74,7 +74,7 @@ export default function NewWorkloadPage() {
     const scoped = branchFilter === 'all'
       ? classes
       : classes.filter((c) => c.branchName === branchFilter);
-    const base = buildWorkloadReport(scoped, {});
+    const base = buildWorkloadReport(scoped, { instructorProfiles: instructors });
     const existing = new Set(base.map((r) => r.teacher));
     const extras = [];
     instructors.forEach((i) => {

@@ -237,7 +237,31 @@ export function isSameTeacher(t1, t2) {
 
 /**
  * Resolve a raw teacher name string against a list of known instructor objects/names.
- * Returns the canonical full name if matched, or the trimmed raw name if no match is found.
+/**
+ * Helper to get the primary display name for an instructor (Alias > Name).
+ * Prefers the first verified alias if set, otherwise the instructor's name.
+ */
+export function getInstructorDisplayName(inst) {
+  if (!inst) return '';
+  if (typeof inst === 'string') return inst;
+
+  const verified = getVerifiedAliases(inst);
+  if (verified.length > 0 && verified[0]) {
+    return String(verified[0]).trim();
+  }
+
+  const aliases = Array.isArray(inst.aliases) ? inst.aliases : [];
+  if (aliases.length > 0 && aliases[0]) {
+    const aliasStr = typeof aliases[0] === 'object' ? aliases[0].name : aliases[0];
+    if (aliasStr) return String(aliasStr).trim();
+  }
+
+  return inst.name || inst.fullname || inst.nickname || String(inst.id || '').split('@')[0] || '';
+}
+
+/**
+ * Resolve a raw teacher name string against a list of known instructor objects/names.
+ * Returns the canonical alias or display name if matched, or the trimmed raw name if no match is found.
  */
 export function resolveCanonicalTeacherName(rawName, knownInstructors = []) {
   if (!rawName) return 'TBD';
@@ -245,9 +269,9 @@ export function resolveCanonicalTeacherName(rawName, knownInstructors = []) {
   if (!trimmed || trimmed === '-' || trimmed.toUpperCase() === 'TBD') return 'TBD';
 
   for (const inst of knownInstructors) {
-    const instName = typeof inst === 'string' ? inst : (inst?.name || inst?.fullname || inst?.nickname);
-    if (instName && isInstructorMatch(trimmed, inst)) {
-      return instName;
+    if (!inst) continue;
+    if (isInstructorMatch(trimmed, inst)) {
+      return getInstructorDisplayName(inst);
     }
   }
 

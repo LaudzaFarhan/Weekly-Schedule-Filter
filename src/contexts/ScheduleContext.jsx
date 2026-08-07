@@ -4,6 +4,7 @@ import { createContext, useContext, useState, useCallback, useEffect, useRef, us
 import { buildInstructorMap, isValidTeacherName } from '../utils/instructorUtils';
 import { computeConflicts, diffSchedule, diffConflicts, buildSyncDiffSummary } from '../utils/scheduleDiff';
 import { getAllProfiles } from '../services/profileService';
+import { subscribeToInternalInstructors } from '../services/internalInstructorService';
 import { auth } from '../services/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
 import { useToast } from '../components/ui/Toast';
@@ -420,16 +421,61 @@ export function ScheduleProvider({ children }) {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
       if (user) {
         getAllProfiles().then(profiles => {
-          setInstructorProfiles(profiles);
+          setInstructorProfiles((prev) => {
+            const merged = [...profiles];
+            // keep existing internal postgres profiles
+            (prev || []).forEach(p => {
+              if (p && p._source === 'postgres' && !merged.some(m => String(m.id) === String(p.id))) {
+                merged.push(p);
+              }
+            });
+            return merged;
+          });
         }).catch(err => {
           console.error('Failed to load instructor profiles from Firestore:', err);
         });
-      } else {
-        setInstructorProfiles([]);
       }
     });
 
     return () => unsubscribe();
+  }, []);
+
+  // ─── Subscribe to New Operations PostgreSQL Instructors ─────────
+  useEffect(() => {
+    const unsub = subscribeToInternalInstructors((pgInstructors) => {
+      if (Array.isArray(pgInstructors)) {
+        setInstructorProfiles((prevProfiles) => {
+          const map = new Map();
+          // Add existing non-postgres profiles
+          (prevProfiles || []).forEach((p) => {
+            if (p && p._source !== 'postgres') {
+              const k = String(p.id || p.name || p.fullname).toLowerCase().trim();
+              map.set(k, p);
+            }
+          });
+          // Add/overwrite with PostgreSQL internal instructors
+          pgInstructors.forEach((inst) => {
+            const k = String(inst.id || inst.name).toLowerCase().trim();
+            const existing = map.get(k) || {};
+            map.set(k, {
+              ...existing,
+              id: inst.id || existing.id,
+              name: inst.name || existing.name,
+              fullname: inst.name || existing.fullname,
+              nickname: Array.isArray(inst.verifiedAliases) && inst.verifiedAliases.length > 0 ? inst.verifiedAliases[0] : (Array.isArray(inst.aliases) && inst.aliases.length > 0 ? inst.aliases[0] : existing.nickname),
+              location: (inst.branches || [])[0] || existing.location || 'Unknown',
+              branches: inst.branches || existing.branches || [],
+              aliases: inst.aliases || existing.aliases || [],
+              verifiedAliases: inst.verifiedAliases || inst.verified_aliases || existing.verifiedAliases || [],
+              status: inst.status || 'Active',
+              _source: 'postgres'
+            });
+          });
+          return Array.from(map.values());
+        });
+      }
+    });
+    return () => unsub();
   }, []);
 
   // ─── Update functions (dual storage) ─────────────────────────────

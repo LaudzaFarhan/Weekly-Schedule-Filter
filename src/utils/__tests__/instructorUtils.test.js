@@ -37,10 +37,10 @@ describe('resolveCanonicalTeacherName with Aliases & Verification', () => {
     },
   ];
 
-  it('resolves verified aliases to the canonical instructor name', () => {
-    expect(resolveCanonicalTeacherName('Ziyah', instructorsWithAliases)).toBe('FAUZIYAH AMIRA ZAHRA');
-    expect(resolveCanonicalTeacherName('Amira', instructorsWithAliases)).toBe('FAUZIYAH AMIRA ZAHRA');
-    expect(resolveCanonicalTeacherName('Pandi', instructorsWithAliases)).toBe('SUPANDI WIJAYA');
+  it('resolves verified aliases to the canonical instructor alias display name', () => {
+    expect(resolveCanonicalTeacherName('Ziyah', instructorsWithAliases)).toBe('Ziyah');
+    expect(resolveCanonicalTeacherName('FAUZIYAH AMIRA ZAHRA', instructorsWithAliases)).toBe('Ziyah');
+    expect(resolveCanonicalTeacherName('Pandi', instructorsWithAliases)).toBe('Pandi');
   });
 
   it('does NOT resolve unverified aliases to canonical name', () => {
