@@ -26,6 +26,12 @@ const INSTRUCTOR_LEVELS = [
 const INSTRUCTORS_PAGE_SIZE = 8;
 const WEEK_DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
+const isAliasVerified = (alias, verifiedList = []) => {
+  if (!alias || !Array.isArray(verifiedList)) return false;
+  const target = String(alias).toLowerCase().trim();
+  return verifiedList.some((v) => String(v).toLowerCase().trim() === target);
+};
+
 export default function NewInstructorsPage() {
   const { enabledBranches, branches, users, overallClasses, uniqueTeachers } = useSchedule();
   const { user } = useAuth();
@@ -197,7 +203,9 @@ export default function NewInstructorsPage() {
       employmentType: inst.employmentType || 'Full-Time',
       availableDays: Array.isArray(inst.availableDays) ? inst.availableDays : [],
       aliases: Array.isArray(inst.aliases) ? inst.aliases : [],
-      verifiedAliases: Array.isArray(inst.verifiedAliases) ? inst.verifiedAliases : []
+      verifiedAliases: Array.isArray(inst.verifiedAliases)
+        ? inst.verifiedAliases
+        : (Array.isArray(inst.verified_aliases) ? inst.verified_aliases : [])
     });
     setAliasInput('');
     setFormErrors({});
@@ -312,9 +320,10 @@ export default function NewInstructorsPage() {
       return;
     }
     const existingVerified = Array.isArray(form.verifiedAliases) ? form.verifiedAliases : [];
-    const isVerified = existingVerified.includes(alias);
+    const target = String(alias).toLowerCase().trim();
+    const isVerified = isAliasVerified(alias, existingVerified);
     const updatedVerified = isVerified
-      ? existingVerified.filter(a => a !== alias)
+      ? existingVerified.filter(a => String(a).toLowerCase().trim() !== target)
       : [...existingVerified, alias];
 
     const updatedForm = { ...form, verifiedAliases: updatedVerified };
@@ -339,9 +348,10 @@ export default function NewInstructorsPage() {
       return;
     }
     const currentVerified = Array.isArray(inst.verifiedAliases) ? inst.verifiedAliases : [];
-    const isVerified = currentVerified.includes(alias);
+    const target = String(alias).toLowerCase().trim();
+    const isVerified = isAliasVerified(alias, currentVerified);
     const updatedVerified = isVerified
-      ? currentVerified.filter(a => a !== alias)
+      ? currentVerified.filter(a => String(a).toLowerCase().trim() !== target)
       : [...currentVerified, alias];
     
     try {
@@ -359,6 +369,10 @@ export default function NewInstructorsPage() {
       });
       if (updated && updated.id) {
         setInstructors((prev) => prev.map((item) => String(item.id) === String(updated.id) ? updated : item));
+        if (editingInstructor && String(editingInstructor.id) === String(updated.id)) {
+          setEditingInstructor(updated);
+          setForm((prev) => ({ ...prev, verifiedAliases: updated.verifiedAliases }));
+        }
       }
       showToast({
         title: isVerified ? `Alias "${alias}" unverified` : `Alias "${alias}" verified for sync`,
@@ -692,7 +706,7 @@ export default function NewInstructorsPage() {
                         <td>
                           <div style={{ display: 'flex', gap: '0.3rem', flexWrap: 'wrap', alignItems: 'center' }}>
                             {aliases.map((alias) => {
-                              const isVerified = verifiedAliases.includes(alias);
+                              const isVerified = isAliasVerified(alias, verifiedAliases);
                               return (
                                 <span
                                   key={alias}
@@ -1008,7 +1022,7 @@ export default function NewInstructorsPage() {
                   </div>
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem' }}>
                     {(form.aliases || []).map((alias) => {
-                      const isVerified = (form.verifiedAliases || []).includes(alias);
+                      const isVerified = isAliasVerified(alias, form.verifiedAliases);
                       return (
                         <div
                           key={alias}
