@@ -32,6 +32,17 @@ import {
 } from 'lucide-react';
 
 const PAGE_SIZE = 5;
+const DAY_OPTIONS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+const DAY_ORDER = {
+  monday: 1,
+  tuesday: 2,
+  wednesday: 3,
+  thursday: 4,
+  friday: 5,
+  saturday: 6,
+  sunday: 7,
+};
+const getDayIndex = (day) => DAY_ORDER[String(day || '').trim().toLowerCase()] || 99;
 
 /** Colour per continuation answer, so a table of them can be read at a glance. */
 const CONTINUATION_TINT = {
@@ -63,6 +74,8 @@ export default function LiveProgressTable({ category }) {
   const [search, setSearch] = useState('');
   const [filterBranch, setFilterBranch] = useState('all');
   const [filterLevel, setFilterLevel] = useState('all');
+  const [filterDay, setFilterDay] = useState('all');
+  const [filterInstructor, setFilterInstructor] = useState('all');
   const [filterContinuation, setFilterContinuation] = useState('all');
   const [page, setPage] = useState(1);
 
@@ -208,11 +221,32 @@ export default function LiveProgressTable({ category }) {
     return result;
   }, [classes, category, progressByKey, instructorProfiles, studentBranchMap]);
 
+  const instructorList = useMemo(() => {
+    const set = new Set();
+    for (const r of rows) {
+      if (filterBranch !== 'all' && r.branchName !== filterBranch) continue;
+      if (filterDay !== 'all' && r.day.trim().toLowerCase() !== filterDay.trim().toLowerCase()) continue;
+      if (filterLevel !== 'all' && r.levelCode !== filterLevel) continue;
+      if (r.instructor && r.instructor !== '—') {
+        set.add(r.instructor);
+      }
+    }
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  }, [rows, filterBranch, filterDay, filterLevel]);
+
+  useEffect(() => {
+    if (filterInstructor !== 'all' && !instructorList.includes(filterInstructor)) {
+      setFilterInstructor('all');
+    }
+  }, [instructorList, filterInstructor]);
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     return rows.filter((r) => {
       if (filterBranch !== 'all' && r.branchName !== filterBranch) return false;
       if (filterLevel !== 'all' && r.levelCode !== filterLevel) return false;
+      if (filterDay !== 'all' && r.day.trim().toLowerCase() !== filterDay.trim().toLowerCase()) return false;
+      if (filterInstructor !== 'all' && r.instructor !== filterInstructor) return false;
       if (filterContinuation !== 'all' && r.continuation !== filterContinuation) return false;
       if (q) {
         const hit = [r.studentName, r.instructor, r.program, r.day, r.branchName]
@@ -222,10 +256,15 @@ export default function LiveProgressTable({ category }) {
       }
       return true;
     });
-  }, [rows, search, filterBranch, filterLevel, filterContinuation]);
+  }, [rows, search, filterBranch, filterLevel, filterDay, filterInstructor, filterContinuation]);
 
   const sorted = useMemo(
-    () => [...filtered].sort((a, b) => a.studentName.localeCompare(b.studentName)),
+    () => [...filtered].sort((a, b) => {
+      const dayA = getDayIndex(a.day);
+      const dayB = getDayIndex(b.day);
+      if (dayA !== dayB) return dayA - dayB;
+      return a.studentName.localeCompare(b.studentName);
+    }),
     [filtered]
   );
 
@@ -395,6 +434,22 @@ export default function LiveProgressTable({ category }) {
           </div>
 
           <div className="input-group" style={{ margin: 0, width: '150px' }}>
+            <label style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '0.3rem', display: 'block' }}>Instructor</label>
+            <select value={filterInstructor} onChange={(e) => { setFilterInstructor(e.target.value); setPage(1); }} style={{ width: '100%' }}>
+              <option value="all">All Instructors</option>
+              {instructorList.map((inst) => <option key={inst} value={inst}>{inst}</option>)}
+            </select>
+          </div>
+
+          <div className="input-group" style={{ margin: 0, width: '140px' }}>
+            <label style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '0.3rem', display: 'block' }}>Day</label>
+            <select value={filterDay} onChange={(e) => { setFilterDay(e.target.value); setPage(1); }} style={{ width: '100%' }}>
+              <option value="all">All Days</option>
+              {DAY_OPTIONS.map((d) => <option key={d} value={d}>{d}</option>)}
+            </select>
+          </div>
+
+          <div className="input-group" style={{ margin: 0, width: '140px' }}>
             <label style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '0.3rem', display: 'block' }}>Level</label>
             <select value={filterLevel} onChange={(e) => { setFilterLevel(e.target.value); setPage(1); }} style={{ width: '100%' }}>
               <option value="all">All Levels</option>
@@ -402,7 +457,7 @@ export default function LiveProgressTable({ category }) {
             </select>
           </div>
 
-          <div className="input-group" style={{ margin: 0, width: '150px' }}>
+          <div className="input-group" style={{ margin: 0, width: '140px' }}>
             <label style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '0.3rem', display: 'block' }}>Branch</label>
             <select value={filterBranch} onChange={(e) => { setFilterBranch(e.target.value); setPage(1); }} style={{ width: '100%' }}>
               <option value="all">All Branches</option>
@@ -410,7 +465,7 @@ export default function LiveProgressTable({ category }) {
             </select>
           </div>
 
-          <div className="input-group" style={{ margin: 0, width: '160px' }}>
+          <div className="input-group" style={{ margin: 0, width: '150px' }}>
             <label style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '0.3rem', display: 'block' }}>Continuation</label>
             <select value={filterContinuation} onChange={(e) => { setFilterContinuation(e.target.value); setPage(1); }} style={{ width: '100%' }}>
               <option value="all">All Answers</option>
