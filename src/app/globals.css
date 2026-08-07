@@ -539,8 +539,16 @@ body {
   padding-left: 2.6rem;
   font-size: 0.8rem;
   gap: 8px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .nav-subitem:hover { padding-left: calc(2.6rem + 4px); }
+.nav-subitem.active {
+  padding-left: 2.6rem;
+  animation: navSubItemActivate 0.34s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.nav-subitem.active:hover { padding-left: calc(2.6rem + 4px); }
 .nav-subitem-dash {
   width: 10px; height: 1px; flex-shrink: 0;
   background: currentColor; opacity: 0.45;
@@ -570,6 +578,11 @@ body {
   from { padding-left: 0.9rem; }
   60%  { padding-left: 1.65rem; }
   to   { padding-left: 1.5rem; }
+}
+@keyframes navSubItemActivate {
+  from { padding-left: 2.0rem; }
+  60%  { padding-left: 2.75rem; }
+  to   { padding-left: 2.6rem; }
 }
 @keyframes navBarGrow {
   from { transform: scaleY(0.15); opacity: 0; }
