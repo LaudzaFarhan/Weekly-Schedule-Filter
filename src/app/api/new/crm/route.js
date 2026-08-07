@@ -41,6 +41,32 @@ export async function GET(req) {
 /**
  * Helper to extract normalized fields from various payload key conventions
  */
+function formatWhatsAppPhone(phone) {
+  if (!phone) return '';
+  const str = String(phone).trim();
+  if (/[a-zA-Z]/.test(str)) return '';
+  let digits = str.replace(/[^\d]/g, '');
+  if (digits.length < 6 || digits.startsWith('6280000') || digits === '123456789') return '';
+
+  if (digits.startsWith('0')) {
+    digits = '62' + digits.substring(1);
+  } else if (!digits.startsWith('62') && digits.length >= 9) {
+    digits = '62' + digits;
+  }
+
+  if (digits.startsWith('62')) {
+    const main = digits.substring(2);
+    if (main.length >= 9) {
+      const part1 = main.substring(0, 3);
+      const part2 = main.substring(3, 7);
+      const part3 = main.substring(7);
+      return `+62 ${part1}-${part2}-${part3}`;
+    }
+  }
+
+  return `+${digits}`;
+}
+
 function extractValidPhone(body = {}) {
   const candidates = [
     body.phone,
@@ -59,8 +85,8 @@ function extractValidPhone(body = {}) {
     const str = String(raw).trim();
     const digitsOnly = str.replace(/[^\d]/g, '');
     // Must have at least 6 digits and no alphabetic characters
-    if (digitsOnly.length >= 6 && !/[a-zA-Z]/.test(str)) {
-      return str;
+    if (digitsOnly.length >= 6 && !/[a-zA-Z]/.test(str) && !digitsOnly.startsWith('6280000') && digitsOnly !== '123456789') {
+      return formatWhatsAppPhone(str);
     }
   }
 
@@ -68,7 +94,7 @@ function extractValidPhone(body = {}) {
   const textBody = `${body.message || ''} ${body.notes || ''}`;
   const phoneMatch = textBody.match(/(?:\+?62|0)\s*\d{3,4}[-\s]?\d{3,4}[-\s]?\d{3,5}/);
   if (phoneMatch) {
-    return phoneMatch[0].trim();
+    return formatWhatsAppPhone(phoneMatch[0].trim());
   }
 
   return '';

@@ -441,6 +441,33 @@ export default function CrmPage() {
     return () => unsubscribe();
   }, []);
 
+  // Format phone number string into clean +62 821-1614-3300 style
+  const formatWhatsAppPhone = (phone) => {
+    if (!phone) return '';
+    const str = String(phone).trim();
+    if (/[a-zA-Z]/.test(str)) return '';
+    let digits = str.replace(/[^\d]/g, '');
+    if (digits.length < 6 || digits.startsWith('6280000') || digits === '123456789') return '';
+
+    if (digits.startsWith('0')) {
+      digits = '62' + digits.substring(1);
+    } else if (!digits.startsWith('62') && digits.length >= 9) {
+      digits = '62' + digits;
+    }
+
+    if (digits.startsWith('62')) {
+      const main = digits.substring(2);
+      if (main.length >= 9) {
+        const part1 = main.substring(0, 3);
+        const part2 = main.substring(3, 7);
+        const part3 = main.substring(7);
+        return `+62 ${part1}-${part2}-${part3}`;
+      }
+    }
+
+    return `+${digits}`;
+  };
+
   // Extract valid numeric phone number from lead fields or message/notes
   const getValidPhoneNumber = (lead) => {
     if (!lead) return null;
@@ -451,13 +478,13 @@ export default function CrmPage() {
       const digitsOnly = str.replace(/[^\d]/g, '');
       // Must have at least 6 digits, no letters, and not be dummy (e.g. 6280000..., 123456789)
       if (digitsOnly.length >= 6 && !/[a-zA-Z]/.test(str) && !digitsOnly.startsWith('6280000') && digitsOnly !== '123456789') {
-        return str;
+        return formatWhatsAppPhone(str);
       }
     }
     // Fallback: search for phone pattern in message or notes
     const text = `${lead.message || ''} ${lead.notes || ''}`;
     const match = text.match(/(?:\+?62|0)\s*\d{3,4}[-\s]?\d{3,4}[-\s]?\d{3,5}/);
-    if (match) return match[0].trim();
+    if (match) return formatWhatsAppPhone(match[0].trim());
     return null;
   };
 
