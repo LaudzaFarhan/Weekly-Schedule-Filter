@@ -224,13 +224,13 @@ export function isSameTeacher(t1, t2) {
   if (norm1 === norm2) return true;
 
   // Token matching (ignoring generic prefix words)
-  const GENERIC_TOKENS = new Set(['teacher', 'guru', 'instructor', 'mr', 'ms', 'mrs']);
-  const tokens1 = norm1.split(/\s+/).filter((t) => t.length >= 3 && !GENERIC_TOKENS.has(t));
-  const tokens2 = norm2.split(/\s+/).filter((t) => t.length >= 3 && !GENERIC_TOKENS.has(t));
+  const GENERIC_TOKENS = new Set(['teacher', 'guru', 'instructor', 'mr', 'ms', 'mrs', 'kak', 'pak', 'ibu']);
+  const tokens1 = norm1.split(/\s+/).filter((t) => t.length >= 3 && !GENERIC_TOKENS.has(t)).map((t) => ALIAS_MAP[t] || t);
+  const tokens2 = norm2.split(/\s+/).filter((t) => t.length >= 3 && !GENERIC_TOKENS.has(t)).map((t) => ALIAS_MAP[t] || t);
 
   for (const tok1 of tokens1) {
     for (const tok2 of tokens2) {
-      if (tok1 === tok2 || tok1.includes(tok2) || tok2.includes(tok1)) {
+      if (tok1 === tok2) {
         return true;
       }
     }
