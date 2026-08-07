@@ -157,35 +157,9 @@ export default function Sidebar({ currentPage, onNavigate, onToggleSearch, opsMo
             </button>
           )}
         </div>
-      </div>
-      
-      <div data-tour="ops-switcher" className={`operations-switcher ${opsMode === 'new' ? 'is-new' : 'is-old'}`}>
-        <button 
-          className={`switcher-tab ${opsMode === 'old' ? 'active' : ''}`}
-          onClick={() => setOpsMode('old')}
-          style={{ fontSize: '0.7rem' }}
-        >
-          Old Operations
-          {/* aria-hidden: the banner already announces this day count, and
-              hearing it twice per page is worse than not hearing it here. */}
-          {typeof sunsetBadge === 'string' && sunsetBadge !== '' && (
-            <span className="ops-sunset-badge" aria-hidden="true">{sunsetBadge}</span>
-          )}
-        </button>
-        <button 
-          className={`switcher-tab ${opsMode === 'new' ? 'active' : ''}`}
-          onClick={() => setOpsMode('new')}
-          style={{ fontSize: '0.7rem' }}
-        >
-          New Operations
-        </button>
-      </div>
-
       <nav data-tour="sidebar-nav" className="sidebar-nav">
-        {opsMode === 'new' && (
-          <>
-            <button
-              className={`nav-item ${currentPage === 'home' || currentPage === 'dashboard' ? 'active' : ''}`}
+        <button
+          className={`nav-item ${currentPage === 'home' || currentPage === 'dashboard' ? 'active' : ''}`}
               onClick={() => onNavigate('home')}
               style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
             >
@@ -413,44 +387,6 @@ export default function Sidebar({ currentPage, onNavigate, onToggleSearch, opsMo
                 <Terminal size={20} />
                 API
               </div>
-            </button>
-          </>
-        )}
-        {opsMode === 'old' && navItems.map((item) => {
-          if (!isItemVisible(item)) return null;
-          const { id, icon: Icon, label } = item;
-          return (
-            <button
-              key={id}
-              className={`nav-item ${currentPage === id ? 'active' : ''}`}
-              onClick={() => {
-                if (id === 'student-search') {
-                  onToggleSearch();
-                } else {
-                  onNavigate(id);
-                }
-              }}
-              style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                <Icon size={20} />
-                {label}
-              </div>
-              {id === 'tasks' && pendingCount > 0 && (
-                <span style={{ 
-                  background: 'var(--danger)', 
-                  color: 'white', 
-                  fontSize: '0.7rem', 
-                  fontWeight: 'bold', 
-                  padding: '2px 6px', 
-                  borderRadius: '10px' 
-                }}>
-                  {pendingCount}
-                </span>
-              )}
-            </button>
-          );
-        })}
         <div style={{ flexGrow: 1 }} />
         <button className="nav-item logout-btn" onClick={handleLogout}>
           <LogOut size={20} />

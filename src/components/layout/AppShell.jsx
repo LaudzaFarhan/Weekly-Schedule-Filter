@@ -11,21 +11,6 @@ import Header from '@/components/layout/Header';
 import StudentSearchSidebar from '@/components/layout/StudentSearchSidebar';
 import OpsSunsetBanner from '@/components/ops/OpsSunsetBanner';
 import { useSunsetNotice } from '@/components/ops/useSunsetNotice';
-import HomePage from '@/views/HomePage';
-import ConflictsPage from '@/views/ConflictsPage';
-import AvailabilityPage from '@/views/AvailabilityPage';
-import LeavePage from '@/views/LeavePage';
-import TrialPriorityPage from '@/views/TrialPriorityPage';
-import FinderPage from '@/views/FinderPage';
-import SchedulePage from '@/views/SchedulePage';
-import TrialInputPage from '@/views/TrialInputPage';
-import ApiDocsPage from '@/views/ApiDocsPage';
-import AdminPage from '@/views/AdminPage';
-import ProfilePage from '@/views/ProfilePage';
-import WorkloadPage from '@/views/WorkloadPage';
-import TasksPage from '@/views/TasksPage';
-import CrmPage from '@/views/CrmPage';
-import ComingSoonPage from '@/views/ComingSoonPage';
 import NewHomePage from '@/views/NewHomePage';
 import NewLeavePage from '@/views/NewLeavePage';
 import NewSchedulePage from '@/views/NewSchedulePage';
@@ -47,30 +32,11 @@ import NewMeetingsPage from '@/views/NewMeetingsPage';
 import NewStudentSubscriptionsPage from '@/views/NewStudentSubscriptionsPage';
 import VercelMigrationNotice from '@/components/layout/VercelMigrationNotice';
 
-const PAGE_MAP = {
-  home: HomePage,
-  conflicts: ConflictsPage,
-  availability: AvailabilityPage,
-  leave: LeavePage,
-  'trial-priority': TrialPriorityPage,
-  finder: FinderPage,
-  schedule: SchedulePage,
-  'trial-input': TrialInputPage,
-  profiles: ProfilePage,
-  workload: WorkloadPage,
-  tasks: TasksPage,
-  crm: CrmPage,
-  'api-docs': ApiDocsPage,
-  admin: AdminPage,
-};
-
-/** Derive { mode, page } from a URL pathname. */
+/** Derive page from URL pathname for New Operations */
 function parsePath(pathname) {
   const parts = String(pathname || '').split('/').filter(Boolean);
   if (parts[0] === 'new') return { mode: 'new', page: parts[1] || 'home' };
-  if (parts[0] === 'old') return { mode: 'old', page: parts[1] || 'home' };
-  if (parts[0]) return { mode: 'old', page: parts[0] };
-  return { mode: 'old', page: 'home' };
+  return { mode: 'new', page: parts[0] || 'home' };
 }
 
 /**
@@ -110,7 +76,8 @@ export default function AppShell() {
   const [currentPage, setCurrentPage] = useState('home');
   const [pageParams, setPageParams] = useState(null);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
-  const [opsMode, setOpsMode] = useState('old');
+  const opsMode = 'new';
+  const setOpsMode = () => {};
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   // Restore sidebar collapsed preference
@@ -129,32 +96,15 @@ export default function AppShell() {
     });
   };
 
-  /**
-   * Open the sidebar, whatever state it is in. Used before the sunset tour runs,
-   * because its second step points at a control the collapsed rail does not lay
-   * out. Persisted like any other collapse change, so the tour does not leave the
-   * preference disagreeing with what is on screen.
-   */
   const expandSidebar = useCallback(() => {
     setSidebarCollapsed(false);
     try { localStorage.setItem('sidebarCollapsed', JSON.stringify(false)); } catch { /* ignore */ }
   }, []);
 
-  // The sunset notice. `opsMode` is reported as `'new'` until there is a signed-in
-  // user, so the login screen starts no clock and issues no config request; the
-  // hook picks both up on the switch to `'old'` once the session resolves.
-  // Nothing about the shell varies with the phase beyond the fields the banner
-  // and the badge render: no redirect, no `opsMode` change, no read-only views.
-  // Req 6.5, 6.10, 13.6
-  const { notice, dismiss } = useSunsetNotice(user ? opsMode : 'new');
+  const { notice, dismiss } = useSunsetNotice('new');
 
-  // Sync the view from the URL on first mount, then only on browser back /
-  // forward. Navigation itself uses history.pushState (see handleNavigate), so
-  // the App Router never re-resolves the route — no segment remount, no auth
-  // re-check, and therefore no loading-screen flash between pages.
   const syncFromLocation = useCallback(() => {
-    const { mode, page } = parsePath(window.location.pathname);
-    setOpsMode(mode);
+    const { page } = parsePath(window.location.pathname);
     setCurrentPage(page);
   }, []);
 
@@ -194,116 +144,82 @@ export default function AppShell() {
   }
 
   let PageComponent;
-  if (opsMode === 'new') {
-    if (currentPage === 'home' || currentPage === 'dashboard') {
-      PageComponent = NewHomePage;
-    } else if (currentPage === 'operationals') {
-      PageComponent = NewOperationalsPage;
-    } else if (currentPage === 'students') {
-      PageComponent = NewStudentsPage;
-    } else if (currentPage === 'student-subscriptions') {
-      PageComponent = NewStudentSubscriptionsPage;
-    } else if (currentPage === 'report-cards' || currentPage === 'report-cards-list') {
-      PageComponent = NewStudentReportCardsPage;
-    } else if (currentPage === 'report-cards-rubric') {
-      PageComponent = NewRubricSetupPage;
-    } else if (currentPage === 'instructors') {
-      PageComponent = NewInstructorsPage;
-    } else if (currentPage === 'crm') {
-      PageComponent = NewCrmPage;
-    } else if (currentPage === 'meetings') {
-      PageComponent = NewMeetingsPage;
-    } else if (currentPage === 'workload') {
-      PageComponent = NewWorkloadPage;
-    } else if (currentPage === 'leave') {
-      PageComponent = NewLeavePage;
-    } else if (currentPage === 'trial-availability') {
-      PageComponent = NewTrialAvailabilityPage;
-    } else if (currentPage === 'activity') {
-      PageComponent = NewActivityPage;
-    } else if (currentPage === 'progress-kinder') {
-      PageComponent = NewKinderProgressPage;
-    } else if (currentPage === 'progress-junior') {
-      PageComponent = NewJuniorProgressPage;
-    } else if (currentPage === 'progress-coder') {
-      PageComponent = NewCoderProgressPage;
-    } else if (currentPage === 'users') {
-      PageComponent = NewUsersPage;
-    } else if (currentPage === 'api') {
-      PageComponent = NewApiDocsPage;
-    } else {
-      PageComponent = NewSchedulePage;
-    }
+  if (currentPage === 'home' || currentPage === 'dashboard') {
+    PageComponent = NewHomePage;
+  } else if (currentPage === 'operationals') {
+    PageComponent = NewOperationalsPage;
+  } else if (currentPage === 'students') {
+    PageComponent = NewStudentsPage;
+  } else if (currentPage === 'student-subscriptions') {
+    PageComponent = NewStudentSubscriptionsPage;
+  } else if (currentPage === 'report-cards' || currentPage === 'report-cards-list') {
+    PageComponent = NewStudentReportCardsPage;
+  } else if (currentPage === 'report-cards-rubric') {
+    PageComponent = NewRubricSetupPage;
+  } else if (currentPage === 'instructors') {
+    PageComponent = NewInstructorsPage;
+  } else if (currentPage === 'crm') {
+    PageComponent = NewCrmPage;
+  } else if (currentPage === 'meetings') {
+    PageComponent = NewMeetingsPage;
+  } else if (currentPage === 'workload') {
+    PageComponent = NewWorkloadPage;
+  } else if (currentPage === 'leave') {
+    PageComponent = NewLeavePage;
+  } else if (currentPage === 'trial-availability') {
+    PageComponent = NewTrialAvailabilityPage;
+  } else if (currentPage === 'activity') {
+    PageComponent = NewActivityPage;
+  } else if (currentPage === 'progress-kinder') {
+    PageComponent = NewKinderProgressPage;
+  } else if (currentPage === 'progress-junior') {
+    PageComponent = NewJuniorProgressPage;
+  } else if (currentPage === 'progress-coder') {
+    PageComponent = NewCoderProgressPage;
+  } else if (currentPage === 'users') {
+    PageComponent = NewUsersPage;
+  } else if (currentPage === 'api') {
+    PageComponent = NewApiDocsPage;
   } else {
-    PageComponent = PAGE_MAP[currentPage] || HomePage;
+    PageComponent = NewSchedulePage;
   }
 
   const handleNavigate = (page, params = null) => {
     setPageParams(params);
-    // Swap the view immediately and update the address bar without going
-    // through the router, so nothing above this component is torn down.
     setCurrentPage(page);
-    const url = opsMode === 'new' ? `/new/${page}` : `/${page}`;
+    const url = `/new/${page}`;
     if (window.location.pathname !== url) {
       window.history.pushState({}, '', url);
     }
-    // Smooth scroll to top of dashboard
     const container = document.querySelector('.dashboard-container');
     if (container) container.scrollTo({ top: 0, behavior: 'smooth' });
-  };
-
-  const handleSetOpsMode = (mode) => {
-    const page = 'home';
-    setOpsMode(mode);
-    setCurrentPage(page);
-    const url = mode === 'new' ? '/new/home' : '/home';
-    if (window.location.pathname !== url) {
-      window.history.pushState({}, '', url);
-    }
   };
 
   return (
     <ToastProvider>
       <ScheduleProvider>
-        {/* Inside the providers, so a tour step can describe anything the app
-            renders; outside the page, so switching pages cannot unmount a
-            running tour mid-step. */}
         <TourProvider
           page={currentPage}
-          opsMode={opsMode}
-          sunsetLive={notice.phase !== 'past'}
+          opsMode="new"
+          sunsetLive={false}
           sidebarCollapsed={sidebarCollapsed}
         >
-        <div className={`app-layout ${sidebarCollapsed ? 'sidebar-collapsed' : ''}`}>
+        <div className="app-layout new-ops-active">
           <Sidebar 
             currentPage={currentPage} 
             onNavigate={handleNavigate} 
             onToggleSearch={() => setIsSearchOpen(true)} 
-            opsMode={opsMode}
-            setOpsMode={handleSetOpsMode}
+            opsMode="new"
+            setOpsMode={setOpsMode}
             onToggleSidebar={toggleSidebar}
-            sunsetBadge={notice.badge}
+            sunsetBadge=""
           />
           <main className="dashboard-container">
-            <Header onToggleSearch={() => setIsSearchOpen(true)} opsMode={opsMode} onToggleSidebar={toggleSidebar} sidebarCollapsed={sidebarCollapsed} onNavigate={handleNavigate} />
-            {/* Between the Header and the scrolling views, outside both: above the
-                scroll region so it cannot scroll away, and outside PageComponent so
-                it is one mount whichever page is active. Req 4.1, 4.3, 4.4 */}
-            {opsMode === 'old' && (
-              <SunsetBannerSlot
-                notice={notice}
-                onDismiss={dismiss}
-                sidebarCollapsed={sidebarCollapsed}
-                onExpandSidebar={expandSidebar}
-              />
-            )}
-            <div className={`dashboard-views ${opsMode === 'new' ? 'new-ops-anim' : ''}`}>
+            <Header onToggleSearch={() => setIsSearchOpen(true)} opsMode="new" onToggleSidebar={toggleSidebar} sidebarCollapsed={sidebarCollapsed} onNavigate={handleNavigate} />
+            <div className="dashboard-views new-ops-anim">
               <PageComponent onNavigate={handleNavigate} params={pageParams} page={currentPage} />
             </div>
           </main>
-          {opsMode === 'old' && (
-            <StudentSearchSidebar isOpen={isSearchOpen} onClose={() => setIsSearchOpen(false)} />
-          )}
         </div>
         </TourProvider>
       </ScheduleProvider>
