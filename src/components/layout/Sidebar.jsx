@@ -74,7 +74,7 @@ const LIVE_PROGRESS_PAGES = [
  * string renders no badge at all, so a failed config read or a missing model
  * leaves the tab exactly as it was rather than printing `undefined`.
  */
-export default function Sidebar({ currentPage, onNavigate, onToggleSearch, opsMode = 'old', setOpsMode, onToggleSidebar, sunsetBadge }) {
+export default function Sidebar({ currentPage, onNavigate, onToggleSearch, opsMode = 'old', setOpsMode, onToggleSidebar, sidebarCollapsed, sunsetBadge }) {
   const { user, logout } = useAuth();
   const { roleToggles, users, featureToggles } = useSchedule();
 
@@ -139,7 +139,7 @@ export default function Sidebar({ currentPage, onNavigate, onToggleSearch, opsMo
   };
 
   return (
-    <aside className="sidebar">
+    <aside className={`sidebar ${sidebarCollapsed ? 'collapsed' : ''}`}>
       <div className="sidebar-header">
         <div className="sidebar-header-row">
           <div>

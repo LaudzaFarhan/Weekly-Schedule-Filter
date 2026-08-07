@@ -204,7 +204,7 @@ export default function AppShell() {
           sunsetLive={false}
           sidebarCollapsed={sidebarCollapsed}
         >
-        <div className="app-layout new-ops-active">
+        <div className={`app-layout new-ops-active ${sidebarCollapsed ? 'sidebar-collapsed' : ''}`}>
           <Sidebar 
             currentPage={currentPage} 
             onNavigate={handleNavigate} 
@@ -212,6 +212,7 @@ export default function AppShell() {
             opsMode="new"
             setOpsMode={setOpsMode}
             onToggleSidebar={toggleSidebar}
+            sidebarCollapsed={sidebarCollapsed}
             sunsetBadge=""
           />
           <main className="dashboard-container">
