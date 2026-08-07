@@ -16,6 +16,7 @@ import {
   formatMinutesToClock,
   DEFAULT_THRESHOLDS,
 } from '../utils/workloadUtils';
+import { getInstructorDisplayName, isInstructorMatch } from '../utils/instructorUtils';
 import { BarChart3, Users, Clock, AlertOctagon, MapPin, X } from 'lucide-react';
 
 const STATUS = {
@@ -59,7 +60,7 @@ export default function NewWorkloadPage() {
   // whichever branch(es) they teach at. With no rules configured we treat every
   // day as workable rather than showing an instructor as unavailable all week.
   const workingDaysFor = (teacher) => {
-    const inst = instructors.find((i) => i.name === teacher);
+    const inst = instructors.find((i) => isInstructorMatch(teacher, i));
     const brs = inst?.branches || [];
     const days = new Set();
     const sources = brs.length ? brs : branchList;
@@ -78,9 +79,13 @@ export default function NewWorkloadPage() {
     const existing = new Set(base.map((r) => r.teacher));
     const extras = [];
     instructors.forEach((i) => {
-      if (!i.name) return;
+      const displayName = getInstructorDisplayName(i);
+      if (!displayName) return;
       if (branchFilter !== 'all' && !(i.branches || []).includes(branchFilter)) return;
-      if (!existing.has(i.name)) { extras.push(buildIdleWorkloadRow(i.name)); existing.add(i.name); }
+      if (!existing.has(displayName) && !existing.has(i.name)) {
+        extras.push(buildIdleWorkloadRow(displayName));
+        existing.add(displayName);
+      }
     });
     return base.concat(extras);
   }, [classes, instructors, branchFilter]);

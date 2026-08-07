@@ -6,7 +6,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../components/ui/Toast';
 import { DAY_NAMES, getWorkingDaysForBranch, getBranchCode, classBelongsToBranch, parseMeetingBranches } from '../utils/constants';
 import { parseLooseDate, getMondayOfDate, formatWeekRange } from '../utils/dateUtils';
-import { getInstructorBranch } from '../utils/instructorUtils';
+import { getInstructorBranch, getInstructorDisplayName } from '../utils/instructorUtils';
 import {
   buildWorkloadReport,
   buildIdleWorkloadRow,
@@ -318,9 +318,12 @@ export default function WorkloadPage() {
     const existingByNorm = new Set(filteredRaw.map((r) => norm(r.teacher)));
     const extras = [];
     for (const profile of instructorProfiles) {
+      const aliasName = getInstructorDisplayName(profile);
       const candidates = [
+        aliasName,
         profile.nickname,
         profile.fullname,
+        profile.name,
         profile.id ? profile.id.split('@')[0] : null,
       ].filter(Boolean);
       if (candidates.length === 0) continue;
@@ -332,7 +335,7 @@ export default function WorkloadPage() {
       );
       if (alreadyKnown) continue;
 
-      const displayName = candidates[0];
+      const displayName = aliasName || candidates[0];
       if (disabledInstructors && disabledInstructors.has(displayName)) continue;
 
       extras.push(buildIdleWorkloadRow(displayName));

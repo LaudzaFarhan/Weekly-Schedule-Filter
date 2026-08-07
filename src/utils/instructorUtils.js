@@ -46,6 +46,9 @@ export function getVerifiedAliases(inst) {
   if (Array.isArray(inst.verifiedAliases) && inst.verifiedAliases.length > 0) {
     return inst.verifiedAliases;
   }
+  if (Array.isArray(inst.verified_aliases) && inst.verified_aliases.length > 0) {
+    return inst.verified_aliases;
+  }
   if (Array.isArray(inst.aliases)) {
     // If aliases array contains objects like { name, verified }
     const verified = inst.aliases
