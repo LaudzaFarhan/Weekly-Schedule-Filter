@@ -1774,7 +1774,22 @@ export default function ScheduleGrid({
                                   </span>
                                 )}
                                 {m.program && (
-                                  <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{m.program}</span>
+                                  <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', display: 'inline-flex', alignItems: 'center', gap: '0.25rem' }}>
+                                    {m.program}
+                                    {(m.term || (m.remarks && /Term\s*[1-4]/i.test(m.remarks))) && (
+                                      <span style={{
+                                        fontSize: '0.62rem',
+                                        fontWeight: 700,
+                                        color: '#7c3aed',
+                                        background: 'rgba(124, 58, 237, 0.08)',
+                                        border: '1px solid rgba(124, 58, 237, 0.2)',
+                                        borderRadius: '4px',
+                                        padding: '0.05rem 0.3rem',
+                                      }}>
+                                        {m.term || (m.remarks?.match(/Term\s*[1-4]/i)?.[0])}
+                                      </span>
+                                    )}
+                                  </span>
                                 )}
 
                                 {badgeInfo && (

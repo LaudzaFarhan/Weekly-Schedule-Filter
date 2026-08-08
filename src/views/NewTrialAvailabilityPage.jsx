@@ -126,7 +126,7 @@ export default function NewTrialAvailabilityPage() {
 
   return (
     <section className="dashboard-view active">
-      <div className="panel" style={{ margin: 0 }}>
+      <div data-tour="availability-checker" className="panel" style={{ margin: 0 }}>
         <div className="panel-header" style={{ flexWrap: 'wrap', gap: '0.75rem', justifyContent: 'space-between', alignItems: 'center' }}>
           <div>
             <h2 style={{ fontSize: '1.25rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.45rem' }}>
@@ -154,7 +154,7 @@ export default function NewTrialAvailabilityPage() {
             <span style={chipStyle('#ea580c', 'rgba(249,115,22,0.12)')}>C</span> Coder
           </div>
 
-          <div style={{ overflowX: 'auto' }}>
+          <div data-tour="availability-slots" style={{ overflowX: 'auto' }}>
             <table className="trial-overview-table" style={{ width: '100%', textAlign: 'center', borderCollapse: 'collapse' }}>
               <thead>
                 <tr style={{ borderBottom: '2px solid var(--border-color)' }}>

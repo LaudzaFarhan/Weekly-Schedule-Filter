@@ -2,18 +2,47 @@ import { query } from '@/lib/db';
 import { buildListQuery, withLimit } from '@/lib/listQuery';
 import { NextResponse } from 'next/server';
 
-const mapRow = (row) => ({
-  id: row.id,
-  name: row.name,
-  phone: row.phone,
-  message: row.message,
-  status: row.status,
-  branch: row.branch,
-  trialDate: row.trial_date,
-  notes: row.notes,
-  createdAt: row.created_at,
-  updatedAt: row.updated_at
-});
+const setTagInNotes = (existingNotes, key, val) => {
+  let str = String(existingNotes || '');
+  const regex = new RegExp(`\\[${key}:\\s*[a-z_]+\\\]`, 'gi');
+  str = str.replace(regex, '').trim();
+  return `[${key}: ${val}] ${str}`.trim();
+};
+
+const mapRow = (row) => {
+  const notesStr = String(row.notes || '');
+  const attMatch = notesStr.match(/\[Attendance:\s*([a-z_]+)\]/i);
+  const payMatch = notesStr.match(/\[Payment:\s*([a-z_]+)\]/i);
+
+  let attendanceStatus = attMatch ? attMatch[1].toLowerCase() : row.attendance_status;
+  if (!attendanceStatus) {
+    if (notesStr.toLowerCase().includes('[attended]')) attendanceStatus = 'attended';
+    else if (notesStr.toLowerCase().includes('[absent]')) attendanceStatus = 'absent';
+    else attendanceStatus = 'pending';
+  }
+
+  let paymentStatus = payMatch ? payMatch[1].toLowerCase() : row.payment_status;
+  if (!paymentStatus) {
+    if (notesStr.toLowerCase().includes('[paid]')) paymentStatus = 'paid';
+    else if (notesStr.toLowerCase().includes('[unpaid]')) paymentStatus = 'unpaid';
+    else paymentStatus = 'pending';
+  }
+
+  return {
+    id: row.id,
+    name: row.name,
+    phone: row.phone,
+    message: row.message,
+    status: row.status,
+    branch: row.branch,
+    trialDate: row.trial_date,
+    notes: row.notes,
+    attendanceStatus: attendanceStatus || 'pending',
+    paymentStatus: paymentStatus || 'pending',
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
+  };
+};
 
 /**
  * GET: Fetch new CRM leads.
@@ -117,28 +146,45 @@ function extractLeadFields(body) {
   const status = body.status || 'interest_trial';
   const message = body.message || null;
   const notes = body.notes || null;
+  const attendanceStatus = body.attendanceStatus || body.attendance_status || 'pending';
+  const paymentStatus = body.paymentStatus || body.payment_status || 'pending';
 
-  return { name, phone, branch, trialDate, status, message, notes };
+  return { name, phone, branch, trialDate, status, message, notes, attendanceStatus, paymentStatus };
 }
+
+/** Ensure attendance_status and payment_status columns exist */
+const ready = async () => {
+  try {
+    await query(`ALTER TABLE new_crm_leads ADD COLUMN IF NOT EXISTS attendance_status VARCHAR(50) DEFAULT 'pending'`);
+  } catch (err) {
+    console.error('Migration notice attendance_status:', err.message);
+  }
+  try {
+    await query(`ALTER TABLE new_crm_leads ADD COLUMN IF NOT EXISTS payment_status VARCHAR(50) DEFAULT 'pending'`);
+  } catch (err) {
+    console.error('Migration notice payment_status:', err.message);
+  }
+};
 
 /**
  * POST: Create a new CRM lead record
  */
 export async function POST(req) {
   try {
+    await ready();
     const body = await req.json();
-    const { name, phone, branch, trialDate, status, message, notes } = extractLeadFields(body);
+    const { name, phone, branch, trialDate, status, message, notes, attendanceStatus, paymentStatus } = extractLeadFields(body);
 
     if (!name || !phone) {
       return NextResponse.json({ error: 'Name and phone contact are required' }, { status: 400 });
     }
 
     const sql = `
-      INSERT INTO new_crm_leads (name, phone, message, status, branch, trial_date, notes)
-      VALUES ($1, $2, $3, $4, $5, $6, $7)
+      INSERT INTO new_crm_leads (name, phone, message, status, branch, trial_date, notes, attendance_status, payment_status)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
       RETURNING *
     `;
-    const params = [name, phone, message || null, status || 'interest_trial', branch || null, trialDate || null, notes || null];
+    const params = [name, phone, message || null, status || 'interest_trial', branch || null, trialDate || null, notes || null, attendanceStatus, paymentStatus];
     const res = await query(sql, params);
 
     return NextResponse.json(mapRow(res.rows[0]));
@@ -153,6 +199,7 @@ export async function POST(req) {
  */
 async function handleUpdate(req) {
   try {
+    await ready();
     const body = await req.json();
     let targetId = body.id || body.leadId || body.lead_id;
 
@@ -205,31 +252,61 @@ async function handleUpdate(req) {
       const trialVal = body.trialDate || body.trial_date || body.date;
       fieldValues.trial_date = trialVal || null;
     }
+    // Fetch current lead row to embed tags into notes as a 100% fail-safe
+    const curRes = await query(`SELECT notes FROM new_crm_leads WHERE id = $1`, [targetId]);
+    let currentNotes = curRes.rowCount > 0 ? (curRes.rows[0].notes || '') : '';
     if (body.notes !== undefined) {
-      fieldValues.notes = body.notes;
+      currentNotes = body.notes || '';
     }
 
-    const setClauses = [];
-    const params = [];
-    let paramIdx = 1;
-
-    for (const [col, val] of Object.entries(fieldValues)) {
-      setClauses.push(`${col} = $${paramIdx}`);
-      params.push(val);
-      paramIdx++;
+    if (body.attendanceStatus !== undefined || body.attendance_status !== undefined) {
+      const attVal = body.attendanceStatus || body.attendance_status || 'pending';
+      currentNotes = setTagInNotes(currentNotes, 'Attendance', attVal);
+      fieldValues.attendance_status = attVal;
+    }
+    if (body.paymentStatus !== undefined || body.payment_status !== undefined) {
+      const payVal = body.paymentStatus || body.payment_status || 'pending';
+      currentNotes = setTagInNotes(currentNotes, 'Payment', payVal);
+      fieldValues.payment_status = payVal;
     }
 
-    setClauses.push(`updated_at = NOW()`);
-    params.push(targetId);
+    fieldValues.notes = currentNotes;
 
-    const sql = `
-      UPDATE new_crm_leads
-      SET ${setClauses.join(', ')}
-      WHERE id = $${paramIdx}
-      RETURNING *
-    `;
+    const buildSqlAndParams = (fields) => {
+      const setClauses = [];
+      const params = [];
+      let paramIdx = 1;
 
-    const res = await query(sql, params);
+      for (const [col, val] of Object.entries(fields)) {
+        setClauses.push(`${col} = $${paramIdx}`);
+        params.push(val);
+        paramIdx++;
+      }
+
+      setClauses.push(`updated_at = NOW()`);
+      params.push(targetId);
+
+      const sql = `
+        UPDATE new_crm_leads
+        SET ${setClauses.join(', ')}
+        WHERE id = $${paramIdx}
+        RETURNING *
+      `;
+      return { sql, params };
+    };
+
+    let res;
+    try {
+      const { sql, params } = buildSqlAndParams(fieldValues);
+      res = await query(sql, params);
+    } catch (err) {
+      // Fallback if attendance_status or payment_status column does not exist in DB
+      delete fieldValues.attendance_status;
+      delete fieldValues.payment_status;
+      const { sql, params } = buildSqlAndParams(fieldValues);
+      res = await query(sql, params);
+    }
+
     if (res.rowCount === 0) {
       return NextResponse.json({ error: 'Lead not found' }, { status: 404 });
     }

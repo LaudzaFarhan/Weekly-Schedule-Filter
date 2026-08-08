@@ -555,7 +555,7 @@ export default function NewInstructorsPage() {
 
   return (
     <section className="dashboard-view active">
-      <div className="panel full-schedule-panel">
+      <div data-tour="instructors-table" className="panel full-schedule-panel">
         {/* Panel Header */}
         <div className="panel-header" style={{ flexWrap: 'wrap', gap: '0.75rem', justifyContent: 'space-between', alignItems: 'center' }}>
           <div>
@@ -606,6 +606,7 @@ export default function NewInstructorsPage() {
               <Upload size={16} /> Bulk Import
             </button>
             <button 
+              data-tour="add-instructor-btn"
               onClick={openAddModal} 
               className="btn btn-primary"
               style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', borderRadius: '10px', padding: '0.5rem 1.2rem', fontSize: '0.85rem' }}

@@ -148,6 +148,7 @@ export default function Sidebar({ currentPage, onNavigate, onToggleSearch, opsMo
           </div>
           {onToggleSidebar && (
             <button
+              data-tour="sidebar-toggle"
               className="sidebar-collapse-btn"
               onClick={onToggleSidebar}
               title="Hide sidebar"

@@ -266,6 +266,7 @@ export default function Header({ onToggleSearch, opsMode = 'old', onToggleSideba
               button inside the sidebar itself. */}
           {onToggleSidebar && sidebarCollapsed && (
             <button
+              data-tour="sidebar-toggle-expand"
               onClick={onToggleSidebar}
               title="Show sidebar"
               aria-label="Show sidebar"

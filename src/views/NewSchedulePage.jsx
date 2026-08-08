@@ -12,6 +12,7 @@ import {
 } from '../services/internalScheduleService';
 import { subscribeToInternalStudents } from '../services/internalStudentService';
 import { subscribeToInternalInstructors } from '../services/internalInstructorService';
+import { subscribeToLiveProgress } from '../services/newLiveProgressService';
 import { slotTypeMeta } from '../lib/slotTypes';
 import ScheduleGridPanel from '../components/operations/ScheduleGridPanel';
 import { useNewOperationals } from '../hooks/useNewOperationals';
@@ -488,6 +489,13 @@ const parseProgramValue = (p) => {
   return { code: '', lesson: '1' };
 };
 
+/** Extract term number ("Term 1", "Term 2", ...) from program or remarks text. */
+const extractTermFromProgram = (p, r) => {
+  const text = `${String(p || '')} ${String(r || '')}`;
+  const match = text.match(/Term\s*([1-4])/i) || text.match(/T([1-4])/i);
+  return match ? `Term ${match[1]}` : 'Term 1';
+};
+
 /** Format minutes-since-midnight as "h.mm am/pm" (e.g. 13:00 -> "1.00 pm"). */
 const formatClock = (mins) => {
   const h24 = Math.floor(mins / 60) % 24;
@@ -544,12 +552,15 @@ export default function NewSchedulePage({ onNavigate }) {
   // Date being typed into the session-dates list, before it is added.
   const [sessionDateDraft, setSessionDateDraft] = useState('');
   const [programCode, setProgramCode] = useState('');
+  const [termNo, setTermNo] = useState('Term 1');
   const [lessonNo, setLessonNo] = useState('1');
+  const [allocTerm, setAllocTerm] = useState('Term 1');
+  const [allocLesson, setAllocLesson] = useState('1');
   // The program list is normally limited to the student's own category. This
   // opens it up, for the rare case of a deliberate change.
   const [programUnlocked, setProgramUnlocked] = useState(false);
   const [allocChooser, setAllocChooser] = useState(null); // student pending class-type choice
-  const [dayReco, setDayReco] = useState(null); // { student, classType } — drives the Recommended Days panel
+  const [dayReco, setDayReco] = useState(null); // { student, classType, term, lesson } — drives the Recommended Days panel
 
   // Bulk import + activity history
   const [showBulk, setShowBulk] = useState(false);
@@ -611,6 +622,56 @@ export default function NewSchedulePage({ onNavigate }) {
     return () => unsubscribe();
   }, []);
 
+  const [liveProgress, setLiveProgress] = useState([]);
+  const [allocCode, setAllocCode] = useState('');
+
+  useEffect(() => {
+    const unsubscribe = subscribeToLiveProgress((data) => setLiveProgress(data || []));
+    return () => unsubscribe();
+  }, []);
+
+  const progRecord = useMemo(() => {
+    if (!allocChooser || !liveProgress.length) return null;
+    const nameKey = String(allocChooser.name || '').trim().toLowerCase();
+    return liveProgress.find((p) => String(p.studentName || '').trim().toLowerCase() === nameKey) || null;
+  }, [allocChooser, liveProgress]);
+
+  const completedLessons = useMemo(() => {
+    if (!progRecord?.attendance) return new Set();
+    const set = new Set();
+    Object.entries(progRecord.attendance).forEach(([k, v]) => {
+      if (v) set.add(Number(k));
+    });
+    return set;
+  }, [progRecord]);
+
+  const firstUndoneLesson = useMemo(() => {
+    for (let i = 1; i <= 10; i++) {
+      if (!completedLessons.has(i)) return String(i);
+    }
+    return '1';
+  }, [completedLessons]);
+
+  const handleOpenAllocChooser = (st) => {
+    const initialCode = defaultCodeForLevel(st.level) || (st.level && /coder/i.test(st.level) ? 'Coder Advance' : 'JF1');
+    setAllocChooser(st);
+    setAllocCode(initialCode);
+    setAllocTerm('Term 1');
+    const nameKey = String(st.name || '').trim().toLowerCase();
+    const record = (liveProgress || []).find((p) => String(p.studentName || '').trim().toLowerCase() === nameKey);
+    const set = new Set();
+    if (record?.attendance) {
+      Object.entries(record.attendance).forEach(([k, v]) => {
+        if (v) set.add(Number(k));
+      });
+    }
+    let undone = '1';
+    for (let i = 1; i <= 10; i++) {
+      if (!set.has(i)) { undone = String(i); break; }
+    }
+    setAllocLesson(undone);
+  };
+
   // Subscribe to the New Operations instructors list — the instructor dropdown
   // must use New Operations data, not the old schedule's teachers.
   useEffect(() => {
@@ -618,13 +679,16 @@ export default function NewSchedulePage({ onNavigate }) {
     return () => unsubscribe();
   }, []);
 
-  // Derive the program value ("JF1.5", "Coder", ...) from the code + lesson.
+  // Derive the program value ("JF1.5", "Coder", ...) from the code + lesson + term.
   useEffect(() => {
     if (!programCode) return;
     const val = codeHasLessons(programCode) ? `${programCode}.${lessonNo}` : programCode;
-    setForm((prev) => (prev.program === val ? prev : { ...prev, program: val }));
+    setForm((prev) => {
+      if (prev.program === val && prev.term === termNo) return prev;
+      return { ...prev, program: val, term: termNo };
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [programCode, lessonNo]);
+  }, [programCode, lessonNo, termNo]);
 
   // Auto-derive the time slot from the chosen start time + program duration
   // rule (Kinder = 1.5h, everything else = 2h). Only runs once a start time is
@@ -916,6 +980,7 @@ export default function NewSchedulePage({ onNavigate }) {
     setEditingClass(null);
     setStartTime('');
     setProgramCode('');
+    setTermNo('Term 1');
     setLessonNo('1');
     setProgramUnlocked(false);
     setJoinTime(null);
@@ -925,6 +990,7 @@ export default function NewSchedulePage({ onNavigate }) {
       day: branchOpenDays(addBranch)[0] || 'Monday',
       time: '',
       program: '',
+      term: 'Term 1',
       teacher: '',
       student: '',
       branchName: addBranch,
@@ -943,43 +1009,34 @@ export default function NewSchedulePage({ onNavigate }) {
    *   existing class has to reproduce its label character for character, since
    *   that is what groups the rows into one class.
    */
-  const openAllocateModal = (student, classType, presetDay, presetStart, presetTeacher, presetTime, joinProgram) => {
+  const openAllocateModal = (student, classType, presetDay, presetStart, presetTeacher, presetTime, joinProgram, presetTerm, presetLesson, presetCodeParam) => {
     setEditingClass(null);
     setStartTime(presetStart || '');
-    // Start from the program the student is already enrolled in, rather than an
-    // empty field that could be set to anything.
-    const presetCode = defaultCodeForLevel(student.level);
-    // When joining a class already running the student's own program, start them
-    // at the lesson the class has reached rather than lesson 1. The code itself
-    // is never overwritten: a K1 student joining a K3 class is a real curriculum
-    // mismatch, and the rules engine should keep saying so.
+    const presetCode = presetCodeParam || dayReco?.programCode || defaultCodeForLevel(student.level) || 'JF1';
     const joined = joinProgram ? parseProgramValue(joinProgram) : null;
-    const presetLesson = (joined && presetCode && joined.code === presetCode) ? joined.lesson : '1';
+    const initialLesson = presetLesson || dayReco?.lesson || (joined && presetCode && joined.code === presetCode ? joined.lesson : '1');
+    const initialTerm = presetTerm || dayReco?.term || 'Term 1';
     setProgramCode(presetCode);
-    setLessonNo(presetLesson);
+    setLessonNo(initialLesson);
+    setTermNo(initialTerm);
     setProgramUnlocked(false);
     setJoinTime(presetTime || null);
     setSessionDateDraft('');
     const allocBranch = student.branchName || branchList[0] || '';
     const openDays = branchOpenDays(allocBranch);
     const day = (presetDay && openDays.includes(presetDay)) ? presetDay : (openDays[0] || 'Monday');
-    // A replacement, extra session or trial only exists on its dates, so seed
-    // the next occurrence of the chosen day rather than leaving it blank and
-    // saving a dated place that silently applies to every week. It has to be the
-    // *next* one: this week's Wednesday is already gone by Friday, and seeding it
-    // would expire the booking on save.
     const seedDate = nextDateForDay(day);
     setForm({
       day,
       time: presetTime || (presetStart ? buildTimeSlot(presetStart, '') : ''),
-      program: presetCode ? (codeHasLessons(presetCode) ? `${presetCode}.${presetLesson}` : presetCode) : '',
-      // Prefilled when an available instructor was picked in the panel.
+      program: presetCode ? (codeHasLessons(presetCode) ? `${presetCode}.${initialLesson}` : presetCode) : '',
+      term: initialTerm,
       teacher: presetTeacher || '',
       student: student.name || '',
       branchName: allocBranch,
       classType: classType || 'Regular',
       sessionDates: (isDatedKind(classType) && seedDate) ? [seedDate] : [],
-      remarks: ''
+      remarks: `${initialTerm} - L${initialLesson}`
     });
     setFormErrors({});
     setAllocChooser(null);
@@ -989,8 +1046,8 @@ export default function NewSchedulePage({ onNavigate }) {
 
   // After the class-type is chosen, surface the Recommended Days panel beside
   // the Unallocated list instead of opening the full modal immediately.
-  const startDayReco = (student, classType) => {
-    setDayReco({ student, classType, day: null });
+  const startDayReco = (student, classType, term = 'Term 1', lesson = '1', programCode = '') => {
+    setDayReco({ student, classType, term, lesson, programCode, day: null });
     setAllocChooser(null);
     setTimePick(null);
   };
@@ -1294,8 +1351,11 @@ export default function NewSchedulePage({ onNavigate }) {
     setEditingClass(c);
     setStartTime('');
     const parsed = parseProgramValue(c.program);
+    const initialTerm = c.term || extractTermFromProgram(c.program, c.remarks);
+    const initialLesson = c.lesson || parsed.lesson || '1';
     setProgramCode(parsed.code);
-    setLessonNo(parsed.lesson);
+    setLessonNo(initialLesson);
+    setTermNo(initialTerm);
     setProgramUnlocked(false);
     setJoinTime(null);
     setSessionDateDraft('');
@@ -1303,6 +1363,7 @@ export default function NewSchedulePage({ onNavigate }) {
       day: c.day || 'Monday',
       time: c.time || '',
       program: c.program || '',
+      term: initialTerm,
       teacher: c.teacher || '',
       student: c.student || '',
       branchName: c.branchName || '',
@@ -1692,7 +1753,7 @@ export default function NewSchedulePage({ onNavigate }) {
                     return (
                     <button
                       key={st.id}
-                      onClick={() => setAllocChooser(st)}
+                      onClick={() => handleOpenAllocChooser(st)}
                       title={showPlaces
                         ? `Book a replacement or extra session for ${st.name}`
                         : `Allocate ${st.name} to a class`}
@@ -2238,6 +2299,7 @@ export default function NewSchedulePage({ onNavigate }) {
               <Trash2 size={15} /> Clear All Data
             </button>
             <button 
+              data-tour="add-class-btn"
               onClick={openAddModal} 
               className="btn btn-primary"
               style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', borderRadius: '10px', padding: '0.5rem 1.2rem', fontSize: '0.85rem' }}
@@ -2263,7 +2325,7 @@ export default function NewSchedulePage({ onNavigate }) {
             </div>
           </div>
           
-          <div className="input-group" style={{ margin: 0, width: '150px' }}>
+          <div data-tour="branch-filter" className="input-group" style={{ margin: 0, width: '150px' }}>
             <label style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '0.3rem', display: 'block' }}>Branch</label>
             <select
               value={filterBranch}
@@ -2433,20 +2495,36 @@ export default function NewSchedulePage({ onNavigate }) {
                         </span>
                       </td>
                       <td>
-                        <span style={{ 
-                          background: c.program.toLowerCase().includes('trial') ? 'var(--primary-orange-light)' : 'var(--primary-blue-light)',
-                          color: c.program.toLowerCase().includes('trial') ? 'var(--primary-orange)' : 'var(--primary-blue)',
-                          padding: '0.15rem 0.5rem',
-                          borderRadius: '4px',
-                          fontSize: '0.75rem',
-                          fontWeight: 600,
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: '0.3rem'
-                        }}>
-                          <BookOpen size={11} />
-                          {c.program}
-                        </span>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem', alignItems: 'flex-start' }}>
+                          <span style={{ 
+                            background: c.program.toLowerCase().includes('trial') ? 'var(--primary-orange-light)' : 'var(--primary-blue-light)',
+                            color: c.program.toLowerCase().includes('trial') ? 'var(--primary-orange)' : 'var(--primary-blue)',
+                            padding: '0.15rem 0.5rem',
+                            borderRadius: '4px',
+                            fontSize: '0.75rem',
+                            fontWeight: 600,
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '0.3rem'
+                          }}>
+                            <BookOpen size={11} />
+                            {c.program}
+                          </span>
+                          <span style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '0.2rem',
+                            background: 'rgba(124, 58, 237, 0.08)',
+                            color: '#7c3aed',
+                            border: '1px solid rgba(124, 58, 237, 0.2)',
+                            padding: '0.1rem 0.4rem',
+                            borderRadius: '5px',
+                            fontSize: '0.68rem',
+                            fontWeight: 600
+                          }}>
+                            {c.term || extractTermFromProgram(c.program, c.remarks)} · L{parseProgramValue(c.program).lesson || '1'}
+                          </span>
+                        </div>
                       </td>
                       <td>
                         {(() => {
@@ -2679,7 +2757,7 @@ export default function NewSchedulePage({ onNavigate }) {
               animation: 'modalAppear 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards',
             }}
           >
-            <div style={{ padding: '1.25rem 1.5rem', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--bg-color)' }}>
+            <div style={{ padding: '1.25rem 1.5rem 0.5rem', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--bg-color)' }}>
               <div>
                 <h2 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 700 }}>
                   {studentScope === 'all' ? `Book for ${allocChooser.name}` : `Allocate ${allocChooser.name}`}
@@ -2687,7 +2765,7 @@ export default function NewSchedulePage({ onNavigate }) {
                 <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
                   {allocChooser.regularCount > 0 && allocChooser.regulars?.[0]
                     ? `Regular: ${allocChooser.regulars[0].day} ${allocChooser.regulars[0].time} · ${allocChooser.regulars[0].teacher}`
-                    : 'Choose the class type to continue'}
+                    : 'Select Term, Lesson & Class Type'}
                 </span>
               </div>
               <button
@@ -2698,7 +2776,95 @@ export default function NewSchedulePage({ onNavigate }) {
               </button>
             </div>
 
-            <div style={{ padding: '1.5rem', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+            {/* Target Level, Term and Lesson Pickers */}
+            <div style={{ padding: '0.85rem 1.5rem', display: 'flex', flexDirection: 'column', gap: '0.75rem', background: 'var(--bg-color)', borderBottom: '1px solid var(--border-color)' }}>
+              
+              {/* Level / Program Selector */}
+              <div>
+                <label style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-secondary)', display: 'block', marginBottom: '0.3rem' }}>
+                  Target Level / Program *
+                </label>
+                <select
+                  value={allocCode}
+                  onChange={(e) => setAllocCode(e.target.value)}
+                  className="modal-select-field"
+                  style={{ width: '100%', fontSize: '0.82rem', padding: '0.4rem 0.6rem' }}
+                >
+                  {PROGRAM_GROUPS.map((g) => (
+                    <optgroup key={g.label} label={g.label}>
+                      {g.codes.map((code) => (
+                        <option key={code} value={code}>
+                          {code} {allocChooser.level && defaultCodeForLevel(allocChooser.level) === code ? '★ (Enrolled Level)' : ''}
+                        </option>
+                      ))}
+                    </optgroup>
+                  ))}
+                </select>
+              </div>
+
+              {/* Term & Lesson for Junior / Kinder vs Coder */}
+              {categorizeLevel(allocCode || allocChooser?.level) === 'Coder' ? (
+                <div style={{
+                  padding: '0.55rem 0.75rem', borderRadius: '8px',
+                  background: 'rgba(8, 145, 178, 0.08)', border: '1px solid rgba(8, 145, 178, 0.2)',
+                  color: '#0891b2', fontSize: '0.75rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.4rem'
+                }}>
+                  <BookOpen size={14} />
+                  <span>Coder Program — Attendance Only (No specific lesson numbers required)</span>
+                </div>
+              ) : (
+                <>
+                  <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
+                    <div style={{ flex: 1 }}>
+                      <label style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-secondary)', display: 'block', marginBottom: '0.3rem' }}>
+                        Target Term *
+                      </label>
+                      <select
+                        value={allocTerm}
+                        onChange={(e) => setAllocTerm(e.target.value)}
+                        className="modal-select-field"
+                        style={{ width: '100%', fontSize: '0.82rem', padding: '0.38rem 0.6rem' }}
+                      >
+                        <option value="Term 1">Term 1</option>
+                        <option value="Term 2">Term 2</option>
+                        <option value="Term 3">Term 3</option>
+                        <option value="Term 4">Term 4</option>
+                      </select>
+                    </div>
+                    <div style={{ flex: 1 }}>
+                      <label style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-secondary)', display: 'block', marginBottom: '0.3rem' }}>
+                        Target Lesson *
+                      </label>
+                      <select
+                        value={allocLesson}
+                        onChange={(e) => setAllocLesson(e.target.value)}
+                        className="modal-select-field"
+                        style={{ width: '100%', fontSize: '0.82rem', padding: '0.38rem 0.6rem' }}
+                      >
+                        {Array.from({ length: 10 }, (_, i) => i + 1).map((n) => {
+                          const done = completedLessons.has(n);
+                          return (
+                            <option key={n} value={String(n)}>
+                              Lesson {n} {done ? ' (Done ✓)' : ' (Not done)'}
+                            </option>
+                          );
+                        })}
+                      </select>
+                    </div>
+                  </div>
+
+                  <div style={{ fontSize: '0.7rem', color: completedLessons.has(Number(allocLesson)) ? '#b45309' : 'var(--success, #059669)', fontWeight: 500, display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                    {completedLessons.has(Number(allocLesson)) ? (
+                      <span>⚠️ Note: {allocChooser.name} has already completed Lesson {allocLesson}.</span>
+                    ) : (
+                      <span>💡 Auto-selected Lesson {firstUndoneLesson} (Next uncompleted lesson for {allocChooser.name}).</span>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
+
+            <div style={{ padding: '1.25rem 1.5rem', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
               {[
                 {
                   type: ATTENDANCE.REGULAR, title: 'Regular Class', Icon: BookOpen,
@@ -2707,12 +2873,12 @@ export default function NewSchedulePage({ onNavigate }) {
                 },
                 {
                   type: ATTENDANCE.REPLACEMENT, title: 'Replacement', Icon: Repeat,
-                  desc: 'Skipping their regular week and sitting in this class instead. Ends once the date passes.',
+                  desc: 'Replacement for specific Term & Lesson. Ends once date passes.',
                   color: '#7c3aed', bg: 'rgba(124,58,237,0.1)',
                 },
                 {
                   type: ATTENDANCE.ADDITIONAL, title: 'Additional Session', Icon: CalendarPlus,
-                  desc: 'An extra session on top of their regular one, so a week can hold more than one.',
+                  desc: 'An extra session on top of regular class for chosen Term & Lesson.',
                   color: '#0891b2', bg: 'rgba(8,145,178,0.1)',
                 },
                 {
@@ -2724,7 +2890,7 @@ export default function NewSchedulePage({ onNavigate }) {
                 <button
                   key={opt.type}
                   className="alloc-type-card"
-                  onClick={() => startDayReco(allocChooser, opt.type)}
+                  onClick={() => startDayReco(allocChooser, opt.type, allocTerm, allocLesson, allocCode)}
                   style={{
                     display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '0.35rem',
                     padding: '1.1rem 1rem', borderRadius: '12px', cursor: 'pointer', textAlign: 'left',
@@ -2857,13 +3023,13 @@ export default function NewSchedulePage({ onNavigate }) {
                   </div>
                   
                   <div style={{ flex: 1 }}>
-                    <label className="modal-form-label">Program / Lesson *</label>
-                    <div style={{ display: 'flex', gap: '0.5rem' }}>
+                    <label className="modal-form-label">Program, Term & Lesson *</label>
+                    <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
                       <select
                         value={programCode}
                         onChange={(e) => setProgramCode(e.target.value)}
                         className={`modal-select-field ${formErrors.program ? 'error' : ''}`}
-                        style={{ flex: 2 }}
+                        style={{ flex: 2, minWidth: '110px' }}
                       >
                         <option value="">Program</option>
                         {programGroups.map((g) => (
@@ -2872,16 +3038,28 @@ export default function NewSchedulePage({ onNavigate }) {
                           </optgroup>
                         ))}
                       </select>
+                      <select
+                        value={termNo}
+                        onChange={(e) => setTermNo(e.target.value)}
+                        className="modal-select-field"
+                        style={{ flex: 1, minWidth: '85px' }}
+                        title="Select Term"
+                      >
+                        <option value="Term 1">Term 1</option>
+                        <option value="Term 2">Term 2</option>
+                        <option value="Term 3">Term 3</option>
+                        <option value="Term 4">Term 4</option>
+                      </select>
                       {codeHasLessons(programCode) && (
                         <select
                           value={lessonNo}
                           onChange={(e) => setLessonNo(e.target.value)}
                           className="modal-select-field"
-                          style={{ flex: 1 }}
+                          style={{ flex: 1, minWidth: '65px' }}
                           title="Lesson number"
                         >
                           {Array.from({ length: LESSON_COUNT }, (_, i) => i + 1).map((n) => (
-                            <option key={n} value={n}>L{n}</option>
+                            <option key={n} value={String(n)}>L{n}</option>
                           ))}
                         </select>
                       )}

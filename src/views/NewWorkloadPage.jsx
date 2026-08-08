@@ -158,7 +158,7 @@ export default function NewWorkloadPage() {
 
   return (
     <section className="dashboard-view active">
-      <div className="panel" style={{ margin: 0 }}>
+      <div data-tour="workload-header" className="panel" style={{ margin: 0 }}>
         <div className="panel-header" style={{ flexWrap: 'wrap', gap: '0.75rem', justifyContent: 'space-between', alignItems: 'center' }}>
           <div>
             <h2 style={{ fontSize: '1.25rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.45rem' }}>
@@ -169,6 +169,7 @@ export default function NewWorkloadPage() {
             </p>
           </div>
           <select
+            data-tour="workload-branch-filter"
             value={branchFilter}
             onChange={(e) => setBranchFilter(e.target.value)}
             style={{ padding: '0.5rem 1rem', borderRadius: '6px', border: '1px solid var(--border-color)', background: 'white', fontSize: '0.85rem', cursor: 'pointer' }}
@@ -206,7 +207,7 @@ export default function NewWorkloadPage() {
               </div>
 
               {/* Heatmap */}
-              <div>
+              <div data-tour="workload-table">
                 <h3 style={{ fontSize: '1rem', fontWeight: 600, margin: '0 0 0.15rem' }}>Daily Workload Heatmap</h3>
                 <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Hours per day, per instructor. Red cells exceed {thresholds.dailyRed}h.</span>
                 {sorted.length === 0 ? (

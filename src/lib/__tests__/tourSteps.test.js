@@ -115,7 +115,6 @@ describe('tourForPage', () => {
 
   it('returns null for a page with no tour, rather than a default', () => {
     // A wrong tour is worse than none: it describes controls that are not there.
-    expect(tourForPage('workload')).toBeNull();
     expect(tourForPage('some-page-that-does-not-exist')).toBeNull();
   });
 

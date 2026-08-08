@@ -15,7 +15,8 @@ import { subscribeToInternalClasses } from '../services/internalScheduleService'
 import { logActivity } from '../services/activityService';
 import { doTimeSlotsOverlap } from '../utils/timeUtils';
 import {
-  Plus, X, Search, Trash2, ExternalLink, Phone, Save, Clock, Calendar
+  Plus, X, Search, Trash2, ExternalLink, Phone, Save, Clock, Calendar,
+  CheckCircle2, XCircle, DollarSign, CreditCard, UserCheck, UserX, Check
 } from 'lucide-react';
 
 const COLUMNS = [
@@ -230,9 +231,35 @@ export default function CrmPage() {
   const [cardTo, setCardTo] = useState('');
   const [cardFilter, setCardFilter] = useState(null); // 'Kinder'|'Junior'|'Coder'|'notScheduled'|null
   const [viewMode, setViewMode] = useState('table'); // Default to table view
+  const [attendanceFilter, setAttendanceFilter] = useState('all'); // 'all'|'attended'|'absent'|'pending'
+  const [paymentFilter, setPaymentFilter] = useState('all');       // 'all'|'paid'|'unpaid'|'pending'
   const [selectedLeadIds, setSelectedLeadIds] = useState(new Set());
   const [page, setPage] = useState(1);
   const PAGE_SIZE = 10;
+
+  const handleUpdateAttendance = async (leadId, nextStatus, e) => {
+    if (e) e.stopPropagation();
+    try {
+      await updateLead(leadId, { attendanceStatus: nextStatus });
+      setLeads((prev) => prev.map((l) => (l.id === leadId ? { ...l, attendanceStatus: nextStatus } : l)));
+      showToast({ title: `Attendance updated to ${nextStatus.toUpperCase()}`, variant: 'success' });
+    } catch (err) {
+      console.error(err);
+      showToast({ title: 'Failed to update attendance', variant: 'error' });
+    }
+  };
+
+  const handleUpdatePayment = async (leadId, nextStatus, e) => {
+    if (e) e.stopPropagation();
+    try {
+      await updateLead(leadId, { paymentStatus: nextStatus });
+      setLeads((prev) => prev.map((l) => (l.id === leadId ? { ...l, paymentStatus: nextStatus } : l)));
+      showToast({ title: `Payment status updated to ${nextStatus.toUpperCase()}`, variant: 'success' });
+    } catch (err) {
+      console.error(err);
+      showToast({ title: 'Failed to update payment status', variant: 'error' });
+    }
+  };
 
   const [selectedCrmInstructor, setSelectedCrmInstructor] = useState('');
   const [selectedCrmDay, setSelectedCrmDay] = useState('Saturday');
@@ -666,8 +693,20 @@ export default function CrmPage() {
           return false;
         }
       }
+
+      // 3. Attendance filter
+      if (attendanceFilter !== 'all') {
+        const att = l.attendanceStatus || 'pending';
+        if (att !== attendanceFilter) return false;
+      }
+
+      // 4. Payment filter
+      if (paymentFilter !== 'all') {
+        const pay = l.paymentStatus || 'pending';
+        if (pay !== paymentFilter) return false;
+      }
       
-      // 3. Search query filter
+      // 5. Search query filter
       if (!query) return true;
       return (
         l.name.toLowerCase().includes(query) ||
@@ -676,7 +715,31 @@ export default function CrmPage() {
         (l.notes && l.notes.toLowerCase().includes(query))
       );
     });
-  }, [leads, searchQuery, selectedBranchFilter, selectedStatusFilter, cardFilter, cardFrom, cardTo, internalClasses]);
+  }, [leads, searchQuery, selectedBranchFilter, selectedStatusFilter, cardFilter, cardFrom, cardTo, internalClasses, attendanceFilter, paymentFilter]);
+
+  const attendanceStats = useMemo(() => {
+    let total = filteredLeads.length;
+    let attended = 0;
+    let absent = 0;
+    let paid = 0;
+    let unpaid = 0;
+    let pendingAtt = 0;
+    let pendingPay = 0;
+
+    filteredLeads.forEach((l) => {
+      const att = l.attendanceStatus || 'pending';
+      const pay = l.paymentStatus || 'pending';
+      if (att === 'attended') attended++;
+      else if (att === 'absent') absent++;
+      else pendingAtt++;
+
+      if (pay === 'paid') paid++;
+      else if (pay === 'unpaid') unpaid++;
+      else pendingPay++;
+    });
+
+    return { total, attended, absent, paid, unpaid, pendingAtt, pendingPay };
+  }, [filteredLeads]);
 
   // Summary stats for the cards above the table. Counts BOOKED leads
   // (status 'trial_booked'), optionally filtered to a chosen trial date:
@@ -799,7 +862,7 @@ export default function CrmPage() {
   };
 
   return (
-    <section className="dashboard-view active">
+    <section data-tour="crm-pipeline" className="dashboard-view active">
       {/* Header section */}
       <div style={{ marginBottom: '1.5rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
         <div>
@@ -902,7 +965,7 @@ export default function CrmPage() {
                 fontWeight: viewMode === 'table' ? 600 : 'normal'
               }}
             >
-              Table View
+              Main Table
             </button>
             <button
               onClick={() => setViewMode('board')}
@@ -919,9 +982,24 @@ export default function CrmPage() {
             >
               Board View
             </button>
+            <button
+              onClick={() => setViewMode('attendance_payments')}
+              style={{
+                padding: '0 0.85rem',
+                fontSize: '0.85rem',
+                border: 'none',
+                background: viewMode === 'attendance_payments' ? 'var(--primary, #4f46e5)' : 'white',
+                color: viewMode === 'attendance_payments' ? 'white' : 'var(--text-secondary)',
+                cursor: 'pointer',
+                transition: 'background 0.15s, color 0.15s',
+                fontWeight: viewMode === 'attendance_payments' ? 600 : 'normal'
+              }}
+            >
+              Attendance & Payments Roster
+            </button>
           </div>
 
-          <button className="btn btn-primary" onClick={() => setIsAddOpen(true)} style={{ height: '38px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+          <button data-tour="add-lead-btn" className="btn btn-primary" onClick={() => setIsAddOpen(true)} style={{ height: '38px', display: 'flex', alignItems: 'center', gap: '4px' }}>
             <Plus size={18} /> Add Lead
           </button>
         </div>
@@ -1241,6 +1319,8 @@ export default function CrmPage() {
                 <th>Status</th>
                 <th>Weekly Schedule</th>
                 <th>Trial Date</th>
+                <th>Lab Attendance</th>
+                <th>Payment Status</th>
                 <th>Admin Notes</th>
                 <th>Received</th>
                 <th style={{ width: 100, textAlign: 'center' }}>Action</th>
@@ -1249,7 +1329,7 @@ export default function CrmPage() {
             <tbody>
               {filteredLeads.length === 0 ? (
                 <tr>
-                  <td colSpan="10" className="empty-state-table" style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-muted)' }}>
+                  <td colSpan="12" className="empty-state-table" style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-muted)' }}>
                     No leads match your filter.
                   </td>
                 </tr>
@@ -1372,6 +1452,50 @@ export default function CrmPage() {
                           <span style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>—</span>
                         )}
                       </td>
+                      <td onClick={(e) => e.stopPropagation()}>
+                        <select
+                          value={lead.attendanceStatus || 'pending'}
+                          onChange={(e) => handleUpdateAttendance(lead.id, e.target.value, e)}
+                          style={{
+                            padding: '0.25rem 0.4rem',
+                            borderRadius: '6px',
+                            fontSize: '0.75rem',
+                            fontWeight: 600,
+                            cursor: 'pointer',
+                            outline: 'none',
+                            border: '1px solid',
+                            borderColor: lead.attendanceStatus === 'attended' ? '#86efac' : lead.attendanceStatus === 'absent' ? '#fca5a5' : '#cbd5e1',
+                            background: lead.attendanceStatus === 'attended' ? '#dcfce7' : lead.attendanceStatus === 'absent' ? '#fee2e2' : '#f8fafc',
+                            color: lead.attendanceStatus === 'attended' ? '#15803d' : lead.attendanceStatus === 'absent' ? '#b91c1c' : '#475569',
+                          }}
+                        >
+                          <option value="pending">⏳ Pending</option>
+                          <option value="attended">✓ Attended</option>
+                          <option value="absent">✕ Absent</option>
+                        </select>
+                      </td>
+                      <td onClick={(e) => e.stopPropagation()}>
+                        <select
+                          value={lead.paymentStatus || 'pending'}
+                          onChange={(e) => handleUpdatePayment(lead.id, e.target.value, e)}
+                          style={{
+                            padding: '0.25rem 0.4rem',
+                            borderRadius: '6px',
+                            fontSize: '0.75rem',
+                            fontWeight: 600,
+                            cursor: 'pointer',
+                            outline: 'none',
+                            border: '1px solid',
+                            borderColor: lead.paymentStatus === 'paid' ? '#6ee7b7' : lead.paymentStatus === 'unpaid' ? '#fdba74' : '#cbd5e1',
+                            background: lead.paymentStatus === 'paid' ? '#d1fae5' : lead.paymentStatus === 'unpaid' ? '#ffedd5' : '#f8fafc',
+                            color: lead.paymentStatus === 'paid' ? '#047857' : lead.paymentStatus === 'unpaid' ? '#c2410c' : '#475569',
+                          }}
+                        >
+                          <option value="pending">⏳ Pending</option>
+                          <option value="paid">💳 Paid</option>
+                          <option value="unpaid">⚡ Unpaid</option>
+                        </select>
+                      </td>
                       <td>
                         <div style={{
                           maxWidth: '180px',
@@ -1419,7 +1543,7 @@ export default function CrmPage() {
             onPageChange={setPage} 
           />
         </div>
-      ) : (
+      ) : viewMode === 'board' ? (
         /* Kanban Board View */
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '1rem', alignItems: 'start', minHeight: '60vh' }}>
           {COLUMNS.map((col) => {
@@ -1621,6 +1745,258 @@ export default function CrmPage() {
               </div>
             );
           })}
+        </div>
+      ) : (
+        /* Dedicated Attendance & Payment Roster View */
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+          
+          {/* Summary Stats Cards */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '1rem' }}>
+            <div style={{ background: 'white', padding: '1rem 1.25rem', borderRadius: '12px', boxShadow: '0 1px 3px rgba(0,0,0,0.05)', border: '1px solid #e2e8f0' }}>
+              <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', fontWeight: 600 }}>Total Filtered Customers</div>
+              <div style={{ fontSize: '1.6rem', fontWeight: 700, color: 'var(--text-main)', marginTop: '0.2rem' }}>{attendanceStats.total}</div>
+              <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '0.25rem' }}>Active trial bookings & inquiries</div>
+            </div>
+
+            <div style={{ background: '#f0fdf4', padding: '1rem 1.25rem', borderRadius: '12px', boxShadow: '0 1px 3px rgba(0,0,0,0.05)', border: '1px solid #bbf7d0' }}>
+              <div style={{ fontSize: '0.8rem', color: '#15803d', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                <CheckCircle2 size={16} /> Attended Lab
+              </div>
+              <div style={{ fontSize: '1.6rem', fontWeight: 700, color: '#166534', marginTop: '0.2rem' }}>
+                {attendanceStats.attended} <span style={{ fontSize: '0.85rem', fontWeight: 500, color: '#15803d' }}>({attendanceStats.total ? Math.round((attendanceStats.attended / attendanceStats.total) * 100) : 0}%)</span>
+              </div>
+              <div style={{ fontSize: '0.72rem', color: '#15803d', marginTop: '0.25rem' }}>Confirmed lab attendance</div>
+            </div>
+
+            <div style={{ background: '#fef2f2', padding: '1rem 1.25rem', borderRadius: '12px', boxShadow: '0 1px 3px rgba(0,0,0,0.05)', border: '1px solid #fecaca' }}>
+              <div style={{ fontSize: '0.8rem', color: '#b91c1c', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                <XCircle size={16} /> Absent / No Show
+              </div>
+              <div style={{ fontSize: '1.6rem', fontWeight: 700, color: '#991b1b', marginTop: '0.2rem' }}>
+                {attendanceStats.absent} <span style={{ fontSize: '0.85rem', fontWeight: 500, color: '#b91c1c' }}>({attendanceStats.total ? Math.round((attendanceStats.absent / attendanceStats.total) * 100) : 0}%)</span>
+              </div>
+              <div style={{ fontSize: '0.72rem', color: '#b91c1c', marginTop: '0.25rem' }}>Did not attend scheduled trial</div>
+            </div>
+
+            <div style={{ background: '#ecfdf5', padding: '1rem 1.25rem', borderRadius: '12px', boxShadow: '0 1px 3px rgba(0,0,0,0.05)', border: '1px solid #a7f3d0' }}>
+              <div style={{ fontSize: '0.8rem', color: '#047857', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                <CreditCard size={16} /> Paid / Enrolled
+              </div>
+              <div style={{ fontSize: '1.6rem', fontWeight: 700, color: '#065f46', marginTop: '0.2rem' }}>
+                {attendanceStats.paid} <span style={{ fontSize: '0.85rem', fontWeight: 500, color: '#047857' }}>({attendanceStats.attended ? Math.round((attendanceStats.paid / attendanceStats.attended) * 100) : 0}% of attended)</span>
+              </div>
+              <div style={{ fontSize: '0.72rem', color: '#047857', marginTop: '0.25rem' }}>Payment completed</div>
+            </div>
+
+            <div style={{ background: '#fff7ed', padding: '1rem 1.25rem', borderRadius: '12px', boxShadow: '0 1px 3px rgba(0,0,0,0.05)', border: '1px solid #fed7aa' }}>
+              <div style={{ fontSize: '0.8rem', color: '#c2410c', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                <Clock size={16} /> Unpaid / Pending
+              </div>
+              <div style={{ fontSize: '1.6rem', fontWeight: 700, color: '#9a3412', marginTop: '0.2rem' }}>
+                {attendanceStats.unpaid} <span style={{ fontSize: '0.85rem', fontWeight: 500, color: '#c2410c' }}>({attendanceStats.pendingPay} pending)</span>
+              </div>
+              <div style={{ fontSize: '0.72rem', color: '#c2410c', marginTop: '0.25rem' }}>Awaiting payment / conversion</div>
+            </div>
+          </div>
+
+          {/* Quick Filter Bar for Attendance & Payments */}
+          <div style={{ background: 'white', padding: '0.85rem 1.25rem', borderRadius: '12px', boxShadow: '0 1px 3px rgba(0,0,0,0.05)', display: 'flex', gap: '0.75rem', alignItems: 'center', flexWrap: 'wrap' }}>
+            <span style={{ fontSize: '0.82rem', fontWeight: 600, color: 'var(--text-secondary)' }}>Quick Filters:</span>
+            
+            <select
+              value={attendanceFilter}
+              onChange={(e) => { setAttendanceFilter(e.target.value); setPage(1); }}
+              style={{ padding: '0.4rem 0.8rem', borderRadius: '6px', border: '1px solid var(--border-color)', fontSize: '0.82rem', background: 'white', cursor: 'pointer' }}
+            >
+              <option value="all">All Attendance (Attended & Absent)</option>
+              <option value="attended">✓ Attended Only</option>
+              <option value="absent">✕ Absent / No Show Only</option>
+              <option value="pending">⏳ Pending Attendance</option>
+            </select>
+
+            <select
+              value={paymentFilter}
+              onChange={(e) => { setPaymentFilter(e.target.value); setPage(1); }}
+              style={{ padding: '0.4rem 0.8rem', borderRadius: '6px', border: '1px solid var(--border-color)', fontSize: '0.82rem', background: 'white', cursor: 'pointer' }}
+            >
+              <option value="all">All Payment Statuses</option>
+              <option value="paid">💳 Paid / Enrolled Only</option>
+              <option value="unpaid">⚡ Unpaid Only</option>
+              <option value="pending">⏳ Pending Payment</option>
+            </select>
+
+            {(attendanceFilter !== 'all' || paymentFilter !== 'all') && (
+              <button
+                onClick={() => { setAttendanceFilter('all'); setPaymentFilter('all'); }}
+                style={{ background: 'transparent', border: 'none', color: '#ef4444', cursor: 'pointer', fontSize: '0.78rem', display: 'inline-flex', alignItems: 'center', gap: '0.2rem' }}
+              >
+                <X size={13} /> Reset Roster Filters
+              </button>
+            )}
+          </div>
+
+          {/* Roster Table */}
+          <div className="trial-table-wrapper" style={{ background: 'white', padding: '1rem', borderRadius: '12px', boxShadow: '0 1px 3px rgba(0,0,0,0.05)', overflowX: 'auto' }}>
+            <table className="trial-table" style={{ minWidth: '1050px', width: '100%' }}>
+              <thead>
+                <tr>
+                  <th style={{ width: 40, textAlign: 'center' }}>
+                    <input
+                      type="checkbox"
+                      checked={pagedLeads.length > 0 && pagedLeads.every(l => selectedLeadIds.has(l.id))}
+                      onChange={() => toggleAllOnPage(pagedLeads)}
+                      style={{ cursor: 'pointer', width: '16px', height: '16px' }}
+                    />
+                  </th>
+                  <th>Customer / Student Name</th>
+                  <th>Branch</th>
+                  <th>Contact</th>
+                  <th>Trial Date & Schedule</th>
+                  <th style={{ minWidth: '160px' }}>Lab Attendance</th>
+                  <th style={{ minWidth: '160px' }}>Payment Status</th>
+                  <th>CRM Status</th>
+                  <th style={{ width: 90, textAlign: 'center' }}>Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredLeads.length === 0 ? (
+                  <tr>
+                    <td colSpan="9" className="empty-state-table" style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-muted)' }}>
+                      No customers match your attendance & payment filter.
+                    </td>
+                  </tr>
+                ) : (
+                  pagedLeads.map((lead) => {
+                    const statusCol = COLUMNS.find(c => c.id === lead.status) || COLUMNS[0];
+                    const matchedClass = getScheduledClass(lead, internalClasses);
+                    const att = lead.attendanceStatus || 'pending';
+                    const pay = lead.paymentStatus || 'pending';
+                    return (
+                      <tr key={lead.id} style={{ background: selectedLeadIds.has(lead.id) ? 'var(--danger-bg, #fef2f2)' : undefined, cursor: 'pointer' }} onClick={() => handleOpenDetails(lead)}>
+                        <td style={{ textAlign: 'center' }} onClick={(e) => e.stopPropagation()}>
+                          <input
+                            type="checkbox"
+                            checked={selectedLeadIds.has(lead.id)}
+                            onChange={() => toggleRow(lead.id)}
+                            style={{ cursor: 'pointer', width: '16px', height: '16px' }}
+                          />
+                        </td>
+                        <td style={{ fontWeight: 600, color: 'var(--text-main)' }}>
+                          {lead.name}
+                        </td>
+                        <td>
+                          {lead.branch ? <span className="branch-tag">{lead.branch}</span> : <span style={{ color: 'var(--text-muted)' }}>—</span>}
+                        </td>
+                        <td onClick={(e) => e.stopPropagation()}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <span style={{ fontSize: '0.85rem' }}>{lead.phone}</span>
+                            <a
+                              href={getWhatsAppLink(lead.phone)}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              style={{ display: 'flex', alignItems: 'center', gap: '3px', background: '#22c55e', color: 'white', borderRadius: '4px', padding: '2px 6px', fontSize: '0.7rem', fontWeight: 600, textDecoration: 'none' }}
+                            >
+                              Chat <ExternalLink size={9} />
+                            </a>
+                          </div>
+                        </td>
+                        <td>
+                          {lead.trialDate ? (
+                            <span style={{ fontSize: '0.85rem', fontWeight: 600 }}>{lead.trialDate}</span>
+                          ) : matchedClass ? (
+                            <span style={{ fontSize: '0.8rem', color: '#047857' }}>{cleanDay(matchedClass.day)} • {matchedClass.time.split(' - ')[0]}</span>
+                          ) : (
+                            <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>—</span>
+                          )}
+                        </td>
+                        
+                        {/* Attendance Toggle Buttons */}
+                        <td onClick={(e) => e.stopPropagation()}>
+                          <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+                            <button
+                              type="button"
+                              onClick={(e) => handleUpdateAttendance(lead.id, 'attended', e)}
+                              style={{
+                                padding: '3px 8px', borderRadius: '6px', fontSize: '0.72rem', fontWeight: 600, cursor: 'pointer',
+                                border: att === 'attended' ? '1.5px solid #16a34a' : '1px solid #cbd5e1',
+                                background: att === 'attended' ? '#dcfce7' : 'white',
+                                color: att === 'attended' ? '#15803d' : '#64748b',
+                                boxShadow: att === 'attended' ? '0 1px 2px rgba(22,163,74,0.2)' : 'none',
+                              }}
+                            >
+                              ✓ Attended
+                            </button>
+                            <button
+                              type="button"
+                              onClick={(e) => handleUpdateAttendance(lead.id, 'absent', e)}
+                              style={{
+                                padding: '3px 8px', borderRadius: '6px', fontSize: '0.72rem', fontWeight: 600, cursor: 'pointer',
+                                border: att === 'absent' ? '1.5px solid #dc2626' : '1px solid #cbd5e1',
+                                background: att === 'absent' ? '#fee2e2' : 'white',
+                                color: att === 'absent' ? '#b91c1c' : '#64748b',
+                                boxShadow: att === 'absent' ? '0 1px 2px rgba(220,38,38,0.2)' : 'none',
+                              }}
+                            >
+                              ✕ Absent
+                            </button>
+                          </div>
+                        </td>
+
+                        {/* Payment Toggle Buttons */}
+                        <td onClick={(e) => e.stopPropagation()}>
+                          <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+                            <button
+                              type="button"
+                              onClick={(e) => handleUpdatePayment(lead.id, 'paid', e)}
+                              style={{
+                                padding: '3px 8px', borderRadius: '6px', fontSize: '0.72rem', fontWeight: 600, cursor: 'pointer',
+                                border: pay === 'paid' ? '1.5px solid #059669' : '1px solid #cbd5e1',
+                                background: pay === 'paid' ? '#d1fae5' : 'white',
+                                color: pay === 'paid' ? '#047857' : '#64748b',
+                                boxShadow: pay === 'paid' ? '0 1px 2px rgba(5,150,105,0.2)' : 'none',
+                              }}
+                            >
+                              💳 Paid
+                            </button>
+                            <button
+                              type="button"
+                              onClick={(e) => handleUpdatePayment(lead.id, 'unpaid', e)}
+                              style={{
+                                padding: '3px 8px', borderRadius: '6px', fontSize: '0.72rem', fontWeight: 600, cursor: 'pointer',
+                                border: pay === 'unpaid' ? '1.5px solid #ea580c' : '1px solid #cbd5e1',
+                                background: pay === 'unpaid' ? '#ffedd5' : 'white',
+                                color: pay === 'unpaid' ? '#c2410c' : '#64748b',
+                                boxShadow: pay === 'unpaid' ? '0 1px 2px rgba(234,88,12,0.2)' : 'none',
+                              }}
+                            >
+                              ⚡ Unpaid
+                            </button>
+                          </div>
+                        </td>
+
+                        <td>
+                          <span style={{ fontSize: '0.75rem', fontWeight: 'bold', padding: '3px 8px', borderRadius: '20px', background: statusCol.badge, color: statusCol.textColor, display: 'inline-block' }}>
+                            {statusCol.title}
+                          </span>
+                        </td>
+                        <td style={{ textAlign: 'center' }} onClick={(e) => e.stopPropagation()}>
+                          <div style={{ display: 'flex', justifyContent: 'center', gap: '6px' }}>
+                            <button className="btn btn-sm" onClick={() => handleOpenDetails(lead)} style={{ padding: '3px 7px', background: '#f1f5f9', border: '1px solid #cbd5e1', cursor: 'pointer' }} title="Edit Lead Details">
+                              Edit
+                            </button>
+                            <button className="btn-icon btn-icon-danger" onClick={() => handleDeleteLead(lead.id)} title="Delete Lead">
+                              <Trash2 size={15} />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+            <Pagination currentPage={page} totalPages={totalPages} onPageChange={setPage} />
+          </div>
         </div>
       )}
 
@@ -1864,6 +2240,33 @@ export default function CrmPage() {
                     {COLUMNS.map(col => (
                       <option key={col.id} value={col.id}>{col.title}</option>
                     ))}
+                  </select>
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', gap: '1rem' }}>
+                <div className="input-group" style={{ flex: 1 }}>
+                  <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Lab Attendance</label>
+                  <select
+                    value={editedLead.attendanceStatus || 'pending'}
+                    onChange={e => setEditedLead({ ...editedLead, attendanceStatus: e.target.value })}
+                    style={{ width: '100%', padding: '0.5rem', borderRadius: '6px', border: '1px solid var(--border-color)' }}
+                  >
+                    <option value="pending">⏳ Pending</option>
+                    <option value="attended">✓ Attended</option>
+                    <option value="absent">✕ Absent / No Show</option>
+                  </select>
+                </div>
+                <div className="input-group" style={{ flex: 1 }}>
+                  <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Payment Status</label>
+                  <select
+                    value={editedLead.paymentStatus || 'pending'}
+                    onChange={e => setEditedLead({ ...editedLead, paymentStatus: e.target.value })}
+                    style={{ width: '100%', padding: '0.5rem', borderRadius: '6px', border: '1px solid var(--border-color)' }}
+                  >
+                    <option value="pending">⏳ Pending</option>
+                    <option value="paid">💳 Paid / Enrolled</option>
+                    <option value="unpaid">⚡ Unpaid</option>
                   </select>
                 </div>
               </div>
