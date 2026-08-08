@@ -175,6 +175,199 @@ export const TOURS = {
     ],
   },
 
+  // Feature-specific tours launched from FeatureTutorialSidebar
+  'sidebar-space': {
+    id: 'sidebar-space',
+    version: 1,
+    title: 'Hide & Show Sidebar Space',
+    steps: [
+      {
+        id: 'nav',
+        pageId: 'schedule',
+        target: '[data-tour="sidebar-nav"]',
+        placement: 'right',
+        title: 'Sidebar Navigation Area',
+        body: 'Click the PanelLeft icon in the header bar anytime to collapse this menu and gain full screen space.',
+      },
+    ],
+  },
+
+  'master-schedule': {
+    id: 'master-schedule',
+    version: 1,
+    title: 'Master Schedule Grid',
+    steps: [
+      {
+        id: 'nav',
+        pageId: 'schedule',
+        target: '[data-tour="nav-schedule"]',
+        placement: 'right',
+        title: 'Master Schedule Link',
+        body: 'Click here to access the weekly schedule grid.',
+      },
+      {
+        id: 'grid',
+        pageId: 'schedule',
+        target: '[data-tour="schedule-grid"]',
+        placement: 'top',
+        title: 'Weekly Master Grid',
+        body: 'Rows are time slots and columns are instructors. Click any card to manage class rosters.',
+      },
+      {
+        id: 'scope',
+        pageId: 'schedule',
+        target: '[data-tour="student-scope"]',
+        placement: 'left',
+        title: 'Unallocated Students Sidebar',
+        body: 'View students needing class placement and smart day recommendations.',
+      },
+    ],
+  },
+
+  'unallocated-students': {
+    id: 'unallocated-students',
+    version: 1,
+    title: 'Unallocated Students & Smart Placement',
+    steps: [
+      {
+        id: 'scope',
+        pageId: 'schedule',
+        target: '[data-tour="student-scope"]',
+        placement: 'left',
+        title: 'Unallocated Students Panel',
+        body: 'Students who do not have an active class allocation stay listed here. Select a student to calculate open days.',
+      },
+    ],
+  },
+
+  'slot-checker': {
+    id: 'slot-checker',
+    version: 1,
+    title: 'Slot Checker & Availability',
+    steps: [
+      {
+        id: 'nav',
+        pageId: 'availability',
+        target: '[data-tour="nav-availability"]',
+        placement: 'right',
+        title: 'Slot Checker Link',
+        body: 'Open real-time class capacity and open seats for trial or regular inquiries.',
+      },
+    ],
+  },
+
+  'workload': {
+    id: 'workload',
+    version: 1,
+    title: 'Instructor Workload & Hours',
+    steps: [
+      {
+        id: 'nav',
+        pageId: 'workload',
+        target: '[data-tour="nav-workload"]',
+        placement: 'right',
+        title: 'Workload & Hours Link',
+        body: 'Monitor weekly teaching loads, load heatmaps, and instructor registry alignment.',
+      },
+    ],
+  },
+
+  'instructors-registry': {
+    id: 'instructors-registry',
+    version: 1,
+    title: 'Instructors Registry & Profiles',
+    steps: [
+      {
+        id: 'nav',
+        pageId: 'profiles',
+        target: '[data-tour="nav-instructors"]',
+        placement: 'right',
+        title: 'Instructors Registry Link',
+        body: 'Manage active teaching staff, home branch allocations, and verified aliases.',
+      },
+    ],
+  },
+
+  'leave-management': {
+    id: 'leave-management',
+    version: 1,
+    title: 'Leave Management & Coverage',
+    steps: [
+      {
+        id: 'nav',
+        pageId: 'leave',
+        target: '[data-tour="nav-leave"]',
+        placement: 'right',
+        title: 'Leave Management Link',
+        body: 'Log teacher leave requests and assign substitute cover instructors.',
+      },
+    ],
+  },
+
+  'student-database': {
+    id: 'student-database',
+    version: 1,
+    title: 'Student Database & Subscriptions',
+    steps: [
+      {
+        id: 'nav',
+        pageId: 'students',
+        target: '[data-tour="nav-students"]',
+        placement: 'right',
+        title: 'Student Database Link',
+        body: 'Manage student profiles, parent contact numbers, and active subscription renewals.',
+      },
+    ],
+  },
+
+  'crm-leads': {
+    id: 'crm-leads',
+    version: 1,
+    title: 'CRM Leads & Pipeline',
+    steps: [
+      {
+        id: 'nav',
+        pageId: 'crm',
+        target: '[data-tour="nav-crm"]',
+        placement: 'right',
+        title: 'CRM Leads Link',
+        body: 'Track parent inquiries, trial leads, and conversion pipelines.',
+      },
+    ],
+  },
+
+  'trial-priority': {
+    id: 'trial-priority',
+    version: 1,
+    title: 'Trial Priority Overview',
+    steps: [
+      {
+        id: 'nav',
+        pageId: 'trial-priority',
+        target: '[data-tour="nav-schedule"]',
+        placement: 'right',
+        title: 'Trial Priority Link',
+        body: 'Prioritize incoming trial requests by branch urgency.',
+      },
+    ],
+  },
+
+  'live-progress': {
+    id: 'live-progress',
+    version: 1,
+    title: 'Live Progress Tracker',
+    steps: [
+      {
+        id: 'nav',
+        pageId: 'progress-kinder',
+        target: '[data-tour="sidebar-nav"]',
+        placement: 'right',
+        title: 'Live Progress Trackers',
+        body: 'Track lesson-by-lesson module completions for Kinder, Junior, and Coder students.',
+      },
+    ],
+  },
+
   // Not a page tour, so it is absent from TOUR_ORDER and from tourForPage. It is
   // offered automatically by the sunset rule in chooseAutoTour, and on demand by
   // the banner's own button.

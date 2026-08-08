@@ -7,6 +7,7 @@ import {
   BookOpen, Clock, ShieldCheck, ArrowRight, User, Terminal, HelpCircle, Filter
 } from 'lucide-react';
 import AnimationTutorialModal from './AnimationTutorialModal';
+import { useTour } from './TourProvider';
 
 /**
  * FEATURE_TUTORIALS
@@ -216,8 +217,15 @@ export const TUTORIAL_CATEGORIES = ['All', 'Getting Started', 'Schedule', 'Staff
 export default function FeatureTutorialSidebar({ isOpen, onClose, onNavigate, onToggleSidebar }) {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('All');
-  const [activeTutorial, setActiveTutorial] = useState(null); // Tutorial object for step-by-step modal
+  const [activeTutorial, setActiveTutorial] = useState(null);
   const [activeStep, setActiveStep] = useState(0);
+
+  let tourContext = null;
+  try {
+    tourContext = useTour();
+  } catch (e) {
+    // safe fallback
+  }
 
   // Filter tutorials by category & search query
   const filteredTutorials = useMemo(() => {
@@ -235,8 +243,16 @@ export default function FeatureTutorialSidebar({ isOpen, onClose, onNavigate, on
   if (!isOpen) return null;
 
   const handleStartTutorial = (tut) => {
-    setActiveTutorial(tut);
-    setActiveStep(0);
+    if (tourContext && tourContext.start) {
+      if (tut.pageId && onNavigate) {
+        onNavigate(tut.pageId);
+      }
+      onClose();
+      tourContext.start(tut.id);
+    } else {
+      setActiveTutorial(tut);
+      setActiveStep(0);
+    }
   };
 
   const handleJumpToPage = (pageId) => {

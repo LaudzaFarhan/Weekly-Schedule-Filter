@@ -203,6 +203,7 @@ export default function AppShell() {
           opsMode="new"
           sunsetLive={false}
           sidebarCollapsed={sidebarCollapsed}
+          onNavigate={handleNavigate}
         >
         <div className={`app-layout new-ops-active ${sidebarCollapsed ? 'sidebar-collapsed' : ''}`}>
           <Sidebar 

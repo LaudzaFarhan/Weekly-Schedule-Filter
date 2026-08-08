@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, ArrowRight, Check, X } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Check, X, MousePointer2 } from 'lucide-react';
 import {
   caretOffset, clampSpotlight, placeCallout, visibleSteps,
 } from '@/lib/tour';
@@ -15,34 +15,18 @@ function prefersReducedMotion() {
   return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 }
 
-/**
- * A spotlight tour.
- *
- * The dark surround is one element: a transparent box over the target with a
- * huge `box-shadow` spread, so the lit area is a genuine hole rather than four
- * panels that have to be kept in step. Moving between steps then animates as a
- * single rectangle sliding and resizing, which is what makes the sequence read
- * as one continuous motion.
- *
- * Pointer events are blocked while the tour runs. The alternative — letting the
- * highlighted control be used — sounds better and is not: people click the thing,
- * the page changes underneath, and the tour is left pointing at an element that
- * no longer exists. Buttons drive it instead.
- */
-export default function GuidedTour({ tour, onClose, onFinish }) {
+export default function GuidedTour({ tour, onClose, onFinish, onNavigate }) {
   const [index, setIndex] = useState(0);
   const [rect, setRect] = useState(null);
   const [calloutSize, setCalloutSize] = useState(CALLOUT_FALLBACK);
   const [viewport, setViewport] = useState({ width: 0, height: 0 });
+  const [cursorPos, setCursorPos] = useState({ x: 200, y: 200 });
+  const [isClicking, setIsClicking] = useState(false);
 
   const calloutRef = useRef(null);
   const nextRef = useRef(null);
-  // The step we have already scrolled to, so re-measuring on scroll does not
-  // fight the user or restart a smooth scroll every frame.
   const scrolledFor = useRef(-1);
 
-  // Steps are resolved once per tour rather than per render: the list must not
-  // change length underneath an index that is already pointing into it.
   const steps = useMemo(
     () => visibleSteps(tour?.steps, (sel) => document.querySelector(sel)),
     [tour]
@@ -51,6 +35,13 @@ export default function GuidedTour({ tour, onClose, onFinish }) {
   const step = steps[index] || null;
   const total = steps.length;
   const isLast = index >= total - 1;
+
+  // Auto navigate if step specifies a pageId
+  useEffect(() => {
+    if (step?.pageId && onNavigate) {
+      onNavigate(step.pageId);
+    }
+  }, [step, onNavigate]);
 
   /** Re-read the target's position. Cheap enough to run on every scroll frame. */
   const measure = useCallback(() => {
@@ -65,11 +56,29 @@ export default function GuidedTour({ tour, onClose, onFinish }) {
       return;
     }
     const r = el.getBoundingClientRect();
-    // A collapsed rect means the element is present but not laid out — hidden
-    // panel, unmounted tab. Treat it as absent so the step centres instead of
-    // spotlighting a 0x0 point in the corner.
     setRect(r.width > 0 && r.height > 0 ? r : null);
   }, [step]);
+
+  // Update cursor position & trigger click ripple when step/spotlight changes
+  useEffect(() => {
+    let targetX = window.innerWidth / 2;
+    let targetY = window.innerHeight / 2;
+
+    if (rect) {
+      targetX = rect.left + rect.width / 2;
+      targetY = rect.top + rect.height / 2;
+    }
+
+    setCursorPos({ x: targetX, y: targetY });
+
+    const timer = setTimeout(() => {
+      setIsClicking(true);
+      const clickTimer = setTimeout(() => setIsClicking(false), 500);
+      return () => clearTimeout(clickTimer);
+    }, 650);
+
+    return () => clearTimeout(timer);
+  }, [index, rect]);
 
   // Bring the target into view once when the step changes, then let the scroll
   // listener keep the spotlight glued to it as the scroll settles.
@@ -183,6 +192,44 @@ export default function GuidedTour({ tour, onClose, onFinish }) {
         onPointerDown={(e) => e.preventDefault()}
         onClick={(e) => e.preventDefault()}
       />
+
+      {/* Animated Virtual Mouse Pointer */}
+      <div
+        style={{
+          position: 'fixed',
+          left: `${cursorPos.x}px`,
+          top: `${cursorPos.y}px`,
+          zIndex: 10005,
+          pointerEvents: 'none',
+          transition: prefersReducedMotion() ? 'none' : 'all 0.75s cubic-bezier(0.16, 1, 0.3, 1)',
+          transform: `translate(-4px, -4px) scale(${isClicking ? 0.88 : 1})`,
+        }}
+      >
+        <div style={{ position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <MousePointer2
+            size={28}
+            style={{
+              color: '#ffffff',
+              fill: 'var(--primary-blue, #3b82f6)',
+              filter: 'drop-shadow(0 4px 10px rgba(0, 0, 0, 0.45))',
+            }}
+          />
+          {isClicking && (
+            <div
+              style={{
+                position: 'absolute',
+                top: '-12px',
+                left: '-12px',
+                width: '40px',
+                height: '40px',
+                borderRadius: '50%',
+                border: '2px solid var(--primary-blue, #3b82f6)',
+                animation: 'cursorRipple 0.55s ease-out forwards',
+              }}
+            />
+          )}
+        </div>
+      </div>
 
       {spotlight ? (
         <div

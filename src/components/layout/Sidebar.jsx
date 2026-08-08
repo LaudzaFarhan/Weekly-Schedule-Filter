@@ -270,6 +270,7 @@ export default function Sidebar({ currentPage, onNavigate, onToggleSearch, opsMo
               </button>
             ))}
             <button
+              data-tour="nav-instructors"
               className={`nav-item ${currentPage === 'instructors' ? 'active' : ''}`}
               onClick={() => onNavigate('instructors')}
               style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
@@ -280,6 +281,7 @@ export default function Sidebar({ currentPage, onNavigate, onToggleSearch, opsMo
               </div>
             </button>
             <button
+              data-tour="nav-crm"
               className={`nav-item ${currentPage === 'crm' ? 'active' : ''}`}
               onClick={() => onNavigate('crm')}
               style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
@@ -300,6 +302,7 @@ export default function Sidebar({ currentPage, onNavigate, onToggleSearch, opsMo
               </div>
             </button>
             <button
+              data-tour="nav-workload"
               className={`nav-item ${currentPage === 'workload' ? 'active' : ''}`}
               onClick={() => onNavigate('workload')}
               style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
@@ -310,6 +313,7 @@ export default function Sidebar({ currentPage, onNavigate, onToggleSearch, opsMo
               </div>
             </button>
             <button
+              data-tour="nav-leave"
               className={`nav-item ${currentPage === 'leave' ? 'active' : ''}`}
               onClick={() => onNavigate('leave')}
               style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
@@ -320,6 +324,7 @@ export default function Sidebar({ currentPage, onNavigate, onToggleSearch, opsMo
               </div>
             </button>
             <button
+              data-tour="nav-availability"
               className={`nav-item ${currentPage === 'trial-availability' ? 'active' : ''}`}
               onClick={() => onNavigate('trial-availability')}
               style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}

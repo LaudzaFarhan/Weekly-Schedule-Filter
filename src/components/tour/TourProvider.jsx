@@ -58,7 +58,7 @@ function readSeen(tourId, storage) {
  * hand from the banner's button.
  */
 export default function TourProvider({
-  children, page, opsMode, sunsetLive = false, sidebarCollapsed = false,
+  children, page, opsMode, sunsetLive = false, sidebarCollapsed = false, onNavigate,
 }) {
   const [activeId, setActiveId] = useState(null);
   const storage = useMemo(safeStorage, []);
@@ -127,12 +127,12 @@ export default function TourProvider({
     }
     if (!choice) return undefined;
 
-    const t = setTimeout(() => {
-      autoStarted.current = true;
-      setActiveId((current) => current || choice);
+    autoStarted.current = true;
+    const timer = setTimeout(() => {
+      start(choice);
     }, SETTLE_MS);
-    return () => clearTimeout(t);
-  }, [storage, opsMode, sidebarCollapsed, sunsetLive]);
+    return () => clearTimeout(timer);
+  }, [storage, opsMode, sidebarCollapsed, sunsetLive, start]);
 
   // A tour is written against one screen. If the page changes underneath it —
   // a notification link, browser back — the anchors are gone, so stop rather
@@ -173,6 +173,7 @@ export default function TourProvider({
           tour={TOURS[activeId]}
           onClose={dismiss}
           onFinish={complete}
+          onNavigate={onNavigate}
         />
       )}
     </TourContext.Provider>
