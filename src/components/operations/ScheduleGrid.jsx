@@ -1426,11 +1426,19 @@ export default function ScheduleGrid({
             const occ = occupancyForWeek(previewClass, week);
 
             return (
-              <div style={{
-                width: '380px', flexShrink: 0, display: 'flex', flexDirection: 'column',
-                border: '1.5px solid var(--border-color)', borderRadius: '14px', background: 'var(--panel-bg)',
-                boxShadow: '0 10px 30px rgba(0,0,0,0.15)', overflow: 'hidden', minHeight: '500px', margin: '0 1rem 1rem 0',
-              }}>
+              <div
+                key={previewClass.key || `${previewClass.teacher}-${previewClass.startMin}`}
+                style={{
+                  position: 'fixed', top: '85px', right: '24px', zIndex: 1000,
+                  width: '390px', maxHeight: 'calc(88vh - 40px)', flexShrink: 0,
+                  display: 'flex', flexDirection: 'column',
+                  border: '1.5px solid var(--border-color)', borderRadius: '16px',
+                  background: 'var(--panel-bg)', boxShadow: '0 16px 45px rgba(0,0,0,0.25)',
+                  backdropFilter: 'blur(10px)', overflow: 'hidden',
+                  animation: 'slideInRight 0.22s cubic-bezier(0.16, 1, 0.3, 1) forwards',
+                  willChange: 'transform, opacity',
+                }}
+              >
                 {/* Header */}
                 <div style={{
                   padding: '1rem 1.2rem', borderBottom: '1px solid var(--border-color)',
