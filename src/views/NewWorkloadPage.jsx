@@ -4,6 +4,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { useSchedule } from '../contexts/ScheduleContext';
 import { subscribeToInternalClasses } from '../services/internalScheduleService';
 import { subscribeToInternalInstructors } from '../services/internalInstructorService';
+import { subscribeToInternalStudents } from '../services/internalStudentService';
 import { useNewOperationals } from '../hooks/useNewOperationals';
 import { DAY_NAMES } from '../utils/constants';
 import {
@@ -54,6 +55,23 @@ export default function NewWorkloadPage() {
     return () => unsub();
   }, []);
 
+  const [studentRegistry, setStudentRegistry] = useState([]);
+
+  useEffect(() => {
+    const unsub = subscribeToInternalStudents((data) => setStudentRegistry(data || []));
+    return () => unsub();
+  }, []);
+
+  const studentBranchMap = useMemo(() => {
+    const map = new Map();
+    for (const s of studentRegistry || []) {
+      if (s.name && s.branch_name) {
+        map.set(s.name.trim().toLowerCase(), s.branch_name);
+      }
+    }
+    return map;
+  }, [studentRegistry]);
+
   const branchList = [...new Set((branches || []).map((b) => b.name))].filter(Boolean);
 
   // Working days per instructor, taken from the branch rules in PostgreSQL for
@@ -74,21 +92,33 @@ export default function NewWorkloadPage() {
   const report = useMemo(() => {
     const scoped = branchFilter === 'all'
       ? classes
-      : classes.filter((c) => c.branchName === branchFilter);
+      : classes.filter((c) => {
+          if (c.branchName !== branchFilter) return false;
+          if (c.student && studentBranchMap.size > 0) {
+            const names = String(c.student).split(',').map((n) => n.trim().toLowerCase()).filter(Boolean);
+            for (const name of names) {
+              const official = studentBranchMap.get(name);
+              if (official && official.toLowerCase() !== branchFilter.toLowerCase()) {
+                return false;
+              }
+            }
+          }
+          return true;
+        });
     const base = buildWorkloadReport(scoped, { instructorProfiles: instructors });
     const existing = new Set(base.map((r) => r.teacher));
     const extras = [];
     instructors.forEach((i) => {
       const displayName = getInstructorDisplayName(i);
       if (!displayName) return;
-      if (branchFilter !== 'all' && !(i.branches || []).includes(branchFilter)) return;
+      if (branchFilter !== 'all' && !(i.branches || []).includes(branchFilter) && i.location !== branchFilter) return;
       if (!existing.has(displayName) && !existing.has(i.name)) {
         extras.push(buildIdleWorkloadRow(displayName));
         existing.add(displayName);
       }
     });
     return base.concat(extras);
-  }, [classes, instructors, branchFilter]);
+  }, [classes, instructors, branchFilter, studentBranchMap]);
 
   const summary = useMemo(() => summarizeWorkload(report, thresholds), [report, thresholds]);
   const sorted = useMemo(

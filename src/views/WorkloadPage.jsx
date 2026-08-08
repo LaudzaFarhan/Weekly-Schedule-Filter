@@ -7,6 +7,7 @@ import { useToast } from '../components/ui/Toast';
 import { DAY_NAMES, getWorkingDaysForBranch, getBranchCode, classBelongsToBranch, parseMeetingBranches } from '../utils/constants';
 import { parseLooseDate, getMondayOfDate, formatWeekRange } from '../utils/dateUtils';
 import { getInstructorBranch, getInstructorDisplayName, isInstructorMatch } from '../utils/instructorUtils';
+import { subscribeToInternalStudents } from '../services/internalStudentService';
 import {
   buildWorkloadReport,
   buildIdleWorkloadRow,
@@ -148,6 +149,23 @@ export default function WorkloadPage() {
   });
   const [trendInstructor, setTrendInstructor] = useState('');
 
+  const [studentRegistry, setStudentRegistry] = useState([]);
+
+  useEffect(() => {
+    const unsub = subscribeToInternalStudents((data) => setStudentRegistry(data || []));
+    return () => unsub();
+  }, []);
+
+  const studentBranchMap = useMemo(() => {
+    const map = new Map();
+    for (const s of studentRegistry || []) {
+      if (s.name && s.branch_name) {
+        map.set(s.name.trim().toLowerCase(), s.branch_name);
+      }
+    }
+    return map;
+  }, [studentRegistry]);
+
   const thresholds = DEFAULT_THRESHOLDS;
 
   // Extract unique weeks represented in the classes schedule (based on trial dates)
@@ -265,10 +283,31 @@ export default function WorkloadPage() {
     return list;
   }, [sourceClasses]);
 
-  // Build the full report once per data change, respecting week filter
+  // Classes scoped to active branch filter and official student registry branch
+  const branchScopedClasses = useMemo(() => {
+    let classes = weekFilteredClasses;
+    if (branchFilter !== 'all') {
+      classes = classes.filter((c) => {
+        if (!classBelongsToBranch(c, branchFilter)) return false;
+        if (c.student && studentBranchMap.size > 0) {
+          const names = String(c.student).split(',').map((n) => n.trim().toLowerCase()).filter(Boolean);
+          for (const name of names) {
+            const official = studentBranchMap.get(name);
+            if (official && official.toLowerCase() !== branchFilter.toLowerCase()) {
+              return false;
+            }
+          }
+        }
+        return true;
+      });
+    }
+    return classes;
+  }, [weekFilteredClasses, branchFilter, studentBranchMap]);
+
+  // Build the full report once per data change, respecting week filter and branch filter
   const rawReport = useMemo(
-    () => buildWorkloadReport(weekFilteredClasses, { disabledInstructors, instructorProfiles }),
-    [weekFilteredClasses, disabledInstructors, instructorProfiles]
+    () => buildWorkloadReport(branchScopedClasses, { disabledInstructors, instructorProfiles }),
+    [branchScopedClasses, disabledInstructors, instructorProfiles]
   );
 
   // Lookup for profile-declared locations — used to filter the workload list
@@ -351,11 +390,6 @@ export default function WorkloadPage() {
   // When a single branch is selected, show instructors who genuinely belong to
   // that branch: either their profile HOME location is exactly this branch, or
   // they are scheduled to teach at least one class there.
-  //
-  // We deliberately do NOT include instructors just because their profile is
-  // flagged "All Branches", nor unprofiled instructors by default. Doing so
-  // surfaced nomaden teachers (e.g. Yovi, who only teaches at GS/BTR) under
-  // unrelated branches like Pondok Indah even though they never teach there.
   const report = useMemo(() => {
     if (branchFilter === 'all') return reportWithIdle;
     return reportWithIdle.filter((r) => {
@@ -363,15 +397,17 @@ export default function WorkloadPage() {
       const profile = instructorProfiles.find((p) => isInstructorMatch(r.teacher, p));
       if (profile) {
         const brs = Array.isArray(profile.branches) ? profile.branches : [profile.location].filter(Boolean);
-        return brs.includes('All Branches') || brs.includes(branchFilter) || profile.location === branchFilter;
+        if (brs.includes(branchFilter) || profile.location === branchFilter) return true;
+        if (brs.includes('All Branches') && (r.weekly.hours > 0 || branchScopedClasses.some((c) => isInstructorMatch(c.teacher, r.teacher) || c.teacher === r.teacher))) return true;
+        return false;
       }
 
       // 2. Unprofiled teachers fallback to schedule class branch check
-      return weekFilteredClasses.some(
-        (c) => (isInstructorMatch(c.teacher, r.teacher) || c.teacher === r.teacher) && classBelongsToBranch(c, branchFilter)
+      return branchScopedClasses.some(
+        (c) => (isInstructorMatch(c.teacher, r.teacher) || c.teacher === r.teacher)
       );
     });
-  }, [reportWithIdle, branchFilter, instructorProfiles, weekFilteredClasses]);
+  }, [reportWithIdle, branchFilter, instructorProfiles, branchScopedClasses]);
 
   // Resolve a profile-based "home branch" tag for each instructor in the report.
   // Falls back to the schedule-derived branch when no profile location exists.
