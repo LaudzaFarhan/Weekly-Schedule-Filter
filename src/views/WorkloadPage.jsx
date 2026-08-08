@@ -159,8 +159,9 @@ export default function WorkloadPage() {
   const studentBranchMap = useMemo(() => {
     const map = new Map();
     for (const s of studentRegistry || []) {
-      if (s.name && s.branch_name) {
-        map.set(s.name.trim().toLowerCase(), s.branch_name);
+      const bName = s.branchName || s.branch_name;
+      if (s.name && bName) {
+        map.set(s.name.trim().toLowerCase(), bName);
       }
     }
     return map;

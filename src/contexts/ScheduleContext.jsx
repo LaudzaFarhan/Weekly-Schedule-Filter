@@ -812,25 +812,6 @@ export function ScheduleProvider({ children }) {
   // Legacy syncSchedule points to Quick Sync to not break existing calls
   const syncSchedule = syncActiveBranch;
 
-  // ─── Auto-sync if cache is stale (older than 2 hours) ────────────
-  const autoSyncTriggered = useRef(false);
-  useEffect(() => {
-    if (autoSyncTriggered.current) return;
-    const cachedSync = loadLocal('cachedSchedule_lastSync', null);
-    if (!cachedSync) return; // Never synced — user must do first sync manually
-
-    const lastSync = new Date(cachedSync);
-    const hoursSinceSync = (Date.now() - lastSync.getTime()) / (1000 * 60 * 60);
-
-    if (hoursSinceSync >= 2 && branches.length > 0) {
-      autoSyncTriggered.current = true;
-      console.log(`Auto-sync: cache is ${Math.round(hoursSinceSync)}h old, refreshing...`);
-      setTimeout(() => {
-        syncAllBranches();
-      }, 2000);
-    }
-  }, [branches, syncAllBranches]);
-
   // ─── Conflict engine (visible scope) ──────────────────────────────
 
   const conflicts = useMemo(() => computeConflicts(overallClasses), [overallClasses]);

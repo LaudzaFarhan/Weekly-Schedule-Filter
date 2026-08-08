@@ -754,6 +754,19 @@ export default function NewSchedulePage({ onNavigate }) {
   const totalPages = Math.ceil(sortedFiltered.length / SCHEDULE_PAGE_SIZE);
   const paged = sortedFiltered.slice((page - 1) * SCHEDULE_PAGE_SIZE, page * SCHEDULE_PAGE_SIZE);
 
+  const validInstructorNames = useMemo(() => {
+    const set = new Set();
+    (instructors || []).forEach((i) => {
+      const norm = (s) => String(s || '').trim().toLowerCase();
+      if (i.name) set.add(norm(i.name));
+      if (i.fullname) set.add(norm(i.fullname));
+      if (i.nickname) set.add(norm(i.nickname));
+      if (Array.isArray(i.aliases)) i.aliases.forEach((a) => set.add(norm(typeof a === 'object' ? a.name : a)));
+      if (Array.isArray(i.verifiedAliases)) i.verifiedAliases.forEach((a) => set.add(norm(a)));
+    });
+    return set;
+  }, [instructors]);
+
   /**
    * Every class row each student holds, keyed by normalised name.
    *
@@ -765,6 +778,17 @@ export default function NewSchedulePage({ onNavigate }) {
     const map = new Map();
     classes.forEach((c) => {
       if (isExpired({ classType: c.classType, sessionDates: c.sessionDates }, todayISO)) return;
+
+      const teacherNorm = String(c.teacher || '').trim().toLowerCase();
+      if (
+        !teacherNorm ||
+        teacherNorm === '-' ||
+        teacherNorm === 'tbd' ||
+        (validInstructorNames.size > 0 && !validInstructorNames.has(teacherNorm))
+      ) {
+        return;
+      }
+
       String(c.student || '')
         .split(',')
         .forEach((part) => {
@@ -775,7 +799,7 @@ export default function NewSchedulePage({ onNavigate }) {
         });
     });
     return map;
-  }, [classes, todayISO]);
+  }, [classes, todayISO, validInstructorNames]);
 
   // Students that exist in the Students list but aren't allocated to any class.
   // A class's `student` field may hold several comma-separated names.

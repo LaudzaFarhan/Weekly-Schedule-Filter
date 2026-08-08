@@ -182,10 +182,11 @@ function clipToWorkingWindow(intervals) {
 function groupByTeacher(classes, knownInstructors = []) {
   const map = new Map();
   for (const c of classes) {
-    if (!c.teacher || c.teacher === '-') continue;
+    if (!c.teacher || c.teacher === '-' || String(c.teacher).trim().toUpperCase() === 'TBD') continue;
     const canonical = knownInstructors && knownInstructors.length > 0
       ? resolveCanonicalTeacherName(c.teacher, knownInstructors)
       : c.teacher;
+    if (!canonical || canonical === 'TBD') continue;
     if (!map.has(canonical)) map.set(canonical, []);
     map.get(canonical).push(c);
   }

@@ -65,8 +65,9 @@ export default function NewWorkloadPage() {
   const studentBranchMap = useMemo(() => {
     const map = new Map();
     for (const s of studentRegistry || []) {
-      if (s.name && s.branch_name) {
-        map.set(s.name.trim().toLowerCase(), s.branch_name);
+      const bName = s.branchName || s.branch_name;
+      if (s.name && bName) {
+        map.set(s.name.trim().toLowerCase(), bName);
       }
     }
     return map;
@@ -106,18 +107,27 @@ export default function NewWorkloadPage() {
           return true;
         });
     const base = buildWorkloadReport(scoped, { instructorProfiles: instructors });
-    const existing = new Set(base.map((r) => r.teacher));
+    const filteredBase = base.filter((r) => {
+      const profile = instructors.find((i) => isInstructorMatch(r.teacher, i));
+      if (!profile) return false;
+      if (branchFilter === 'all') return true;
+      const brs = Array.isArray(profile.branches) ? profile.branches : [profile.location].filter(Boolean);
+      return brs.includes('All Branches') || brs.includes(branchFilter) || profile.location === branchFilter;
+    });
+
+    const existing = new Set(filteredBase.map((r) => r.teacher));
     const extras = [];
     instructors.forEach((i) => {
       const displayName = getInstructorDisplayName(i);
       if (!displayName) return;
-      if (branchFilter !== 'all' && !(i.branches || []).includes(branchFilter) && i.location !== branchFilter) return;
+      const brs = Array.isArray(i.branches) ? i.branches : [i.location].filter(Boolean);
+      if (branchFilter !== 'all' && !brs.includes('All Branches') && !brs.includes(branchFilter) && i.location !== branchFilter) return;
       if (!existing.has(displayName) && !existing.has(i.name)) {
         extras.push(buildIdleWorkloadRow(displayName));
         existing.add(displayName);
       }
     });
-    return base.concat(extras);
+    return filteredBase.concat(extras);
   }, [classes, instructors, branchFilter, studentBranchMap]);
 
   const summary = useMemo(() => summarizeWorkload(report, thresholds), [report, thresholds]);
