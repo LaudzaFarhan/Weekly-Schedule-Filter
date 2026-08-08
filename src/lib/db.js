@@ -25,11 +25,15 @@ function getPool() {
   if (!pool) {
     pool = new Pool({
       connectionString: CONNECTION_STRING,
-      max: 10,
+      max: 15,
       idleTimeoutMillis: 30000,
-      connectionTimeoutMillis: 5000,
+      connectionTimeoutMillis: 10000,
       // Enable SSL for remote/secure PostgreSQL instances.
       ssl: process.env.DATABASE_SSL === 'true' ? { rejectUnauthorized: false } : undefined,
+    });
+    // Prevent idle client connection drops from throwing uncaught errors
+    pool.on('error', (err) => {
+      console.warn('[db] Unexpected error on idle client:', err?.message || err);
     });
     if (process.env.NODE_ENV !== 'production') {
       globalThis.postgresPool = pool;
@@ -54,6 +58,22 @@ export async function query(text, params) {
     }
     return res;
   } catch (error) {
+    const isConnErr = error?.message && (
+      error.message.includes('Connection terminated') ||
+      error.message.includes('closed') ||
+      error.message.includes('ended') ||
+      error.message.includes('ECONNRESET')
+    );
+    if (isConnErr) {
+      console.warn('[db] Connection dropped, retrying query once:', text.substring(0, 80));
+      try {
+        const res = await getPool().query(text, params);
+        return res;
+      } catch (retryErr) {
+        console.error('[db] Query retry failed:', retryErr.message);
+        throw retryErr;
+      }
+    }
     console.error('[db] Database query error:', error.message);
     throw error;
   }

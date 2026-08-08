@@ -26,16 +26,18 @@ export async function getAllInternalClasses() {
  */
 export function subscribeToInternalClasses(callback, onError) {
   let active = true;
+  let hasLoaded = false;
 
   const poll = async () => {
     try {
       const data = await getAllInternalClasses();
       if (active) {
+        hasLoaded = true;
         callback(data);
       }
     } catch (error) {
-      console.error('Polling error in internal classes:', error);
-      if (active && typeof onError === 'function') {
+      console.warn('[scheduleService] Polling retry on next interval:', error?.message || error);
+      if (active && !hasLoaded && typeof onError === 'function') {
         onError(error);
       }
     }

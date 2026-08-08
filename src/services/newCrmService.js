@@ -34,7 +34,7 @@ export function listenToLeads(callback) {
         callback(data);
       }
     } catch (error) {
-      console.error('Polling error in CRM leads:', error);
+      console.warn('[crmService] Polling retry on next interval:', error?.message || error);
     }
   };
 

@@ -34,7 +34,7 @@ export function subscribeToInternalInstructors(callback) {
         callback(data);
       }
     } catch (error) {
-      console.error('Polling error in internal instructors:', error);
+      console.warn('[instructorService] Polling retry on next interval:', error?.message || error);
     }
   };
 

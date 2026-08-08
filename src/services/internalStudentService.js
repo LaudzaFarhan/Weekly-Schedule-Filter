@@ -67,7 +67,7 @@ export function subscribeToInternalStudents(callback) {
         callback(data);
       }
     } catch (error) {
-      console.error('Polling error in internal students:', error);
+      console.warn('[studentService] Polling retry on next interval:', error?.message || error);
     }
   };
 

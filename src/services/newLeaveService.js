@@ -27,12 +27,17 @@ export async function getAllLeaves() {
 export function subscribeToLeaves(callback, onError) {
   let active = true;
 
+  let hasLoaded = false;
   const poll = async () => {
     try {
       const data = await getAllLeaves();
-      if (active) callback(data);
+      if (active) {
+        hasLoaded = true;
+        callback(data);
+      }
     } catch (error) {
-      if (active && onError) onError(error);
+      console.warn('[leaveService] Polling retry on next interval:', error?.message || error);
+      if (active && !hasLoaded && onError) onError(error);
     }
   };
 

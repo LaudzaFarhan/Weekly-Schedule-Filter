@@ -36,7 +36,7 @@ export function subscribeToInternalMeetings(callback, params = {}) {
         callback(data);
       }
     } catch (error) {
-      console.error('Polling error in internal meetings:', error);
+      console.warn('[meetingService] Polling retry on next interval:', error?.message || error);
     }
   };
 
