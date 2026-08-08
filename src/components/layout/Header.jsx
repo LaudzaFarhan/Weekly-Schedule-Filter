@@ -10,6 +10,7 @@ import {
   RefreshCw, Plus, Trash2, Bell, EyeOff, ChevronLeft, ChevronRight, Search, PanelLeft,
   AlertTriangle, AlertCircle, Info, X, CheckCheck, History, HelpCircle, Compass,
 } from 'lucide-react';
+import { useTour } from '../tour/TourProvider';
 import AnimationTutorialModal from '../tour/AnimationTutorialModal';
 import FeatureTutorialSidebar from '../tour/FeatureTutorialSidebar';
 import { APP_VERSION } from '../../config/version';
