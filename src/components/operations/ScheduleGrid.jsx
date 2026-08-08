@@ -4,7 +4,7 @@ import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react'
 import {
   Users, Filter, Trash2, X, CalendarDays, CalendarPlus, AlertTriangle, Clock,
   GripVertical, ChevronUp, ChevronDown, ChevronLeft, ChevronRight,
-  Plus, Pencil, Building2, UserPlus, Repeat, FileText, UserX, Sparkles, Send, Calendar,
+  Plus, Pencil, Building2, UserPlus, Repeat, FileText, UserX, Sparkles, Send, Calendar, Eye, User,
 } from 'lucide-react';
 import {
   getProgressUpdateStatus,
@@ -169,6 +169,8 @@ export default function ScheduleGrid({
   // Roster is held by key, not by value, so it stays in step with the 3s poll
   // and closes itself if the last student is removed.
   const [rosterKey, setRosterKey] = useState(null);
+  // Selected class for right side preview panel
+  const [previewClass, setPreviewClass] = useState(null);
 
   const branchId = useMemo(() => {
     if (branchChoice === 'all') return 'all';
@@ -1396,6 +1398,7 @@ export default function ScheduleGrid({
                             onEditSelection={editSelection}
                             openEditor={openEditor}
                             openRoster={openRoster}
+                            onPreviewClass={(c) => setPreviewClass(c)}
                             week={week}
                             onRemoveSlot={onRemoveSlot}
                             beginMoveClass={beginMoveClass}
@@ -1413,6 +1416,163 @@ export default function ScheduleGrid({
               </tbody>
             </table>
           </div>
+          </div>
+
+          {/* Right Side Class Preview Panel */}
+          {previewClass && (() => {
+            const meta = getCategoryColorStyle(categoryOfProgram(previewClass) || 'Kinder');
+            const seats = maxStudentsFor(previewClass.programs[0] || 'Kinder', rules);
+            const occ = occupancyForWeek(previewClass, week);
+
+            return (
+              <div style={{
+                width: '380px', flexShrink: 0, display: 'flex', flexDirection: 'column',
+                border: '1.5px solid var(--border-color)', borderRadius: '14px', background: 'var(--panel-bg)',
+                boxShadow: '0 10px 30px rgba(0,0,0,0.15)', overflow: 'hidden', minHeight: '500px', margin: '0 1rem 1rem 0',
+              }}>
+                {/* Header */}
+                <div style={{
+                  padding: '1rem 1.2rem', borderBottom: '1px solid var(--border-color)',
+                  display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start',
+                  background: meta.bg,
+                }}>
+                  <div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', flexWrap: 'wrap' }}>
+                      <span style={{ fontSize: '1rem', fontWeight: 800, color: meta.textColor }}>
+                        {previewClass.programs.join(', ') || 'Class'}
+                      </span>
+                      <span style={{
+                        fontSize: '0.66rem', fontWeight: 700, padding: '0.12rem 0.45rem', borderRadius: '6px',
+                        color: meta.textColor, background: meta.isDark ? 'rgba(255,255,255,0.22)' : 'rgba(0,0,0,0.06)',
+                      }}>
+                        {occ.total}/{seats} Pax
+                      </span>
+                    </div>
+                    <p style={{ margin: '0.3rem 0 0', fontSize: '0.78rem', color: meta.textColor, opacity: 0.9, lineHeight: 1.4 }}>
+                      <strong style={{ color: meta.textColor }}>{previewClass.teacher}</strong> · {day}
+                      <br />
+                      {clockLabel(previewClass.startMin)} – {clockLabel(previewClass.endMin)} ({previewClass.endMin - previewClass.startMin}m)
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setPreviewClass(null)}
+                    aria-label="Close preview"
+                    style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: meta.textColor, padding: '0.2rem', lineHeight: 0 }}
+                  >
+                    <X size={18} />
+                  </button>
+                </div>
+
+                {/* Student List */}
+                <div style={{ padding: '1rem 1.2rem', flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '0.7rem' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ fontSize: '0.72rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)' }}>
+                      Enrolled Students ({previewClass.members.length})
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => { openRoster(previewClass); }}
+                      style={{
+                        fontSize: '0.75rem', fontWeight: 700, color: 'var(--primary-blue)', background: 'transparent',
+                        border: 'none', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '0.25rem',
+                      }}
+                    >
+                      <Pencil size={12} /> Full Roster Modal
+                    </button>
+                  </div>
+
+                  {previewClass.members.length === 0 ? (
+                    <div style={{ padding: '1.5rem 1rem', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.8rem', border: '1px dashed var(--border-color)', borderRadius: '10px' }}>
+                      No students enrolled in this class yet.
+                    </div>
+                  ) : (
+                    previewClass.members.map((m) => {
+                      const isIzin = m.isIzin || m.notArranged || (m.remarks || '').toLowerCase().includes('izin');
+                      const progRecord = liveProgressMap?.get ? liveProgressMap.get(String(m.student || '').toLowerCase().trim()) : null;
+                      const progressStatus = getProgressUpdateStatus(m, progRecord);
+                      const badgeInfo = PROGRESS_UPDATE_BADGES[progressStatus];
+
+                      return (
+                        <div
+                          key={m.id}
+                          style={{
+                            padding: '0.7rem 0.85rem', borderRadius: '10px',
+                            border: '1px solid var(--border-color)', background: 'var(--bg-color)',
+                            display: 'flex', flexDirection: 'column', gap: '0.4rem',
+                          }}
+                        >
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <div style={{ fontWeight: 700, fontSize: '0.84rem', color: 'var(--text-main)', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                              <User size={14} style={{ color: 'var(--text-muted)' }} />
+                              {m.student}
+                            </div>
+                            <span style={{
+                              fontSize: '0.65rem', fontWeight: 700, padding: '0.1rem 0.45rem', borderRadius: '5px',
+                              color: isIzin ? '#b45309' : '#047857', background: isIzin ? '#fef3c7' : 'rgba(16,185,129,0.12)',
+                            }}>
+                              {isIzin ? 'Izin' : m.classType || 'Regular'}
+                            </span>
+                          </div>
+
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.74rem', color: 'var(--text-secondary)' }}>
+                            <span>Program: <strong style={{ color: 'var(--text-main)' }}>{m.program}</strong></span>
+                            {badgeInfo && (
+                              <span style={{ fontSize: '0.62rem', fontWeight: 700, color: badgeInfo.color, background: badgeInfo.bg, border: `1px solid ${badgeInfo.borderColor}`, padding: '0.05rem 0.35rem', borderRadius: '4px' }}>
+                                {badgeInfo.label}
+                              </span>
+                            )}
+                          </div>
+
+                          <div style={{ display: 'flex', gap: '0.4rem', marginTop: '0.2rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                            <button
+                              type="button"
+                              disabled={saving}
+                              onClick={() => onUpdateStudent?.(m, { isIzin: !isIzin, notArranged: !isIzin, remarks: !isIzin ? 'Izin' : '' })}
+                              style={{
+                                padding: '0.25rem 0.55rem', borderRadius: '6px', fontSize: '0.72rem', fontWeight: 600, cursor: 'pointer',
+                                border: '1px solid ' + (isIzin ? '#f59e0b' : 'var(--border-color)'),
+                                background: isIzin ? '#fef3c7' : 'transparent', color: isIzin ? '#b45309' : 'var(--text-secondary)',
+                              }}
+                            >
+                              {isIzin ? 'Mark Attending' : 'Mark Izin'}
+                            </button>
+
+                            {onOpenStudentReport && m.student && (
+                              <button
+                                type="button"
+                                onClick={() => onOpenStudentReport(m.student)}
+                                style={{
+                                  padding: '0.25rem 0.55rem', borderRadius: '6px', fontSize: '0.72rem', cursor: 'pointer',
+                                  border: '1px solid var(--border-color)', background: 'transparent', color: 'var(--text-secondary)',
+                                  display: 'inline-flex', alignItems: 'center', gap: '0.2rem',
+                                }}
+                              >
+                                <FileText size={11} /> Report
+                              </button>
+                            )}
+
+                            <button
+                              type="button"
+                              disabled={saving}
+                              onClick={() => onRemoveStudent?.(m, { day, teacher: previewClass.teacher })}
+                              style={{
+                                padding: '0.25rem 0.55rem', borderRadius: '6px', fontSize: '0.72rem', fontWeight: 600, cursor: 'pointer',
+                                border: '1px solid rgba(239,68,68,0.3)', background: 'transparent', color: 'var(--danger)',
+                                marginLeft: 'auto',
+                              }}
+                            >
+                              Remove
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+            );
+          })()}
           </div>
         )}
       </div>
@@ -2377,7 +2537,7 @@ function cardRadius(buttedPrev, buttedNext) {
 /** One cell's content. */
 function Cell({
   cell, inst, start, height, allBranches, rules, saving, week, liveProgressMap,
-  moving, isTarget, resizing, openPicker, openEditor, openRoster, onRemoveSlot,
+  moving, isTarget, resizing, openPicker, openEditor, openRoster, onPreviewClass, onRemoveSlot,
   beginMoveClass, beginMoveSlot, setMoving, applyMove, beginResize, nudge,
   rowIdx, beginDraw, inDraw, drawAnchor, drawnDuration, drawnRows,
   inSel, selSummaryRow, selEditRow, selStart, selDuration, selRows, onEditSelection,
@@ -2522,14 +2682,23 @@ function Cell({
           beginMoveClass(cls);
         }}
         onDragEnd={() => setMoving(null)}
-        onClick={() => { if (!allBranches) openRoster(cls); }}
+        onClick={() => {
+          if (!allBranches) {
+            if (onPreviewClass) onPreviewClass(cls);
+            else openRoster(cls);
+          }
+        }}
         role={allBranches ? undefined : 'button'}
         tabIndex={allBranches ? undefined : 0}
         onKeyDown={(e) => {
           if (allBranches) return;
-          if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openRoster(cls); }
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            if (onPreviewClass) onPreviewClass(cls);
+            else openRoster(cls);
+          }
         }}
-        title={allBranches ? undefined : 'Open the roster — add or remove students'}
+        title={allBranches ? undefined : 'Click to preview class & students'}
         style={{
           position: 'relative', height: boxH, borderRadius: cardRadius(cell.buttedPrev, cell.buttedNext),
           border: `1px solid ${meta.border || meta.color}`, background: meta.bg,
@@ -2551,11 +2720,32 @@ function Cell({
             isDark={meta.isDark}
           />
         )}
-        <span style={{ display: 'flex', alignItems: 'center', gap: '0.2rem' }}>
-          {!allBranches && <GripVertical size={11} style={{ color: meta.textColor, flexShrink: 0 }} aria-hidden="true" />}
-          <span style={{ fontSize: '0.73rem', fontWeight: 700, color: meta.textColor, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            {[...new Set(cls.programs)].join(', ') || 'Class'}
+        <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.2rem' }}>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.2rem', minWidth: 0 }}>
+            {!allBranches && <GripVertical size={11} style={{ color: meta.textColor, flexShrink: 0 }} aria-hidden="true" />}
+            <span style={{ fontSize: '0.73rem', fontWeight: 700, color: meta.textColor, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {[...new Set(cls.programs)].join(', ') || 'Class'}
+            </span>
           </span>
+          {!allBranches && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                openRoster(cls);
+              }}
+              title="Open full student management tab"
+              style={{
+                display: 'inline-flex', alignItems: 'center', gap: '0.2rem',
+                padding: '0.1rem 0.35rem', borderRadius: '4px', cursor: 'pointer',
+                fontSize: '0.6rem', fontWeight: 700, border: '1px solid ' + (meta.border || meta.color),
+                background: meta.isDark ? 'rgba(255,255,255,0.25)' : 'rgba(255,255,255,0.9)',
+                color: meta.textColor, flexShrink: 0,
+              }}
+            >
+              <Eye size={10} /> Show
+            </button>
+          )}
         </span>
         <span style={{ display: 'block', fontSize: '0.61rem', color: meta.subtextColor || 'var(--text-muted)', fontVariantNumeric: 'tabular-nums' }}>
           {clockLabel(cls.startMin)}–{clockLabel(shownEnd)} · {shownEnd - cls.startMin}m
