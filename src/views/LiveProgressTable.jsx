@@ -77,6 +77,7 @@ export default function LiveProgressTable({ category }) {
   const [filterDay, setFilterDay] = useState('all');
   const [filterInstructor, setFilterInstructor] = useState('all');
   const [filterContinuation, setFilterContinuation] = useState('all');
+  const [filterStatus, setFilterStatus] = useState('all');
   const [page, setPage] = useState(1);
 
   // The attendance cell being edited: { rowKey, lesson }.
@@ -389,13 +390,16 @@ export default function LiveProgressTable({ category }) {
     return map;
   }, [progress]);
 
-  /** Map student normalized name -> official registered branch in studentRegistry */
-  const studentBranchMap = useMemo(() => {
+  /** Map student normalized name -> official registered status & branch in studentRegistry */
+  const studentInfoMap = useMemo(() => {
     const map = new Map();
     for (const s of studentRegistry || []) {
       const bName = s.branchName || s.branch_name;
-      if (s.name && bName) {
-        map.set(s.name.trim().toLowerCase(), bName);
+      if (s.name) {
+        map.set(s.name.trim().toLowerCase(), {
+          branchName: bName || null,
+          status: s.status || 'Active',
+        });
       }
     }
     return map;
@@ -428,6 +432,7 @@ export default function LiveProgressTable({ category }) {
       for (const name of names) {
         const rowKey = keyOf(name, levelCode);
         const stored = progressByKey.get(rowKey);
+        const info = studentInfoMap.get(name.trim().toLowerCase());
         // If we have a stored mainTeacher (original instructor before arrangement),
         // use it for the INSTRUCTOR column; otherwise fall back to the schedule's teacher
         const storedMain = stored?.mainTeacher
@@ -445,6 +450,7 @@ export default function LiveProgressTable({ category }) {
           levelCode,
           lesson: parsed.lesson,
           classType: c.classType || 'Regular',
+          status: info?.status || 'Active',
           progressId: stored?.id ?? null,
           attendance: stored?.attendance || {},
           videos: stored?.videos || {},
@@ -471,7 +477,7 @@ export default function LiveProgressTable({ category }) {
       // If student appears multiple times (e.g. from imported schedule rows under two branches),
       // prefer the row matching their official branch in studentRegistry!
       const studentNameClean = list[0].studentName.trim().toLowerCase();
-      const officialBranch = studentBranchMap.get(studentNameClean);
+      const officialBranch = studentInfoMap.get(studentNameClean)?.branchName;
 
       let best = list[0];
       if (officialBranch) {
@@ -482,7 +488,27 @@ export default function LiveProgressTable({ category }) {
     }
 
     return result;
-  }, [classes, category, progressByKey, instructorProfiles, studentBranchMap]);
+  }, [classes, category, progressByKey, instructorProfiles, studentInfoMap]);
+
+  /** Summary count for Active, Long Break, Inactive students */
+  const statusStats = useMemo(() => {
+    let active = 0;
+    let longBreak = 0;
+    let inactive = 0;
+
+    for (const r of rows) {
+      const st = String(r.status || 'Active').trim().toLowerCase();
+      if (st.includes('break')) {
+        longBreak++;
+      } else if (st.includes('inactive')) {
+        inactive++;
+      } else {
+        active++;
+      }
+    }
+
+    return { active, longBreak, inactive, total: rows.length };
+  }, [rows]);
 
   const instructorList = useMemo(() => {
     const set = new Set();
@@ -511,15 +537,22 @@ export default function LiveProgressTable({ category }) {
       if (filterDay !== 'all' && r.day.trim().toLowerCase() !== filterDay.trim().toLowerCase()) return false;
       if (filterInstructor !== 'all' && r.instructor !== filterInstructor) return false;
       if (filterContinuation !== 'all' && r.continuation !== filterContinuation) return false;
+      if (filterStatus !== 'all') {
+        const rSt = String(r.status || 'Active').toLowerCase();
+        const fSt = filterStatus.toLowerCase();
+        if (fSt === 'active' && (rSt.includes('inactive') || rSt.includes('break'))) return false;
+        if (fSt === 'long break' && !rSt.includes('break')) return false;
+        if (fSt === 'inactive' && !rSt.includes('inactive')) return false;
+      }
       if (q) {
-        const hit = [r.studentName, r.instructor, r.program, r.day, r.branchName]
+        const hit = [r.studentName, r.instructor, r.program, r.day, r.branchName, r.status]
           .filter(Boolean)
           .some((f) => String(f).toLowerCase().includes(q));
         if (!hit) return false;
       }
       return true;
     });
-  }, [rows, search, filterBranch, filterLevel, filterDay, filterInstructor, filterContinuation]);
+  }, [rows, search, filterBranch, filterLevel, filterDay, filterInstructor, filterContinuation, filterStatus]);
 
   const sorted = useMemo(
     () => [...filtered].sort((a, b) => {
@@ -669,11 +702,63 @@ export default function LiveProgressTable({ category }) {
               Tick a lesson to record the date and a note.
             </p>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
-            <span><strong style={{ color: 'var(--text-main)' }}>{sorted.length}</strong> student{sorted.length === 1 ? '' : 's'}</span>
-            <span aria-hidden="true">·</span>
-            <span><strong style={{ color: 'var(--text-main)' }}>{attended}</strong> lesson{attended === 1 ? '' : 's'} logged</span>
-            {saving && <span style={{ color: 'var(--primary-blue)' }}>saving…</span>}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem', flexWrap: 'wrap' }}>
+            {/* Active Students Counter Badge */}
+            <div
+              onClick={() => { setFilterStatus(filterStatus === 'Active' ? 'all' : 'Active'); setPage(1); }}
+              title="Click to filter Active students"
+              style={{
+                display: 'inline-flex', alignItems: 'center', gap: '0.35rem',
+                padding: '0.3rem 0.65rem', borderRadius: '20px', cursor: 'pointer',
+                background: filterStatus === 'Active' ? 'rgba(16,185,129,0.22)' : 'rgba(16,185,129,0.1)',
+                border: filterStatus === 'Active' ? '1.5px solid #10b981' : '1px solid rgba(16,185,129,0.3)',
+                color: '#047857', fontSize: '0.75rem', fontWeight: 600,
+                transition: 'all 0.15s ease',
+              }}
+            >
+              <span style={{ width: '7px', height: '7px', borderRadius: '50%', background: '#10b981' }}></span>
+              <span>Active: <strong>{statusStats.active}</strong></span>
+            </div>
+
+            {/* Long Break Students Counter Badge */}
+            <div
+              onClick={() => { setFilterStatus(filterStatus === 'Long Break' ? 'all' : 'Long Break'); setPage(1); }}
+              title="Click to filter Long Break students"
+              style={{
+                display: 'inline-flex', alignItems: 'center', gap: '0.35rem',
+                padding: '0.3rem 0.65rem', borderRadius: '20px', cursor: 'pointer',
+                background: filterStatus === 'Long Break' ? 'rgba(245,158,11,0.22)' : 'rgba(245,158,11,0.1)',
+                border: filterStatus === 'Long Break' ? '1.5px solid #f59e0b' : '1px solid rgba(245,158,11,0.3)',
+                color: '#b45309', fontSize: '0.75rem', fontWeight: 600,
+                transition: 'all 0.15s ease',
+              }}
+            >
+              <span style={{ width: '7px', height: '7px', borderRadius: '50%', background: '#f59e0b' }}></span>
+              <span>Long Break: <strong>{statusStats.longBreak}</strong></span>
+            </div>
+
+            {/* Inactive Students Counter Badge */}
+            <div
+              onClick={() => { setFilterStatus(filterStatus === 'Inactive' ? 'all' : 'Inactive'); setPage(1); }}
+              title="Click to filter Inactive students"
+              style={{
+                display: 'inline-flex', alignItems: 'center', gap: '0.35rem',
+                padding: '0.3rem 0.65rem', borderRadius: '20px', cursor: 'pointer',
+                background: filterStatus === 'Inactive' ? 'rgba(239,68,68,0.22)' : 'rgba(239,68,68,0.1)',
+                border: filterStatus === 'Inactive' ? '1.5px solid #ef4444' : '1px solid rgba(239,68,68,0.3)',
+                color: '#b91c1c', fontSize: '0.75rem', fontWeight: 600,
+                transition: 'all 0.15s ease',
+              }}
+            >
+              <span style={{ width: '7px', height: '7px', borderRadius: '50%', background: '#ef4444' }}></span>
+              <span>Inactive: <strong>{statusStats.inactive}</strong></span>
+            </div>
+
+            <span aria-hidden="true" style={{ color: 'var(--border-color)', margin: '0 0.15rem' }}>·</span>
+            <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
+              <strong style={{ color: 'var(--text-main)' }}>{sorted.length}</strong> total · <strong style={{ color: 'var(--text-main)' }}>{attended}</strong> lessons
+            </span>
+            {saving && <span style={{ color: 'var(--primary-blue)', fontSize: '0.75rem' }}>saving…</span>}
           </div>
         </div>
 
@@ -697,6 +782,16 @@ export default function LiveProgressTable({ category }) {
                 style={{ paddingLeft: '2rem', width: '100%' }}
               />
             </div>
+          </div>
+
+          <div className="input-group" style={{ margin: 0, width: '140px' }}>
+            <label style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '0.3rem', display: 'block' }}>Status</label>
+            <select value={filterStatus} onChange={(e) => { setFilterStatus(e.target.value); setPage(1); }} style={{ width: '100%' }}>
+              <option value="all">All Statuses</option>
+              <option value="Active">Active ({statusStats.active})</option>
+              <option value="Long Break">Long Break ({statusStats.longBreak})</option>
+              <option value="Inactive">Inactive ({statusStats.inactive})</option>
+            </select>
           </div>
 
           <div className="input-group" style={{ margin: 0, width: '150px' }}>
@@ -784,9 +879,19 @@ export default function LiveProgressTable({ category }) {
                     return (
                       <tr key={`${r.rowKey}||${r.classId}`}>
                         <td style={{ fontWeight: 600, color: 'var(--text-main)' }}>
-                          <span style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                          <span style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', flexWrap: 'wrap' }}>
                             <User size={14} style={{ color: 'var(--text-muted)' }} />
-                            {r.studentName}
+                            <span>{r.studentName}</span>
+                            {r.status && String(r.status).toLowerCase().includes('break') && (
+                              <span style={{ fontSize: '0.62rem', fontWeight: 700, padding: '1px 5px', borderRadius: '4px', background: 'rgba(245,158,11,0.15)', color: '#b45309', border: '1px solid rgba(245,158,11,0.3)', whiteSpace: 'nowrap' }}>
+                                Long Break
+                              </span>
+                            )}
+                            {r.status && String(r.status).toLowerCase().includes('inactive') && (
+                              <span style={{ fontSize: '0.62rem', fontWeight: 700, padding: '1px 5px', borderRadius: '4px', background: 'rgba(239,68,68,0.15)', color: '#b91c1c', border: '1px solid rgba(239,68,68,0.3)', whiteSpace: 'nowrap' }}>
+                                Inactive
+                              </span>
+                            )}
                           </span>
                           <span style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 400, marginTop: '0.15rem' }}>
                             <MapPin size={10} /> {r.branchName}
