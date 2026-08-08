@@ -17,7 +17,7 @@ import {
 } from '../utils/subscriptionUtils';
 import {
   Search, X, User, MapPin, Clock, Calendar, GraduationCap, AlertTriangle,
-  CheckCircle, HelpCircle, Edit3, ShieldAlert, Sparkles, RefreshCw, Filter,
+  CheckCircle, HelpCircle, Edit3, ShieldAlert, Sparkles, RefreshCw, Filter, Plus,
 } from 'lucide-react';
 
 const PAGE_SIZE = 5;
@@ -56,6 +56,7 @@ export default function NewStudentSubscriptionsPage() {
   const [editingRow, setEditingRow] = useState(null);
   const [draftStartDate, setDraftStartDate] = useState('');
   const [draftTarget, setDraftTarget] = useState(DEFAULT_TARGET_MEETINGS);
+  const [customTopUpVal, setCustomTopUpVal] = useState('');
 
   // Real-time Subscriptions
   useEffect(() => {
@@ -96,6 +97,33 @@ export default function NewStudentSubscriptionsPage() {
     if (!studentName || !Array.isArray(classes)) return null;
     const nameKey = String(studentName).trim().toLowerCase();
     return classes.find((c) => c.student && String(c.student).trim().toLowerCase() === nameKey) || null;
+  };
+
+  // Edit Modal Handlers
+  const openEditModal = (row) => {
+    setEditingRow(row);
+    setDraftStartDate(row.startDateStr || '');
+    setDraftTarget(row.targetMeetings || DEFAULT_TARGET_MEETINGS);
+    setCustomTopUpVal('');
+  };
+
+  const handleApplyCustomTopUp = () => {
+    const val = parseInt(customTopUpVal, 10);
+    if (!isNaN(val) && val > 0 && val <= 100) {
+      setDraftTarget((prev) => prev + val);
+      showToast({
+        title: `+${val} Meetings Top-Up Added`,
+        message: `New total target: ${draftTarget + val} meetings`,
+        variant: 'success',
+      });
+      setCustomTopUpVal('');
+    } else {
+      showToast({
+        title: 'Invalid Meeting Count',
+        message: 'Please enter a valid number of meetings to add (1–100).',
+        variant: 'error',
+      });
+    }
   };
 
   // Build full subscription rows
@@ -178,12 +206,7 @@ export default function NewStudentSubscriptionsPage() {
   const safePage = Math.min(Math.max(1, page), totalPages);
   const pagedRows = filteredRows.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
 
-  // Edit Modal Handlers
-  const openEditModal = (row) => {
-    setEditingRow(row);
-    setDraftStartDate(row.startDateStr || '');
-    setDraftTarget(row.targetMeetings || DEFAULT_TARGET_MEETINGS);
-  };
+
 
   const handleSaveModal = (e) => {
     e.preventDefault();
@@ -443,14 +466,17 @@ export default function NewStudentSubscriptionsPage() {
       </div>
 
       {/* Edit Modal */}
-      {editingRow && (
+      {editingRow && (() => {
+        const meetingsLeft = Math.max(0, draftTarget - editingRow.attendedCount);
+        const currentEnd = calculatePredictedEndDate(draftStartDate, draftTarget);
+        return (
         <div style={{
           position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
           background: 'rgba(0, 0, 0, 0.45)', backdropFilter: 'blur(3px)',
           display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999, padding: '1rem',
         }}>
           <div style={{
-            background: 'var(--panel-bg)', width: '100%', maxWidth: '480px', borderRadius: '16px',
+            background: 'var(--panel-bg)', width: '100%', maxWidth: '520px', borderRadius: '16px',
             boxShadow: '0 12px 32px rgba(0,0,0,0.18)', overflow: 'hidden', border: '1px solid var(--border-color)',
           }}>
             <div style={{ padding: '1.25rem 1.5rem', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--bg-color)' }}>
@@ -464,6 +490,27 @@ export default function NewStudentSubscriptionsPage() {
             </div>
 
             <form onSubmit={handleSaveModal} style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+              {/* Current Meeting Status Summary */}
+              <div style={{
+                display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.6rem',
+                background: 'rgba(79,70,229,0.04)', border: '1px solid rgba(79,70,229,0.12)',
+                borderRadius: '10px', padding: '0.75rem 1rem',
+              }}>
+                <div style={{ textAlign: 'center' }}>
+                  <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Attended</div>
+                  <div style={{ fontSize: '1.25rem', fontWeight: 800, color: '#4f46e5' }}>{editingRow.attendedCount}</div>
+                </div>
+                <div style={{ textAlign: 'center' }}>
+                  <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Target</div>
+                  <div style={{ fontSize: '1.25rem', fontWeight: 800, color: 'var(--text-main)' }}>{draftTarget}</div>
+                </div>
+                <div style={{ textAlign: 'center' }}>
+                  <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Remaining</div>
+                  <div style={{ fontSize: '1.25rem', fontWeight: 800, color: meetingsLeft <= 2 ? '#dc2626' : '#059669' }}>{meetingsLeft}</div>
+                </div>
+              </div>
+
+              {/* Start Date */}
               <div>
                 <label className="modal-form-label">1st Meeting Date (Start Date)</label>
                 <input
@@ -473,10 +520,11 @@ export default function NewStudentSubscriptionsPage() {
                   className="modal-input-field"
                 />
                 <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.2rem', display: 'block' }}>
-                  The predicted end date will add 12 weeks + 2 weeks buffer to this date.
+                  Predicted end: {currentEnd ? formatDateFriendly(currentEnd) : '—'} ({draftTarget} weeks + 2 weeks buffer)
                 </span>
               </div>
 
+              {/* Package Selection */}
               <div>
                 <label className="modal-form-label">Package Meetings Count</label>
                 <select
@@ -488,7 +536,90 @@ export default function NewStudentSubscriptionsPage() {
                   <option value={24}>6 Months Package (24 Meetings)</option>
                   <option value={36}>1 Year Package (36 Meetings)</option>
                   <option value={10}>10 Meetings (Legacy short package)</option>
+                  {/* Show current value if it's a custom number from top-ups */}
+                  {![10, 12, 24, 36].includes(draftTarget) && (
+                    <option value={draftTarget}>Custom ({draftTarget} Meetings)</option>
+                  )}
                 </select>
+              </div>
+
+              {/* Top Up Section */}
+              <div style={{
+                background: 'rgba(16,185,129,0.05)', border: '1px solid rgba(16,185,129,0.2)',
+                borderRadius: '10px', padding: '0.85rem 1rem',
+              }}>
+                <div style={{ fontSize: '0.8rem', fontWeight: 700, color: '#047857', marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                  <RefreshCw size={14} /> Top Up Meetings
+                </div>
+                <p style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', margin: '0 0 0.6rem' }}>
+                  Add extra meetings on top of the current package ({draftTarget} meetings). This will extend the subscription.
+                </p>
+                <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                  {[4, 8, 12].map((n) => (
+                    <button
+                      key={n}
+                      type="button"
+                      onClick={() => {
+                        setDraftTarget((prev) => prev + n);
+                        showToast({ title: `+${n} meetings added`, message: `New total: ${draftTarget + n} meetings`, variant: 'success' });
+                      }}
+                      style={{
+                        padding: '0.35rem 0.75rem', borderRadius: '8px', cursor: 'pointer',
+                        fontSize: '0.78rem', fontWeight: 700, border: '1.5px solid rgba(16,185,129,0.35)',
+                        background: 'rgba(16,185,129,0.08)', color: '#047857',
+                        transition: 'all 0.15s ease',
+                      }}
+                    >
+                      +{n} Meetings
+                    </button>
+                  ))}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', flexWrap: 'wrap', marginTop: '0.15rem' }}>
+                    <input
+                      type="number"
+                      min={1}
+                      max={100}
+                      placeholder="Custom (e.g. 5)"
+                      value={customTopUpVal}
+                      onChange={(e) => setCustomTopUpVal(e.target.value)}
+                      style={{
+                        width: '135px',
+                        padding: '0.4rem 0.65rem',
+                        borderRadius: '8px',
+                        border: '1.5px solid var(--border-color)',
+                        fontSize: '0.8rem',
+                        background: 'var(--panel-bg)',
+                        color: 'var(--text-main)',
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          handleApplyCustomTopUp();
+                        }
+                      }}
+                    />
+                    <button
+                      type="button"
+                      onClick={handleApplyCustomTopUp}
+                      style={{
+                        padding: '0.4rem 0.85rem',
+                        borderRadius: '8px',
+                        border: 'none',
+                        background: '#10b981',
+                        color: 'white',
+                        fontSize: '0.78rem',
+                        fontWeight: 700,
+                        cursor: 'pointer',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '0.3rem',
+                        boxShadow: '0 2px 6px rgba(16,185,129,0.25)',
+                        transition: 'all 0.15s ease',
+                      }}
+                    >
+                      <Plus size={14} /> Insert Top-Up
+                    </button>
+                  </div>
+                </div>
               </div>
 
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', marginTop: '0.5rem' }}>
@@ -502,7 +633,8 @@ export default function NewStudentSubscriptionsPage() {
             </form>
           </div>
         </div>
-      )}
+        );
+      })()}
     </section>
   );
 }

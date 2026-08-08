@@ -248,6 +248,10 @@ export function getInstructorDisplayName(inst) {
   if (!inst) return '';
   if (typeof inst === 'string') return inst;
 
+  if (inst.nickname && String(inst.nickname).trim()) {
+    return String(inst.nickname).trim();
+  }
+
   const verified = getVerifiedAliases(inst);
   if (verified.length > 0 && verified[0]) {
     return String(verified[0]).trim();
@@ -259,7 +263,7 @@ export function getInstructorDisplayName(inst) {
     if (aliasStr) return String(aliasStr).trim();
   }
 
-  return inst.name || inst.fullname || inst.nickname || String(inst.id || '').split('@')[0] || '';
+  return inst.name || inst.fullname || String(inst.id || '').split('@')[0] || '';
 }
 
 /**
@@ -274,7 +278,11 @@ export function resolveCanonicalTeacherName(rawName, knownInstructors = []) {
   for (const inst of knownInstructors) {
     if (!inst) continue;
     if (isInstructorMatch(trimmed, inst)) {
-      return getInstructorDisplayName(inst);
+      const displayName = getInstructorDisplayName(inst);
+      if (displayName && displayName !== 'TBD' && (displayName.length <= trimmed.length || !trimmed.includes(' '))) {
+        return displayName;
+      }
+      return trimmed;
     }
   }
 

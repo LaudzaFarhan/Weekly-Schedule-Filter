@@ -182,17 +182,30 @@ export async function PUT(req) {
   try {
     await ready();
     const body = await req.json();
-    const { id, day, time, program, student, teacher, branchName, classType, remarks } = body;
+    const id = body.id;
 
     if (!id) {
       return NextResponse.json({ error: 'Missing class ID' }, { status: 400 });
     }
 
+    // Fetch existing class record to preserve omitted fields during partial updates
+    const curRes = await query('SELECT * FROM internal_classes WHERE id = $1', [id]);
+    if (curRes.rowCount === 0) {
+      return NextResponse.json({ error: 'Class not found' }, { status: 404 });
+    }
+    const current = curRes.rows[0];
+
+    const day = body.day !== undefined ? body.day : current.day;
+    const time = body.time !== undefined ? body.time : current.time;
+    const program = body.program !== undefined ? body.program : current.program;
+    const student = body.student !== undefined ? body.student : current.student;
+    const teacher = body.teacher !== undefined ? body.teacher : current.teacher;
+    const branchName = body.branchName !== undefined ? body.branchName : (body.branch_name !== undefined ? body.branch_name : current.branch_name);
+    const classType = body.classType !== undefined ? body.classType : (body.class_type !== undefined ? body.class_type : current.class_type);
+    const remarks = body.remarks !== undefined ? body.remarks : current.remarks;
+
     const kind = normaliseClassType(classType);
     if (kind.error) return NextResponse.json({ error: kind.error }, { status: 400 });
-
-    const { dates, error } = normaliseSessionDates(body.sessionDates, kind.classType);
-    if (error) return NextResponse.json({ error }, { status: 400 });
 
     const sql = `
       UPDATE internal_classes
@@ -207,14 +220,15 @@ export async function PUT(req) {
     ];
     const res = await query(sql, params);
 
-    if (res.rowCount === 0) {
-      return NextResponse.json({ error: 'Class not found' }, { status: 404 });
+    if (body.sessionDates !== undefined && Array.isArray(body.sessionDates)) {
+      const { dates, error } = normaliseSessionDates(body.sessionDates, kind.classType);
+      if (!error) await replaceDates(id, dates);
     }
 
-    // Attendance dates are replaced wholesale, matching the rest of this PUT.
-    await replaceDates(id, dates);
+    const curDatesRes = await query('SELECT session_date FROM internal_class_sessions WHERE class_id = $1', [id]);
+    const finalDates = curDatesRes.rows.map((r) => r.session_date);
 
-    return NextResponse.json(mapRow(res.rows[0], dates));
+    return NextResponse.json(mapRow(res.rows[0], finalDates));
   } catch (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }

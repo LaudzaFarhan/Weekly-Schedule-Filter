@@ -4,24 +4,54 @@ import { NextResponse } from 'next/server';
 import { CONTINUATION_OPTIONS, LESSONS_PER_LEVEL, CATEGORIES, lessonsForCategory } from '@/lib/programRules';
 
 /** Progress lives in a table added later; create it on first use. */
-const ready = () => ensureTable('internal_live_progress');
+const ready = async () => {
+  await ensureTable('internal_live_progress');
+  try {
+    await query(`
+      ALTER TABLE internal_live_progress
+      ADD COLUMN IF NOT EXISTS arranged_lesson VARCHAR(50),
+      ADD COLUMN IF NOT EXISTS arranged_teacher VARCHAR(255),
+      ADD COLUMN IF NOT EXISTS main_teacher VARCHAR(255)
+    `);
+  } catch (err) {
+    // Ignore schema update error if database user lacks DDL table ownership
+  }
+};
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
-const mapRow = (row) => ({
-  id: row.id,
-  studentName: row.student_name,
-  programCode: row.program_code,
-  category: row.category,
-  // Sparse map of lesson number -> { date, note }. Absent means not attended.
-  attendance: row.attendance || {},
-  // Level code -> true once the video for that level has been sent.
-  videos: row.videos || {},
-  continuation: row.continuation,
-  continuationNote: row.continuation_note,
-  createdAt: row.created_at,
-  updatedAt: row.updated_at,
-});
+const setNoteTag = (existingNotes, key, val) => {
+  let str = String(existingNotes || '');
+  const regex = new RegExp(`\\[${key}:\\s*([^\\]]+)\\]`, 'gi');
+  str = str.replace(regex, '').trim();
+  if (val) {
+    return `[${key}: ${val}] ${str}`.trim();
+  }
+  return str;
+};
+
+const mapRow = (row) => {
+  const noteStr = String(row.continuation_note || '');
+  const tMatch = noteStr.match(/\[ArrangedTeacher:\s*([^\]]+)\]/i);
+  const lMatch = noteStr.match(/\[ArrangedLesson:\s*([^\]]+)\]/i);
+  const mMatch = noteStr.match(/\[MainTeacher:\s*([^\]]+)\]/i);
+
+  return {
+    id: row.id,
+    studentName: row.student_name,
+    programCode: row.program_code,
+    category: row.category,
+    attendance: row.attendance || {},
+    videos: row.videos || {},
+    continuation: row.continuation,
+    continuationNote: row.continuation_note,
+    arrangedLesson: row.arranged_lesson || (lMatch ? lMatch[1].trim() : null),
+    arrangedTeacher: row.arranged_teacher || (tMatch ? tMatch[1].trim() : null),
+    mainTeacher: row.main_teacher || (mMatch ? mMatch[1].trim() : null),
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+};
 
 /**
  * Validate the attendance map.
@@ -150,27 +180,70 @@ export async function PUT(req) {
     const cont = normaliseContinuation(body.continuation);
     if (cont.error) return NextResponse.json({ error: cont.error }, { status: 400 });
 
-    const res = await query(
-      `INSERT INTO internal_live_progress
-         (student_name, program_code, category, attendance, videos, continuation, continuation_note)
-       VALUES ($1, $2, $3, $4::jsonb, $5::jsonb, $6, $7)
-       ON CONFLICT (student_name, program_code) DO UPDATE SET
-         category = EXCLUDED.category,
-         attendance = EXCLUDED.attendance,
-         videos = EXCLUDED.videos,
-         continuation = EXCLUDED.continuation,
-         continuation_note = EXCLUDED.continuation_note
-       RETURNING *`,
-      [
-        studentName,
-        programCode,
-        category || null,
-        JSON.stringify(att.attendance),
-        JSON.stringify(vid.videos),
-        cont.continuation,
-        body.continuationNote == null ? null : String(body.continuationNote),
-      ]
-    );
+    let noteVal = body.continuationNote == null ? null : String(body.continuationNote);
+    if (body.arrangedTeacher !== undefined) {
+      noteVal = setNoteTag(noteVal, 'ArrangedTeacher', body.arrangedTeacher || '');
+    }
+    if (body.arrangedLesson !== undefined) {
+      noteVal = setNoteTag(noteVal, 'ArrangedLesson', body.arrangedLesson || '');
+    }
+    if (body.mainTeacher !== undefined) {
+      noteVal = setNoteTag(noteVal, 'MainTeacher', body.mainTeacher || '');
+    }
+
+    let res;
+    try {
+      res = await query(
+        `INSERT INTO internal_live_progress
+           (student_name, program_code, category, attendance, videos, continuation, continuation_note, arranged_lesson, arranged_teacher, main_teacher)
+         VALUES ($1, $2, $3, $4::jsonb, $5::jsonb, $6, $7, $8, $9, $10)
+         ON CONFLICT (student_name, program_code) DO UPDATE SET
+           category = EXCLUDED.category,
+           attendance = EXCLUDED.attendance,
+           videos = EXCLUDED.videos,
+           continuation = EXCLUDED.continuation,
+           continuation_note = EXCLUDED.continuation_note,
+           arranged_lesson = EXCLUDED.arranged_lesson,
+           arranged_teacher = EXCLUDED.arranged_teacher,
+           main_teacher = COALESCE(internal_live_progress.main_teacher, EXCLUDED.main_teacher)
+         RETURNING *`,
+        [
+          studentName,
+          programCode,
+          category || null,
+          JSON.stringify(att.attendance),
+          JSON.stringify(vid.videos),
+          cont.continuation,
+          noteVal,
+          body.arrangedLesson || null,
+          body.arrangedTeacher || null,
+          body.mainTeacher || null,
+        ]
+      );
+    } catch (dbErr) {
+      // Fallback if arranged_lesson or arranged_teacher column does not exist on DB
+      res = await query(
+        `INSERT INTO internal_live_progress
+           (student_name, program_code, category, attendance, videos, continuation, continuation_note)
+         VALUES ($1, $2, $3, $4::jsonb, $5::jsonb, $6, $7)
+         ON CONFLICT (student_name, program_code) DO UPDATE SET
+           category = EXCLUDED.category,
+           attendance = EXCLUDED.attendance,
+           videos = EXCLUDED.videos,
+           continuation = EXCLUDED.continuation,
+           continuation_note = EXCLUDED.continuation_note
+         RETURNING *`,
+        [
+          studentName,
+          programCode,
+          category || null,
+          JSON.stringify(att.attendance),
+          JSON.stringify(vid.videos),
+          cont.continuation,
+          noteVal,
+        ]
+      );
+    }
 
     return NextResponse.json(mapRow(res.rows[0]));
   } catch (error) {

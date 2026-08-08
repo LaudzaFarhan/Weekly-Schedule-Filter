@@ -12,10 +12,10 @@
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useToast } from '../components/ui/Toast';
-import { subscribeToInternalClasses } from '../services/internalScheduleService';
+import { subscribeToInternalClasses, updateInternalClass, createInternalClass, deleteInternalClass } from '../services/internalScheduleService';
 import { subscribeToInternalInstructors } from '../services/internalInstructorService';
 import { subscribeToInternalStudents } from '../services/internalStudentService';
-import { resolveCanonicalTeacherName } from '../utils/instructorUtils';
+import { resolveCanonicalTeacherName, getInstructorDisplayName, isInstructorMatch, isSameTeacher } from '../utils/instructorUtils';
 import {
   subscribeToLiveProgress, saveLiveProgress,
 } from '../services/newLiveProgressService';
@@ -28,7 +28,7 @@ import {
 import { isoOf } from '../lib/instructorAvailability';
 import {
   Search, X, User, MapPin, Clock, Calendar, GraduationCap, Check, Video,
-  StickyNote, AlertTriangle, TrendingUp,
+  StickyNote, AlertTriangle, TrendingUp, BookOpen, Edit3, Save, UserCheck, ChevronDown, CheckCircle2,
 } from 'lucide-react';
 
 const PAGE_SIZE = 5;
@@ -84,6 +84,260 @@ export default function LiveProgressTable({ category }) {
   const [draftDate, setDraftDate] = useState('');
   const [draftNote, setDraftNote] = useState('');
   const [saving, setSaving] = useState(false);
+
+  // Lesson Arrangement state & handlers
+  const [arrangingRow, setArrangingRow] = useState(null);
+  const [arrangedLesson, setArrangedLesson] = useState('1');
+  const [arrangedTeacher, setArrangedTeacher] = useState('');
+  const [arrangingSaving, setArrangingSaving] = useState(false);
+
+  const getInstructorsForBranch = (branchName) => {
+    const bClean = String(branchName || '').trim().toLowerCase();
+    const list = new Set();
+
+    (instructorProfiles || []).forEach((inst) => {
+      if (!inst) return;
+      const primaryName = getInstructorDisplayName(inst) || inst.name;
+      if (!primaryName) return;
+
+      if (!bClean || bClean === '—') {
+        const canonical = resolveCanonicalTeacherName(primaryName, instructorProfiles);
+        if (canonical && canonical !== 'TBD') list.add(canonical);
+        return;
+      }
+
+      const branches = Array.isArray(inst.branches)
+        ? inst.branches
+        : String(inst.branchName || inst.branches || '').split(',').map((s) => s.trim());
+
+      if (branches.some((b) => String(b).toLowerCase() === bClean)) {
+        const canonical = resolveCanonicalTeacherName(primaryName, instructorProfiles);
+        if (canonical && canonical !== 'TBD') list.add(canonical);
+      }
+    });
+
+    classes.forEach((c) => {
+      if (c.teacher && c.teacher !== '—' && (!bClean || bClean === '—' || String(c.branchName || '').trim().toLowerCase() === bClean)) {
+        const canonical = resolveCanonicalTeacherName(c.teacher, instructorProfiles);
+        if (canonical && canonical !== 'TBD') list.add(canonical);
+      }
+    });
+
+    if (list.size === 0) {
+      (instructorProfiles || []).forEach((inst) => {
+        const primaryName = getInstructorDisplayName(inst) || inst.name;
+        const canonical = resolveCanonicalTeacherName(primaryName, instructorProfiles);
+        if (canonical && canonical !== 'TBD') list.add(canonical);
+      });
+    }
+
+    return Array.from(list).sort((a, b) => a.localeCompare(b));
+  };
+
+  const getNextUndoneLesson = (attendanceMap, maxL = 10) => {
+    for (let i = 1; i <= maxL; i++) {
+      if (!attendanceMap[i]) return String(i);
+    }
+    return String(maxL);
+  };
+
+  const isDayMatch = (d1, d2) => {
+    if (!d1 || !d2) return false;
+    const str1 = String(d1).trim().toLowerCase();
+    const str2 = String(d2).trim().toLowerCase();
+    if (str1 === str2) return true;
+    if (str1.slice(0, 3) === str2.slice(0, 3)) return true;
+    return false;
+  };
+
+  const checkInstructorAvailability = (instName, targetDay) => {
+    if (!instName || !instructorProfiles.length) {
+      return { employmentType: 'Full-Time', isAvailable: true, label: 'Full-Time', profile: null };
+    }
+
+    const trimmed = String(instName).trim();
+    const profile = instructorProfiles.find((p) => {
+      if (!p) return false;
+      return isInstructorMatch(trimmed, p) || isSameTeacher(trimmed, p.name) || isSameTeacher(trimmed, getInstructorDisplayName(p));
+    });
+
+    if (!profile) {
+      return { employmentType: 'Full-Time', isAvailable: true, label: 'Full-Time', profile: null };
+    }
+
+    const empType = profile.employmentType || 'Full-Time';
+    const availDays = Array.isArray(profile.availableDays) ? profile.availableDays : [];
+
+    let isAvailable = true;
+    if (availDays.length > 0 && targetDay && targetDay !== '—') {
+      isAvailable = availDays.some((d) => isDayMatch(d, targetDay));
+    }
+
+    let label = empType;
+    if (availDays.length > 0) {
+      label += isAvailable ? ` (Available ${targetDay})` : ` (Unavailable on ${targetDay}: ${availDays.join(', ')})`;
+    } else if (empType === 'Part-Time') {
+      label += ` (Part-Time)`;
+    } else {
+      label += ` (All Days)`;
+    }
+
+    return {
+      employmentType: empType,
+      availableDays: availDays,
+      isAvailable,
+      label,
+      profile,
+    };
+  };
+
+  const openArrangementModal = (row) => {
+    const nextUndone = getNextUndoneLesson(row.attendance, maxLessons);
+    setArrangingRow(row);
+    setArrangedLesson(row.arrangedLesson || row.lesson || nextUndone);
+    setArrangedTeacher(row.arrangedTeacher || row.instructor);
+  };
+
+  const reassignStudentInSchedule = async ({ studentName, targetTeacher, day, time, branchName, classType, program }) => {
+    if (!studentName || !targetTeacher) return;
+
+    const normStudent = studentName.trim().toLowerCase();
+    const normTargetTeacher = targetTeacher.trim().toLowerCase();
+
+    // 1. Find all class rows containing this student
+    const studentClasses = classes.filter((c) => {
+      const sList = String(c.student || '')
+        .split(',')
+        .map((s) => s.trim().toLowerCase());
+      return sList.includes(normStudent);
+    });
+
+    // 2. Remove student from any class row where teacher is NOT targetTeacher
+    for (const c of studentClasses) {
+      const cTeacherNorm = String(c.teacher || '').trim().toLowerCase();
+      if (cTeacherNorm === normTargetTeacher) continue;
+
+      const remainingStudents = String(c.student || '')
+        .split(',')
+        .map((s) => s.trim())
+        .filter((s) => s.toLowerCase() !== normStudent);
+
+      if (remainingStudents.length > 0) {
+        // Update original teacher's row to keep remaining students
+        await updateInternalClass(c.id, {
+          day: c.day,
+          time: c.time,
+          student: remainingStudents.join(', '),
+          branchName: c.branchName,
+          classType: c.classType || 'Regular',
+          teacher: c.teacher,
+          program: c.program,
+        });
+      } else {
+        // Row only had this 1 student -> Delete empty class row
+        await deleteInternalClass(c.id);
+      }
+    }
+
+    // 3. Find if targetTeacher ALREADY has a class row on this day + time + branch
+    const existingTargetClass = classes.find((c) => {
+      const cTeacherNorm = String(c.teacher || '').trim().toLowerCase();
+      const cDayNorm = String(c.day || '').trim().toLowerCase();
+      const cTimeNorm = String(c.time || '').trim().toLowerCase();
+      const cBranchNorm = String(c.branchName || '').trim().toLowerCase();
+
+      const sameDay = cDayNorm === String(day || '').trim().toLowerCase();
+      const sameTime = cTimeNorm === String(time || '').trim().toLowerCase();
+      const sameBranch = (
+        cBranchNorm === String(branchName || '').trim().toLowerCase() ||
+        cBranchNorm === 'all branches' ||
+        String(branchName || '').trim().toLowerCase() === 'all branches'
+      );
+
+      return cTeacherNorm === normTargetTeacher && sameDay && sameTime && sameBranch;
+    });
+
+    if (existingTargetClass) {
+      // Append student to target teacher's existing class row
+      const existingStudents = String(existingTargetClass.student || '')
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean);
+
+      const alreadyIn = existingStudents.some((s) => s.toLowerCase() === normStudent);
+      if (!alreadyIn) {
+        existingStudents.push(studentName.trim());
+        await updateInternalClass(existingTargetClass.id, {
+          day: existingTargetClass.day,
+          time: existingTargetClass.time,
+          student: existingStudents.join(', '),
+          branchName: existingTargetClass.branchName,
+          classType: existingTargetClass.classType || 'Regular',
+          teacher: existingTargetClass.teacher,
+          program: existingTargetClass.program || program,
+        });
+      }
+    } else {
+      // Create a NEW class row for targetTeacher on the schedule grid!
+      await createInternalClass({
+        teacher: targetTeacher.trim(),
+        student: studentName.trim(),
+        day: day && day !== '—' ? day : 'Monday',
+        time: time && time !== '—' ? time : '2.30 - 4.00 pm',
+        branchName: branchName && branchName !== '—' ? branchName : 'Kelapa Gading',
+        program: program || 'K1',
+        classType: classType || 'Regular',
+      });
+    }
+  };
+
+  const handleSaveArrangement = async () => {
+    if (!arrangingRow) return;
+    setArrangingSaving(true);
+    try {
+      // The main/original teacher — use stored mainTeacher if already saved, else current instructor
+      const mainTeacher = arrangingRow.mainTeacher || arrangingRow.instructor;
+
+      // 1. Save arrangedLesson, arrangedTeacher & mainTeacher into liveProgress
+      await persist(arrangingRow, () => ({
+        arrangedLesson,
+        arrangedTeacher,
+        mainTeacher,
+      }));
+
+      // 2. Reassign student in Schedule Grid (internal_classes) to arrangedTeacher (e.g. Helen)
+      const hasLessonNum = category !== 'Coder';
+      const newProgStr = hasLessonNum ? `${arrangingRow.levelCode}.${arrangedLesson}` : arrangingRow.levelCode;
+
+      await reassignStudentInSchedule({
+        studentName: arrangingRow.studentName,
+        targetTeacher: arrangedTeacher,
+        day: arrangingRow.day,
+        time: arrangingRow.time,
+        branchName: arrangingRow.branchName,
+        classType: arrangingRow.classType || 'Regular',
+        program: newProgStr,
+      });
+
+      const avail = checkInstructorAvailability(arrangedTeacher, arrangingRow.day);
+      let toastMsg = `Lesson ${arrangedLesson} arranged with ${arrangedTeacher} for ${arrangingRow.studentName}. (Main teacher: ${mainTeacher}). Schedule Grid updated!`;
+      if (!avail.isAvailable) {
+        toastMsg += ` ⚠️ Note: ${arrangedTeacher} is ${avail.employmentType} and not usually scheduled on ${arrangingRow.day}s.`;
+      }
+
+      showToast({
+        title: 'Lesson Arrangement Saved',
+        message: toastMsg,
+        variant: avail.isAvailable ? 'success' : 'warning',
+      });
+      setArrangingRow(null);
+    } catch (err) {
+      console.error(err);
+      showToast({ title: 'Failed to save arrangement', message: err.message, variant: 'error' });
+    } finally {
+      setArrangingSaving(false);
+    }
+  };
 
   const levels = useMemo(() => levelsForCategory(category), [category]);
   const branchList = useMemo(
@@ -174,11 +428,16 @@ export default function LiveProgressTable({ category }) {
       for (const name of names) {
         const rowKey = keyOf(name, levelCode);
         const stored = progressByKey.get(rowKey);
+        // If we have a stored mainTeacher (original instructor before arrangement),
+        // use it for the INSTRUCTOR column; otherwise fall back to the schedule's teacher
+        const storedMain = stored?.mainTeacher
+          ? resolveCanonicalTeacherName(stored.mainTeacher, instructorProfiles)
+          : null;
         const item = {
           rowKey,
           classId: c.id,
           studentName: name,
-          instructor: displayInstructor || c.teacher || '—',
+          instructor: storedMain || displayInstructor || c.teacher || '—',
           day: c.day || '—',
           time: c.time || '—',
           branchName: c.branchName || '—',
@@ -191,6 +450,9 @@ export default function LiveProgressTable({ category }) {
           videos: stored?.videos || {},
           continuation: stored?.continuation || CONTINUATION_OPTIONS[0],
           continuationNote: stored?.continuationNote || '',
+          arrangedLesson: stored?.arrangedLesson || null,
+          arrangedTeacher: stored?.arrangedTeacher ? resolveCanonicalTeacherName(stored.arrangedTeacher, instructorProfiles) : null,
+          mainTeacher: storedMain || null,
         };
 
         if (!candidatesByKey.has(rowKey)) {
@@ -299,6 +561,9 @@ export default function LiveProgressTable({ category }) {
       videos: { ...(latest?.videos ?? row.videos) },
       continuation: latest?.continuation ?? row.continuation,
       continuationNote: latest?.continuationNote ?? row.continuationNote,
+      arrangedLesson: latest?.arrangedLesson ?? row.arrangedLesson,
+      arrangedTeacher: latest?.arrangedTeacher ?? row.arrangedTeacher,
+      mainTeacher: latest?.mainTeacher ?? row.mainTeacher,
     };
     const record = {
       studentName: row.studentName,
@@ -482,7 +747,7 @@ export default function LiveProgressTable({ category }) {
               <p>Loading {category} progress…</p>
             </div>
           ) : (
-            <table id="schedule-table" style={{ minWidth: '1180px' }}>
+            <table id="schedule-table" style={{ minWidth: '1280px' }}>
               <thead>
                 <tr>
                   <th style={{ minWidth: '170px' }}>Student Name</th>
@@ -490,6 +755,7 @@ export default function LiveProgressTable({ category }) {
                   <th style={{ width: '100px' }}>Day</th>
                   <th style={{ width: '130px' }}>Time</th>
                   <th style={{ width: '110px' }}>Program</th>
+                  <th style={{ minWidth: '170px' }}>Lesson Arrangement</th>
                   <th style={{ minWidth: category === 'Coder' ? '290px' : '250px' }}>Attendance 1–{maxLessons}</th>
                   <th style={{ minWidth: '180px' }}>Video Sent</th>
                   <th style={{ width: '160px' }}>Continuation</th>
@@ -498,7 +764,7 @@ export default function LiveProgressTable({ category }) {
               <tbody>
                 {rows.length === 0 ? (
                   <tr>
-                    <td colSpan="8" style={{ textAlign: 'center', padding: '3rem 1.5rem', color: 'var(--text-muted)' }}>
+                    <td colSpan="9" style={{ textAlign: 'center', padding: '3rem 1.5rem', color: 'var(--text-muted)' }}>
                       <AlertTriangle size={32} style={{ color: 'var(--warning)', marginBottom: '0.5rem' }} />
                       <div style={{ fontWeight: 600 }}>No {category} students scheduled</div>
                       <div style={{ fontSize: '0.8rem', marginTop: '0.2rem' }}>
@@ -508,7 +774,7 @@ export default function LiveProgressTable({ category }) {
                   </tr>
                 ) : paged.length === 0 ? (
                   <tr>
-                    <td colSpan="8" style={{ textAlign: 'center', padding: '3rem 1.5rem', color: 'var(--text-muted)' }}>
+                    <td colSpan="9" style={{ textAlign: 'center', padding: '3rem 1.5rem', color: 'var(--text-muted)' }}>
                       <div style={{ fontWeight: 600 }}>No student matches your filters.</div>
                     </td>
                   </tr>
@@ -548,6 +814,46 @@ export default function LiveProgressTable({ category }) {
                           }}>
                             <GraduationCap size={11} /> {r.program}
                           </span>
+                        </td>
+
+                        {/* Lesson Arrangement (SPA arrangement) */}
+                        <td>
+                          {(() => {
+                            const displayTeacher = r.arrangedTeacher || r.instructor;
+                            const displayLesson = r.arrangedLesson || r.lesson || getNextUndoneLesson(r.attendance, maxLessons);
+                            const isArranged = !!r.arrangedTeacher && r.arrangedTeacher.toLowerCase() !== r.instructor.toLowerCase();
+                            const badgeLabel = category === 'Coder'
+                              ? `Coder · ${displayTeacher}`
+                              : `L${displayLesson} · ${displayTeacher}`;
+
+                            return (
+                              <button
+                                type="button"
+                                onClick={() => openArrangementModal(r)}
+                                title={isArranged
+                                  ? `Arranged: ${displayTeacher} (Main: ${r.instructor}). Click to edit.`
+                                  : `Click to arrange lesson & assign branch instructor for ${r.studentName}`}
+                                style={{
+                                  display: 'inline-flex', alignItems: 'center', gap: '0.35rem',
+                                  padding: '0.28rem 0.6rem', borderRadius: '7px', cursor: 'pointer',
+                                  fontSize: '0.75rem', fontWeight: 600,
+                                  border: isArranged ? '1.5px solid rgba(217,119,6,0.4)' : '1.5px solid rgba(79,70,229,0.3)',
+                                  background: isArranged ? 'rgba(245,158,11,0.1)' : 'rgba(79,70,229,0.06)',
+                                  color: isArranged ? '#92400e' : '#3730a3',
+                                  transition: 'all 0.15s ease',
+                                }}
+                              >
+                                <BookOpen size={12} style={{ color: isArranged ? '#d97706' : 'var(--primary-blue, #4f46e5)' }} />
+                                <span>{badgeLabel}</span>
+                                {isArranged && (
+                                  <span style={{ fontSize: '0.62rem', background: 'rgba(217,119,6,0.15)', color: '#92400e', padding: '0 4px', borderRadius: '3px', fontWeight: 700, letterSpacing: '0.3px' }}>
+                                    REPLACED
+                                  </span>
+                                )}
+                                <Edit3 size={11} style={{ opacity: 0.7, marginLeft: '2px' }} />
+                              </button>
+                            );
+                          })()}
                         </td>
 
                         {/* Attendance ticks. The title carries the date and note,
@@ -769,6 +1075,180 @@ export default function LiveProgressTable({ category }) {
           </div>
         </div>
       )}
+
+      {/* Lesson & Instructor Arrangement Modal */}
+      {arrangingRow && (() => {
+        const currentAvail = checkInstructorAvailability(arrangedTeacher, arrangingRow.day);
+        const mainAvail = checkInstructorAvailability(arrangingRow.instructor, arrangingRow.day);
+
+        return (
+          <div
+            style={{
+              position: 'fixed', inset: 0, zIndex: 9999,
+              background: 'rgba(0,0,0,0.45)', backdropFilter: 'blur(3px)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem',
+            }}
+          >
+            <div
+              role="dialog"
+              aria-modal="true"
+              style={{
+                background: 'var(--panel-bg, white)', border: '1px solid var(--border-color)',
+                borderRadius: '16px', width: '100%', maxWidth: '460px', maxHeight: '90vh',
+                display: 'flex', flexDirection: 'column', overflow: 'hidden',
+                boxShadow: '0 12px 32px rgba(0,0,0,0.18)',
+                animation: 'modalAppear 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards',
+              }}
+            >
+              {/* Modal Header */}
+              <div style={{ padding: '1.1rem 1.4rem', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--bg-color)' }}>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 700 }}>Lesson Arrangement</h3>
+                  <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
+                    {arrangingRow.studentName} · {arrangingRow.branchName} ({arrangingRow.day} {arrangingRow.time})
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setArrangingRow(null)}
+                  style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--text-muted)' }}
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              {/* Modal Body */}
+              <div style={{ padding: '1.25rem 1.4rem', display: 'flex', flexDirection: 'column', gap: '1.1rem', overflowY: 'auto' }}>
+                
+                {/* Main Instructor & Current Enrollment Info Box */}
+                <div style={{ background: 'rgba(79,70,229,0.05)', border: '1px solid rgba(79,70,229,0.18)', padding: '0.75rem 1rem', borderRadius: '10px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div>
+                    <div style={{ fontSize: '0.72rem', fontWeight: 600, color: '#4f46e5', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Main Instructor</div>
+                    <div style={{ fontSize: '0.92rem', fontWeight: 700, color: 'var(--text-main)', marginTop: '0.15rem', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                      <User size={14} style={{ color: '#4f46e5' }} />
+                      <span>{arrangingRow.instructor}</span>
+                      <span style={{ fontSize: '0.68rem', padding: '1px 5px', borderRadius: '4px', background: 'rgba(79,70,229,0.12)', color: '#4f46e5', fontWeight: 600 }}>
+                        {mainAvail.employmentType}
+                      </span>
+                    </div>
+                  </div>
+                  <div style={{ textAlign: 'right' }}>
+                    <div style={{ fontSize: '0.72rem', fontWeight: 600, color: 'var(--text-muted)' }}>Program</div>
+                    <div style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-main)' }}>{arrangingRow.program}</div>
+                  </div>
+                </div>
+
+                {/* Target Arranged Lesson (Kinder / Junior) */}
+                {category !== 'Coder' && (
+                  <div>
+                    <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-secondary)', display: 'block', marginBottom: '0.4rem' }}>
+                      Target Arranged Lesson *
+                    </label>
+                    <select
+                      value={arrangedLesson}
+                      onChange={(e) => setArrangedLesson(e.target.value)}
+                      className="modal-select-field"
+                      style={{ width: '100%', fontSize: '0.85rem', padding: '0.5rem 0.75rem' }}
+                    >
+                      {Array.from({ length: maxLessons }, (_, i) => i + 1).map((n) => {
+                        const isDone = !!arrangingRow.attendance[n];
+                        return (
+                          <option key={n} value={String(n)}>
+                            Lesson {n} {isDone ? ' (Done ✓)' : ' (Not done)'}
+                          </option>
+                        );
+                      })}
+                    </select>
+
+                    <div style={{ fontSize: '0.72rem', marginTop: '0.4rem', color: arrangingRow.attendance[arrangedLesson] ? '#b45309' : '#059669', fontWeight: 500 }}>
+                      {arrangingRow.attendance[arrangedLesson] ? (
+                        <span>⚠️ Note: {arrangingRow.studentName} has already completed Lesson {arrangedLesson}.</span>
+                      ) : (
+                        <span>💡 Arranging Lesson {arrangedLesson} for {arrangingRow.studentName}.</span>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Arranged / Replacement Instructor Selection */}
+                <div>
+                  <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-secondary)', display: 'block', marginBottom: '0.35rem' }}>
+                    Arranged / Replacement Instructor at {arrangingRow.branchName} *
+                  </label>
+                  <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', display: 'block', marginBottom: '0.45rem' }}>
+                    Select a teacher for this lesson. Main instructor ({arrangingRow.instructor}) will remain preserved.
+                  </span>
+                  <select
+                    value={arrangedTeacher}
+                    onChange={(e) => setArrangedTeacher(e.target.value)}
+                    className="modal-select-field"
+                    style={{ width: '100%', fontSize: '0.85rem', padding: '0.5rem 0.75rem' }}
+                  >
+                    {getInstructorsForBranch(arrangingRow.branchName).map((inst) => {
+                      const check = checkInstructorAvailability(inst, arrangingRow.day);
+                      const isMain = inst.toLowerCase() === arrangingRow.instructor.toLowerCase();
+                      const warningTag = !check.isAvailable ? ' ⚠️' : '';
+                      return (
+                        <option key={inst} value={inst}>
+                          {inst} — {check.label} {isMain ? '★ (Main Teacher)' : ''}{warningTag}
+                        </option>
+                      );
+                    })}
+                  </select>
+
+                  {/* Employment Type & Availability Banner */}
+                  <div style={{
+                    marginTop: '0.6rem', padding: '0.6rem 0.85rem', borderRadius: '8px',
+                    fontSize: '0.74rem', fontWeight: 500,
+                    background: currentAvail.isAvailable ? 'rgba(5,150,105,0.08)' : 'rgba(245,158,11,0.12)',
+                    border: `1px solid ${currentAvail.isAvailable ? 'rgba(5,150,105,0.25)' : 'rgba(245,158,11,0.3)'}`,
+                    color: currentAvail.isAvailable ? '#047857' : '#b45309',
+                    display: 'flex', alignItems: 'center', gap: '0.4rem'
+                  }}>
+                    {currentAvail.isAvailable ? (
+                      <>
+                        <CheckCircle2 size={15} />
+                        <span>
+                          <strong>{arrangedTeacher}</strong> is <strong>{currentAvail.employmentType}</strong> and available on {arrangingRow.day}s.
+                        </span>
+                      </>
+                    ) : (
+                      <>
+                        <AlertTriangle size={15} />
+                        <span>
+                          <strong>Availability Notice:</strong> {arrangedTeacher} is <strong>{currentAvail.employmentType}</strong> and not scheduled on {arrangingRow.day}s.
+                        </span>
+                      </>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Modal Footer */}
+              <div style={{ padding: '1rem 1.4rem', borderTop: '1px solid var(--border-color)', display: 'flex', gap: '0.75rem', justifyContent: 'flex-end', background: 'var(--bg-color)' }}>
+                <button
+                  type="button"
+                  className="btn btn-sm"
+                  onClick={() => setArrangingRow(null)}
+                  style={{ background: '#f1f5f9', border: '1px solid var(--border-color)', cursor: 'pointer' }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  disabled={arrangingSaving}
+                  onClick={handleSaveArrangement}
+                  className="btn btn-primary"
+                  style={{ display: 'flex', alignItems: 'center', gap: '4px' }}
+                >
+                  <Save size={15} />
+                  {arrangingSaving ? 'Saving…' : 'Save Lesson Arrangement'}
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </section>
   );
 }
