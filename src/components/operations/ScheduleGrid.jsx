@@ -1210,14 +1210,14 @@ export default function ScheduleGrid({
           <div
             ref={scrollerRef}
             onScroll={syncScrollNav}
-            style={{ overflow: 'auto', maxHeight: '640px' }}
+            style={{ overflow: 'auto', maxHeight: 'calc(88vh - 120px)', minHeight: '450px' }}
           >
             <table style={{ borderCollapse: 'separate', borderSpacing: 0, width: 'max-content', minWidth: '100%' }}>
-              <thead>
+              <thead style={{ position: 'sticky', top: 0, zIndex: 20 }}>
                 <tr>
                   <th className="schedule-grid-sticky-col" style={{
-                    position: 'sticky', left: 0, top: 0, zIndex: 3, width: timeColWidth, minWidth: timeColWidth,
-                    background: 'var(--panel-bg)', borderBottom: '1px solid var(--border-color)',
+                    position: 'sticky', left: 0, top: 0, zIndex: 30, width: timeColWidth, minWidth: timeColWidth,
+                    background: 'var(--panel-bg)', borderBottom: '2px solid var(--border-color)',
                     borderRight: '1px solid var(--border-color)', padding: '0.7rem 0.8rem',
                     fontSize: '0.68rem', fontWeight: 700, letterSpacing: '0.06em', color: 'var(--text-muted)', textAlign: 'left',
                   }}>
@@ -1227,8 +1227,8 @@ export default function ScheduleGrid({
                     const stat = load.get(inst.name);
                     return (
                       <th key={inst.name} className="schedule-grid-sticky-head" style={{
-                        position: 'sticky', top: 0, zIndex: 2, width: colWidth, minWidth: colWidth,
-                        background: 'var(--panel-bg)', borderBottom: '1px solid var(--border-color)',
+                        position: 'sticky', top: 0, zIndex: 20, width: colWidth, minWidth: colWidth,
+                        background: 'var(--panel-bg)', borderBottom: '2px solid var(--border-color)',
                         borderRight: '1px solid var(--border-color)', padding: '0.6rem 0.7rem', textAlign: 'left', verticalAlign: 'top',
                       }}>
                         <div style={{ display: 'flex', gap: '0.45rem', alignItems: 'flex-start' }}>
