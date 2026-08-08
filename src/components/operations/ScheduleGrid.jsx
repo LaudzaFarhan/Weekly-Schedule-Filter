@@ -1158,7 +1158,8 @@ export default function ScheduleGrid({
             {branch ? `${branch.name} has no open days yet. Enable days above.` : 'Select a branch.'}
           </div>
         ) : (
-          <div style={{ position: 'relative' }}>
+          <div style={{ display: 'flex', gap: '1rem', alignItems: 'flex-start' }}>
+            <div style={{ flex: 1, minWidth: 0, position: 'relative' }}>
           {/* Edge fades sit above the table but must not eat clicks meant for
               the cells underneath, hence pointer-events: none. */}
           {scrollNav.left && (
