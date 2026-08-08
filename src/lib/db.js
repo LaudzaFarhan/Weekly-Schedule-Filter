@@ -32,9 +32,11 @@ function getPool() {
       ssl: process.env.DATABASE_SSL === 'true' ? { rejectUnauthorized: false } : undefined,
     });
     // Prevent idle client connection drops from throwing uncaught errors
-    pool.on('error', (err) => {
-      console.warn('[db] Unexpected error on idle client:', err?.message || err);
-    });
+    if (typeof pool.on === 'function') {
+      pool.on('error', (err) => {
+        console.warn('[db] Unexpected error on idle client:', err?.message || err);
+      });
+    }
     if (process.env.NODE_ENV !== 'production') {
       globalThis.postgresPool = pool;
     }
