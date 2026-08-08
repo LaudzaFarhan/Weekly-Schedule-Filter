@@ -10,8 +10,8 @@ import {
   RefreshCw, Plus, Trash2, Bell, EyeOff, ChevronLeft, ChevronRight, Search, PanelLeft,
   AlertTriangle, AlertCircle, Info, X, CheckCheck, History, HelpCircle, Compass,
 } from 'lucide-react';
-import { useTour } from '../tour/TourProvider';
 import AnimationTutorialModal from '../tour/AnimationTutorialModal';
+import FeatureTutorialSidebar from '../tour/FeatureTutorialSidebar';
 import { APP_VERSION } from '../../config/version';
 
 /**
@@ -49,15 +49,16 @@ export default function Header({ onToggleSearch, opsMode = 'old', onToggleSideba
   const [branchError, setBranchError] = useState(null);
   const [showNotifications, setShowNotifications] = useState(false);
   const [showAnimationTutorial, setShowAnimationTutorial] = useState(false);
+  const [showTutorialSidebar, setShowTutorialSidebar] = useState(false);
 
-  // Auto-open Animation Tutorial for first-time visitors
+  // Auto-open Feature Tutorial Sidebar for first-time visitors
   useEffect(() => {
     try {
       if (typeof window !== 'undefined') {
         const seen = localStorage.getItem('lab_animation_tutorial_seen');
         if (!seen) {
           const timer = setTimeout(() => {
-            setShowAnimationTutorial(true);
+            setShowTutorialSidebar(true);
           }, 900);
           return () => clearTimeout(timer);
         }
@@ -475,9 +476,9 @@ export default function Header({ onToggleSearch, opsMode = 'old', onToggleSideba
               current screen has one nobody on this browser has taken. */}
           <button
             type="button"
-            onClick={() => setShowAnimationTutorial(true)}
-            title="Open Animation Tutorial"
-            aria-label="Open Animation Tutorial"
+            onClick={() => setShowTutorialSidebar(true)}
+            title="Open Feature Tutorials Sidebar"
+            aria-label="Open Feature Tutorials Sidebar"
             style={{
               display: 'flex', alignItems: 'center', gap: '0.35rem',
               padding: '0.35rem 0.75rem', borderRadius: '10px', cursor: 'pointer',
@@ -487,15 +488,15 @@ export default function Header({ onToggleSearch, opsMode = 'old', onToggleSideba
               transition: 'all 0.15s ease',
             }}
           >
-            <Compass size={15} /> Animation Tutorial
+            <Compass size={15} /> Feature Tutorials
           </button>
           <button
             type="button"
             data-tour="help"
-            onClick={() => setShowAnimationTutorial(true)}
+            onClick={() => setShowTutorialSidebar(true)}
             className={hasUnseenPageTour ? 'tour-help-nudge' : undefined}
-            title="Animation Tutorial & Help"
-            aria-label="Animation Tutorial & Help"
+            title="Feature Tutorials & Help"
+            aria-label="Feature Tutorials & Help"
             style={{
               display: 'flex', alignItems: 'center', justifyContent: 'center',
               width: '32px', height: '32px', borderRadius: '10px', cursor: 'pointer',
@@ -517,6 +518,13 @@ export default function Header({ onToggleSearch, opsMode = 'old', onToggleSideba
           </div>
         </div>
       </header>
+
+      <FeatureTutorialSidebar
+        isOpen={showTutorialSidebar}
+        onClose={() => setShowTutorialSidebar(false)}
+        onNavigate={onNavigate}
+        onToggleSidebar={onToggleSidebar}
+      />
 
       <AnimationTutorialModal
         isOpen={showAnimationTutorial}
