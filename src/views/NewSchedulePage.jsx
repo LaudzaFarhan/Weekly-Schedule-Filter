@@ -542,6 +542,7 @@ export default function NewSchedulePage({ onNavigate }) {
   const [studentScope, setStudentScope] = useState('unallocated');
   // Search inside the Unallocated panel, separate from the main table search.
   const [unallocSearch, setUnallocSearch] = useState('');
+  const [unallocBranchFilter, setUnallocBranchFilter] = useState('all');
   // A time chosen in the recommendation panel, awaiting the instructor pick.
   const [timePick, setTimePick] = useState(null);
   const [startTime, setStartTime] = useState(''); // HH:MM for the class start
@@ -968,13 +969,22 @@ export default function NewSchedulePage({ onNavigate }) {
    */
   const visibleUnallocated = useMemo(() => {
     const q = unallocSearch.trim().toLowerCase();
-    if (!q) return scopedStudents;
-    return scopedStudents.filter((st) =>
-      [st.name, st.level, st.branchName]
-        .filter(Boolean)
-        .some((field) => String(field).toLowerCase().includes(q))
-    );
-  }, [scopedStudents, unallocSearch]);
+    const bFilter = unallocBranchFilter.trim().toLowerCase();
+
+    return scopedStudents.filter((st) => {
+      if (bFilter !== 'all') {
+        const stBranch = String(st.branchName || '').trim().toLowerCase();
+        if (stBranch !== bFilter) return false;
+      }
+      if (q) {
+        const hit = [st.name, st.level, st.branchName]
+          .filter(Boolean)
+          .some((field) => String(field).toLowerCase().includes(q));
+        if (!hit) return false;
+      }
+      return true;
+    });
+  }, [scopedStudents, unallocSearch, unallocBranchFilter]);
 
   const openAddModal = () => {
     setEditingClass(null);
@@ -1692,38 +1702,53 @@ export default function NewSchedulePage({ onNavigate }) {
                       is long enough that scanning it is the slower option. */}
                   {scopedStudents.length > 3 && (
                     <div style={{ marginBottom: '0.55rem' }}>
-                      <div style={{ position: 'relative' }}>
-                        <Search
-                          size={14}
-                          aria-hidden="true"
-                          style={{ position: 'absolute', left: '0.6rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', pointerEvents: 'none' }}
-                        />
-                        <input
-                          type="search"
-                          value={unallocSearch}
-                          onChange={(e) => setUnallocSearch(e.target.value)}
-                          placeholder="Search name, level or branch"
-                          aria-label={studentScope === 'all' ? 'Search all students' : 'Search unallocated students'}
-                          className="modal-input-field field-compact"
-                          style={{ width: '100%', paddingLeft: '1.9rem', paddingRight: unallocSearch ? '1.9rem' : undefined }}
-                        />
-                        {unallocSearch && (
-                          <button
-                            type="button"
-                            onClick={() => setUnallocSearch('')}
-                            aria-label="Clear search"
-                            title="Clear search"
-                            style={{
-                              position: 'absolute', right: '0.45rem', top: '50%', transform: 'translateY(-50%)',
-                              background: 'transparent', border: 'none', cursor: 'pointer',
-                              color: 'var(--text-muted)', padding: '0.15rem', lineHeight: 0,
-                            }}
-                          >
-                            <X size={13} />
-                          </button>
-                        )}
+                      <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center' }}>
+                        <div style={{ position: 'relative', flex: 1 }}>
+                          <Search
+                            size={14}
+                            aria-hidden="true"
+                            style={{ position: 'absolute', left: '0.6rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', pointerEvents: 'none' }}
+                          />
+                          <input
+                            type="search"
+                            value={unallocSearch}
+                            onChange={(e) => setUnallocSearch(e.target.value)}
+                            placeholder="Search name, level or branch"
+                            aria-label={studentScope === 'all' ? 'Search all students' : 'Search unallocated students'}
+                            className="modal-input-field field-compact"
+                            style={{ width: '100%', paddingLeft: '1.9rem', paddingRight: unallocSearch ? '1.9rem' : undefined }}
+                          />
+                          {unallocSearch && (
+                            <button
+                              type="button"
+                              onClick={() => setUnallocSearch('')}
+                              aria-label="Clear search"
+                              title="Clear search"
+                              style={{
+                                position: 'absolute', right: '0.45rem', top: '50%', transform: 'translateY(-50%)',
+                                background: 'transparent', border: 'none', cursor: 'pointer',
+                                color: 'var(--text-muted)', padding: '0.15rem', lineHeight: 0,
+                              }}
+                            >
+                              <X size={13} />
+                            </button>
+                          )}
+                        </div>
+
+                        <select
+                          value={unallocBranchFilter}
+                          onChange={(e) => setUnallocBranchFilter(e.target.value)}
+                          className="modal-select-field field-compact"
+                          style={{ width: '135px', fontSize: '0.78rem' }}
+                          aria-label="Filter unallocated students by branch"
+                        >
+                          <option value="all">All Branches</option>
+                          {branchList.map((b) => (
+                            <option key={b} value={b}>{b}</option>
+                          ))}
+                        </select>
                       </div>
-                      {unallocSearch && (
+                      {(unallocSearch || unallocBranchFilter !== 'all') && (
                         <span style={{ display: 'block', fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.3rem' }}>
                           {visibleUnallocated.length} of {scopedStudents.length} shown
                         </span>
