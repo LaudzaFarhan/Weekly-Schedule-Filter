@@ -183,8 +183,13 @@ async function handleUpdate(req) {
       if (nameVal) fieldValues.name = nameVal;
     }
     if (body.phone !== undefined || body.phone_number !== undefined || body.wa_id !== undefined || body.contact !== undefined) {
-      const phoneVal = body.phone || body.phone_number || body.wa_id || body.contact;
-      if (phoneVal) fieldValues.phone = String(phoneVal).trim();
+      const phoneVal = extractValidPhone(body);
+      // Allow explicit clearing of phone (send phone: "")
+      if (body.phone === "" && !body.phone_number && !body.wa_id && !body.contact) {
+        fieldValues.phone = "";
+      } else if (phoneVal) {
+        fieldValues.phone = phoneVal;
+      }
     }
     if (body.message !== undefined) {
       fieldValues.message = body.message;
