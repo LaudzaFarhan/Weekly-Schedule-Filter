@@ -56,6 +56,16 @@ export async function deleteLiveProgress(id) {
   return await res.json();
 }
 
+/** Bulk clear all stored progress rows. */
+export async function bulkDeleteAllLiveProgress() {
+  const res = await fetch(`${API_PATH}?all=true`, { method: 'DELETE' });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || 'Failed to clear live progress');
+  }
+  return await res.json();
+}
+
 /**
  * Subscribe via polling, matching the other New Ops services.
  *

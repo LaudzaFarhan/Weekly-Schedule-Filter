@@ -257,8 +257,15 @@ export async function DELETE(req) {
     await ready();
     const { searchParams } = new URL(req.url);
     const id = searchParams.get('id');
+    const all = searchParams.get('all');
+
+    if (all === 'true') {
+      const res = await query('DELETE FROM internal_live_progress RETURNING *');
+      return NextResponse.json({ success: true, count: res.rowCount, message: 'All live progress records cleared' });
+    }
+
     if (!id) {
-      return NextResponse.json({ error: 'Missing id in query parameter' }, { status: 400 });
+      return NextResponse.json({ error: 'Missing id or all parameter' }, { status: 400 });
     }
 
     const res = await query(

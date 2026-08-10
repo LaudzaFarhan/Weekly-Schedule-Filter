@@ -27,8 +27,8 @@ import {
   buildWipeSuccessMessage,
   resolveAuditUser,
 } from '../lib/wipeReporting';
-import { bulkCreateInternalClasses, subscribeToInternalClasses, updateInternalClass, deleteInternalClass } from '../services/internalScheduleService';
-import { getLiveProgress, deleteLiveProgress } from '../services/newLiveProgressService';
+import { bulkCreateInternalClasses, subscribeToInternalClasses, updateInternalClass, deleteInternalClass, bulkDeleteAllClasses } from '../services/internalScheduleService';
+import { getLiveProgress, deleteLiveProgress, bulkDeleteAllLiveProgress } from '../services/newLiveProgressService';
 import { subscribeToInternalInstructors } from '../services/internalInstructorService';
 import { resolveCanonicalTeacherName } from '../utils/instructorUtils';
 import { STUDENT_LEVELS, normaliseCoderLevel } from '../lib/programRules';
@@ -521,6 +521,12 @@ export default function NewStudentsPage({ onNavigate } = {}) {
     let counts;
     try {
       counts = await bulkDeleteAllStudents(WIPE_CONFIRMATION_PHRASE);
+      try {
+        await bulkDeleteAllClasses();
+        await bulkDeleteAllLiveProgress();
+      } catch (cascadeErr) {
+        console.warn('Cascade wipe to schedule/live progress warning:', cascadeErr);
+      }
     } catch (err) {
       // The 30-second abort is neither a success nor a failure: the transaction
       // may have committed after the client stopped listening. No success
