@@ -851,7 +851,7 @@ export default function LiveProgressTable({ category }) {
                   <th style={{ width: '100px' }}>Day</th>
                   <th style={{ width: '130px' }}>Time</th>
                   <th style={{ width: '110px' }}>Program</th>
-                  <th style={{ minWidth: '170px' }}>Lesson Arrangement</th>
+                  <th style={{ minWidth: '240px' }}>Lesson Arrangement</th>
                   <th style={{ minWidth: category === 'Coder' ? '290px' : '250px' }}>Attendance 1–{maxLessons}</th>
                   <th style={{ minWidth: '180px' }}>Video Sent</th>
                   <th style={{ width: '160px' }}>Continuation</th>
@@ -944,21 +944,21 @@ export default function LiveProgressTable({ category }) {
                                 style={{
                                   display: 'inline-flex', alignItems: 'center', gap: '0.35rem',
                                   padding: '0.28rem 0.6rem', borderRadius: '7px', cursor: 'pointer',
-                                  fontSize: '0.75rem', fontWeight: 600,
+                                  fontSize: '0.75rem', fontWeight: 600, whiteSpace: 'nowrap',
                                   border: isArranged ? '1.5px solid rgba(217,119,6,0.4)' : '1.5px solid rgba(79,70,229,0.3)',
                                   background: isArranged ? 'rgba(245,158,11,0.1)' : 'rgba(79,70,229,0.06)',
                                   color: isArranged ? '#92400e' : '#3730a3',
                                   transition: 'all 0.15s ease',
                                 }}
                               >
-                                <BookOpen size={12} style={{ color: isArranged ? '#d97706' : 'var(--primary-blue, #4f46e5)' }} />
-                                <span>{badgeLabel}</span>
+                                <BookOpen size={12} style={{ color: isArranged ? '#d97706' : 'var(--primary-blue, #4f46e5)', flexShrink: 0 }} />
+                                <span style={{ whiteSpace: 'nowrap' }}>{badgeLabel}</span>
                                 {isArranged && (
-                                  <span style={{ fontSize: '0.62rem', background: 'rgba(217,119,6,0.15)', color: '#92400e', padding: '0 4px', borderRadius: '3px', fontWeight: 700, letterSpacing: '0.3px' }}>
+                                  <span style={{ fontSize: '0.62rem', background: 'rgba(217,119,6,0.15)', color: '#92400e', padding: '0 4px', borderRadius: '3px', fontWeight: 700, letterSpacing: '0.3px', whiteSpace: 'nowrap', flexShrink: 0 }}>
                                     REPLACED
                                   </span>
                                 )}
-                                <Edit3 size={11} style={{ opacity: 0.7, marginLeft: '2px' }} />
+                                <Edit3 size={11} style={{ opacity: 0.7, marginLeft: '2px', flexShrink: 0 }} />
                               </button>
                             );
                           })()}
