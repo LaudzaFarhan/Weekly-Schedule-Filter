@@ -1193,6 +1193,7 @@ export default function NewStudentsPage({ onNavigate } = {}) {
         <ImportStudentsModal
           branches={enabledBranches || branches}
           defaultBranch={filterBranch !== 'all' ? filterBranch : 'Bekasi'}
+          instructorsList={instructorsList}
           onClose={() => setShowImportModal(false)}
           onImportComplete={handleBulkImport}
         />

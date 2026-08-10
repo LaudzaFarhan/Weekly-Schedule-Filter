@@ -1,11 +1,12 @@
 'use client';
 
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useMemo } from 'react';
 import { X, Upload, Download, FileSpreadsheet, CheckCircle2, AlertTriangle, FileText } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
 import { formatNormalizedTimeSlot } from '../../utils/timeUtils';
 import { DEFAULT_BRANCH_LIST } from '../../utils/constants';
+import { isInstructorMatch, isSameTeacher, getInstructorDisplayName } from '../../utils/instructorUtils';
 
 /**
  * Normalise level/program to standard options if possible
@@ -28,9 +29,35 @@ function normaliseProgramLevel(rawProgram, rawTerm) {
 const DAY_MATCH_REGEX = /\b(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday|Mon|Tue|Wed|Thu|Fri|Sat|Sun|Senin|Selasa|Rabu|Kamis|Jumat|Sabtu|Minggu)\b/i;
 const TIME_MATCH_REGEX = /(\d{1,3}[:.]\d{2}\s*[-–—]\s*\d{1,2}[:.]\d{2}\s*(?:am|pm)?|\d{1,2}\s*(?:am|pm)?\s*[-–—]\s*\d{1,2}\s*(?:am|pm)?)/i;
 
+/** Validate imported instructor alias against registered instructors */
+function validateInstructorAlias(rawInstructor, knownInstructors = []) {
+  if (!rawInstructor || String(rawInstructor).trim() === '' || String(rawInstructor).trim() === '-') {
+    return { isValid: true, matchedName: null };
+  }
+  const trimmed = String(rawInstructor).trim();
+  if (trimmed.toUpperCase() === 'TBD') {
+    return { isValid: true, matchedName: 'TBD' };
+  }
+
+  if (!knownInstructors || knownInstructors.length === 0) {
+    return { isValid: true, matchedName: trimmed };
+  }
+
+  for (const inst of knownInstructors) {
+    if (!inst) continue;
+    const instName = typeof inst === 'string' ? inst : (inst.name || inst.fullname || getInstructorDisplayName(inst));
+    if (isInstructorMatch(trimmed, inst) || isSameTeacher(trimmed, instName)) {
+      return { isValid: true, matchedName: getInstructorDisplayName(inst) || instName };
+    }
+  }
+
+  return { isValid: false, matchedName: null };
+}
+
 export default function ImportStudentsModal({
   branches = [],
   defaultBranch = 'Bekasi',
+  instructorsList = [],
   onClose,
   onImportComplete,
 }) {
@@ -40,6 +67,10 @@ export default function ImportStudentsModal({
   const [parseError, setParseError] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const fileInputRef = useRef(null);
+
+  const unmatchedInstructors = useMemo(() => {
+    return parsedRows.filter((r) => r.originalInstructor && !r.isInstructorValid);
+  }, [parsedRows]);
 
   const handleFileChange = (e) => {
     const uploadedFile = e.target.files?.[0];
@@ -151,6 +182,8 @@ export default function ImportStudentsModal({
           
           const remarks = rawRemarks ? rawRemarks : (fallbackParts.join(' | ') || null);
 
+          const valResult = validateInstructorAlias(rawInstructor, instructorsList);
+
           extracted.push({
             name,
             level,
@@ -164,8 +197,11 @@ export default function ImportStudentsModal({
             rawTerm,
             rawDays,
             rawTime,
-            rawInstructor,
+            rawInstructor: valResult.matchedName || rawInstructor,
+            originalInstructor: rawInstructor,
             rawRemarks,
+            isInstructorValid: valResult.isValid,
+            matchedInstructor: valResult.matchedName,
           });
         }
 
@@ -362,6 +398,47 @@ export default function ImportStudentsModal({
             </div>
           )}
 
+          {/* Unmatched Instructor Alias Warning Notification */}
+          {unmatchedInstructors.length > 0 && (
+            <div style={{
+              padding: '0.85rem 1.1rem',
+              borderRadius: '10px',
+              background: 'rgba(245, 158, 11, 0.12)',
+              border: '1.5px solid rgba(245, 158, 11, 0.35)',
+              color: '#b45309',
+              fontSize: '0.8rem',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '0.45rem',
+            }}>
+              <div style={{ fontWeight: 700, display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.85rem', color: '#92400e' }}>
+                <AlertTriangle size={18} style={{ color: '#d97706', flexShrink: 0 }} />
+                <span>Instructor Alias Mismatch Detected ({unmatchedInstructors.length} row{unmatchedInstructors.length > 1 ? 's' : ''})</span>
+              </div>
+              <div style={{ lineHeight: 1.4, color: '#92400e' }}>
+                The following instructor alias{Array.from(new Set(unmatchedInstructors.map(u => u.originalInstructor))).length > 1 ? 'es' : ''} in your import file do not match any registered instructor alias:
+              </div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem' }}>
+                {Array.from(new Set(unmatchedInstructors.map(u => u.originalInstructor))).map((alias, idx) => (
+                  <span key={idx} style={{
+                    fontSize: '0.72rem',
+                    fontWeight: 700,
+                    background: 'rgba(217, 119, 6, 0.18)',
+                    color: '#92400e',
+                    padding: '0.15rem 0.5rem',
+                    borderRadius: '6px',
+                    border: '1px solid rgba(217, 119, 6, 0.3)',
+                  }}>
+                    "{alias}"
+                  </span>
+                ))}
+              </div>
+              <div style={{ fontSize: '0.73rem', color: '#b45309', opacity: 0.9, marginTop: '0.1rem' }}>
+                Rows with unmatched instructors are highlighted in orange in the preview below. Please check instructor alias spellings before importing.
+              </div>
+            </div>
+          )}
+
           {/* Preview Table */}
           {parsedRows.length > 0 && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
@@ -393,7 +470,24 @@ export default function ImportStudentsModal({
                         <td style={{ padding: '0.45rem 0.75rem' }}>{r.rawProgram || r.level}</td>
                         <td style={{ padding: '0.45rem 0.75rem' }}>{r.rawTerm || '—'}</td>
                         <td style={{ padding: '0.45rem 0.75rem' }}>{r.rawDays} {r.rawTime}</td>
-                        <td style={{ padding: '0.45rem 0.75rem' }}>{r.rawInstructor || '—'}</td>
+                        <td style={{
+                          padding: '0.45rem 0.75rem',
+                          color: r.isInstructorValid ? 'var(--text-main)' : '#b45309',
+                          fontWeight: r.isInstructorValid ? 400 : 700,
+                          background: r.isInstructorValid ? 'transparent' : 'rgba(245, 158, 11, 0.14)',
+                        }}>
+                          {r.originalInstructor ? (
+                            r.isInstructorValid ? (
+                              r.originalInstructor
+                            ) : (
+                              <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem', color: '#b45309' }}>
+                                <AlertTriangle size={13} /> {r.originalInstructor} (Unmatched)
+                              </span>
+                            )
+                          ) : (
+                            '—'
+                          )}
+                        </td>
                         <td style={{ padding: '0.45rem 0.75rem', color: 'var(--text-secondary)' }}>{r.rawRemarks || r.remarks || '—'}</td>
                       </tr>
                     ))}
