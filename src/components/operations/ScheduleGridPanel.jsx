@@ -358,17 +358,36 @@ export default function ScheduleGridPanel({ onNavigate } = {}) {
           return sameTeacher && sameDay && sameBranch;
         });
 
-        const targetTime = lpRecord?.mainTime || lpRecord?.main_time || member.mainTime || mainTeacherClass?.time || member.time || group?.time || '3:00 PM - 4:30 PM';
-
-        const createdRestoredRow = await createInternalClass({
-          teacher: mainTargetTeacher,
-          student: studentName,
-          day: targetDay,
-          time: targetTime,
-          branchName: targetBranch,
-          program: targetProgram,
-          classType: member.classType || 'Regular',
-        });
+        if (mainTeacherClass) {
+          // Merge student into mainTeacherClass instead of creating a duplicate row
+          const currentStudents = String(mainTeacherClass.student || '')
+            .split(',')
+            .map((s) => s.trim())
+            .filter(Boolean);
+          const normStudentName = studentName.trim().toLowerCase();
+          if (!currentStudents.some((s) => s.toLowerCase() === normStudentName)) {
+            currentStudents.push(studentName.trim());
+          }
+          await updateInternalClass(mainTeacherClass.id, {
+            day: mainTeacherClass.day || targetDay,
+            time: mainTeacherClass.time || targetTime,
+            student: currentStudents.join(', '),
+            branchName: mainTeacherClass.branchName || targetBranch,
+            program: mainTeacherClass.program || targetProgram,
+            classType: mainTeacherClass.classType || member.classType || 'Regular',
+            teacher: mainTargetTeacher,
+          });
+        } else {
+          await createInternalClass({
+            teacher: mainTargetTeacher,
+            student: studentName,
+            day: targetDay,
+            time: targetTime,
+            branchName: targetBranch,
+            program: targetProgram,
+            classType: member.classType || 'Regular',
+          });
+        }
 
         // 3. Clear arrangedTeacher and arrangedLesson in internal_live_progress
         if (lpRecord) {

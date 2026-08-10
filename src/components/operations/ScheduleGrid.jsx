@@ -1647,142 +1647,149 @@ export default function ScheduleGrid({
 
                 {/* Student List */}
                 <div style={{ padding: '1rem 1.2rem', flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '0.7rem' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <span style={{ fontSize: '0.72rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)' }}>
-                      Enrolled Students ({previewClass.members.length})
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => { openRoster(previewClass); }}
-                      style={{
-                        fontSize: '0.75rem', fontWeight: 700, color: 'var(--primary-blue)', background: 'transparent',
-                        border: 'none', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '0.25rem',
-                      }}
-                    >
-                      <Pencil size={12} /> Full Roster Modal
-                    </button>
-                  </div>
+                  {(() => {
+                    const validMembers = (previewClass.members || []).filter((m) => m.student && String(m.student).trim().length > 0);
+                    return (
+                      <>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <span style={{ fontSize: '0.72rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)' }}>
+                            Enrolled Students ({validMembers.length})
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => { openRoster(previewClass); }}
+                            style={{
+                              fontSize: '0.75rem', fontWeight: 700, color: 'var(--primary-blue)', background: 'transparent',
+                              border: 'none', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '0.25rem',
+                            }}
+                          >
+                            <Pencil size={12} /> Full Roster Modal
+                          </button>
+                        </div>
 
-                  {previewClass.members.length === 0 ? (
-                    <div style={{ padding: '1.5rem 1rem', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.8rem', border: '1px dashed var(--border-color)', borderRadius: '10px' }}>
-                      No students enrolled in this class yet.
-                    </div>
-                  ) : (
-                    previewClass.members.map((m) => {
-                      const isIzin = m.isIzin || m.notArranged || (m.remarks || '').toLowerCase().includes('izin');
-                      const progRecord = liveProgressMap?.get ? liveProgressMap.get(String(m.student || '').toLowerCase().trim()) : null;
-                      const progressStatus = getProgressUpdateStatus(m, progRecord);
-                      const badgeInfo = PROGRESS_UPDATE_BADGES[progressStatus];
-
-                      return (
-                        <div
-                          key={m.id}
-                          style={{
-                            padding: '0.7rem 0.85rem', borderRadius: '10px',
-                            border: '1px solid var(--border-color)', background: 'var(--bg-color)',
-                            display: 'flex', flexDirection: 'column', gap: '0.4rem',
-                          }}
-                        >
-                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.35rem' }}>
-                            <div style={{ fontWeight: 700, fontSize: '0.84rem', color: 'var(--text-main)', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
-                              <User size={14} style={{ color: 'var(--text-muted)' }} />
-                              {m.student}
-                            </div>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', flexWrap: 'wrap' }}>
-                              <span style={{
-                                fontSize: '0.65rem', fontWeight: 700, padding: '0.1rem 0.45rem', borderRadius: '5px',
-                                color: isIzin ? '#b45309' : '#047857', background: isIzin ? '#fef3c7' : 'rgba(16,185,129,0.12)',
-                              }}>
-                                {isIzin ? 'Izin' : m.classType || 'Regular'}
-                              </span>
-                              {(() => {
-                                const arrangedTeacher = progRecord?.arrangedTeacher || progRecord?.arranged_teacher;
-                                const mainTeacher = progRecord?.mainTeacher || progRecord?.main_teacher;
-                                const isArranged = !!arrangedTeacher && arrangedTeacher.toLowerCase() !== (mainTeacher || '').toLowerCase();
-                                if (!isArranged || !mainTeacher) return null;
-                                const mainDisplay = resolveCanonicalTeacherName(mainTeacher, instructors) || mainTeacher;
-                                return (
-                                  <span
-                                    title={`Temporary arrangement with ${previewClass?.teacher || m.teacher}. Main instructor: ${mainDisplay}`}
-                                    style={{
-                                      fontSize: '0.63rem', fontWeight: 700, padding: '0.1rem 0.4rem', borderRadius: '5px',
-                                      color: '#6d28d9', background: 'rgba(124, 58, 237, 0.12)', border: '1px solid rgba(124, 58, 237, 0.3)',
-                                      display: 'inline-flex', alignItems: 'center', gap: '0.2rem', whiteSpace: 'nowrap',
-                                    }}
-                                  >
-                                    Temporary · Main: {mainDisplay}
-                                  </span>
-                                );
-                              })()}
-                            </div>
+                        {validMembers.length === 0 ? (
+                          <div style={{ padding: '1.5rem 1rem', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.8rem', border: '1px dashed var(--border-color)', borderRadius: '10px' }}>
+                            No students enrolled in this class yet.
                           </div>
+                        ) : (
+                          validMembers.map((m) => {
+                            const isIzin = m.isIzin || m.notArranged || (m.remarks || '').toLowerCase().includes('izin');
+                            const progRecord = liveProgressMap?.get ? liveProgressMap.get(String(m.student || '').toLowerCase().trim()) : null;
+                            const progressStatus = getProgressUpdateStatus(m, progRecord);
+                            const badgeInfo = PROGRESS_UPDATE_BADGES[progressStatus];
 
-                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.74rem', color: 'var(--text-secondary)' }}>
-                            <span>Program: <strong style={{ color: 'var(--text-main)' }}>{getStudentProgramDisplay(m, progRecord)}</strong></span>
-                            {badgeInfo && (
-                              <span style={{ fontSize: '0.62rem', fontWeight: 700, color: badgeInfo.color, background: badgeInfo.bg, border: `1px solid ${badgeInfo.borderColor}`, padding: '0.05rem 0.35rem', borderRadius: '4px' }}>
-                                {badgeInfo.label}
-                              </span>
-                            )}
-                          </div>
-
-                          <div style={{ display: 'flex', gap: '0.4rem', marginTop: '0.2rem', alignItems: 'center', flexWrap: 'wrap' }}>
-                            <button
-                              type="button"
-                              disabled={saving}
-                              onClick={() => onUpdateStudent?.(m, { isIzin: !isIzin, notArranged: !isIzin, remarks: !isIzin ? 'Izin' : '' })}
-                              style={{
-                                padding: '0.25rem 0.55rem', borderRadius: '6px', fontSize: '0.72rem', fontWeight: 600, cursor: 'pointer',
-                                border: '1px solid ' + (isIzin ? '#f59e0b' : 'var(--border-color)'),
-                                background: isIzin ? '#fef3c7' : 'transparent', color: isIzin ? '#b45309' : 'var(--text-secondary)',
-                              }}
-                            >
-                              {isIzin ? 'Mark Attending' : 'Mark Izin'}
-                            </button>
-                            {(() => {
-                               const arrangedTeacher = progRecord?.arrangedTeacher || progRecord?.arranged_teacher;
-                               const mainTeacher = progRecord?.mainTeacher || progRecord?.main_teacher || m.mainTeacher;
-                               const isArranged = (
-                                 (!!arrangedTeacher && isSameTeacher(arrangedTeacher, previewClass.teacher)) ||
-                                 (!!mainTeacher && !isSameTeacher(mainTeacher, previewClass.teacher))
-                               );
-
-                               if (!isArranged) return null;
-
-                               return (
-                                 <button
-                                   type="button"
-                                   disabled={saving}
-                                   onClick={() => onRemoveStudent?.(m, { day, teacher: previewClass.teacher, time: previewClass.time, branchName: previewClass.branchName })}
-                                   style={{
-                                     padding: '0.25rem 0.55rem', borderRadius: '6px', fontSize: '0.72rem', fontWeight: 600, cursor: 'pointer',
-                                     border: '1px solid rgba(124, 58, 237, 0.4)', background: 'rgba(124, 58, 237, 0.08)', color: '#7c3aed',
-                                   }}
-                                   title={`End temporary arrangement with ${previewClass.teacher} and restore back to main instructor ${mainTeacher}`}
-                                 >
-                                   End Temporary
-                                 </button>
-                               );
-                             })()}
-
-                            {onOpenStudentReport && m.student && (
-                              <button
-                                type="button"
-                                onClick={() => onOpenStudentReport(m.student)}
+                            return (
+                              <div
+                                key={m.id}
                                 style={{
-                                  padding: '0.25rem 0.55rem', borderRadius: '6px', fontSize: '0.72rem', cursor: 'pointer',
-                                  border: '1px solid var(--border-color)', background: 'transparent', color: 'var(--text-secondary)',
-                                  display: 'inline-flex', alignItems: 'center', gap: '0.2rem',
+                                  padding: '0.7rem 0.85rem', borderRadius: '10px',
+                                  border: '1px solid var(--border-color)', background: 'var(--bg-color)',
+                                  display: 'flex', flexDirection: 'column', gap: '0.4rem',
                                 }}
                               >
-                                <FileText size={11} /> Report
-                              </button>
-                            )}
-                          </div>
-                        </div>
-                      );
-                    })
-                  )}
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.35rem' }}>
+                                  <div style={{ fontWeight: 700, fontSize: '0.84rem', color: 'var(--text-main)', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                                    <User size={14} style={{ color: 'var(--text-muted)' }} />
+                                    {m.student}
+                                  </div>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', flexWrap: 'wrap' }}>
+                                    <span style={{
+                                      fontSize: '0.65rem', fontWeight: 700, padding: '0.1rem 0.45rem', borderRadius: '5px',
+                                      color: isIzin ? '#b45309' : '#047857', background: isIzin ? '#fef3c7' : 'rgba(16,185,129,0.12)',
+                                    }}>
+                                      {isIzin ? 'Izin' : m.classType || 'Regular'}
+                                    </span>
+                                    {(() => {
+                                      const arrangedTeacher = progRecord?.arrangedTeacher || progRecord?.arranged_teacher;
+                                      const mainTeacher = progRecord?.mainTeacher || progRecord?.main_teacher;
+                                      const isArranged = !!arrangedTeacher && arrangedTeacher.toLowerCase() !== (mainTeacher || '').toLowerCase();
+                                      if (!isArranged || !mainTeacher) return null;
+                                      const mainDisplay = resolveCanonicalTeacherName(mainTeacher, instructors) || mainTeacher;
+                                      return (
+                                        <span
+                                          title={`Temporary arrangement with ${previewClass?.teacher || m.teacher}. Main instructor: ${mainDisplay}`}
+                                          style={{
+                                            fontSize: '0.63rem', fontWeight: 700, padding: '0.1rem 0.4rem', borderRadius: '5px',
+                                            color: '#6d28d9', background: 'rgba(124, 58, 237, 0.12)', border: '1px solid rgba(124, 58, 237, 0.3)',
+                                            display: 'inline-flex', alignItems: 'center', gap: '0.2rem', whiteSpace: 'nowrap',
+                                          }}
+                                        >
+                                          Temporary · Main: {mainDisplay}
+                                        </span>
+                                      );
+                                    })()}
+                                  </div>
+                                </div>
+
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.74rem', color: 'var(--text-secondary)' }}>
+                                  <span>Program: <strong style={{ color: 'var(--text-main)' }}>{getStudentProgramDisplay(m, progRecord)}</strong></span>
+                                  {badgeInfo && (
+                                    <span style={{ fontSize: '0.62rem', fontWeight: 700, color: badgeInfo.color, background: badgeInfo.bg, border: `1px solid ${badgeInfo.borderColor}`, padding: '0.05rem 0.35rem', borderRadius: '4px' }}>
+                                      {badgeInfo.label}
+                                    </span>
+                                  )}
+                                </div>
+
+                                <div style={{ display: 'flex', gap: '0.4rem', marginTop: '0.2rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                                  <button
+                                    type="button"
+                                    disabled={saving}
+                                    onClick={() => onUpdateStudent?.(m, { isIzin: !isIzin, notArranged: !isIzin, remarks: !isIzin ? 'Izin' : '' })}
+                                    style={{
+                                      padding: '0.25rem 0.55rem', borderRadius: '6px', fontSize: '0.72rem', fontWeight: 600, cursor: 'pointer',
+                                      border: '1px solid ' + (isIzin ? '#f59e0b' : 'var(--border-color)'),
+                                      background: isIzin ? '#fef3c7' : 'transparent', color: isIzin ? '#b45309' : 'var(--text-secondary)',
+                                    }}
+                                  >
+                                    {isIzin ? 'Mark Attending' : 'Mark Izin'}
+                                  </button>
+                                  {(() => {
+                                     const arrangedTeacher = progRecord?.arrangedTeacher || progRecord?.arranged_teacher;
+                                     const mainTeacher = progRecord?.mainTeacher || progRecord?.main_teacher || m.mainTeacher;
+                                     const isArranged = (
+                                       (!!arrangedTeacher && isSameTeacher(arrangedTeacher, previewClass.teacher)) ||
+                                       (!!mainTeacher && !isSameTeacher(mainTeacher, previewClass.teacher))
+                                     );
+
+                                     if (!isArranged) return null;
+
+                                     return (
+                                       <button
+                                         type="button"
+                                         disabled={saving}
+                                         onClick={() => onRemoveStudent?.(m, { day, teacher: previewClass.teacher, time: previewClass.time, branchName: previewClass.branchName })}
+                                         style={{
+                                           padding: '0.25rem 0.55rem', borderRadius: '6px', fontSize: '0.72rem', fontWeight: 600, cursor: 'pointer',
+                                           border: '1px solid rgba(124, 58, 237, 0.4)', background: 'rgba(124, 58, 237, 0.08)', color: '#7c3aed',
+                                         }}
+                                         title={`End temporary arrangement with ${previewClass.teacher} and restore back to main instructor ${mainTeacher}`}
+                                       >
+                                         End Temporary
+                                       </button>
+                                     );
+                                   })()}
+
+                                  {onOpenStudentReport && m.student && (
+                                    <button
+                                      type="button"
+                                      onClick={() => onOpenStudentReport(m.student)}
+                                      style={{
+                                        padding: '0.25rem 0.55rem', borderRadius: '6px', fontSize: '0.72rem', cursor: 'pointer',
+                                        border: '1px solid var(--border-color)', background: 'transparent', color: 'var(--text-secondary)',
+                                        display: 'inline-flex', alignItems: 'center', gap: '0.2rem',
+                                      }}
+                                    >
+                                      <FileText size={11} /> Report
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })
+                        )}
+                      </>
+                    );
+                  })()}
                 </div>
               </div>
             );
