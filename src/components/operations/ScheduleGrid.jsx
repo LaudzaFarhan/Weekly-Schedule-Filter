@@ -64,6 +64,26 @@ const unavailableTint = (code) => {
 const initials = (name) =>
   String(name || '?').trim().split(/\s+/).slice(0, 2).map((p) => p[0]).join('').toUpperCase();
 
+/** Format program display string including arranged lesson if set (e.g., "K2 - L4"). */
+function getStudentProgramDisplay(m, progRecord) {
+  if (!m) return '';
+  const baseProgram = m.program || '';
+  const arrangedLesson = progRecord?.arrangedLesson || progRecord?.arranged_lesson;
+
+  if (arrangedLesson) {
+    const formattedLesson = String(arrangedLesson).startsWith('L') ? arrangedLesson : `L${arrangedLesson}`;
+    if (baseProgram.includes(' - L')) return baseProgram;
+    return `${baseProgram} - ${formattedLesson}`;
+  }
+
+  if (/^[A-Za-z0-9]+\.\d+$/.test(baseProgram)) {
+    const [code, lNum] = baseProgram.split('.');
+    return `${code} - L${lNum}`;
+  }
+
+  return baseProgram;
+}
+
 /** Which category a class belongs to, from its first program code. */
 function categoryOfProgram(cls) {
   const p = String(cls.programs?.[0] || '');
@@ -1599,7 +1619,7 @@ export default function ScheduleGrid({
                           </div>
 
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.74rem', color: 'var(--text-secondary)' }}>
-                            <span>Program: <strong style={{ color: 'var(--text-main)' }}>{m.program}</strong></span>
+                            <span>Program: <strong style={{ color: 'var(--text-main)' }}>{getStudentProgramDisplay(m, progRecord)}</strong></span>
                             {badgeInfo && (
                               <span style={{ fontSize: '0.62rem', fontWeight: 700, color: badgeInfo.color, background: badgeInfo.bg, border: `1px solid ${badgeInfo.borderColor}`, padding: '0.05rem 0.35rem', borderRadius: '4px' }}>
                                 {badgeInfo.label}
@@ -2020,7 +2040,7 @@ export default function ScheduleGrid({
                                 )}
                                 {m.program && (
                                   <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', display: 'inline-flex', alignItems: 'center', gap: '0.25rem' }}>
-                                    {m.program}
+                                    {getStudentProgramDisplay(m, progRecord)}
                                     {(m.term || (m.remarks && /Term\s*[1-4]/i.test(m.remarks))) && (
                                       <span style={{
                                         fontSize: '0.62rem',
