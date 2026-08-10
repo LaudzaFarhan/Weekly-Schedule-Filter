@@ -64,24 +64,41 @@ const unavailableTint = (code) => {
 const initials = (name) =>
   String(name || '?').trim().split(/\s+/).slice(0, 2).map((p) => p[0]).join('').toUpperCase();
 
+function getNextUndoneLessonFromMap(attendanceMap, maxL = 10) {
+  if (!attendanceMap || typeof attendanceMap !== 'object') return null;
+  const keys = Object.keys(attendanceMap);
+  if (keys.length === 0) return null;
+  for (let i = 1; i <= maxL; i += 1) {
+    if (!attendanceMap[i]) return i;
+  }
+  return maxL;
+}
+
 /** Format program display string including arranged lesson if set (e.g., "K2 - L4"). */
 function getStudentProgramDisplay(m, progRecord) {
   if (!m) return '';
-  const baseProgram = m.program || '';
-  const arrangedLesson = progRecord?.arrangedLesson || progRecord?.arranged_lesson;
+  const rawProgram = (m.program || progRecord?.programCode || '').trim();
+  if (!rawProgram) return '';
 
-  if (arrangedLesson) {
-    const formattedLesson = String(arrangedLesson).startsWith('L') ? arrangedLesson : `L${arrangedLesson}`;
-    if (baseProgram.includes(' - L')) return baseProgram;
-    return `${baseProgram} - ${formattedLesson}`;
+  const activeLesson =
+    progRecord?.arrangedLesson ||
+    progRecord?.arranged_lesson ||
+    progRecord?.lesson ||
+    getNextUndoneLessonFromMap(progRecord?.attendance);
+
+  if (activeLesson != null && String(activeLesson).trim() !== '') {
+    const lStr = String(activeLesson).trim();
+    const formattedLesson = lStr.startsWith('L') ? lStr : `L${lStr}`;
+    const baseCode = rawProgram.split('.')[0].split(' - ')[0].trim();
+    return `${baseCode} - ${formattedLesson}`;
   }
 
-  if (/^[A-Za-z0-9]+\.\d+$/.test(baseProgram)) {
-    const [code, lNum] = baseProgram.split('.');
+  if (/^[A-Za-z0-9]+\.\d+$/.test(rawProgram)) {
+    const [code, lNum] = rawProgram.split('.');
     return `${code} - L${lNum}`;
   }
 
-  return baseProgram;
+  return rawProgram;
 }
 
 /** Which category a class belongs to, from its first program code. */
@@ -166,8 +183,9 @@ export default function ScheduleGrid({
     const map = new Map();
     if (Array.isArray(liveProgress)) {
       for (const p of liveProgress) {
-        if (p.studentName) {
-          map.set(String(p.studentName).toLowerCase().trim(), p);
+        const nameKey = String(p.studentName || p.student_name || p.student || '').toLowerCase().trim();
+        if (nameKey) {
+          map.set(nameKey, p);
         }
       }
     }

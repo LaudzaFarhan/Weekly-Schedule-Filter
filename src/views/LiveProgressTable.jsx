@@ -203,7 +203,8 @@ export default function LiveProgressTable({ category }) {
     if (!studentName || !targetTeacher) return;
 
     const normStudent = studentName.trim().toLowerCase();
-    const normTargetTeacher = targetTeacher.trim().toLowerCase();
+    const targetCanonical = resolveCanonicalTeacherName(targetTeacher, instructorProfiles);
+    const normTargetTeacher = targetCanonical.trim().toLowerCase();
 
     // 1. Find all class rows containing this student
     const studentClasses = classes.filter((c) => {
@@ -213,10 +214,11 @@ export default function LiveProgressTable({ category }) {
       return sList.includes(normStudent);
     });
 
-    // 2. Remove student from any class row where teacher is NOT targetTeacher
+    // 2. Remove student from any class row where teacher is NOT targetTeacher / targetCanonical
     for (const c of studentClasses) {
-      const cTeacherNorm = String(c.teacher || '').trim().toLowerCase();
-      if (cTeacherNorm === normTargetTeacher) continue;
+      if (isSameTeacher(c.teacher, targetTeacher) || isSameTeacher(c.teacher, targetCanonical)) {
+        continue;
+      }
 
       const remainingStudents = String(c.student || '')
         .split(',')
@@ -242,20 +244,16 @@ export default function LiveProgressTable({ category }) {
 
     // 3. Find if targetTeacher ALREADY has a class row on this day + time + branch
     const existingTargetClass = classes.find((c) => {
-      const cTeacherNorm = String(c.teacher || '').trim().toLowerCase();
-      const cDayNorm = String(c.day || '').trim().toLowerCase();
-      const cTimeNorm = String(c.time || '').trim().toLowerCase();
-      const cBranchNorm = String(c.branchName || '').trim().toLowerCase();
-
-      const sameDay = cDayNorm === String(day || '').trim().toLowerCase();
-      const sameTime = cTimeNorm === String(time || '').trim().toLowerCase();
+      const sameTeacher = isSameTeacher(c.teacher, targetTeacher) || isSameTeacher(c.teacher, targetCanonical);
+      const sameDay = String(c.day || '').trim().toLowerCase() === String(day || '').trim().toLowerCase();
+      const sameTime = String(c.time || '').trim().toLowerCase() === String(time || '').trim().toLowerCase();
       const sameBranch = (
-        cBranchNorm === String(branchName || '').trim().toLowerCase() ||
-        cBranchNorm === 'all branches' ||
+        String(c.branchName || '').trim().toLowerCase() === String(branchName || '').trim().toLowerCase() ||
+        String(c.branchName || '').trim().toLowerCase() === 'all branches' ||
         String(branchName || '').trim().toLowerCase() === 'all branches'
       );
 
-      return cTeacherNorm === normTargetTeacher && sameDay && sameTime && sameBranch;
+      return sameTeacher && sameDay && sameTime && sameBranch;
     });
 
     if (existingTargetClass) {
@@ -274,14 +272,14 @@ export default function LiveProgressTable({ category }) {
           student: existingStudents.join(', '),
           branchName: existingTargetClass.branchName,
           classType: existingTargetClass.classType || 'Regular',
-          teacher: existingTargetClass.teacher,
+          teacher: targetCanonical || existingTargetClass.teacher,
           program: existingTargetClass.program || program,
         });
       }
     } else {
       // Create a NEW class row for targetTeacher on the schedule grid!
       await createInternalClass({
-        teacher: targetTeacher.trim(),
+        teacher: targetCanonical || targetTeacher.trim(),
         student: studentName.trim(),
         day: day && day !== '—' ? day : 'Monday',
         time: time && time !== '—' ? time : '2.30 - 4.00 pm',
@@ -320,6 +318,7 @@ export default function LiveProgressTable({ category }) {
         program: newProgStr,
       });
 
+      const avail = checkInstructorAvailability(arrangedTeacher, arrangingRow.day);
       const termCode = arrangingRow.levelCode || arrangingRow.program;
       const formattedLesson = String(arrangedLesson).startsWith('L') ? arrangedLesson : `L${arrangedLesson}`;
       let toastMsg = `${termCode} - ${formattedLesson} arranged with ${arrangedTeacher} for ${arrangingRow.studentName}. (Main teacher: ${mainTeacher}). Schedule Grid updated!`;
