@@ -59,12 +59,18 @@ export function listenToMyTasks(assigneeEmail, callback) {
     collection(db, TASKS_COLLECTION),
     where('assignee', '==', assigneeEmail)
   );
-  return onSnapshot(q, (snapshot) => {
-    const tasks = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-    // Sort descending client-side to avoid requiring a composite index
-    tasks.sort((a, b) => (b.createdAt?.toMillis() || 0) - (a.createdAt?.toMillis() || 0));
-    callback(tasks);
-  });
+  return onSnapshot(
+    q,
+    (snapshot) => {
+      const tasks = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      // Sort descending client-side to avoid requiring a composite index
+      tasks.sort((a, b) => (b.createdAt?.toMillis() || 0) - (a.createdAt?.toMillis() || 0));
+      callback(tasks);
+    },
+    (err) => {
+      console.warn('[taskService] Firestore listener notice:', err?.message);
+    }
+  );
 }
 
 /**
@@ -79,12 +85,18 @@ export function listenToDelegatedTasks(assignerEmail, callback) {
     collection(db, TASKS_COLLECTION),
     where('assigner', '==', assignerEmail)
   );
-  return onSnapshot(q, (snapshot) => {
-    const tasks = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-    // Sort descending client-side to avoid requiring a composite index
-    tasks.sort((a, b) => (b.createdAt?.toMillis() || 0) - (a.createdAt?.toMillis() || 0));
-    callback(tasks);
-  });
+  return onSnapshot(
+    q,
+    (snapshot) => {
+      const tasks = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      // Sort descending client-side to avoid requiring a composite index
+      tasks.sort((a, b) => (b.createdAt?.toMillis() || 0) - (a.createdAt?.toMillis() || 0));
+      callback(tasks);
+    },
+    (err) => {
+      console.warn('[taskService] Firestore listener notice:', err?.message);
+    }
+  );
 }
 
 /**
@@ -92,10 +104,16 @@ export function listenToDelegatedTasks(assignerEmail, callback) {
  */
 export function listenToAllTasks(callback) {
   const q = query(collection(db, TASKS_COLLECTION));
-  return onSnapshot(q, (snapshot) => {
-    const tasks = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-    // Sort descending client-side
-    tasks.sort((a, b) => (b.createdAt?.toMillis() || 0) - (a.createdAt?.toMillis() || 0));
-    callback(tasks);
-  });
+  return onSnapshot(
+    q,
+    (snapshot) => {
+      const tasks = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      // Sort descending client-side
+      tasks.sort((a, b) => (b.createdAt?.toMillis() || 0) - (a.createdAt?.toMillis() || 0));
+      callback(tasks);
+    },
+    (err) => {
+      console.warn('[taskService] Firestore listener notice:', err?.message);
+    }
+  );
 }

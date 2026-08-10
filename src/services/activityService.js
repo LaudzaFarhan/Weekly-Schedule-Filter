@@ -35,11 +35,17 @@ export function subscribeToActivities(maxLogs = 20, callback) {
     limit(maxLogs)
   );
 
-  return onSnapshot(q, (snapshot) => {
-    const logs = snapshot.docs.map(doc => ({
-      id: doc.id,
-      ...doc.data()
-    }));
-    callback(logs);
-  });
+  return onSnapshot(
+    q,
+    (snapshot) => {
+      const logs = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
+      callback(logs);
+    },
+    (err) => {
+      console.warn('[activityService] Firestore listener notice:', err?.message);
+    }
+  );
 }

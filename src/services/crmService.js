@@ -58,22 +58,28 @@ export async function deleteLead(leadId) {
  */
 export function listenToLeads(callback) {
   const q = query(collection(db, CRM_COLLECTION));
-  return onSnapshot(q, (snapshot) => {
-    const leads = snapshot.docs.map(doc => {
-      const data = doc.data();
-      return {
-        id: doc.id,
-        ...data,
-        createdAt: data.createdAt?.toDate ? data.createdAt.toDate() : data.createdAt,
-        updatedAt: data.updatedAt?.toDate ? data.updatedAt.toDate() : data.updatedAt,
-      };
-    });
-    // Sort descending by updatedAt
-    leads.sort((a, b) => {
-      const timeA = a.updatedAt ? new Date(a.updatedAt).getTime() : 0;
-      const timeB = b.updatedAt ? new Date(b.updatedAt).getTime() : 0;
-      return timeB - timeA;
-    });
-    callback(leads);
-  });
+  return onSnapshot(
+    q,
+    (snapshot) => {
+      const leads = snapshot.docs.map(doc => {
+        const data = doc.data();
+        return {
+          id: doc.id,
+          ...data,
+          createdAt: data.createdAt?.toDate ? data.createdAt.toDate() : data.createdAt,
+          updatedAt: data.updatedAt?.toDate ? data.updatedAt.toDate() : data.updatedAt,
+        };
+      });
+      // Sort descending by updatedAt
+      leads.sort((a, b) => {
+        const timeA = a.updatedAt ? new Date(a.updatedAt).getTime() : 0;
+        const timeB = b.updatedAt ? new Date(b.updatedAt).getTime() : 0;
+        return timeB - timeA;
+      });
+      callback(leads);
+    },
+    (err) => {
+      console.warn('[crmService] Firestore listener notice:', err?.message);
+    }
+  );
 }
