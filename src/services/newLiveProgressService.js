@@ -10,16 +10,21 @@ const API_PATH = '/api/new/live-progress';
 
 /** Fetch progress rows once, optionally for one category. */
 export async function getLiveProgress({ category } = {}) {
-  const qs = new URLSearchParams();
-  if (category) qs.set('category', category);
-  const suffix = qs.toString() ? `?${qs.toString()}` : '';
+  try {
+    const qs = new URLSearchParams();
+    if (category) qs.set('category', category);
+    const suffix = qs.toString() ? `?${qs.toString()}` : '';
 
-  const res = await fetch(`${API_PATH}${suffix}`);
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(err.error || 'Failed to fetch live progress');
+    const res = await fetch(`${API_PATH}${suffix}`);
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || 'Failed to fetch live progress');
+    }
+    return await res.json();
+  } catch (error) {
+    console.warn('[liveProgressService] Fetch live progress failed (will retry):', error?.message || error);
+    throw error;
   }
-  return await res.json();
 }
 
 /**

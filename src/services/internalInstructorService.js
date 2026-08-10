@@ -11,12 +11,12 @@ export async function getAllInternalInstructors() {
   try {
     const res = await fetch(API_PATH);
     if (!res.ok) {
-      const errData = await res.json();
+      const errData = await res.json().catch(() => ({}));
       throw new Error(errData.error || 'Failed to fetch instructors');
     }
     return await res.json();
   } catch (error) {
-    console.error('Error fetching internal instructors:', error);
+    console.warn('[instructorService] Fetch internal instructors failed (will retry):', error?.message || error);
     throw error;
   }
 }

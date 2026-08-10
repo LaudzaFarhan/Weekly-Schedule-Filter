@@ -11,12 +11,12 @@ export async function getAllInternalClasses() {
   try {
     const res = await fetch(API_PATH);
     if (!res.ok) {
-      const errData = await res.json();
+      const errData = await res.json().catch(() => ({}));
       throw new Error(errData.error || 'Failed to fetch schedule');
     }
     return await res.json();
   } catch (error) {
-    console.error('Error fetching internal classes:', error);
+    console.warn('[scheduleService] Fetch internal classes failed (will retry):', error?.message || error);
     throw error;
   }
 }

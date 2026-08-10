@@ -15,7 +15,7 @@ export async function getAllLeaves() {
     }
     return await res.json();
   } catch (error) {
-    console.error('Error fetching leave records:', error);
+    console.warn('[leaveService] Fetch leave records failed (will retry):', error?.message || error);
     throw error;
   }
 }

@@ -25,9 +25,10 @@ function getPool() {
   if (!pool) {
     pool = new Pool({
       connectionString: CONNECTION_STRING,
-      max: 15,
+      max: 20,
       idleTimeoutMillis: 30000,
-      connectionTimeoutMillis: 10000,
+      connectionTimeoutMillis: 20000,
+      keepAlive: true,
       // Enable SSL for remote/secure PostgreSQL instances.
       ssl: process.env.DATABASE_SSL === 'true' ? { rejectUnauthorized: false } : undefined,
     });
