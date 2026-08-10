@@ -27,7 +27,8 @@ import {
   buildWipeSuccessMessage,
   resolveAuditUser,
 } from '../lib/wipeReporting';
-import { bulkCreateInternalClasses, subscribeToInternalClasses } from '../services/internalScheduleService';
+import { bulkCreateInternalClasses, subscribeToInternalClasses, updateInternalClass, deleteInternalClass } from '../services/internalScheduleService';
+import { getLiveProgress, deleteLiveProgress } from '../services/newLiveProgressService';
 import { subscribeToInternalInstructors } from '../services/internalInstructorService';
 import { resolveCanonicalTeacherName } from '../utils/instructorUtils';
 import { STUDENT_LEVELS, normaliseCoderLevel } from '../lib/programRules';
@@ -314,6 +315,46 @@ export default function NewStudentsPage({ onNavigate } = {}) {
     if (!window.confirm(`Are you sure you want to delete student "${studentName}"?`)) return;
     try {
       await deleteInternalStudent(studentId);
+
+      // Cascade: remove student from all schedule grid rows (internal_classes)
+      const normStudent = String(studentName || '').trim().toLowerCase();
+      for (const c of classes) {
+        const studentList = String(c.student || '')
+          .split(',')
+          .map((s) => s.trim())
+          .filter(Boolean);
+        const hasStudent = studentList.some((s) => s.toLowerCase() === normStudent);
+        if (!hasStudent) continue;
+
+        const remaining = studentList.filter((s) => s.toLowerCase() !== normStudent);
+        if (remaining.length > 0) {
+          await updateInternalClass(c.id, {
+            day: c.day,
+            time: c.time,
+            student: remaining.join(', '),
+            branchName: c.branchName,
+            classType: c.classType || 'Regular',
+            teacher: c.teacher,
+            program: c.program,
+          });
+        } else {
+          await deleteInternalClass(c.id);
+        }
+      }
+
+      // Cascade: remove student from all live progress records (internal_live_progress)
+      try {
+        const allProgress = await getLiveProgress();
+        for (const p of (allProgress || [])) {
+          const pName = String(p.studentName || p.student_name || '').trim().toLowerCase();
+          if (pName === normStudent && p.id) {
+            await deleteLiveProgress(p.id);
+          }
+        }
+      } catch (lpErr) {
+        console.warn('Failed to cascade delete to live progress:', lpErr);
+      }
+
       showToast({ title: 'Student deleted successfully', variant: 'success' });
       // Deleting the only row on a page would leave it empty, so step back one.
       if (paged.length === 1 && safePage > 1) {

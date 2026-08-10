@@ -18,7 +18,8 @@ import { saveOperational } from '../../services/newOperationalsService';
 import { logActivity } from '../../services/newActivityService';
 import { groupClasses } from '../../lib/instructorAvailability';
 import { slotTypeMeta } from '../../lib/slotTypes';
-import { DAY_NAMES } from '../../utils/constants';
+import { DAY_NAMES, isSameBranch } from '../../utils/constants';
+import { isSameTeacher, resolveCanonicalTeacherName } from '../../utils/instructorUtils';
 import ScheduleGrid from './ScheduleGrid';
 
 /**
@@ -284,28 +285,133 @@ export default function ScheduleGridPanel({ onNavigate } = {}) {
   }, 'Could not add the student');
 
   const removeStudent = async (member, group) => {
-    if (!window.confirm(
-      `Remove ${member.student} from ${group.teacher}'s ${group.time} class on ${group.day}?\n\n` +
-      (member.classType === 'Regular'
-        ? 'This gives up their fixed weekly place.'
-        : `This drops their ${member.sessionDates.length || 'recorded'} session(s).`)
-    )) return;
+    const studentName = member.student ? String(member.student).trim() : '';
+    if (!studentName) return;
 
-    await withSaving(async () => {
-      await deleteInternalClass(member.id);
-      setClasses((prev) => prev.filter((c) => c.id !== member.id));
-      await logActivity({
-        action: 'delete',
-        summary: `Removed ${member.student} from ${group.teacher}'s ${group.time} on ${group.day} at ${group.branchName}`,
-        source: 'schedule',
-        userEmail: user?.email || null,
+    const normStudent = studentName.toLowerCase();
+    const currentTeacher = group?.teacher || member.teacher;
+
+    // Check if this student is currently in a temporary lesson arrangement in liveProgress
+    const lpRecord = (liveProgress || []).find(
+      (p) => String(p.studentName || p.student_name || p.student || '').trim().toLowerCase() === normStudent
+    );
+
+    const arrangedTeacher = lpRecord?.arrangedTeacher || lpRecord?.arranged_teacher;
+    const mainTeacher = lpRecord?.mainTeacher || lpRecord?.main_teacher || member?.mainTeacher || member?.main_teacher;
+
+    const isArrangedPlacement = (
+      (!!arrangedTeacher && isSameTeacher(arrangedTeacher, currentTeacher)) ||
+      (!!mainTeacher && !isSameTeacher(mainTeacher, currentTeacher))
+    );
+
+    if (!isArrangedPlacement || !mainTeacher) {
+      showToast({
+        title: 'Cannot remove from main instructor',
+        message: `${studentName} is assigned to main instructor ${currentTeacher}. Main instructor schedule placements cannot be deleted from the Schedule Grid. Use Live Progress to reassign their lesson.`,
+        variant: 'warning',
       });
-      showToast({ title: `${member.student} removed`, variant: 'success' });
-    }, 'Could not remove the student');
+      return;
+    }
+
+    const canonicalMain = resolveCanonicalTeacherName(mainTeacher, instructors);
+    if (window.confirm(
+      `Ending temporary arrangement for ${studentName} with ${currentTeacher}?\n\n` +
+      `This will restore ${studentName} back to their main instructor ${canonicalMain || mainTeacher}.`
+    )) {
+      await withSaving(async () => {
+        // 1. Remove student from current temporary teacher's schedule row
+        const currentRows = classes.filter((c) => {
+          const sList = String(c.student || '').split(',').map((s) => s.trim().toLowerCase());
+          return sList.includes(normStudent) && isSameTeacher(c.teacher, currentTeacher);
+        });
+
+        const updatedCurrentRows = [];
+
+        for (const c of currentRows) {
+          const remaining = String(c.student || '').split(',').map((s) => s.trim()).filter((s) => s.toLowerCase() !== normStudent);
+          const updatedRow = { ...c, student: remaining.join(', ') };
+          await updateInternalClass(c.id, {
+            day: c.day,
+            time: c.time,
+            student: remaining.join(', '),
+            branchName: c.branchName,
+            classType: c.classType,
+            teacher: c.teacher,
+            program: c.program,
+          });
+          updatedCurrentRows.push(updatedRow);
+        }
+
+        // 2. Re-create / Restore student in mainTeacher's schedule as an individual class row
+        const mainTargetTeacher = canonicalMain || mainTeacher;
+        const targetDay = lpRecord?.mainDay || lpRecord?.main_day || member.mainDay || member.day || group?.day || 'Monday';
+        const targetBranch = member.branchName || member.branch_name || group?.branchName || group?.branch || 'Puri Indah';
+        const targetProgram = member.program || lpRecord?.programCode || 'K1';
+
+        // Check if mainTargetTeacher has an existing class slot on targetDay & targetBranch
+        const mainTeacherClass = classes.find((c) => {
+          const sameTeacher = isSameTeacher(c.teacher, mainTargetTeacher);
+          const sameDay = String(c.day || '').trim().toLowerCase() === String(targetDay || '').trim().toLowerCase();
+          const sameBranch = isSameBranch(c.branchName, targetBranch) ||
+            String(c.branchName || '').trim().toLowerCase() === 'all branches' ||
+            String(targetBranch || '').trim().toLowerCase() === 'all branches';
+          return sameTeacher && sameDay && sameBranch;
+        });
+
+        const targetTime = lpRecord?.mainTime || lpRecord?.main_time || member.mainTime || mainTeacherClass?.time || member.time || group?.time || '3:00 PM - 4:30 PM';
+
+        const createdRestoredRow = await createInternalClass({
+          teacher: mainTargetTeacher,
+          student: studentName,
+          day: targetDay,
+          time: targetTime,
+          branchName: targetBranch,
+          program: targetProgram,
+          classType: member.classType || 'Regular',
+        });
+
+        // 3. Clear arrangedTeacher and arrangedLesson in internal_live_progress
+        if (lpRecord) {
+          await saveLiveProgress({
+            studentName: lpRecord.studentName || studentName,
+            programCode: lpRecord.programCode || targetProgram,
+            arrangedTeacher: null,
+            arrangedLesson: null,
+            mainTeacher: mainTargetTeacher,
+          });
+        }
+
+        // 4. Instantly update local React state `classes` so the grid updates on screen IMMEDIATELY
+        setClasses((prev) => {
+          let next = prev.map((c) => {
+            const u = updatedCurrentRows.find((uc) => uc.id === c.id);
+            return u || c;
+          });
+          if (createdRestoredRow) {
+            next = [createdRestoredRow, ...next];
+          }
+          return next;
+        });
+
+        await logActivity({
+          action: 'reassign',
+          summary: `Ended temporary arrangement for ${studentName} with ${currentTeacher}. Restored to main instructor ${mainTargetTeacher}`,
+          source: 'schedule',
+          userEmail: user?.email || null,
+        });
+
+        showToast({
+          title: `Restored to ${mainTargetTeacher}`,
+          message: `Temporary arrangement ended. ${studentName} returned to main instructor ${mainTargetTeacher}.`,
+          variant: 'success',
+        });
+      }, 'Could not restore student to main instructor');
+    }
   };
 
   const updateStudent = (member, patch) => withSaving(async () => {
-    const row = classes.find((c) => c.id === member.id);
+    const targetRowId = member.rowId || member.id;
+    const row = classes.find((c) => c.id === targetRowId);
     if (!row) return;
     const isIzinPatch = patch.isIzin !== undefined ? patch.isIzin : (patch.notArranged !== undefined ? patch.notArranged : undefined);
     const newIzinState = isIzinPatch !== undefined ? isIzinPatch : !!(row.notArranged || row.isIzin || (typeof row.remarks === 'string' && row.remarks.toLowerCase().includes('izin')));
@@ -324,7 +430,7 @@ export default function ScheduleGridPanel({ onNavigate } = {}) {
       }
     }
 
-    const updated = await updateInternalClass(member.id, {
+    const updated = await updateInternalClass(targetRowId, {
       day: row.day,
       time: row.time,
       program: row.program,
@@ -338,7 +444,7 @@ export default function ScheduleGridPanel({ onNavigate } = {}) {
 
     setClasses((prev) =>
       prev.map((c) =>
-        c.id === member.id
+        c.id === targetRowId
           ? {
               ...c,
               ...updated,

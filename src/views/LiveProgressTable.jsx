@@ -53,6 +53,44 @@ const CONTINUATION_TINT = {
   'Not Continue': { color: '#dc2626', bg: 'rgba(220,38,38,0.12)' },
 };
 
+/** Helper to parse start time string into minutes from midnight */
+function parseStartMinutes(str) {
+  if (!str) return 900; // Default 3:00 PM (15 * 60 = 900)
+  const left = String(str).split('-')[0].trim();
+  const match = left.match(/(\d{1,2})[:.]?(\d{2})?\s*(am|pm)?/i);
+  if (!match) return 900;
+
+  let hh = parseInt(match[1], 10);
+  const mm = parseInt(match[2] || '0', 10);
+  const ampm = (match[3] || '').toLowerCase();
+
+  if (ampm === 'pm' && hh < 12) hh += 12;
+  if (ampm === 'am' && hh === 12) hh = 0;
+  if (!ampm && hh >= 1 && hh <= 7) hh += 12;
+
+  return hh * 60 + mm;
+}
+
+/** Helper to format minutes into "h:mm AM/PM" */
+function formatMinutesTo12h(totalMin) {
+  let hh = Math.floor(totalMin / 60) % 24;
+  const mm = totalMin % 60;
+  const ampm = hh >= 12 ? 'PM' : 'AM';
+  hh = hh % 12;
+  if (hh === 0) hh = 12;
+  const mmStr = mm < 10 ? `0${mm}` : `${mm}`;
+  return `${hh}:${mmStr} ${ampm}`;
+}
+
+/** Build complete range string from start time & duration minutes */
+function buildTimeRangeStr(startStr, durationMin = 90) {
+  const startMin = parseStartMinutes(startStr);
+  const endMin = startMin + durationMin;
+  const startFormatted = formatMinutesTo12h(startMin);
+  const endFormatted = formatMinutesTo12h(endMin);
+  return `${startFormatted} - ${endFormatted}`;
+}
+
 /** Stable identity for a progress record: one student, one level. */
 const keyOf = (studentName, programCode) =>
   `${String(studentName || '').trim().toLowerCase()}||${String(programCode || '').trim().toLowerCase()}`;
@@ -90,6 +128,10 @@ export default function LiveProgressTable({ category }) {
   const [arrangingRow, setArrangingRow] = useState(null);
   const [arrangedLesson, setArrangedLesson] = useState('1');
   const [arrangedTeacher, setArrangedTeacher] = useState('');
+  const [arrangedDay, setArrangedDay] = useState('Monday');
+  const [startTimeChoice, setStartTimeChoice] = useState('3:00 PM');
+  const [customStartTime, setCustomStartTime] = useState('3:00 PM');
+  const [isCustomStartTime, setIsCustomStartTime] = useState(false);
   const [arrangingSaving, setArrangingSaving] = useState(false);
 
   const getInstructorsForBranch = (branchName) => {
@@ -108,10 +150,10 @@ export default function LiveProgressTable({ category }) {
       }
 
       const branches = Array.isArray(inst.branches)
-        ? inst.branches
-        : String(inst.branchName || inst.branches || '').split(',').map((s) => s.trim());
+        ? inst.branches.map((b) => String(b).trim().toLowerCase())
+        : [String(inst.branchName || inst.branch || '').trim().toLowerCase()];
 
-      if (branches.some((b) => String(b).toLowerCase() === bClean)) {
+      if (branches.some((b) => b === bClean || b === 'all branches')) {
         const canonical = resolveCanonicalTeacherName(primaryName, instructorProfiles);
         if (canonical && canonical !== 'TBD') list.add(canonical);
       }
@@ -158,25 +200,29 @@ export default function LiveProgressTable({ category }) {
 
     const trimmed = String(instName).trim();
     const profile = instructorProfiles.find((p) => {
-      if (!p) return false;
-      return isInstructorMatch(trimmed, p) || isSameTeacher(trimmed, p.name) || isSameTeacher(trimmed, getInstructorDisplayName(p));
+      const primaryName = getInstructorDisplayName(p) || p.name;
+      return (
+        isSameTeacher(primaryName, trimmed) ||
+        isSameTeacher(p.name, trimmed) ||
+        isSameTeacher(p.username, trimmed)
+      );
     });
 
     if (!profile) {
       return { employmentType: 'Full-Time', isAvailable: true, label: 'Full-Time', profile: null };
     }
 
-    const empType = profile.employmentType || 'Full-Time';
+    const empType = profile.employmentType || profile.type || 'Full-Time';
     const availDays = Array.isArray(profile.availableDays) ? profile.availableDays : [];
 
     let isAvailable = true;
-    if (availDays.length > 0 && targetDay && targetDay !== '—') {
-      isAvailable = availDays.some((d) => isDayMatch(d, targetDay));
+    if (empType === 'Part-Time' && availDays.length > 0 && targetDay) {
+      isAvailable = availDays.some((ad) => isDayMatch(ad, targetDay));
     }
 
     let label = empType;
-    if (availDays.length > 0) {
-      label += isAvailable ? ` (Available ${targetDay})` : ` (Unavailable on ${targetDay}: ${availDays.join(', ')})`;
+    if (empType === 'Part-Time' && availDays.length > 0) {
+      label += ` (${availDays.join(', ')})`;
     } else if (empType === 'Part-Time') {
       label += ` (Part-Time)`;
     } else {
@@ -192,11 +238,24 @@ export default function LiveProgressTable({ category }) {
     };
   };
 
+  const extractStartTimeStr = (timeStr) => {
+    if (!timeStr) return '3:00 PM';
+    const left = String(timeStr).split('-')[0].trim();
+    return left || '3:00 PM';
+  };
+
   const openArrangementModal = (row) => {
     const nextUndone = getNextUndoneLesson(row.attendance, maxLessons);
     setArrangingRow(row);
     setArrangedLesson(row.arrangedLesson || row.lesson || nextUndone);
     setArrangedTeacher(row.arrangedTeacher || row.instructor);
+    setArrangedDay(row.arrangedDay || row.day || 'Monday');
+
+    const rawTime = row.arrangedTime || row.time || '3:00 PM - 4:30 PM';
+    const initStart = extractStartTimeStr(rawTime);
+    setStartTimeChoice(initStart);
+    setCustomStartTime(initStart);
+    setIsCustomStartTime(false);
   };
 
   const reassignStudentInSchedule = async ({ studentName, targetTeacher, day, time, branchName, classType, program }) => {
@@ -204,7 +263,6 @@ export default function LiveProgressTable({ category }) {
 
     const normStudent = studentName.trim().toLowerCase();
     const targetCanonical = resolveCanonicalTeacherName(targetTeacher, instructorProfiles);
-    const normTargetTeacher = targetCanonical.trim().toLowerCase();
 
     // 1. Find all class rows containing this student
     const studentClasses = classes.filter((c) => {
@@ -237,23 +295,30 @@ export default function LiveProgressTable({ category }) {
           program: c.program,
         });
       } else {
-        // Row only had this 1 student -> Delete empty class row
-        await deleteInternalClass(c.id);
+        // Keep class slot row with empty student string so card box stays on grid
+        await updateInternalClass(c.id, {
+          day: c.day,
+          time: c.time,
+          student: '',
+          branchName: c.branchName,
+          classType: c.classType || 'Regular',
+          teacher: c.teacher,
+          program: c.program,
+        });
       }
     }
 
     // 3. Find if targetTeacher ALREADY has a class row on this day + time + branch
     const existingTargetClass = classes.find((c) => {
       const sameTeacher = isSameTeacher(c.teacher, targetTeacher) || isSameTeacher(c.teacher, targetCanonical);
-      const sameDay = String(c.day || '').trim().toLowerCase() === String(day || '').trim().toLowerCase();
-      const sameTime = String(c.time || '').trim().toLowerCase() === String(time || '').trim().toLowerCase();
+      const sameDay = isDayMatch(c.day, day);
       const sameBranch = (
         String(c.branchName || '').trim().toLowerCase() === String(branchName || '').trim().toLowerCase() ||
         String(c.branchName || '').trim().toLowerCase() === 'all branches' ||
         String(branchName || '').trim().toLowerCase() === 'all branches'
       );
 
-      return sameTeacher && sameDay && sameTime && sameBranch;
+      return sameTeacher && sameDay && sameBranch;
     });
 
     if (existingTargetClass) {
@@ -282,7 +347,7 @@ export default function LiveProgressTable({ category }) {
         teacher: targetCanonical || targetTeacher.trim(),
         student: studentName.trim(),
         day: day && day !== '—' ? day : 'Monday',
-        time: time && time !== '—' ? time : '2.30 - 4.00 pm',
+        time: time && time !== '—' ? time : '2:30 PM - 4:00 PM',
         branchName: branchName && branchName !== '—' ? branchName : 'Kelapa Gading',
         program: program || 'K1',
         classType: classType || 'Regular',
@@ -296,34 +361,44 @@ export default function LiveProgressTable({ category }) {
     try {
       // The main/original teacher — use stored mainTeacher if already saved, else current instructor
       const mainTeacher = arrangingRow.mainTeacher || arrangingRow.instructor;
+      const mainDay = arrangingRow.mainDay || arrangingRow.day;
+      const mainTime = arrangingRow.mainTime || arrangingRow.time;
 
-      // 1. Save arrangedLesson, arrangedTeacher & mainTeacher into liveProgress
+      const activeStart = isCustomStartTime ? customStartTime : startTimeChoice;
+      const durationMin = category === 'Kinder' ? 90 : 120;
+      const computedArrangedTime = buildTimeRangeStr(activeStart, durationMin);
+
+      // 1. Save arrangedLesson, arrangedTeacher, arrangedDay, arrangedTime, mainTeacher, mainDay & mainTime into liveProgress
       await persist(arrangingRow, () => ({
         arrangedLesson,
         arrangedTeacher,
+        arrangedDay,
+        arrangedTime: computedArrangedTime,
         mainTeacher,
+        mainDay,
+        mainTime,
       }));
 
-      // 2. Reassign student in Schedule Grid (internal_classes) to arrangedTeacher (e.g. Helen)
+      // 2. Reassign student in Schedule Grid (internal_classes) to arrangedTeacher, arrangedDay, arrangedTime
       const hasLessonNum = category !== 'Coder';
       const newProgStr = hasLessonNum ? `${arrangingRow.levelCode}.${arrangedLesson}` : arrangingRow.levelCode;
 
       await reassignStudentInSchedule({
         studentName: arrangingRow.studentName,
         targetTeacher: arrangedTeacher,
-        day: arrangingRow.day,
-        time: arrangingRow.time,
+        day: arrangedDay,
+        time: computedArrangedTime,
         branchName: arrangingRow.branchName,
         classType: arrangingRow.classType || 'Regular',
         program: newProgStr,
       });
 
-      const avail = checkInstructorAvailability(arrangedTeacher, arrangingRow.day);
+      const avail = checkInstructorAvailability(arrangedTeacher, arrangedDay);
       const termCode = arrangingRow.levelCode || arrangingRow.program;
       const formattedLesson = String(arrangedLesson).startsWith('L') ? arrangedLesson : `L${arrangedLesson}`;
-      let toastMsg = `${termCode} - ${formattedLesson} arranged with ${arrangedTeacher} for ${arrangingRow.studentName}. (Main teacher: ${mainTeacher}). Schedule Grid updated!`;
+      let toastMsg = `${termCode} - ${formattedLesson} arranged with ${arrangedTeacher} on ${arrangedDay} (${computedArrangedTime}) for ${arrangingRow.studentName}. (Main teacher: ${mainTeacher}). Schedule Grid updated!`;
       if (!avail.isAvailable) {
-        toastMsg += ` ⚠️ Note: ${arrangedTeacher} is ${avail.employmentType} and not usually scheduled on ${arrangingRow.day}s.`;
+        toastMsg += ` ⚠️ Note: ${arrangedTeacher} is ${avail.employmentType} and not usually scheduled on ${arrangedDay}s.`;
       }
 
       showToast({
@@ -1201,7 +1276,7 @@ export default function LiveProgressTable({ category }) {
               aria-modal="true"
               style={{
                 background: 'var(--panel-bg, white)', border: '1px solid var(--border-color)',
-                borderRadius: '16px', width: '100%', maxWidth: '460px', maxHeight: '90vh',
+                borderRadius: '16px', width: '100%', maxWidth: '620px', maxHeight: '90vh',
                 display: 'flex', flexDirection: 'column', overflow: 'hidden',
                 boxShadow: '0 12px 32px rgba(0,0,0,0.18)',
                 animation: 'modalAppear 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards',
@@ -1278,6 +1353,106 @@ export default function LiveProgressTable({ category }) {
                   </div>
                 )}
 
+                {/* Target Day & Target Time Selection */}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.85rem' }}>
+                  {/* Target Day */}
+                  <div>
+                    <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-secondary)', display: 'block', marginBottom: '0.35rem' }}>
+                      Target Arranged Day *
+                    </label>
+                    <select
+                      value={arrangedDay}
+                      onChange={(e) => setArrangedDay(e.target.value)}
+                      className="modal-select-field"
+                      style={{ width: '100%', fontSize: '0.85rem', padding: '0.5rem 0.75rem' }}
+                    >
+                      {['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'].map((d) => (
+                        <option key={d} value={d}>
+                          {d} {d.toLowerCase() === (arrangingRow.day || '').toLowerCase() ? '(Main Schedule Day)' : ''}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* Target Start Schedule */}
+                  <div>
+                    <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-secondary)', display: 'block', marginBottom: '0.35rem' }}>
+                      Target Start Schedule *
+                    </label>
+                    {!isCustomStartTime ? (
+                      <select
+                        value={startTimeChoice}
+                        onChange={(e) => {
+                          if (e.target.value === '__custom__') {
+                            setIsCustomStartTime(true);
+                            setCustomStartTime('');
+                          } else {
+                            setStartTimeChoice(e.target.value);
+                          }
+                        }}
+                        className="modal-select-field"
+                        style={{ width: '100%', fontSize: '0.85rem', padding: '0.5rem 0.75rem' }}
+                      >
+                        {[
+                          '1:00 PM',
+                          '1:30 PM',
+                          '2:00 PM',
+                          '2:30 PM',
+                          '3:00 PM',
+                          '3:30 PM',
+                          '4:00 PM',
+                          '4:30 PM',
+                          '5:00 PM',
+                        ].map((st) => (
+                          <option key={st} value={st}>
+                            {st}
+                          </option>
+                        ))}
+                        <option value="__custom__">✏️ Custom Start Time...</option>
+                      </select>
+                    ) : (
+                      <div style={{ display: 'flex', gap: '0.35rem' }}>
+                        <input
+                          type="text"
+                          value={customStartTime}
+                          placeholder="e.g. 2:00 PM"
+                          onChange={(e) => setCustomStartTime(e.target.value)}
+                          className="modal-input-field"
+                          style={{ flex: 1, fontSize: '0.85rem', padding: '0.5rem 0.75rem' }}
+                        />
+                        <button
+                          type="button"
+                          className="btn btn-sm"
+                          onClick={() => setIsCustomStartTime(false)}
+                          style={{ fontSize: '0.72rem' }}
+                        >
+                          Presets
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Automatically Calculated Class Schedule Range Banner */}
+                {(() => {
+                  const durationMin = category === 'Kinder' ? 90 : 120;
+                  const activeStart = isCustomStartTime ? customStartTime : startTimeChoice;
+                  const computedRange = buildTimeRangeStr(activeStart, durationMin);
+                  return (
+                    <div style={{
+                      padding: '0.55rem 0.85rem', borderRadius: '8px',
+                      background: 'rgba(79,70,229,0.06)', border: '1px solid rgba(79,70,229,0.2)',
+                      fontSize: '0.78rem', color: '#4f46e5', fontWeight: 600,
+                      display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                    }}>
+                      <span>🕒 Arranged Class Schedule: <strong>{computedRange}</strong></span>
+                      <span style={{ fontSize: '0.7rem', background: '#4f46e5', color: '#fff', padding: '0.15rem 0.45rem', borderRadius: '5px' }}>
+                        {category === 'Kinder' ? 'Kinder 90m (1.5h)' : 'Junior/Coder 120m (2.0h)'}
+                      </span>
+                    </div>
+                  );
+                })()}
+
                 {/* Arranged / Replacement Instructor Selection */}
                 <div>
                   <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-secondary)', display: 'block', marginBottom: '0.35rem' }}>
@@ -1293,7 +1468,7 @@ export default function LiveProgressTable({ category }) {
                     style={{ width: '100%', fontSize: '0.85rem', padding: '0.5rem 0.75rem' }}
                   >
                     {getInstructorsForBranch(arrangingRow.branchName).map((inst) => {
-                      const check = checkInstructorAvailability(inst, arrangingRow.day);
+                      const check = checkInstructorAvailability(inst, arrangedDay);
                       const isMain = inst.toLowerCase() === arrangingRow.instructor.toLowerCase();
                       const warningTag = !check.isAvailable ? ' ⚠️' : '';
                       return (
@@ -1305,30 +1480,35 @@ export default function LiveProgressTable({ category }) {
                   </select>
 
                   {/* Employment Type & Availability Banner */}
-                  <div style={{
-                    marginTop: '0.6rem', padding: '0.6rem 0.85rem', borderRadius: '8px',
-                    fontSize: '0.74rem', fontWeight: 500,
-                    background: currentAvail.isAvailable ? 'rgba(5,150,105,0.08)' : 'rgba(245,158,11,0.12)',
-                    border: `1px solid ${currentAvail.isAvailable ? 'rgba(5,150,105,0.25)' : 'rgba(245,158,11,0.3)'}`,
-                    color: currentAvail.isAvailable ? '#047857' : '#b45309',
-                    display: 'flex', alignItems: 'center', gap: '0.4rem'
-                  }}>
-                    {currentAvail.isAvailable ? (
-                      <>
-                        <CheckCircle2 size={15} />
-                        <span>
-                          <strong>{arrangedTeacher}</strong> is <strong>{currentAvail.employmentType}</strong> and available on {arrangingRow.day}s.
-                        </span>
-                      </>
-                    ) : (
-                      <>
-                        <AlertTriangle size={15} />
-                        <span>
-                          <strong>Availability Notice:</strong> {arrangedTeacher} is <strong>{currentAvail.employmentType}</strong> and not scheduled on {arrangingRow.day}s.
-                        </span>
-                      </>
-                    )}
-                  </div>
+                  {(() => {
+                    const currentAvail = checkInstructorAvailability(arrangedTeacher, arrangedDay);
+                    return (
+                      <div style={{
+                        marginTop: '0.6rem', padding: '0.6rem 0.85rem', borderRadius: '8px',
+                        fontSize: '0.74rem', fontWeight: 500,
+                        background: currentAvail.isAvailable ? 'rgba(5,150,105,0.08)' : 'rgba(245,158,11,0.12)',
+                        border: `1px solid ${currentAvail.isAvailable ? 'rgba(5,150,105,0.25)' : 'rgba(245,158,11,0.3)'}`,
+                        color: currentAvail.isAvailable ? '#047857' : '#b45309',
+                        display: 'flex', alignItems: 'center', gap: '0.4rem'
+                      }}>
+                        {currentAvail.isAvailable ? (
+                          <>
+                            <CheckCircle2 size={15} />
+                            <span>
+                              <strong>{arrangedTeacher}</strong> is <strong>{currentAvail.employmentType}</strong> and available on {arrangedDay}s.
+                            </span>
+                          </>
+                        ) : (
+                          <>
+                            <AlertTriangle size={15} />
+                            <span>
+                              <strong>Availability Notice:</strong> {arrangedTeacher} is <strong>{currentAvail.employmentType}</strong> and not scheduled on {arrangedDay}s.
+                            </span>
+                          </>
+                        )}
+                      </div>
+                    );
+                  })()}
                 </div>
               </div>
 

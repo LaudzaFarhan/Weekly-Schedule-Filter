@@ -238,15 +238,31 @@ export function groupClasses(classes) {
     const group = map.get(key);
     group.ids.push(c.id);
     if (c.program) group.programs.push(c.program);
-    if (c.student) group.students.push(c.student);
-    group.members.push({
-      id: c.id,
-      student: c.student || '',
-      program: c.program || '',
-      classType: c.classType || 'Regular',
-      sessionDates: Array.isArray(c.sessionDates) ? c.sessionDates : [],
-      remarks: c.remarks || '',
-    });
+    
+    const sList = String(c.student || '').split(',').map((s) => s.trim()).filter(Boolean);
+    if (sList.length === 0) {
+      group.members.push({
+        id: c.id,
+        student: '',
+        program: c.program || '',
+        classType: c.classType || 'Regular',
+        sessionDates: Array.isArray(c.sessionDates) ? c.sessionDates : [],
+        remarks: c.remarks || '',
+      });
+    } else {
+      sList.forEach((sName, sIdx) => {
+        group.students.push(sName);
+        group.members.push({
+          id: sList.length > 1 ? `${c.id}__${sIdx}` : c.id,
+          rowId: c.id,
+          student: sName,
+          program: c.program || '',
+          classType: c.classType || 'Regular',
+          sessionDates: Array.isArray(c.sessionDates) ? c.sessionDates : [],
+          remarks: c.remarks || '',
+        });
+      });
+    }
   }
   return [...map.values()];
 }

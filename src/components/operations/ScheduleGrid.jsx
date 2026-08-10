@@ -210,8 +210,31 @@ export default function ScheduleGrid({
   const [rosterKey, setRosterKey] = useState(null);
   // Selected class for right side preview panel & custom positioning
   const [previewClass, setPreviewClass] = useState(null);
+  const [isClosingPreview, setIsClosingPreview] = useState(false);
   const [previewPos, setPreviewPos] = useState(null); // { x, y } in px, or null for default right-centered
   const previewPanelRef = useRef(null);
+
+  const closeTimeoutRef = useRef(null);
+
+  const closePreview = useCallback(() => {
+    if (!previewClass || isClosingPreview) return;
+    if (closeTimeoutRef.current) clearTimeout(closeTimeoutRef.current);
+    setIsClosingPreview(true);
+    closeTimeoutRef.current = setTimeout(() => {
+      setPreviewClass(null);
+      setIsClosingPreview(false);
+      closeTimeoutRef.current = null;
+    }, 200);
+  }, [previewClass, isClosingPreview]);
+
+  const openPreview = useCallback((cls) => {
+    if (closeTimeoutRef.current) {
+      clearTimeout(closeTimeoutRef.current);
+      closeTimeoutRef.current = null;
+    }
+    setIsClosingPreview(false);
+    setPreviewClass(cls);
+  }, []);
 
   const handlePreviewPointerDown = useCallback((e) => {
     if (e.button !== undefined && e.button !== 0) return;
@@ -795,6 +818,38 @@ export default function ScheduleGrid({
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [selection, picker, clearSelection]);
+
+  // Close floating preview card on Escape key or clicking anywhere outside the card
+  useEffect(() => {
+    if (!previewClass) return undefined;
+
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape') {
+        closePreview();
+      }
+    };
+
+    const handlePointerDown = (e) => {
+      if (previewPanelRef.current && previewPanelRef.current.contains(e.target)) {
+        return;
+      }
+      if (e.target && e.target.closest && e.target.closest('[data-class-chip="true"]')) {
+        return;
+      }
+      closePreview();
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    const timer = setTimeout(() => {
+      window.addEventListener('pointerdown', handlePointerDown);
+    }, 50);
+
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('pointerdown', handlePointerDown);
+      clearTimeout(timer);
+    };
+  }, [previewClass, closePreview]);
 
 
 
@@ -1419,7 +1474,11 @@ export default function ScheduleGrid({
                             // gets the strong rule, since its edge is a real end.
                             borderBottom: `1px solid ${isHour(rowStarts[rowIdx + cell.span] ?? timelineEnd) || cell.span > 1 ? 'var(--border-color)' : 'rgba(120,120,120,0.12)'}`,
                             borderRight: '1px solid var(--border-color)',
-                            padding: '0.2rem 0.3rem', verticalAlign: 'top', height: ROW_H * cell.span,
+                            verticalAlign: 'top', height: ROW_H * cell.span,
+                            paddingTop: cell.buttedPrev ? 0 : '0.2rem',
+                            paddingBottom: cell.buttedNext ? 0 : '0.2rem',
+                            paddingLeft: '0.3rem',
+                            paddingRight: '0.3rem',
                             // Back-to-back cards meet on the gridline, so the
                             // padding between them goes. The seam chip straddles
                             // that edge and the cell below comes later in the
@@ -1428,9 +1487,8 @@ export default function ScheduleGrid({
                             // there already draw the divider, in both colours, so
                             // it says whose time ends and whose begins.
                             ...(cell.buttedNext
-                              ? { paddingBottom: 0, borderBottomColor: 'transparent', position: 'relative', zIndex: 1 }
+                              ? { borderBottomColor: 'transparent', position: 'relative', zIndex: 1 }
                               : null),
-                            ...(cell.buttedPrev ? { paddingTop: 0 } : null),
                             background: inDraw
                               ? 'rgba(5,150,105,0.16)'
                               // A settled selection reads slightly stronger than
@@ -1471,7 +1529,7 @@ export default function ScheduleGrid({
                             onEditSelection={editSelection}
                             openEditor={openEditor}
                             openRoster={openRoster}
-                            onPreviewClass={(c) => setPreviewClass(c)}
+                            onPreviewClass={(c) => openPreview(c)}
                             week={week}
                             onRemoveSlot={onRemoveSlot}
                             beginMoveClass={beginMoveClass}
@@ -1512,7 +1570,9 @@ export default function ScheduleGrid({
                   border: '1.5px solid var(--border-color)', borderRadius: '16px',
                   background: 'var(--panel-bg)', boxShadow: '0 16px 45px rgba(0,0,0,0.25)',
                   overflow: 'hidden',
-                  animation: previewPos ? 'none' : 'slideInRightCenter 0.22s cubic-bezier(0.16, 1, 0.3, 1) forwards',
+                  animation: isClosingPreview
+                    ? (previewPos ? 'slideOutRight 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards' : 'slideOutRightCenter 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards')
+                    : (previewPos ? 'none' : 'slideInRightCenter 0.22s cubic-bezier(0.16, 1, 0.3, 1) forwards'),
                 }}
               >
                 {/* Header */}
@@ -1576,7 +1636,7 @@ export default function ScheduleGrid({
                     </button>
                     <button
                       type="button"
-                      onClick={() => setPreviewClass(null)}
+                      onClick={closePreview}
                       aria-label="Close preview"
                       style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: meta.textColor, padding: '0.2rem', lineHeight: 0 }}
                     >
@@ -1623,17 +1683,38 @@ export default function ScheduleGrid({
                             display: 'flex', flexDirection: 'column', gap: '0.4rem',
                           }}
                         >
-                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.35rem' }}>
                             <div style={{ fontWeight: 700, fontSize: '0.84rem', color: 'var(--text-main)', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
                               <User size={14} style={{ color: 'var(--text-muted)' }} />
                               {m.student}
                             </div>
-                            <span style={{
-                              fontSize: '0.65rem', fontWeight: 700, padding: '0.1rem 0.45rem', borderRadius: '5px',
-                              color: isIzin ? '#b45309' : '#047857', background: isIzin ? '#fef3c7' : 'rgba(16,185,129,0.12)',
-                            }}>
-                              {isIzin ? 'Izin' : m.classType || 'Regular'}
-                            </span>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', flexWrap: 'wrap' }}>
+                              <span style={{
+                                fontSize: '0.65rem', fontWeight: 700, padding: '0.1rem 0.45rem', borderRadius: '5px',
+                                color: isIzin ? '#b45309' : '#047857', background: isIzin ? '#fef3c7' : 'rgba(16,185,129,0.12)',
+                              }}>
+                                {isIzin ? 'Izin' : m.classType || 'Regular'}
+                              </span>
+                              {(() => {
+                                const arrangedTeacher = progRecord?.arrangedTeacher || progRecord?.arranged_teacher;
+                                const mainTeacher = progRecord?.mainTeacher || progRecord?.main_teacher;
+                                const isArranged = !!arrangedTeacher && arrangedTeacher.toLowerCase() !== (mainTeacher || '').toLowerCase();
+                                if (!isArranged || !mainTeacher) return null;
+                                const mainDisplay = resolveCanonicalTeacherName(mainTeacher, instructors) || mainTeacher;
+                                return (
+                                  <span
+                                    title={`Temporary arrangement with ${previewClass?.teacher || m.teacher}. Main instructor: ${mainDisplay}`}
+                                    style={{
+                                      fontSize: '0.63rem', fontWeight: 700, padding: '0.1rem 0.4rem', borderRadius: '5px',
+                                      color: '#6d28d9', background: 'rgba(124, 58, 237, 0.12)', border: '1px solid rgba(124, 58, 237, 0.3)',
+                                      display: 'inline-flex', alignItems: 'center', gap: '0.2rem', whiteSpace: 'nowrap',
+                                    }}
+                                  >
+                                    Temporary · Main: {mainDisplay}
+                                  </span>
+                                );
+                              })()}
+                            </div>
                           </div>
 
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.74rem', color: 'var(--text-secondary)' }}>
@@ -1658,6 +1739,31 @@ export default function ScheduleGrid({
                             >
                               {isIzin ? 'Mark Attending' : 'Mark Izin'}
                             </button>
+                            {(() => {
+                               const arrangedTeacher = progRecord?.arrangedTeacher || progRecord?.arranged_teacher;
+                               const mainTeacher = progRecord?.mainTeacher || progRecord?.main_teacher || m.mainTeacher;
+                               const isArranged = (
+                                 (!!arrangedTeacher && isSameTeacher(arrangedTeacher, previewClass.teacher)) ||
+                                 (!!mainTeacher && !isSameTeacher(mainTeacher, previewClass.teacher))
+                               );
+
+                               if (!isArranged) return null;
+
+                               return (
+                                 <button
+                                   type="button"
+                                   disabled={saving}
+                                   onClick={() => onRemoveStudent?.(m, { day, teacher: previewClass.teacher, time: previewClass.time, branchName: previewClass.branchName })}
+                                   style={{
+                                     padding: '0.25rem 0.55rem', borderRadius: '6px', fontSize: '0.72rem', fontWeight: 600, cursor: 'pointer',
+                                     border: '1px solid rgba(124, 58, 237, 0.4)', background: 'rgba(124, 58, 237, 0.08)', color: '#7c3aed',
+                                   }}
+                                   title={`End temporary arrangement with ${previewClass.teacher} and restore back to main instructor ${mainTeacher}`}
+                                 >
+                                   End Temporary
+                                 </button>
+                               );
+                             })()}
 
                             {onOpenStudentReport && m.student && (
                               <button
@@ -1672,19 +1778,6 @@ export default function ScheduleGrid({
                                 <FileText size={11} /> Report
                               </button>
                             )}
-
-                            <button
-                              type="button"
-                              disabled={saving}
-                              onClick={() => onRemoveStudent?.(m, { day, teacher: previewClass.teacher })}
-                              style={{
-                                padding: '0.25rem 0.55rem', borderRadius: '6px', fontSize: '0.72rem', fontWeight: 600, cursor: 'pointer',
-                                border: '1px solid rgba(239,68,68,0.3)', background: 'transparent', color: 'var(--danger)',
-                                marginLeft: 'auto',
-                              }}
-                            >
-                              Remove
-                            </button>
                           </div>
                         </div>
                       );
@@ -2072,6 +2165,26 @@ export default function ScheduleGrid({
                                         {m.term || (m.remarks?.match(/Term\s*[1-4]/i)?.[0])}
                                       </span>
                                     )}
+                                 {(() => {
+                                   const arrangedTeacher = progRecord?.arrangedTeacher || progRecord?.arranged_teacher;
+                                   const mainTeacher = progRecord?.mainTeacher || progRecord?.main_teacher;
+                                   const isArranged = !!arrangedTeacher && arrangedTeacher.toLowerCase() !== (mainTeacher || '').toLowerCase();
+                                   if (!isArranged || !mainTeacher) return null;
+                                   const mainDisplay = resolveCanonicalTeacherName(mainTeacher, instructors) || mainTeacher;
+                                   return (
+                                     <span
+                                       title={`Temporary arrangement with ${roster.teacher}. Main instructor: ${mainDisplay}`}
+                                       style={{
+                                         fontSize: '0.63rem', fontWeight: 700, letterSpacing: '0.02em',
+                                         color: '#6d28d9', background: 'rgba(124, 58, 237, 0.12)', border: '1px solid rgba(124, 58, 237, 0.3)',
+                                         borderRadius: '5px', padding: '0.1rem 0.35rem',
+                                         display: 'inline-flex', alignItems: 'center', gap: '0.2rem', whiteSpace: 'nowrap',
+                                       }}
+                                     >
+                                       Temporary · Main: {mainDisplay}
+                                     </span>
+                                   );
+                                 })()}
                                   </span>
                                 )}
 
@@ -2172,6 +2285,34 @@ export default function ScheduleGrid({
                               >
                                 {m.classType === ATTENDANCE.REGULAR ? 'To replacement' : 'To regular'}
                               </button>
+                              {(() => {
+                                 const arrangedTeacher = progRecord?.arrangedTeacher || progRecord?.arranged_teacher;
+                                 const mainTeacher = progRecord?.mainTeacher || progRecord?.main_teacher || m.mainTeacher;
+                                 const isArranged = (
+                                   (!!arrangedTeacher && isSameTeacher(arrangedTeacher, roster.teacher)) ||
+                                   (!!mainTeacher && !isSameTeacher(mainTeacher, roster.teacher))
+                                 );
+
+                                 if (!isArranged) return null;
+
+                                 return (
+                                   <button
+                                     type="button"
+                                     disabled={saving}
+                                     onClick={() => onRemoveStudent?.(m, roster)}
+                                     title={`End temporary arrangement for ${m.student} and restore back to main instructor ${mainTeacher}`}
+                                     aria-label={`End temporary arrangement for ${m.student}`}
+                                     className="btn"
+                                     style={{
+                                       border: '1px solid rgba(124, 58, 237, 0.4)', background: 'rgba(124, 58, 237, 0.08)',
+                                       color: '#7c3aed', borderRadius: '8px', padding: '0.3rem 0.55rem', fontSize: '0.72rem', cursor: 'pointer',
+                                       display: 'inline-flex', alignItems: 'center', gap: '0.25rem',
+                                     }}
+                                   >
+                                     End Temporary
+                                   </button>
+                                 );
+                               })()}
                               {onOpenStudentReport && m.student && (
                                 <button
                                   type="button"
@@ -2189,16 +2330,6 @@ export default function ScheduleGrid({
                                   <FileText size={12} aria-hidden="true" /> Report
                                 </button>
                               )}
-                              <button
-                                type="button"
-                                disabled={saving}
-                                onClick={() => onRemoveStudent?.(m, roster)}
-                                title={`Remove ${m.student} from this class`}
-                                aria-label={`Remove ${m.student}`}
-                                style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--danger)', padding: '0.3rem', lineHeight: 0 }}
-                              >
-                                <Trash2 size={14} />
-                              </button>
                             </span>
                           </div>
                         );
@@ -2798,6 +2929,7 @@ function Cell({
 
     return (
       <div
+        data-class-chip="true"
         draggable={!allBranches && !saving}
         onDragStart={(e) => {
           e.dataTransfer.effectAllowed = 'move';
