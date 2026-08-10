@@ -57,14 +57,6 @@ export async function bulkWipeStudents() {
       DELETE FROM internal_student_history
        WHERE student_id IN (SELECT id FROM internal_students)`);
 
-    // Clean up student class schedule rows from internal_classes table so the schedule grid resets
-    await client.query(`
-      DELETE FROM internal_classes
-       WHERE (student IS NOT NULL AND btrim(student) <> '')
-          OR lower(btrim(class_type)) IN ('regular', 'trial', 'replacement', 'additional')
-    `);
-    await client.query('DELETE FROM internal_class_sessions');
-
     // Students last, unconditionally — every record held when the transaction
     // started, across every branch and every status (Req 4.1, 4.8, 4.9, 9.2).
     const students = await client.query('DELETE FROM internal_students');
