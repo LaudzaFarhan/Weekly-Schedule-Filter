@@ -5,6 +5,7 @@ import {
   Users, Filter, Trash2, X, CalendarDays, CalendarPlus, AlertTriangle, Clock,
   GripVertical, ChevronUp, ChevronDown, ChevronLeft, ChevronRight,
   Plus, Pencil, Building2, UserPlus, Repeat, FileText, UserX, Sparkles, Send, Calendar, Eye, User,
+  GripHorizontal, RotateCcw,
 } from 'lucide-react';
 import {
   getProgressUpdateStatus,
@@ -22,7 +23,7 @@ import {
 } from '../../lib/slotTypes';
 import { maxStudentsFor } from '../../lib/programRules';
 import { DAY_NAMES, isSameBranch, DEFAULT_BRANCH_LIST } from '../../utils/constants';
-import { isSameTeacher } from '../../utils/instructorUtils';
+import { isSameTeacher, getInstructorDisplayName, resolveCanonicalTeacherName } from '../../utils/instructorUtils';
 
 const CATEGORIES = ['Kinder', 'Junior', 'Coder'];
 
@@ -169,8 +170,40 @@ export default function ScheduleGrid({
   // Roster is held by key, not by value, so it stays in step with the 3s poll
   // and closes itself if the last student is removed.
   const [rosterKey, setRosterKey] = useState(null);
-  // Selected class for right side preview panel
+  // Selected class for right side preview panel & custom positioning
   const [previewClass, setPreviewClass] = useState(null);
+  const [previewPos, setPreviewPos] = useState(null); // { x, y } in px, or null for default right-centered
+  const previewPanelRef = useRef(null);
+
+  const handlePreviewPointerDown = useCallback((e) => {
+    if (e.button !== undefined && e.button !== 0) return;
+    const cardNode = previewPanelRef.current;
+    if (!cardNode) return;
+    const rect = cardNode.getBoundingClientRect();
+
+    const startCardX = previewPos ? previewPos.x : rect.left;
+    const startCardY = previewPos ? previewPos.y : rect.top;
+    const startPointerX = e.clientX;
+    const startPointerY = e.clientY;
+
+    const onPointerMove = (moveEvt) => {
+      const deltaX = moveEvt.clientX - startPointerX;
+      const deltaY = moveEvt.clientY - startPointerY;
+
+      const newX = Math.max(10, Math.min(window.innerWidth - rect.width - 10, startCardX + deltaX));
+      const newY = Math.max(10, Math.min(window.innerHeight - rect.height - 10, startCardY + deltaY));
+
+      setPreviewPos({ x: newX, y: newY });
+    };
+
+    const onPointerUp = () => {
+      window.removeEventListener('pointermove', onPointerMove);
+      window.removeEventListener('pointerup', onPointerUp);
+    };
+
+    window.addEventListener('pointermove', onPointerMove);
+    window.addEventListener('pointerup', onPointerUp);
+  }, [previewPos]);
 
   const branchId = useMemo(() => {
     if (branchChoice === 'all') return 'all';
@@ -1225,8 +1258,9 @@ export default function ScheduleGrid({
                   </th>
                   {columns.map((inst) => {
                     const stat = load.get(inst.name);
+                    const displayName = getInstructorDisplayName(inst) || inst.name;
                     return (
-                      <th key={inst.name} className="schedule-grid-sticky-head" style={{
+                      <th key={inst.name} className="schedule-grid-sticky-head" title={displayName !== inst.name ? `Full Name: ${inst.name}` : undefined} style={{
                         position: 'sticky', top: 0, zIndex: 20, width: colWidth, minWidth: colWidth,
                         background: 'var(--panel-bg)', borderBottom: '2px solid var(--border-color)',
                         borderRight: '1px solid var(--border-color)', padding: '0.6rem 0.7rem', textAlign: 'left', verticalAlign: 'top',
@@ -1237,11 +1271,11 @@ export default function ScheduleGrid({
                             background: 'var(--primary-blue)', color: '#fff', fontSize: '0.62rem', fontWeight: 700,
                             display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
                           }}>
-                            {initials(inst.name)}
+                            {initials(displayName)}
                           </span>
                           <span style={{ minWidth: 0 }}>
                             <span style={{ display: 'block', fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-main)', textTransform: 'uppercase', lineHeight: 1.2 }}>
-                              {inst.name}
+                              {displayName}
                             </span>
                             <span style={{ display: 'block', fontSize: '0.66rem', color: 'var(--text-muted)', marginTop: '0.1rem' }}>
                               {inst.level || 'Level not set'}
@@ -1427,24 +1461,31 @@ export default function ScheduleGrid({
 
             return (
               <div
+                ref={previewPanelRef}
                 key={previewClass.key || `${previewClass.teacher}-${previewClass.startMin}`}
                 style={{
-                  position: 'fixed', top: '85px', right: '24px', zIndex: 1000,
-                  width: '390px', maxHeight: 'calc(88vh - 40px)', flexShrink: 0,
+                  position: 'fixed',
+                  ...(previewPos
+                    ? { left: `${previewPos.x}px`, top: `${previewPos.y}px`, transform: 'none' }
+                    : { top: '50%', right: '24px', transform: 'translateY(-50%)' }),
+                  zIndex: 1000,
+                  width: '390px', maxHeight: 'calc(85vh - 40px)', flexShrink: 0,
                   display: 'flex', flexDirection: 'column',
                   border: '1.5px solid var(--border-color)', borderRadius: '16px',
                   background: 'var(--panel-bg)', boxShadow: '0 16px 45px rgba(0,0,0,0.25)',
-                  backdropFilter: 'blur(10px)', overflow: 'hidden',
-                  animation: 'slideInRight 0.22s cubic-bezier(0.16, 1, 0.3, 1) forwards',
-                  willChange: 'transform, opacity',
+                  overflow: 'hidden',
+                  animation: previewPos ? 'none' : 'slideInRightCenter 0.22s cubic-bezier(0.16, 1, 0.3, 1) forwards',
                 }}
               >
                 {/* Header */}
-                <div style={{
-                  padding: '1rem 1.2rem', borderBottom: '1px solid var(--border-color)',
-                  display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start',
-                  background: meta.bg,
-                }}>
+                <div
+                  onPointerDown={handlePreviewPointerDown}
+                  style={{
+                    padding: '1rem 1.2rem', borderBottom: '1px solid var(--border-color)',
+                    display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start',
+                    background: meta.bg, cursor: 'grab', userSelect: 'none', touchAction: 'none',
+                  }}
+                >
                   <div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', flexWrap: 'wrap' }}>
                       <span style={{ fontSize: '1rem', fontWeight: 800, color: meta.textColor }}>
@@ -1458,19 +1499,52 @@ export default function ScheduleGrid({
                       </span>
                     </div>
                     <p style={{ margin: '0.3rem 0 0', fontSize: '0.78rem', color: meta.textColor, opacity: 0.9, lineHeight: 1.4 }}>
-                      <strong style={{ color: meta.textColor }}>{previewClass.teacher}</strong> · {day}
+                      <strong style={{ color: meta.textColor }}>
+                        {resolveCanonicalTeacherName(previewClass.teacher, instructors) || previewClass.teacher}
+                      </strong> · {day}
                       <br />
                       {clockLabel(previewClass.startMin)} – {clockLabel(previewClass.endMin)} ({previewClass.endMin - previewClass.startMin}m)
                     </p>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => setPreviewClass(null)}
-                    aria-label="Close preview"
-                    style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: meta.textColor, padding: '0.2rem', lineHeight: 0 }}
-                  >
-                    <X size={18} />
-                  </button>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                    {previewPos && (
+                      <button
+                        type="button"
+                        onClick={() => setPreviewPos(null)}
+                        title="Reset card to default position on right"
+                        aria-label="Reset card position"
+                        style={{
+                          background: 'transparent', border: 'none', cursor: 'pointer',
+                          color: meta.textColor, padding: '0.2rem', lineHeight: 0, opacity: 0.85,
+                        }}
+                      >
+                        <RotateCcw size={15} />
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onPointerDown={handlePreviewPointerDown}
+                      title="Drag to move card anywhere on screen"
+                      aria-label="Move preview card"
+                      style={{
+                        background: meta.isDark ? 'rgba(255,255,255,0.22)' : 'rgba(0,0,0,0.07)',
+                        border: 'none', borderRadius: '6px', cursor: 'grab',
+                        color: meta.textColor, padding: '0.25rem 0.45rem',
+                        display: 'inline-flex', alignItems: 'center', gap: '0.2rem',
+                        fontSize: '0.7rem', fontWeight: 700, userSelect: 'none', touchAction: 'none',
+                      }}
+                    >
+                      <GripHorizontal size={14} /> Move
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPreviewClass(null)}
+                      aria-label="Close preview"
+                      style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: meta.textColor, padding: '0.2rem', lineHeight: 0 }}
+                    >
+                      <X size={18} />
+                    </button>
+                  </div>
                 </div>
 
                 {/* Student List */}
@@ -1852,7 +1926,9 @@ export default function ScheduleGrid({
                       {[...new Set(roster.programs)].join(', ') || 'Class'} · {roster.time}
                     </h3>
                     <p style={{ margin: '0.3rem 0 0', fontSize: '0.78rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
-                      <strong style={{ color: 'var(--text-main)' }}>{roster.teacher}</strong> · {roster.branchName} · {roster.day}
+                      <strong style={{ color: 'var(--text-main)' }}>
+                        {resolveCanonicalTeacherName(roster.teacher, instructors) || roster.teacher}
+                      </strong> · {roster.branchName} · {roster.day}
                       <br />
                       <strong style={{ color: openReplacementSeats > 0 ? '#059669' : 'var(--text-main)' }}>
                         {attendingCount}/{rosterSeats} Attending

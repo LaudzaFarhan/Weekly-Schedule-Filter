@@ -110,14 +110,8 @@ body {
   font-size: 0.62rem; font-weight: 700; line-height: 1;
   padding-right: 0.25rem;
 }
-/* A gentle sideways nudge, drawing the eye to the edge without spinning or
-   flashing. Stops on hover so it does not fidget under the cursor. */
-@keyframes gridScrollNudge {
-  0%, 100% { transform: translateY(-50%) translateX(0); }
-  50%      { transform: translateY(-50%) translateX(3px); }
-}
-.grid-scroll-nav-right { animation: gridScrollNudge 1.8s ease-in-out infinite; }
-.grid-scroll-nav-right:hover { animation: none; }
+/* Gentle hover nudge instead of infinite repaint loop for performance */
+.grid-scroll-nav-right:hover { transform: translateY(-50%) translateX(3px); }
 
 @media (prefers-reduced-motion: reduce) {
   .grid-scroll-nav-right { animation: none; }
@@ -620,6 +614,11 @@ td.schedule-grid-sticky-col {
 @keyframes slideInRight {
   from { transform: translateX(100%); opacity: 0; }
   to   { transform: translateX(0); opacity: 1; }
+}
+
+@keyframes slideInRightCenter {
+  from { transform: translateY(-50%) translateX(100%); opacity: 0; }
+  to   { transform: translateY(-50%) translateX(0); opacity: 1; }
 }
 
 @keyframes fadeInModal {
