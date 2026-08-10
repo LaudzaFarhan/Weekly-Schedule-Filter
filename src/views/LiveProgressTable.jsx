@@ -320,8 +320,9 @@ export default function LiveProgressTable({ category }) {
         program: newProgStr,
       });
 
-      const avail = checkInstructorAvailability(arrangedTeacher, arrangingRow.day);
-      let toastMsg = `Lesson ${arrangedLesson} arranged with ${arrangedTeacher} for ${arrangingRow.studentName}. (Main teacher: ${mainTeacher}). Schedule Grid updated!`;
+      const termCode = arrangingRow.levelCode || arrangingRow.program;
+      const formattedLesson = String(arrangedLesson).startsWith('L') ? arrangedLesson : `L${arrangedLesson}`;
+      let toastMsg = `${termCode} - ${formattedLesson} arranged with ${arrangedTeacher} for ${arrangingRow.studentName}. (Main teacher: ${mainTeacher}). Schedule Grid updated!`;
       if (!avail.isAvailable) {
         toastMsg += ` ⚠️ Note: ${arrangedTeacher} is ${avail.employmentType} and not usually scheduled on ${arrangingRow.day}s.`;
       }
@@ -927,9 +928,11 @@ export default function LiveProgressTable({ category }) {
                             const displayTeacher = r.arrangedTeacher || r.instructor;
                             const displayLesson = r.arrangedLesson || r.lesson || getNextUndoneLesson(r.attendance, maxLessons);
                             const isArranged = !!r.arrangedTeacher && r.arrangedTeacher.toLowerCase() !== r.instructor.toLowerCase();
+                            const termCode = r.levelCode || r.program;
+                            const formattedLesson = String(displayLesson).startsWith('L') ? displayLesson : `L${displayLesson}`;
                             const badgeLabel = category === 'Coder'
                               ? `Coder · ${displayTeacher}`
-                              : `L${displayLesson} · ${displayTeacher}`;
+                              : `${termCode} - ${formattedLesson} · ${displayTeacher}`;
 
                             return (
                               <button
@@ -1257,9 +1260,10 @@ export default function LiveProgressTable({ category }) {
                     >
                       {Array.from({ length: maxLessons }, (_, i) => i + 1).map((n) => {
                         const isDone = !!arrangingRow.attendance[n];
+                        const termCode = arrangingRow.levelCode || arrangingRow.program;
                         return (
                           <option key={n} value={String(n)}>
-                            Lesson {n} {isDone ? ' (Done ✓)' : ' (Not done)'}
+                            {termCode} - L{n} {isDone ? ' (Done ✓)' : ' (Not done)'}
                           </option>
                         );
                       })}
@@ -1267,9 +1271,9 @@ export default function LiveProgressTable({ category }) {
 
                     <div style={{ fontSize: '0.72rem', marginTop: '0.4rem', color: arrangingRow.attendance[arrangedLesson] ? '#b45309' : '#059669', fontWeight: 500 }}>
                       {arrangingRow.attendance[arrangedLesson] ? (
-                        <span>⚠️ Note: {arrangingRow.studentName} has already completed Lesson {arrangedLesson}.</span>
+                        <span>⚠️ Note: {arrangingRow.studentName} has already completed {(arrangingRow.levelCode || arrangingRow.program)} - L{arrangedLesson}.</span>
                       ) : (
-                        <span>💡 Arranging Lesson {arrangedLesson} for {arrangingRow.studentName}.</span>
+                        <span>💡 Arranging {(arrangingRow.levelCode || arrangingRow.program)} - L{arrangedLesson} for {arrangingRow.studentName}.</span>
                       )}
                     </div>
                   </div>
