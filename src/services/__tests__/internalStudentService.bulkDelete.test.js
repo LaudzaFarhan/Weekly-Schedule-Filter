@@ -120,6 +120,20 @@ describe('bulkDeleteAllStudents — request shape', () => {
     const { options } = lastRequest();
     expect(JSON.parse(options.body)).toEqual({ confirm: '  delete all students  ' });
   });
+
+  it('includes branches array in body when provided in options', async () => {
+    global.fetch.mockResolvedValue(
+      jsonResponse({ success: true, deletedStudents: 5, deletedHistory: 2, deletedProgress: 1 })
+    );
+
+    await bulkDeleteAllStudents(PHRASE, { branches: ['Bekasi', 'Bintaro'] });
+
+    const { options } = lastRequest();
+    expect(JSON.parse(options.body)).toEqual({
+      confirm: PHRASE,
+      branches: ['Bekasi', 'Bintaro'],
+    });
+  });
 });
 
 describe('bulkDeleteAllStudents — responses', () => {

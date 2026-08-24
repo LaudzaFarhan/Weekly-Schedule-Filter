@@ -154,6 +154,7 @@ export async function DELETE(req) {
     body = null; // unparseable body, treated as no confirmation. Req 5.2
   }
   const confirm = body && typeof body === 'object' ? body.confirm : undefined;
+  const branches = body && typeof body === 'object' && Array.isArray(body.branches) ? body.branches : null;
 
   // Missing, blank or unusable confirmation. One message names both legal
   // request shapes, because Req 5.2 and Req 5.5 describe the same input.
@@ -168,13 +169,13 @@ export async function DELETE(req) {
 
   try {
     // Req 6.1, 6.5, 7.1, 9.1 — three counts, always present, zeros included.
-    const counts = await bulkWipeStudents();
+    const counts = await bulkWipeStudents(branches);
     return NextResponse.json({ success: true, ...counts });
   } catch (error) {
     // Name check rather than instanceof: the error may cross module instances.
     const message = error?.name === 'WipeTimeoutError'
       ? WIPE_TIMEOUT_MESSAGE
-      : error?.message || 'Failed to delete all students';
+      : error?.message || 'Failed to delete students';
     return NextResponse.json({ error: message }, { status: 500 }); // Req 6.2, 6.8
   }
 }

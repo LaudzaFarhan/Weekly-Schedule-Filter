@@ -32,26 +32,26 @@ const TIME_MATCH_REGEX = /(\d{1,3}[:.]\d{2}\s*[-–—]\s*\d{1,2}[:.]\d{2}\s*(?:
 /** Validate imported instructor alias against registered instructors */
 function validateInstructorAlias(rawInstructor, knownInstructors = []) {
   if (!rawInstructor || String(rawInstructor).trim() === '' || String(rawInstructor).trim() === '-') {
-    return { isValid: true, matchedName: null };
+    return { isValid: false, matchedName: null, instructorObj: null };
   }
   const trimmed = String(rawInstructor).trim();
   if (trimmed.toUpperCase() === 'TBD') {
-    return { isValid: true, matchedName: 'TBD' };
+    return { isValid: false, matchedName: 'TBD', instructorObj: null };
   }
 
   if (!knownInstructors || knownInstructors.length === 0) {
-    return { isValid: true, matchedName: trimmed };
+    return { isValid: false, matchedName: null, instructorObj: null };
   }
 
   for (const inst of knownInstructors) {
     if (!inst) continue;
     const instName = typeof inst === 'string' ? inst : (inst.name || inst.fullname || getInstructorDisplayName(inst));
     if (isInstructorMatch(trimmed, inst) || isSameTeacher(trimmed, instName)) {
-      return { isValid: true, matchedName: getInstructorDisplayName(inst) || instName };
+      return { isValid: true, matchedName: getInstructorDisplayName(inst) || instName, instructorObj: inst };
     }
   }
 
-  return { isValid: false, matchedName: null };
+  return { isValid: false, matchedName: null, instructorObj: null };
 }
 
 export default function ImportStudentsModal({
@@ -183,11 +183,12 @@ export default function ImportStudentsModal({
           const remarks = rawRemarks ? rawRemarks : (fallbackParts.join(' | ') || null);
 
           const valResult = validateInstructorAlias(rawInstructor, instructorsList);
+          const matchedBranch = valResult.instructorObj?.branches?.[0] || valResult.instructorObj?.location;
 
           extracted.push({
             name,
             level,
-            branchName: rawBranch || selectedBranch,
+            branchName: rawBranch || matchedBranch || selectedBranch,
             parentName: rawParent || null,
             contact: rawContact || '',
             status: 'Active',
@@ -197,7 +198,7 @@ export default function ImportStudentsModal({
             rawTerm,
             rawDays,
             rawTime,
-            rawInstructor: valResult.matchedName || rawInstructor,
+            rawInstructor: valResult.isValid ? (valResult.matchedName || rawInstructor) : rawInstructor,
             originalInstructor: rawInstructor,
             rawRemarks,
             isInstructorValid: valResult.isValid,

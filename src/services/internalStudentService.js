@@ -163,27 +163,31 @@ export async function deleteInternalStudent(studentId) {
 }
 
 /**
- * Delete every internal student record, plus the branch history and live
- * progress records keyed to them, in one server-side transaction.
+ * Delete internal student records (optionally scoped to selected branches),
+ * plus the branch history and live progress records keyed to them, in one server-side transaction.
  *
  * Sends `DELETE` to the students path with no `?id=` and the confirmation
  * phrase in the JSON body, which is what the endpoint requires before it will
  * treat the request as a bulk wipe rather than a malformed single delete.
  *
  * @param {string} confirm - The confirmation phrase, sent to the server verbatim.
- * @param {{ timeoutMs?: number }} [options]
+ * @param {{ branches?: Array<string>, timeoutMs?: number }} [options]
  * @returns {Promise<{ success: boolean, deletedStudents: number, deletedHistory: number, deletedProgress: number }>}
  * @throws {WipeUnconfirmedError} When no response arrives before the deadline (Req 6.9).
  * @throws {Error} Carrying the server's `error` string on a non-ok response.
  */
-export async function bulkDeleteAllStudents(confirm, { timeoutMs = BULK_DELETE_TIMEOUT_MS } = {}) {
+export async function bulkDeleteAllStudents(confirm, { branches, timeoutMs = BULK_DELETE_TIMEOUT_MS } = {}) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
+    const payload = { confirm };
+    if (branches && Array.isArray(branches) && branches.length > 0) {
+      payload.branches = branches;
+    }
     const res = await fetch(API_PATH, {
       method: 'DELETE',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ confirm }),
+      body: JSON.stringify(payload),
       signal: controller.signal
     });
     if (!res.ok) {

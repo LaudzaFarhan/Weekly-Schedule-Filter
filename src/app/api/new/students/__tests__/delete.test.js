@@ -107,6 +107,16 @@ describe('DELETE /api/new/students with an unknown id', () => {
   });
 });
 
+describe('DELETE /api/new/students with branches', () => {
+  it('passes branches array to bulkWipeStudents', async () => {
+    const res = await DELETE(
+      deleteRequest('', { confirm: WIPE_CONFIRMATION_PHRASE, branches: ['Bekasi', 'Bintaro'] })
+    );
+    expect(res.status).toBe(200);
+    expect(bulkWipeMock).toHaveBeenCalledWith(['Bekasi', 'Bintaro']);
+  });
+});
+
 describe('PUT /api/new/students after a completed wipe', () => {
   it('answers 404 for a record the wipe deleted and leaves the registry at zero records', async () => {
     const wipe = await DELETE(deleteRequest('', { confirm: WIPE_CONFIRMATION_PHRASE }));

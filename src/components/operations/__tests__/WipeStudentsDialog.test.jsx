@@ -299,3 +299,90 @@ describe('WipeStudentsDialog cancel routes', () => {
     expect(onConfirm).not.toHaveBeenCalled();
   });
 });
+
+/* ----------------------------------------------------------- branch checklist */
+
+describe('WipeStudentsDialog branch checklist', () => {
+  it('renders available branches with student counts and defaults to all selected', () => {
+    renderDialog({
+      branches: [{ name: 'Bekasi' }, { name: 'Bintaro' }],
+      students: [
+        { id: 1, name: 'Ada', branchName: 'Bekasi' },
+        { id: 2, name: 'Grace', branchName: 'Bekasi' },
+        { id: 3, name: 'Alan', branchName: 'Bintaro' },
+      ],
+    });
+
+    const bekasiCheckbox = screen.getByRole('checkbox', { name: /bekasi/i });
+    const bintaroCheckbox = screen.getByRole('checkbox', { name: /bintaro/i });
+
+    expect(bekasiCheckbox).toBeInTheDocument();
+    expect(bintaroCheckbox).toBeInTheDocument();
+    expect(bekasiCheckbox).toBeChecked();
+    expect(bintaroCheckbox).toBeChecked();
+
+    expect(screen.getByText('(2)')).toBeInTheDocument(); // Bekasi count
+    expect(screen.getByText('(1)')).toBeInTheDocument(); // Bintaro count
+  });
+
+  it('disables confirmation and delete when all branches are deselected', async () => {
+    const user = userEvent.setup();
+    renderDialog({
+      branches: [{ name: 'Bekasi' }, { name: 'Bintaro' }],
+      students: [{ id: 1, name: 'Ada', branchName: 'Bekasi' }],
+    });
+
+    await user.click(exportButton());
+    await user.click(confirmInput());
+    await user.paste(WIPE_CONFIRMATION_PHRASE);
+    await waitFor(() => expect(wipeButton()).toBeEnabled());
+
+    // Click Deselect All
+    await user.click(screen.getByRole('button', { name: /deselect all/i }));
+
+    expect(screen.getByText(/please select at least one branch/i)).toBeInTheDocument();
+    expect(confirmInput()).toBeDisabled();
+    expect(wipeButton()).toBeDisabled();
+  });
+
+  it('selects all branches when Select All is clicked', async () => {
+    const user = userEvent.setup();
+    renderDialog({
+      branches: [{ name: 'Bekasi' }, { name: 'Bintaro' }],
+      students: [{ id: 1, name: 'Ada', branchName: 'Bekasi' }],
+    });
+
+    await user.click(screen.getByRole('button', { name: /deselect all/i }));
+    expect(screen.getByRole('checkbox', { name: /bekasi/i })).not.toBeChecked();
+
+    await user.click(screen.getByRole('button', { name: /select all/i }));
+    expect(screen.getByRole('checkbox', { name: /bekasi/i })).toBeChecked();
+    expect(screen.getByRole('checkbox', { name: /bintaro/i })).toBeChecked();
+  });
+
+  it('passes selected branches to onConfirm when wipe is triggered', async () => {
+    const user = userEvent.setup();
+    const { onConfirm } = renderDialog({
+      branches: [{ name: 'Bekasi' }, { name: 'Bintaro' }],
+      students: [
+        { id: 1, name: 'Ada', branchName: 'Bekasi' },
+        { id: 2, name: 'Alan', branchName: 'Bintaro' },
+      ],
+    });
+
+    // Uncheck Bintaro
+    await user.click(screen.getByRole('checkbox', { name: /bintaro/i }));
+    expect(screen.getByRole('checkbox', { name: /bintaro/i })).not.toBeChecked();
+
+    await user.click(exportButton());
+    await user.click(confirmInput());
+    await user.paste(WIPE_CONFIRMATION_PHRASE);
+    await waitFor(() => expect(wipeButton()).toBeEnabled());
+
+    await user.click(wipeButton());
+
+    expect(onConfirm).toHaveBeenCalledTimes(1);
+    expect(onConfirm).toHaveBeenCalledWith(['Bekasi']);
+  });
+});
+

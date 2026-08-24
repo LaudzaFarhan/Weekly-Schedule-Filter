@@ -1472,7 +1472,9 @@ export default function ScheduleGrid({
                             // gridline for the time the next row starts, so its
                             // weight follows that time. A multi-row cell always
                             // gets the strong rule, since its edge is a real end.
-                            borderBottom: `1px solid ${isHour(rowStarts[rowIdx + cell.span] ?? timelineEnd) || cell.span > 1 ? 'var(--border-color)' : 'rgba(120,120,120,0.12)'}`,
+                            borderBottom: cell.buttedNext
+                              ? '1px solid transparent'
+                              : `1px solid ${isHour(rowStarts[rowIdx + cell.span] ?? timelineEnd) || cell.span > 1 ? 'var(--border-color)' : 'rgba(120,120,120,0.12)'}`,
                             borderRight: '1px solid var(--border-color)',
                             verticalAlign: 'top', height: ROW_H * cell.span,
                             paddingTop: cell.buttedPrev ? 0 : '0.2rem',
@@ -1487,7 +1489,7 @@ export default function ScheduleGrid({
                             // there already draw the divider, in both colours, so
                             // it says whose time ends and whose begins.
                             ...(cell.buttedNext
-                              ? { borderBottomColor: 'transparent', position: 'relative', zIndex: 1 }
+                              ? { position: 'relative', zIndex: 1 }
                               : null),
                             background: inDraw
                               ? 'rgba(5,150,105,0.16)'
@@ -2962,7 +2964,8 @@ function Cell({
         }}
         title={allBranches ? undefined : 'Click to preview class & students'}
         style={{
-          position: 'relative', height: boxH, borderRadius: cardRadius(cell.buttedPrev, cell.buttedNext),
+          position: 'relative', height: boxH, maxHeight: boxH, boxSizing: 'border-box',
+          borderRadius: cardRadius(cell.buttedPrev, cell.buttedNext),
           border: `1px solid ${meta.border || meta.color}`, background: meta.bg,
           padding: cardPadding(edgeMarks, gripped),
           overflow: cell.buttedNext ? 'visible' : 'hidden',
@@ -2983,9 +2986,9 @@ function Cell({
           />
         )}
         <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.2rem' }}>
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.2rem', minWidth: 0 }}>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.2rem', flex: 1, minWidth: 0, overflow: 'hidden' }}>
             {!allBranches && <GripVertical size={11} style={{ color: meta.textColor, flexShrink: 0 }} aria-hidden="true" />}
-            <span style={{ fontSize: '0.73rem', fontWeight: 700, color: meta.textColor, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            <span style={{ fontSize: '0.73rem', fontWeight: 700, color: meta.textColor, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'block', minWidth: 0, flex: 1 }}>
               {[...new Set(cls.programs)].join(', ') || 'Class'}
             </span>
           </span>

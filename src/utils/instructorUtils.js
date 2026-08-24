@@ -214,14 +214,22 @@ export function isSameTeacher(t1, t2) {
   const s2 = String(t2).toLowerCase().trim();
   if (s1 === s2) return true;
 
-  // Common nickname aliases map
+  // Common nickname aliases map (bidirectional lookup)
   const ALIAS_MAP = {
     ziyah: 'fauziyah',
+    fauziyah: 'ziyah',
+    abel: 'annabel',
+    annabel: 'abel',
+    olga: 'annabel',
   };
 
   const norm1 = ALIAS_MAP[s1] || s1;
   const norm2 = ALIAS_MAP[s2] || s2;
   if (norm1 === norm2) return true;
+
+  // Check direct alias or substring match between full strings
+  if (s1.includes(s2) || s2.includes(s1)) return true;
+  if (norm1.includes(norm2) || norm2.includes(norm1)) return true;
 
   // Token matching (ignoring generic prefix words)
   const GENERIC_TOKENS = new Set(['teacher', 'guru', 'instructor', 'mr', 'ms', 'mrs', 'kak', 'pak', 'ibu']);
@@ -230,7 +238,12 @@ export function isSameTeacher(t1, t2) {
 
   for (const tok1 of tokens1) {
     for (const tok2 of tokens2) {
-      if (tok1 === tok2) {
+      if (
+        tok1 === tok2 ||
+        ALIAS_MAP[tok1] === tok2 ||
+        ALIAS_MAP[tok2] === tok1 ||
+        (tok1.length >= 3 && tok2.length >= 3 && (tok1.includes(tok2) || tok2.includes(tok1)))
+      ) {
         return true;
       }
     }

@@ -30,7 +30,7 @@ import {
 import { bulkCreateInternalClasses, subscribeToInternalClasses, updateInternalClass, deleteInternalClass, bulkDeleteAllClasses } from '../services/internalScheduleService';
 import { getLiveProgress, deleteLiveProgress, bulkDeleteAllLiveProgress } from '../services/newLiveProgressService';
 import { subscribeToInternalInstructors } from '../services/internalInstructorService';
-import { resolveCanonicalTeacherName } from '../utils/instructorUtils';
+import { resolveCanonicalTeacherName, isInstructorMatch, isSameTeacher, getInstructorDisplayName } from '../utils/instructorUtils';
 import { STUDENT_LEVELS, normaliseCoderLevel } from '../lib/programRules';
 
 function normaliseDayName(dayStr) {
@@ -397,16 +397,23 @@ export default function NewStudentsPage({ onNavigate } = {}) {
         }
 
         const normTime = formatNormalizedTimeSlot(timeRaw);
-        const canonicalTeacher = resolveCanonicalTeacherName(teacherRaw, instructorsList);
+        const canonicalTeacher = resolveCanonicalTeacherName(teacherRaw, instructorsList) || (teacherRaw ? String(teacherRaw).trim() : null);
 
-        if (normTime && s.name) {
+        // A student MUST have all 3 schedule details (Day AND Time AND Teacher) to be allocated to the schedule grid.
+        const hasDay = Boolean(dayRaw && String(dayRaw).trim());
+        const hasTime = Boolean(normTime);
+        const hasTeacher = Boolean(teacherRaw && String(teacherRaw).trim() && String(teacherRaw).trim() !== '-' && String(teacherRaw).trim().toUpperCase() !== 'TBD');
+
+        // If Day, Time, or Teacher is missing -> DO NOT create schedule class row -> student stays in UNALLOCATED!
+        // If all 3 are present (even for newly imported teachers like Sherlyn) -> auto-create schedule class row!
+        if (s.name && hasDay && hasTime && hasTeacher) {
           scheduleRows.push({
-            day: normaliseDayName(dayRaw || 'Monday'),
+            day: normaliseDayName(dayRaw),
             time: normTime,
             program: String(s.rawTerm || s.rawProgram || s.level || 'General').trim(),
             student: String(s.name).trim(),
             teacher: canonicalTeacher,
-            branchName: String(s.branchName || 'Bekasi').trim(),
+            branchName: String(s.branchName || 'Puri Indah').trim(),
             classType: 'Regular',
             remarks: s.rawRemarks || s.remarks || null,
           });
@@ -499,8 +506,10 @@ export default function NewStudentsPage({ onNavigate } = {}) {
    *
    * Rejects on failure, which is what keeps the dialog open with its typed text
    * and completed-export state intact (Req 6.4). Resolves only on success.
+   *
+   * @param {Array<string>|null} [selectedBranches] Specific branch names to wipe, or null for all.
    */
-  const handleWipeConfirm = async () => {
+  const handleWipeConfirm = async (selectedBranches = null) => {
     // A second activation while one wipe is in flight sends nothing. The dialog
     // guards this too; the ref makes it hold even if the dialog is remounted.
     // Req 6.7
@@ -520,12 +529,14 @@ export default function NewStudentsPage({ onNavigate } = {}) {
     wipeInFlightRef.current = true;
     let counts;
     try {
-      counts = await bulkDeleteAllStudents(WIPE_CONFIRMATION_PHRASE);
-      try {
-        await bulkDeleteAllClasses();
-        await bulkDeleteAllLiveProgress();
-      } catch (cascadeErr) {
-        console.warn('Cascade wipe to schedule/live progress warning:', cascadeErr);
+      counts = await bulkDeleteAllStudents(WIPE_CONFIRMATION_PHRASE, { branches: selectedBranches });
+      if (!selectedBranches || selectedBranches.length === 0) {
+        try {
+          await bulkDeleteAllClasses();
+          await bulkDeleteAllLiveProgress();
+        } catch (cascadeErr) {
+          console.warn('Cascade wipe to schedule/live progress warning:', cascadeErr);
+        }
       }
     } catch (err) {
       // The 30-second abort is neither a success nor a failure: the transaction
@@ -570,7 +581,18 @@ export default function NewStudentsPage({ onNavigate } = {}) {
     // 2. Local branch history is keyed by student id, so it is orphaned now.
     //    A throwing storage still reports the wipe as successful. Req 4.6, 4.7
     try {
-      localStorage.removeItem(BRANCH_HISTORY_KEY);
+      if (!selectedBranches || selectedBranches.length === 0) {
+        localStorage.removeItem(BRANCH_HISTORY_KEY);
+      } else {
+        const store = readBranchHistoryStore();
+        const idsToRemove = new Set(
+          students
+            .filter((s) => selectedBranches.includes(s.branchName || s.branch_name || s.branch))
+            .map((s) => s.id)
+        );
+        idsToRemove.forEach((id) => { delete store[id]; });
+        localStorage.setItem(BRANCH_HISTORY_KEY, JSON.stringify(store));
+      }
     } catch (err) {
       console.error('Could not clear the local student branch history:', err);
     }
@@ -1230,6 +1252,7 @@ export default function NewStudentsPage({ onNavigate } = {}) {
           studentCount={students.length}
           filtersActive={filtersActive}
           students={students}
+          branches={enabledBranches || branches || []}
           onCancel={closeWipeDialog}
           onConfirm={handleWipeConfirm}
         />

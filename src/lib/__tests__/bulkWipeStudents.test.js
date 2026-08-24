@@ -107,27 +107,38 @@ function makeClient(state = {}) {
       log.push(tag);
 
       if (tag === 'DELETE internal_live_progress') {
-        // Blank and whitespace-only student names are excluded from the
-        // subquery, so they select nothing (Req 4.12).
-        const names = new Set(
-          tables.students.filter((s) => String(s.name ?? '').trim() !== '').map((s) => fold(s.name))
-        );
+        const branchList = values && values[0] ? values[0] : null;
+        const matchingStudents = tables.students.filter((s) => {
+          const nameOk = String(s.name ?? '').trim() !== '';
+          const branchOk = !branchList || branchList.includes(s.branch_name);
+          return nameOk && branchOk;
+        });
+        const names = new Set(matchingStudents.map((s) => fold(s.name)));
         const before = tables.progress.length;
         tables.progress = tables.progress.filter((row) => !names.has(fold(row.student_name)));
         return { rowCount: before - tables.progress.length, rows: [] };
       }
 
       if (tag === 'DELETE internal_student_history') {
-        const ids = new Set(tables.students.map((s) => s.id));
+        const branchList = values && values[0] ? values[0] : null;
+        const matchingStudents = tables.students.filter((s) => {
+          return !branchList || branchList.includes(s.branch_name);
+        });
+        const ids = new Set(matchingStudents.map((s) => s.id));
         const before = tables.history.length;
         tables.history = tables.history.filter((row) => !ids.has(row.student_id));
         return { rowCount: before - tables.history.length, rows: [] };
       }
 
       if (tag === 'DELETE internal_students') {
+        const branchList = values && values[0] ? values[0] : null;
         const before = tables.students.length;
-        tables.students = [];
-        return { rowCount: before, rows: [] };
+        if (branchList) {
+          tables.students = tables.students.filter((s) => !branchList.includes(s.branch_name));
+        } else {
+          tables.students = [];
+        }
+        return { rowCount: before - tables.students.length, rows: [] };
       }
 
       return { rowCount: 0, rows: [] };
@@ -336,5 +347,34 @@ describe('bulkWipeStudents — response counts (Req 7.1)', () => {
 
     // Only the advisory lock carries a bind parameter; the deletes are unfiltered.
     expect(params.filter((values) => Array.isArray(values))).toEqual([[WIPE_LOCK_KEY]]);
+  });
+});
+
+describe('bulkWipeStudents — selective branch deletion', () => {
+  it('deletes only students and keyed data for the specified branches', async () => {
+    const { tables, client } = makeClient({
+      students: [
+        { id: 1, name: 'Ada', branch_name: 'Bekasi' },
+        { id: 2, name: 'Budi', branch_name: 'Bintaro' },
+        { id: 3, name: 'Citra', branch_name: 'Kemang' },
+      ],
+      history: [
+        { id: 10, student_id: 1, branch_name: 'Bekasi' },
+        { id: 11, student_id: 2, branch_name: 'Bintaro' },
+      ],
+      progress: [
+        { id: 20, student_name: 'Ada' },
+        { id: 21, student_name: 'Budi' },
+      ],
+    });
+
+    const result = await bulkWipeStudents(['Bekasi']);
+
+    expect(result.deletedStudents).toBe(1);
+    expect(tables.students.map((s) => s.id)).toEqual([2, 3]);
+    expect(client.query).toHaveBeenCalledWith(
+      expect.stringContaining('WHERE branch_name = ANY($1)'),
+      [['Bekasi']]
+    );
   });
 });
