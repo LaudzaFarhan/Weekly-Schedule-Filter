@@ -355,7 +355,7 @@ describe('WipeStudentsDialog branch checklist', () => {
     await user.click(screen.getByRole('button', { name: /deselect all/i }));
     expect(screen.getByRole('checkbox', { name: /bekasi/i })).not.toBeChecked();
 
-    await user.click(screen.getByRole('button', { name: /select all/i }));
+    await user.click(screen.getByRole('button', { name: /^select all$/i }));
     expect(screen.getByRole('checkbox', { name: /bekasi/i })).toBeChecked();
     expect(screen.getByRole('checkbox', { name: /bintaro/i })).toBeChecked();
   });

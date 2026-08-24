@@ -529,8 +529,10 @@ export default function NewStudentsPage({ onNavigate } = {}) {
     wipeInFlightRef.current = true;
     let counts;
     try {
-      counts = await bulkDeleteAllStudents(WIPE_CONFIRMATION_PHRASE, { branches: selectedBranches });
-      if (!selectedBranches || selectedBranches.length === 0) {
+      if (selectedBranches && Array.isArray(selectedBranches) && selectedBranches.length > 0) {
+        counts = await bulkDeleteAllStudents(WIPE_CONFIRMATION_PHRASE, { branches: selectedBranches });
+      } else {
+        counts = await bulkDeleteAllStudents(WIPE_CONFIRMATION_PHRASE);
         try {
           await bulkDeleteAllClasses();
           await bulkDeleteAllLiveProgress();

@@ -35,7 +35,7 @@ export async function bulkWipeStudents(branches = null) {
 
     const branchList = Array.isArray(branches)
       ? branches.map((b) => (typeof b === 'string' ? b.trim() : (b?.name || ''))).filter(Boolean)
-      : (typeof branches === 'string' && branches.trim() ? [branches.trim()] : null);
+      : null;
 
     const isBranchScoped = Array.isArray(branchList) && branchList.length > 0;
 
@@ -70,20 +70,23 @@ export async function bulkWipeStudents(branches = null) {
          WHERE lower(btrim(student_name)) IN (
                SELECT lower(btrim(name)) FROM internal_students WHERE btrim(name) <> ''
          )`;
-      progressParams = [];
 
       historyQuery = `
         DELETE FROM internal_student_history
          WHERE student_id IN (SELECT id FROM internal_students)`;
-      historyParams = [];
 
       studentsQuery = 'DELETE FROM internal_students';
-      studentsParams = [];
     }
 
-    const progress = await client.query(progressQuery, progressParams);
-    const history = await client.query(historyQuery, historyParams);
-    const students = await client.query(studentsQuery, studentsParams);
+    const progress = progressParams
+      ? await client.query(progressQuery, progressParams)
+      : await client.query(progressQuery);
+    const history = historyParams
+      ? await client.query(historyQuery, historyParams)
+      : await client.query(historyQuery);
+    const students = studentsParams
+      ? await client.query(studentsQuery, studentsParams)
+      : await client.query(studentsQuery);
 
     return {
       deletedStudents: students.rowCount,

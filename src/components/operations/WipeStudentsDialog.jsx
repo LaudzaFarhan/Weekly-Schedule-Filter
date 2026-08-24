@@ -197,8 +197,13 @@ export default function WipeStudentsDialog({
     setWipeError(null);
     setPhase('running');
     try {
-      const branchesToWipe = availableBranches.length > 0 ? selectedBranches : null;
-      await onConfirm?.(branchesToWipe);
+      const isSubset = availableBranches.length > 0 && selectedBranches.length < availableBranches.length;
+      const branchesToWipe = isSubset ? selectedBranches : null;
+      if (branchesToWipe) {
+        await onConfirm?.(branchesToWipe);
+      } else {
+        await onConfirm?.();
+      }
       // On success the page unmounts this dialog; nothing to reset here.
     } catch (err) {
       // Keep `text` and `exportDone` so the user can retry immediately. Req 6.4
@@ -545,9 +550,7 @@ export default function WipeStudentsDialog({
             />
             {!canType && (
               <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                {!hasBranchSelection
-                  ? 'Select at least one branch above.'
-                  : 'The export must complete before the confirmation phrase can be typed.'}
+                The export must complete before the confirmation phrase can be typed.
               </span>
             )}
           </div>
@@ -605,7 +608,7 @@ export default function WipeStudentsDialog({
               cursor: canWipe ? 'pointer' : 'not-allowed',
             }}
           >
-            <Trash2 size={16} /> {running ? 'Deleting…' : (availableBranches.length > 0 && selectedBranches.length < availableBranches.length ? `Delete students (${selectedBranches.length} ${selectedBranches.length === 1 ? 'branch' : 'branches'})` : 'Delete all students')}
+            <Trash2 size={16} /> {running ? 'Deleting…' : (availableBranches.length > 0 && selectedBranches.length < availableBranches.length ? `Delete all students (${selectedBranches.length} ${selectedBranches.length === 1 ? 'branch' : 'branches'})` : 'Delete all students')}
           </button>
         </div>
       </div>
