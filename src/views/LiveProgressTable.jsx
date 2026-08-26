@@ -25,6 +25,7 @@ import {
   parseProgram, levelsForCategory, LESSONS_PER_LEVEL, CONTINUATION_OPTIONS,
   normaliseCoderLevel, lessonsForCategory,
 } from '../lib/programRules';
+import { resolveProgramCategory, studentProgramCategory } from '../lib/studentFilter';
 import { isoOf } from '../lib/instructorAvailability';
 import {
   Search, X, User, MapPin, Clock, Calendar, GraduationCap, Check, Video,
@@ -246,12 +247,14 @@ export default function LiveProgressTable({ category }) {
 
   const openArrangementModal = (row) => {
     const nextUndone = getNextUndoneLesson(row.attendance, maxLessons);
+    const branchInsts = getInstructorsForBranch(row.branchName);
     setArrangingRow(row);
     setArrangedLesson(row.arrangedLesson || row.lesson || nextUndone);
-    setArrangedTeacher(row.arrangedTeacher || row.instructor);
-    setArrangedDay(row.arrangedDay || row.day || 'Monday');
+    const initialTeacher = row.arrangedTeacher || (row.instructor && row.instructor !== 'Unassigned' && row.instructor !== '—' ? row.instructor : (branchInsts[0] || ''));
+    setArrangedTeacher(initialTeacher);
+    setArrangedDay(row.arrangedDay || (row.day && row.day !== '—' ? row.day : 'Monday'));
 
-    const rawTime = row.arrangedTime || row.time || '3:00 PM - 4:30 PM';
+    const rawTime = row.arrangedTime || (row.time && row.time !== '—' ? row.time : '3:00 PM - 4:30 PM');
     const initStart = extractStartTimeStr(rawTime);
     setStartTimeChoice(initStart);
     setCustomStartTime(initStart);
@@ -359,10 +362,10 @@ export default function LiveProgressTable({ category }) {
     if (!arrangingRow) return;
     setArrangingSaving(true);
     try {
-      // The main/original teacher — use stored mainTeacher if already saved, else current instructor
-      const mainTeacher = arrangingRow.mainTeacher || arrangingRow.instructor;
-      const mainDay = arrangingRow.mainDay || arrangingRow.day;
-      const mainTime = arrangingRow.mainTime || arrangingRow.time;
+      // The main/original teacher — use stored mainTeacher if already saved, else current instructor or original instructor
+      const mainTeacher = arrangingRow.mainTeacher || (arrangingRow.instructor !== 'Unassigned' && arrangingRow.instructor !== '—' ? arrangingRow.instructor : (arrangingRow.originalInstructor || 'Unassigned'));
+      const mainDay = arrangingRow.mainDay || (arrangingRow.day !== '—' ? arrangingRow.day : arrangedDay);
+      const mainTime = arrangingRow.mainTime || (arrangingRow.time !== '—' ? arrangingRow.time : null);
 
       const activeStart = isCustomStartTime ? customStartTime : startTimeChoice;
       const durationMin = category === 'Kinder' ? 90 : 120;
@@ -376,7 +379,7 @@ export default function LiveProgressTable({ category }) {
         arrangedTime: computedArrangedTime,
         mainTeacher,
         mainDay,
-        mainTime,
+        mainTime: mainTime || computedArrangedTime,
       }));
 
       // 2. Reassign student in Schedule Grid (internal_classes) to arrangedTeacher, arrangedDay, arrangedTime
@@ -388,7 +391,7 @@ export default function LiveProgressTable({ category }) {
         targetTeacher: arrangedTeacher,
         day: arrangedDay,
         time: computedArrangedTime,
-        branchName: arrangingRow.branchName,
+        branchName: arrangingRow.branchName !== '—' ? arrangingRow.branchName : (branchList[0] || 'Kelapa Gading'),
         classType: arrangingRow.classType || 'Regular',
         program: newProgStr,
       });
@@ -482,13 +485,29 @@ export default function LiveProgressTable({ category }) {
 
   /**
    * One row per enrolled student in this category.
-   * Deduplicated so a student never appears twice for the same program level across multiple branches.
+   * Merges scheduled classes with registered students so no student is lost,
+   * properly identifying unassigned students and unadded instructors.
    */
   const rows = useMemo(() => {
     const candidatesByKey = new Map();
+    const placedStudents = new Set();
+
+    // Helper to check if a teacher name corresponds to an active registered instructor
+    const isRegisteredTeacher = (teacherName) => {
+      if (!teacherName || teacherName === '—' || String(teacherName).trim() === '' || String(teacherName).toUpperCase() === 'TBD' || String(teacherName).toLowerCase() === 'unassigned') {
+        return false;
+      }
+      return (instructorProfiles || []).some((p) => {
+        const primary = getInstructorDisplayName(p) || p.name;
+        return isInstructorMatch(teacherName, p) || isSameTeacher(teacherName, primary) || isSameTeacher(teacherName, p.name);
+      });
+    };
+
+    // 1. Collect students from classes that match this category
     for (const c of classes) {
       const parsed = parseProgram(c.program);
-      if (parsed.category !== category) continue;
+      const progCategory = parsed.category || resolveProgramCategory(c.program);
+      if (progCategory !== category) continue;
 
       const names = String(c.student || '')
         .split(',')
@@ -499,12 +518,15 @@ export default function LiveProgressTable({ category }) {
       // Coder levels are stored whole, so fold a legacy numbered one onto its
       // stage; Kinder and Junior use the bare code without the lesson number.
       const levelCode = category === 'Coder'
-        ? normaliseCoderLevel(parsed.code)
-        : parsed.code;
+        ? normaliseCoderLevel(parsed.code || c.program)
+        : (parsed.code || (category === 'Kinder' ? 'K1' : 'J1'));
 
-      const displayInstructor = resolveCanonicalTeacherName(c.teacher, instructorProfiles);
+      const rawTeacher = c.teacher ? String(c.teacher).trim() : '';
+      const isKnown = isRegisteredTeacher(rawTeacher);
+      const displayInstructor = isKnown ? resolveCanonicalTeacherName(rawTeacher, instructorProfiles) : rawTeacher;
 
       for (const name of names) {
+        placedStudents.add(name.toLowerCase());
         const rowKey = keyOf(name, levelCode);
         const stored = progressByKey.get(rowKey);
         const info = studentInfoMap.get(name.trim().toLowerCase());
@@ -513,15 +535,24 @@ export default function LiveProgressTable({ category }) {
         const storedMain = stored?.mainTeacher
           ? resolveCanonicalTeacherName(stored.mainTeacher, instructorProfiles)
           : null;
+
+        const effectiveInstructor = storedMain || displayInstructor || rawTeacher || '—';
+        const hasValidInstructor = isRegisteredTeacher(effectiveInstructor);
+        const isUnassigned = !hasValidInstructor || !c.day || c.day === '—' || !c.time || c.time === '—';
+        const isUnregisteredInstructor = !hasValidInstructor && Boolean(rawTeacher && rawTeacher !== '—' && rawTeacher.toUpperCase() !== 'TBD' && rawTeacher.toLowerCase() !== 'unassigned');
+
         const item = {
           rowKey,
           classId: c.id,
           studentName: name,
-          instructor: storedMain || displayInstructor || c.teacher || '—',
+          instructor: effectiveInstructor && effectiveInstructor !== '—' ? effectiveInstructor : 'Unassigned',
+          originalInstructor: rawTeacher || null,
+          isUnassigned,
+          isUnregisteredInstructor,
           day: c.day || '—',
           time: c.time || '—',
           branchName: c.branchName || '—',
-          program: c.program || '—',
+          program: c.program || levelCode || '—',
           levelCode,
           lesson: parsed.lesson,
           classType: c.classType || 'Regular',
@@ -541,6 +572,72 @@ export default function LiveProgressTable({ category }) {
         }
         candidatesByKey.get(rowKey).push(item);
       }
+    }
+
+    // 2. Include registered students from studentRegistry who are not placed in a class or belong to this category
+    for (const s of (studentRegistry || [])) {
+      if (!s.name || !s.name.trim()) continue;
+      const sCategory = studentProgramCategory(s) || resolveProgramCategory(s.level);
+      if (sCategory !== category) continue;
+
+      const normName = s.name.trim().toLowerCase();
+      if (placedStudents.has(normName)) continue; // Already covered by classes
+
+      const defaultLevelCode = category === 'Coder'
+        ? normaliseCoderLevel(s.level || 'Coder Basic')
+        : (parseProgram(s.level).code || (category === 'Kinder' ? 'K1' : 'J1'));
+
+      const rowKey = keyOf(s.name, defaultLevelCode);
+      if (candidatesByKey.has(rowKey)) continue;
+
+      const stored = progressByKey.get(rowKey);
+
+      // Extract instructor/schedule from remarks if present (e.g. "Instructor: Sherlyn | Schedule: Monday 3:00 PM")
+      let remarksTeacher = '';
+      let remarksDay = '';
+      let remarksTime = '';
+      const rem = String(s.remarks || '');
+      if (rem) {
+        const instM = rem.match(/(?:Instructor|Teacher|Pengajar|Guru):\s*([^|\n]+)/i);
+        if (instM) remarksTeacher = instM[1].trim();
+        const dayM = rem.match(/\b(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)\b/i);
+        if (dayM) remarksDay = dayM[1];
+        const timeM = rem.match(/(\d{1,2}[:.]\d{2}\s*[-–—]\s*\d{1,2}[:.]\d{2}\s*(?:am|pm)?)/i);
+        if (timeM) remarksTime = timeM[1];
+      }
+
+      const rawTeacher = s.rawInstructor || remarksTeacher || '';
+      const isKnown = isRegisteredTeacher(rawTeacher);
+      const displayTeacher = isKnown ? resolveCanonicalTeacherName(rawTeacher, instructorProfiles) : rawTeacher;
+      const isUnregisteredInstructor = !isKnown && Boolean(rawTeacher && rawTeacher !== '—' && rawTeacher.toUpperCase() !== 'TBD' && rawTeacher.toLowerCase() !== 'unassigned');
+
+      const item = {
+        rowKey,
+        classId: null,
+        studentName: s.name.trim(),
+        instructor: displayTeacher && displayTeacher !== '—' ? displayTeacher : 'Unassigned',
+        originalInstructor: rawTeacher || null,
+        isUnassigned: true,
+        isUnregisteredInstructor,
+        day: s.rawDays || remarksDay || '—',
+        time: s.rawTime || remarksTime || '—',
+        branchName: s.branchName || s.branch_name || '—',
+        program: s.level || defaultLevelCode || '—',
+        levelCode: defaultLevelCode,
+        lesson: null,
+        classType: 'Regular',
+        status: s.status || 'Active',
+        progressId: stored?.id ?? null,
+        attendance: stored?.attendance || {},
+        videos: stored?.videos || {},
+        continuation: stored?.continuation || CONTINUATION_OPTIONS[0],
+        continuationNote: stored?.continuationNote || '',
+        arrangedLesson: stored?.arrangedLesson || null,
+        arrangedTeacher: stored?.arrangedTeacher ? resolveCanonicalTeacherName(stored.arrangedTeacher, instructorProfiles) : null,
+        mainTeacher: stored?.mainTeacher || null,
+      };
+
+      candidatesByKey.set(rowKey, [item]);
     }
 
     const result = [];
@@ -563,15 +660,19 @@ export default function LiveProgressTable({ category }) {
     }
 
     return result;
-  }, [classes, category, progressByKey, instructorProfiles, studentInfoMap]);
+  }, [classes, studentRegistry, category, progressByKey, instructorProfiles, studentInfoMap]);
 
-  /** Summary count for Active, Long Break, Inactive students */
+  /** Summary count for Active, Long Break, Inactive, and Unassigned students */
   const statusStats = useMemo(() => {
     let active = 0;
     let longBreak = 0;
     let inactive = 0;
+    let unassigned = 0;
 
     for (const r of rows) {
+      if (r.isUnassigned) {
+        unassigned++;
+      }
       const st = String(r.status || 'Active').trim().toLowerCase();
       if (st.includes('break')) {
         longBreak++;
@@ -582,20 +683,28 @@ export default function LiveProgressTable({ category }) {
       }
     }
 
-    return { active, longBreak, inactive, total: rows.length };
+    return { active, longBreak, inactive, unassigned, total: rows.length };
   }, [rows]);
 
   const instructorList = useMemo(() => {
     const set = new Set();
+    let hasUnassigned = false;
     for (const r of rows) {
       if (filterBranch !== 'all' && r.branchName !== filterBranch) continue;
       if (filterDay !== 'all' && r.day.trim().toLowerCase() !== filterDay.trim().toLowerCase()) continue;
       if (filterLevel !== 'all' && r.levelCode !== filterLevel) continue;
-      if (r.instructor && r.instructor !== '—') {
+      if (r.isUnassigned || !r.instructor || r.instructor === '—' || r.instructor.toLowerCase() === 'unassigned') {
+        hasUnassigned = true;
+      }
+      if (r.instructor && r.instructor !== '—' && r.instructor.toLowerCase() !== 'unassigned') {
         set.add(r.instructor);
       }
     }
-    return Array.from(set).sort((a, b) => a.localeCompare(b));
+    const list = Array.from(set).sort((a, b) => a.localeCompare(b));
+    if (hasUnassigned) {
+      return ['Unassigned', ...list];
+    }
+    return list;
   }, [rows, filterBranch, filterDay, filterLevel]);
 
   useEffect(() => {
@@ -610,17 +719,31 @@ export default function LiveProgressTable({ category }) {
       if (filterBranch !== 'all' && r.branchName !== filterBranch) return false;
       if (filterLevel !== 'all' && r.levelCode !== filterLevel) return false;
       if (filterDay !== 'all' && r.day.trim().toLowerCase() !== filterDay.trim().toLowerCase()) return false;
-      if (filterInstructor !== 'all' && r.instructor !== filterInstructor) return false;
+      if (filterInstructor !== 'all') {
+        if (filterInstructor === 'Unassigned') {
+          if (!r.isUnassigned && r.instructor && r.instructor !== '—' && r.instructor.toLowerCase() !== 'unassigned') {
+            return false;
+          }
+        } else if (r.instructor !== filterInstructor) {
+          return false;
+        }
+      }
       if (filterContinuation !== 'all' && r.continuation !== filterContinuation) return false;
       if (filterStatus !== 'all') {
         const rSt = String(r.status || 'Active').toLowerCase();
         const fSt = filterStatus.toLowerCase();
-        if (fSt === 'active' && (rSt.includes('inactive') || rSt.includes('break'))) return false;
-        if (fSt === 'long break' && !rSt.includes('break')) return false;
-        if (fSt === 'inactive' && !rSt.includes('inactive')) return false;
+        if (fSt === 'unassigned') {
+          if (!r.isUnassigned) return false;
+        } else if (fSt === 'active') {
+          if (rSt.includes('inactive') || rSt.includes('break')) return false;
+        } else if (fSt === 'long break') {
+          if (!rSt.includes('break')) return false;
+        } else if (fSt === 'inactive') {
+          if (!rSt.includes('inactive')) return false;
+        }
       }
       if (q) {
-        const hit = [r.studentName, r.instructor, r.program, r.day, r.branchName, r.status]
+        const hit = [r.studentName, r.instructor, r.program, r.day, r.branchName, r.status, r.isUnassigned ? 'unassigned' : '']
           .filter(Boolean)
           .some((f) => String(f).toLowerCase().includes(q));
         if (!hit) return false;
@@ -829,6 +952,23 @@ export default function LiveProgressTable({ category }) {
               <span>Inactive: <strong>{statusStats.inactive}</strong></span>
             </div>
 
+            {/* Unassigned Students Counter Badge */}
+            <div
+              onClick={() => { setFilterStatus(filterStatus === 'Unassigned' ? 'all' : 'Unassigned'); setPage(1); }}
+              title="Click to filter Unassigned students"
+              style={{
+                display: 'inline-flex', alignItems: 'center', gap: '0.35rem',
+                padding: '0.3rem 0.65rem', borderRadius: '20px', cursor: 'pointer',
+                background: filterStatus === 'Unassigned' ? 'rgba(124,58,237,0.22)' : 'rgba(124,58,237,0.1)',
+                border: filterStatus === 'Unassigned' ? '1.5px solid #7c3aed' : '1px solid rgba(124,58,237,0.3)',
+                color: '#6d28d9', fontSize: '0.75rem', fontWeight: 600,
+                transition: 'all 0.15s ease',
+              }}
+            >
+              <span style={{ width: '7px', height: '7px', borderRadius: '50%', background: '#7c3aed' }}></span>
+              <span>Unassigned: <strong>{statusStats.unassigned}</strong></span>
+            </div>
+
             <span aria-hidden="true" style={{ color: 'var(--border-color)', margin: '0 0.15rem' }}>·</span>
             <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
               <strong style={{ color: 'var(--text-main)' }}>{sorted.length}</strong> total · <strong style={{ color: 'var(--text-main)' }}>{attended}</strong> lessons
@@ -859,13 +999,14 @@ export default function LiveProgressTable({ category }) {
             </div>
           </div>
 
-          <div className="input-group" style={{ margin: 0, width: '140px' }}>
+          <div className="input-group" style={{ margin: 0, width: '150px' }}>
             <label style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '0.3rem', display: 'block' }}>Status</label>
             <select value={filterStatus} onChange={(e) => { setFilterStatus(e.target.value); setPage(1); }} style={{ width: '100%' }}>
               <option value="all">All Statuses</option>
               <option value="Active">Active ({statusStats.active})</option>
               <option value="Long Break">Long Break ({statusStats.longBreak})</option>
               <option value="Inactive">Inactive ({statusStats.inactive})</option>
+              <option value="Unassigned">Unassigned ({statusStats.unassigned})</option>
             </select>
           </div>
 
@@ -957,6 +1098,11 @@ export default function LiveProgressTable({ category }) {
                           <span style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', flexWrap: 'wrap' }}>
                             <User size={14} style={{ color: 'var(--text-muted)' }} />
                             <span>{r.studentName}</span>
+                            {r.isUnassigned && (
+                              <span style={{ fontSize: '0.62rem', fontWeight: 700, padding: '1px 6px', borderRadius: '4px', background: 'rgba(124,58,237,0.14)', color: '#6d28d9', border: '1px solid rgba(124,58,237,0.3)', whiteSpace: 'nowrap' }}>
+                                UNASSIGNED
+                              </span>
+                            )}
                             {r.status && String(r.status).toLowerCase().includes('break') && (
                               <span style={{ fontSize: '0.62rem', fontWeight: 700, padding: '1px 5px', borderRadius: '4px', background: 'rgba(245,158,11,0.15)', color: '#b45309', border: '1px solid rgba(245,158,11,0.3)', whiteSpace: 'nowrap' }}>
                                 Long Break
@@ -973,7 +1119,22 @@ export default function LiveProgressTable({ category }) {
                             {r.classType !== 'Regular' && ` · ${r.classType}`}
                           </span>
                         </td>
-                        <td style={{ fontSize: '0.85rem' }}>{r.instructor}</td>
+                        <td style={{ fontSize: '0.85rem' }}>
+                          {r.isUnregisteredInstructor ? (
+                            <div>
+                              <div style={{ fontWeight: 600, color: 'var(--text-main)' }}>{r.instructor}</div>
+                              <span style={{ fontSize: '0.64rem', fontWeight: 700, padding: '1px 5px', borderRadius: '4px', background: 'rgba(245,158,11,0.15)', color: '#b45309', border: '1px solid rgba(245,158,11,0.3)', display: 'inline-flex', alignItems: 'center', gap: '2px', marginTop: '2px' }}>
+                                <AlertTriangle size={9} /> Not in website
+                              </span>
+                            </div>
+                          ) : r.instructor && r.instructor !== '—' && r.instructor.toLowerCase() !== 'unassigned' ? (
+                            r.instructor
+                          ) : (
+                            <span style={{ fontSize: '0.72rem', fontWeight: 600, padding: '2px 6px', borderRadius: '4px', background: 'rgba(124,58,237,0.12)', color: '#6d28d9' }}>
+                              Unassigned
+                            </span>
+                          )}
+                        </td>
                         <td style={{ fontSize: '0.85rem' }}>
                           <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem' }}>
                             <Calendar size={12} style={{ color: 'var(--text-muted)' }} /> {r.day}
@@ -999,14 +1160,18 @@ export default function LiveProgressTable({ category }) {
                         {/* Lesson Arrangement (SPA arrangement) */}
                         <td>
                           {(() => {
-                            const displayTeacher = r.arrangedTeacher || r.instructor;
+                            const displayTeacher = r.arrangedTeacher || (r.instructor && r.instructor !== 'Unassigned' && r.instructor !== '—' ? r.instructor : null);
                             const displayLesson = r.arrangedLesson || r.lesson || getNextUndoneLesson(r.attendance, maxLessons);
-                            const isArranged = !!r.arrangedTeacher && r.arrangedTeacher.toLowerCase() !== r.instructor.toLowerCase();
+                            const isArranged = !!r.arrangedTeacher && (!r.instructor || r.arrangedTeacher.toLowerCase() !== r.instructor.toLowerCase());
                             const termCode = r.levelCode || r.program;
                             const formattedLesson = String(displayLesson).startsWith('L') ? displayLesson : `L${displayLesson}`;
-                            const badgeLabel = category === 'Coder'
-                              ? `Coder · ${displayTeacher}`
-                              : `${termCode} - ${formattedLesson} · ${displayTeacher}`;
+                            
+                            let badgeLabel = category === 'Coder'
+                              ? `Coder · ${displayTeacher || 'Unassigned'}`
+                              : `${termCode} - ${formattedLesson} · ${displayTeacher || 'Unassigned'}`;
+                            if (!displayTeacher && r.isUnassigned) {
+                              badgeLabel = `+ Assign Instructor`;
+                            }
 
                             return (
                               <button
@@ -1014,18 +1179,28 @@ export default function LiveProgressTable({ category }) {
                                 onClick={() => openArrangementModal(r)}
                                 title={isArranged
                                   ? `Arranged: ${displayTeacher} (Main: ${r.instructor}). Click to edit.`
-                                  : `Click to arrange lesson & assign branch instructor for ${r.studentName}`}
+                                  : r.isUnassigned
+                                    ? `Click to arrange lesson & assign an active instructor for ${r.studentName}`
+                                    : `Click to arrange lesson & assign branch instructor for ${r.studentName}`}
                                 style={{
                                   display: 'inline-flex', alignItems: 'center', gap: '0.35rem',
                                   padding: '0.28rem 0.6rem', borderRadius: '7px', cursor: 'pointer',
                                   fontSize: '0.75rem', fontWeight: 600, whiteSpace: 'nowrap',
-                                  border: isArranged ? '1.5px solid rgba(217,119,6,0.4)' : '1.5px solid rgba(79,70,229,0.3)',
-                                  background: isArranged ? 'rgba(245,158,11,0.1)' : 'rgba(79,70,229,0.06)',
-                                  color: isArranged ? '#92400e' : '#3730a3',
+                                  border: isArranged
+                                    ? '1.5px solid rgba(217,119,6,0.4)'
+                                    : r.isUnassigned
+                                      ? '1.5px dashed rgba(124,58,237,0.45)'
+                                      : '1.5px solid rgba(79,70,229,0.3)',
+                                  background: isArranged
+                                    ? 'rgba(245,158,11,0.1)'
+                                    : r.isUnassigned
+                                      ? 'rgba(124,58,237,0.08)'
+                                      : 'rgba(79,70,229,0.06)',
+                                  color: isArranged ? '#92400e' : r.isUnassigned ? '#6d28d9' : '#3730a3',
                                   transition: 'all 0.15s ease',
                                 }}
                               >
-                                <BookOpen size={12} style={{ color: isArranged ? '#d97706' : 'var(--primary-blue, #4f46e5)', flexShrink: 0 }} />
+                                <BookOpen size={12} style={{ color: isArranged ? '#d97706' : r.isUnassigned ? '#7c3aed' : 'var(--primary-blue, #4f46e5)', flexShrink: 0 }} />
                                 <span style={{ whiteSpace: 'nowrap' }}>{badgeLabel}</span>
                                 {isArranged && (
                                   <span style={{ fontSize: '0.62rem', background: 'rgba(217,119,6,0.15)', color: '#92400e', padding: '0 4px', borderRadius: '3px', fontWeight: 700, letterSpacing: '0.3px', whiteSpace: 'nowrap', flexShrink: 0 }}>
@@ -1467,9 +1642,10 @@ export default function LiveProgressTable({ category }) {
                     className="modal-select-field"
                     style={{ width: '100%', fontSize: '0.85rem', padding: '0.5rem 0.75rem' }}
                   >
+                    {!arrangedTeacher && <option value="">Select Instructor...</option>}
                     {getInstructorsForBranch(arrangingRow.branchName).map((inst) => {
                       const check = checkInstructorAvailability(inst, arrangedDay);
-                      const isMain = inst.toLowerCase() === arrangingRow.instructor.toLowerCase();
+                      const isMain = inst.toLowerCase() === String(arrangingRow.instructor || '').toLowerCase();
                       const warningTag = !check.isAvailable ? ' ⚠️' : '';
                       return (
                         <option key={inst} value={inst}>

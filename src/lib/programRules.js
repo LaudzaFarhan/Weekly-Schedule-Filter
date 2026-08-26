@@ -15,10 +15,10 @@
 
 /** Program families, keyed by the code prefix pattern. */
 const FAMILIES = [
-  { family: 'Kinder Foundation', category: 'Kinder', test: (c) => /^kf\d*$/i.test(c) },
-  { family: 'Kinder Core',       category: 'Kinder', test: (c) => /^k\d+$/i.test(c) },
-  { family: 'Junior Foundation', category: 'Junior', test: (c) => /^jf\d*$/i.test(c) },
-  { family: 'Junior Core',       category: 'Junior', test: (c) => /^j\d+$/i.test(c) },
+  { family: 'Kinder Foundation', category: 'Kinder', test: (c) => /^kf\d*$/i.test(c) || /^kinder\s*foundation/i.test(c) },
+  { family: 'Kinder Core',       category: 'Kinder', test: (c) => /^k\d+$/i.test(c) || /^k$/i.test(c) || /^kinder/i.test(c) },
+  { family: 'Junior Foundation', category: 'Junior', test: (c) => /^jf\d*$/i.test(c) || /^junior\s*foundation/i.test(c) },
+  { family: 'Junior Core',       category: 'Junior', test: (c) => /^j\d+$/i.test(c) || /^j$/i.test(c) || /^junior/i.test(c) },
   { family: 'Coder',             category: 'Coder',  test: (c) => /coder/i.test(c) },
 ];
 
