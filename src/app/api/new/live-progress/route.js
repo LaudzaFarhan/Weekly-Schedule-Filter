@@ -65,7 +65,7 @@ function normaliseAttendance(value, category) {
   if (typeof value !== 'object' || Array.isArray(value)) {
     return { error: 'attendance must be an object keyed by lesson number' };
   }
-  const maxLessons = lessonsForCategory(category);
+  const maxLessons = category === 'Coder' ? 100 : lessonsForCategory(category);
   const out = {};
   for (const [key, entry] of Object.entries(value)) {
     const n = Number(key);

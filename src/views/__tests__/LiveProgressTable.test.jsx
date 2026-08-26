@@ -219,5 +219,38 @@ describe('LiveProgressTable - Unassigned Students & Unregistered Instructors', (
       })
     );
   });
+
+  it('renders dynamic attendance buttons matching student subscription package (24 meetings)', () => {
+    subscribeToInternalStudents.mockImplementation((cb) => {
+      cb([
+        { id: 's-coder', name: 'Aaron Sudjana', level: 'Coder Advance', branchName: 'Puri Indah', status: 'Active', remarks: '[TargetMeetings: 24]' },
+      ]);
+      return () => {};
+    });
+    subscribeToInternalClasses.mockImplementation((cb) => {
+      cb([
+        {
+          id: 'c-coder',
+          teacher: 'Iqbal',
+          student: 'Aaron Sudjana',
+          day: 'Monday',
+          time: '3:00 PM - 4:30 PM',
+          branchName: 'Puri Indah',
+          program: 'Coder Advance',
+          classType: 'Regular',
+        },
+      ]);
+      return () => {};
+    });
+
+    render(<LiveProgressTable category="Coder" />);
+
+    expect(screen.getByText('Aaron Sudjana')).toBeInTheDocument();
+    // Meeting 24 button should be present
+    const meeting24 = screen.getByRole('button', { name: /Meeting 24 for Aaron Sudjana/i });
+    expect(meeting24).toBeInTheDocument();
+    expect(screen.getByText(/0 \/ 24 meetings \(0%\)/i)).toBeInTheDocument();
+  });
 });
+
 

@@ -25,7 +25,7 @@ import { useSchedule } from '../contexts/ScheduleContext';
 import Pagination from '../components/ui/Pagination';
 import {
   parseProgram, levelsForCategory, LESSONS_PER_LEVEL, CONTINUATION_OPTIONS,
-  normaliseCoderLevel, lessonsForCategory,
+  normaliseCoderLevel, lessonsForCategory, meetingsForSubscription,
 } from '../lib/programRules';
 import { resolveProgramCategory, studentProgramCategory } from '../lib/studentFilter';
 import { isoOf } from '../lib/instructorAvailability';
@@ -493,20 +493,44 @@ export default function LiveProgressTable({ category }) {
     return map;
   }, [progress]);
 
-  /** Map student normalized name -> official registered status & branch in studentRegistry */
+  /** Map student normalized name -> official registered status, branch & targetMeetings */
   const studentInfoMap = useMemo(() => {
     const map = new Map();
+    let overrides = {};
+    try {
+      overrides = JSON.parse(localStorage.getItem('newOpsStudentSubscriptionOverrides') || '{}');
+    } catch {
+      overrides = {};
+    }
+
     for (const s of studentRegistry || []) {
       const bName = s.branchName || s.branch_name;
-      if (s.name) {
-        map.set(s.name.trim().toLowerCase(), {
-          branchName: bName || null,
-          status: s.status || 'Active',
-        });
+      const sName = String(s.name || '').trim().toLowerCase();
+      if (!sName) continue;
+
+      let targetMeetings = null;
+      const rem = String(s.remarks || '');
+      const targetMatch = rem.match(/\[TargetMeetings:\s*(\d+)\]/i);
+      if (targetMatch && targetMatch[1]) {
+        targetMeetings = Number(targetMatch[1]);
+      } else if (overrides[sName]?.targetMeetings) {
+        targetMeetings = Number(overrides[sName].targetMeetings);
+      } else if (s.targetMeetings) {
+        targetMeetings = Number(s.targetMeetings);
+      } else if (s.subscription) {
+        targetMeetings = meetingsForSubscription(s.subscription, category);
       }
+
+      map.set(sName, {
+        id: s.id,
+        branchName: bName || null,
+        status: s.status || 'Active',
+        targetMeetings: targetMeetings || (category === 'Coder' ? 12 : 10),
+        remarks: s.remarks || '',
+      });
     }
     return map;
-  }, [studentRegistry]);
+  }, [studentRegistry, category]);
 
   /**
    * One row per enrolled student in this category.
@@ -582,6 +606,7 @@ export default function LiveProgressTable({ category }) {
           lesson: parsed.lesson,
           classType: c.classType || 'Regular',
           status: info?.status || 'Active',
+          targetMeetings: info?.targetMeetings || (category === 'Coder' ? 12 : 10),
           progressId: stored?.id ?? null,
           attendance: stored?.attendance || {},
           videos: stored?.videos || {},
@@ -616,6 +641,7 @@ export default function LiveProgressTable({ category }) {
       if (candidatesByKey.has(rowKey)) continue;
 
       const stored = progressByKey.get(rowKey);
+      const info = studentInfoMap.get(normName);
 
       // Extract instructor/schedule from remarks if present (e.g. "Instructor: Sherlyn | Schedule: Monday 3:00 PM")
       let remarksTeacher = '';
@@ -652,6 +678,7 @@ export default function LiveProgressTable({ category }) {
         lesson: null,
         classType: 'Regular',
         status: s.status || 'Active',
+        targetMeetings: info?.targetMeetings || (category === 'Coder' ? 12 : 10),
         progressId: stored?.id ?? null,
         attendance: stored?.attendance || {},
         videos: stored?.videos || {},
@@ -1184,7 +1211,7 @@ export default function LiveProgressTable({ category }) {
                   <th style={{ width: '130px' }}>Time</th>
                   <th style={{ width: '110px' }}>Program</th>
                   <th style={{ minWidth: '240px' }}>Lesson Arrangement</th>
-                  <th style={{ minWidth: category === 'Coder' ? '290px' : '250px' }}>Attendance 1–{maxLessons}</th>
+                  <th style={{ minWidth: category === 'Coder' ? '300px' : '250px' }}>{category === 'Coder' ? 'Attendance (Meetings)' : `Attendance 1–${maxLessons}`}</th>
                   <th style={{ minWidth: '180px' }}>Video Sent</th>
                   <th style={{ width: '160px' }}>Continuation</th>
                 </tr>
@@ -1202,7 +1229,7 @@ export default function LiveProgressTable({ category }) {
                   </tr>
                 ) : paged.length === 0 ? (
                   <tr>
-                    <td colSpan="9" style={{ textAlign: 'center', padding: '3rem 1.5rem', color: 'var(--text-muted)' }}>
+                    <td colSpan="9" style={{ textAlign: 'center', padding: '2.5rem 1.5rem', color: 'var(--text-muted)' }}>
                       <div style={{ fontWeight: 600 }}>No student matches your filters.</div>
                     </td>
                   </tr>
@@ -1210,33 +1237,38 @@ export default function LiveProgressTable({ category }) {
                   paged.map((r) => {
                     const tint = CONTINUATION_TINT[r.continuation] || CONTINUATION_TINT['Not Decide Yet'];
                     return (
-                      <tr key={`${r.rowKey}||${r.classId}`}>
-                        <td style={{ fontWeight: 600, color: 'var(--text-main)' }}>
-                          <span style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', flexWrap: 'wrap' }}>
-                            <User size={14} style={{ color: 'var(--text-muted)' }} />
-                            <span>{r.studentName}</span>
+                      <tr key={`${r.rowKey}-${r.classId || 'unassigned'}`}>
+                        {/* Student Name */}
+                        <td>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                              <User size={13} style={{ color: 'var(--text-muted)' }} />
+                              <strong style={{ fontSize: '0.85rem' }}>{r.studentName}</strong>
+                            </div>
                             {r.isUnassigned && (
-                              <span style={{ fontSize: '0.62rem', fontWeight: 700, padding: '1px 6px', borderRadius: '4px', background: 'rgba(124,58,237,0.14)', color: '#6d28d9', border: '1px solid rgba(124,58,237,0.3)', whiteSpace: 'nowrap' }}>
+                              <span style={{
+                                alignSelf: 'flex-start',
+                                fontSize: '0.62rem',
+                                fontWeight: 700,
+                                textTransform: 'uppercase',
+                                letterSpacing: '0.4px',
+                                padding: '0.08rem 0.35rem',
+                                borderRadius: '4px',
+                                background: 'rgba(124, 58, 237, 0.12)',
+                                color: '#7c3aed',
+                                border: '1px solid rgba(124, 58, 237, 0.25)',
+                              }}>
                                 UNASSIGNED
                               </span>
                             )}
-                            {r.status && String(r.status).toLowerCase().includes('break') && (
-                              <span style={{ fontSize: '0.62rem', fontWeight: 700, padding: '1px 5px', borderRadius: '4px', background: 'rgba(245,158,11,0.15)', color: '#b45309', border: '1px solid rgba(245,158,11,0.3)', whiteSpace: 'nowrap' }}>
-                                Long Break
-                              </span>
-                            )}
-                            {r.status && String(r.status).toLowerCase().includes('inactive') && (
-                              <span style={{ fontSize: '0.62rem', fontWeight: 700, padding: '1px 5px', borderRadius: '4px', background: 'rgba(239,68,68,0.15)', color: '#b91c1c', border: '1px solid rgba(239,68,68,0.3)', whiteSpace: 'nowrap' }}>
-                                Inactive
-                              </span>
-                            )}
-                          </span>
-                          <span style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 400, marginTop: '0.15rem' }}>
-                            <MapPin size={10} /> {r.branchName}
-                            {r.classType !== 'Regular' && ` · ${r.classType}`}
-                          </span>
+                            <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                              <MapPin size={11} /> {r.branchName}
+                            </span>
+                          </div>
                         </td>
-                        <td style={{ fontSize: '0.85rem' }}>
+
+                        {/* Instructor */}
+                        <td>
                           {r.isUnregisteredInstructor ? (
                             <div>
                               <div style={{ fontWeight: 600, color: 'var(--text-main)' }}>{r.instructor}</div>
@@ -1244,31 +1276,46 @@ export default function LiveProgressTable({ category }) {
                                 <AlertTriangle size={9} /> Not in website
                               </span>
                             </div>
-                          ) : r.instructor && r.instructor !== '—' && r.instructor.toLowerCase() !== 'unassigned' ? (
-                            r.instructor
-                          ) : (
-                            <span style={{ fontSize: '0.72rem', fontWeight: 600, padding: '2px 6px', borderRadius: '4px', background: 'rgba(124,58,237,0.12)', color: '#6d28d9' }}>
+                          ) : r.isUnassigned ? (
+                            <span style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              padding: '0.18rem 0.5rem',
+                              borderRadius: '6px',
+                              fontSize: '0.75rem',
+                              fontWeight: 600,
+                              background: 'rgba(124, 58, 237, 0.08)',
+                              color: '#7c3aed',
+                              border: '1px dashed rgba(124, 58, 237, 0.3)',
+                            }}>
                               Unassigned
+                            </span>
+                          ) : (
+                            <span style={{ fontWeight: 500, fontSize: '0.85rem' }}>
+                              {r.instructor}
                             </span>
                           )}
                         </td>
-                        <td style={{ fontSize: '0.85rem' }}>
-                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem' }}>
+
+                        {/* Schedule (Day & Time) */}
+                        <td>
+                          <span style={{ fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
                             <Calendar size={12} style={{ color: 'var(--text-muted)' }} /> {r.day}
                           </span>
                         </td>
-                        <td style={{ fontSize: '0.82rem' }}>
-                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem' }}>
+                        <td>
+                          <span style={{ fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
                             <Clock size={12} style={{ color: 'var(--text-muted)' }} /> {r.time}
                           </span>
                         </td>
+
+                        {/* Program */}
                         <td>
                           <span style={{
-                            display: 'inline-flex', alignItems: 'center', gap: '0.25rem',
-                            background: 'var(--primary-blue-light, rgba(79,70,229,0.1))',
-                            color: 'var(--primary-blue, #4f46e5)',
-                            padding: '0.15rem 0.5rem', borderRadius: '6px',
-                            fontSize: '0.74rem', fontWeight: 600, whiteSpace: 'nowrap',
+                            display: 'inline-flex', alignItems: 'center', gap: '0.3rem',
+                            padding: '0.2rem 0.5rem', borderRadius: '6px',
+                            fontSize: '0.75rem', fontWeight: 600,
+                            background: 'rgba(79, 70, 229, 0.08)', color: 'var(--primary-blue, #4f46e5)',
                           }}>
                             <GraduationCap size={11} /> {r.program}
                           </span>
@@ -1277,8 +1324,9 @@ export default function LiveProgressTable({ category }) {
                         {/* Lesson Arrangement (SPA arrangement) */}
                         <td>
                           {(() => {
+                            const studentTarget = r.targetMeetings || maxLessons;
                             const displayTeacher = r.arrangedTeacher || (r.instructor && r.instructor !== 'Unassigned' && r.instructor !== '—' ? r.instructor : null);
-                            const displayLesson = r.arrangedLesson || r.lesson || getNextUndoneLesson(r.attendance, maxLessons);
+                            const displayLesson = r.arrangedLesson || r.lesson || getNextUndoneLesson(r.attendance, studentTarget);
                             const isArranged = !!r.arrangedTeacher && (!r.instructor || r.arrangedTeacher.toLowerCase() !== r.instructor.toLowerCase());
                             const termCode = r.levelCode || r.program;
                             const cleanLesson = String(displayLesson).replace(/^L/i, '') || '1';
@@ -1333,51 +1381,71 @@ export default function LiveProgressTable({ category }) {
                         {/* Attendance ticks. The title carries the date and note,
                             so hovering answers "when, and what happened". */}
                         <td>
-                          <div style={{ display: 'flex', gap: '0.2rem', flexWrap: 'wrap' }}>
-                            {lessons.map((n) => {
-                              const entry = r.attendance[n];
-                              const done = !!entry;
-                              const isOpen = editing?.rowKey === r.rowKey &&
-                                editing?.classId === r.classId && editing?.lesson === n;
-                              const tip = done
-                                ? `Lesson ${n} · ${entry.date || 'no date'}${entry.note ? `\n${entry.note}` : '\nNo note'}`
-                                : `Lesson ${n} — not recorded. Click to tick it.`;
-                              return (
-                                <button
-                                  key={n}
-                                  type="button"
-                                  onClick={() => openAttendance(r, n)}
-                                  title={tip}
-                                  aria-label={`Lesson ${n} for ${r.studentName}${done ? ', attended' : ', not recorded'}`}
-                                  aria-pressed={done}
-                                  style={{
-                                    position: 'relative',
-                                    width: '22px', height: '22px', borderRadius: '5px',
-                                    display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                                    cursor: 'pointer', fontSize: '0.6rem', fontWeight: 700,
-                                    border: `1px solid ${isOpen ? 'var(--primary-blue)' : done ? 'rgba(5,150,105,0.8)' : 'var(--border-color)'}`,
-                                    background: done ? 'rgba(5,150,105,0.16)' : 'transparent',
-                                    color: done ? '#047857' : 'var(--text-muted)',
-                                    outline: isOpen ? '2px solid var(--primary-blue)' : 'none',
-                                    outlineOffset: '1px',
-                                  }}
-                                >
-                                  {done ? <Check size={12} strokeWidth={3} /> : n}
-                                  {/* A note is easy to miss on a tick alone. */}
-                                  {done && entry.note && (
-                                    <span
-                                      aria-hidden="true"
-                                      style={{
-                                        position: 'absolute', top: '-3px', right: '-3px',
-                                        width: '6px', height: '6px', borderRadius: '99px',
-                                        background: '#b45309',
-                                      }}
-                                    />
-                                  )}
-                                </button>
-                              );
-                            })}
-                          </div>
+                          {(() => {
+                            const studentTarget = r.targetMeetings || maxLessons;
+                            const maxAttendedKey = Math.max(
+                              ...Object.keys(r.attendance || {}).map(Number).filter((n) => !isNaN(n) && n > 0),
+                              0
+                            );
+                            const studentMaxLessons = Math.max(studentTarget, maxAttendedKey, 1);
+                            const studentLessons = Array.from({ length: studentMaxLessons }, (_, i) => i + 1);
+                            const attendedCount = Object.keys(r.attendance || {}).length;
+
+                            return (
+                              <div>
+                                <div style={{ display: 'flex', gap: '0.2rem', flexWrap: 'wrap', maxWidth: category === 'Coder' ? '340px' : '260px' }}>
+                                  {studentLessons.map((n) => {
+                                    const entry = r.attendance[n];
+                                    const done = !!entry;
+                                    const isOpen = editing?.rowKey === r.rowKey &&
+                                      editing?.classId === r.classId && editing?.lesson === n;
+                                    const tip = done
+                                      ? `Meeting ${n} · ${entry.date || 'no date'}${entry.note ? `\n${entry.note}` : '\nNo note'}`
+                                      : `Meeting ${n} — not recorded. Click to tick it.`;
+                                    return (
+                                      <button
+                                        key={n}
+                                        type="button"
+                                        onClick={() => openAttendance(r, n)}
+                                        title={tip}
+                                        aria-label={`Meeting ${n} for ${r.studentName}${done ? ', attended' : ', not recorded'}`}
+                                        aria-pressed={done}
+                                        style={{
+                                          position: 'relative',
+                                          width: '22px', height: '22px', borderRadius: '5px',
+                                          display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                                          cursor: 'pointer', fontSize: '0.6rem', fontWeight: 700,
+                                          border: `1px solid ${isOpen ? 'var(--primary-blue)' : done ? 'rgba(5,150,105,0.8)' : 'var(--border-color)'}`,
+                                          background: done ? 'rgba(5,150,105,0.16)' : 'transparent',
+                                          color: done ? '#047857' : 'var(--text-muted)',
+                                          outline: isOpen ? '2px solid var(--primary-blue)' : 'none',
+                                          outlineOffset: '1px',
+                                        }}
+                                      >
+                                        {done ? <Check size={12} strokeWidth={3} /> : n}
+                                        {/* A note is easy to miss on a tick alone. */}
+                                        {done && entry.note && (
+                                          <span
+                                            aria-hidden="true"
+                                            style={{
+                                              position: 'absolute', top: '-3px', right: '-3px',
+                                              width: '6px', height: '6px', borderRadius: '99px',
+                                              background: '#b45309',
+                                            }}
+                                          />
+                                        )}
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                                {category === 'Coder' && (
+                                  <div style={{ fontSize: '0.66rem', color: 'var(--text-muted)', marginTop: '0.25rem', fontWeight: 600 }}>
+                                    {attendedCount} / {studentTarget} meetings ({Math.min(100, Math.round((attendedCount / studentTarget) * 100))}%)
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })()}
                         </td>
 
                         {/* Video sent, one chip per level in this category. */}
@@ -1471,7 +1539,7 @@ export default function LiveProgressTable({ category }) {
             <div style={{ padding: '1.1rem 1.3rem', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '0.75rem' }}>
               <div>
                 <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 600 }}>
-                  Lesson {editing.lesson} of {maxLessons}
+                  {category === 'Coder' ? 'Meeting' : 'Lesson'} {editing.lesson} of {editingRow.targetMeetings || maxLessons}
                 </h3>
                 <p style={{ margin: '0.25rem 0 0', fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
                   {editingRow.studentName} · {editingRow.program} · {editingRow.instructor}
@@ -1630,7 +1698,7 @@ export default function LiveProgressTable({ category }) {
                       className="modal-select-field"
                       style={{ width: '100%', fontSize: '0.85rem', padding: '0.5rem 0.75rem' }}
                     >
-                      {Array.from({ length: maxLessons }, (_, i) => i + 1).map((n) => {
+                      {Array.from({ length: arrangingRow.targetMeetings || maxLessons }, (_, i) => i + 1).map((n) => {
                         const isDone = !!arrangingRow.attendance[n];
                         const termCode = arrangingRow.levelCode || arrangingRow.program;
                         return (

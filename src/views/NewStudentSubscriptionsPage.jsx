@@ -208,15 +208,34 @@ export default function NewStudentSubscriptionsPage() {
 
 
 
-  const handleSaveModal = (e) => {
+  const handleSaveModal = async (e) => {
     e.preventDefault();
     if (!editingRow) return;
 
+    const targetMeetings = Number(draftTarget) || DEFAULT_TARGET_MEETINGS;
+    const startDate = draftStartDate || null;
+
     saveOverride(editingRow.name, {
-      startDate: draftStartDate || null,
-      targetMeetings: Number(draftTarget) || DEFAULT_TARGET_MEETINGS,
+      startDate,
+      targetMeetings,
     });
     setOverrides(readOverrides());
+
+    try {
+      await fetch('/api/new/subscriptions', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          studentId: editingRow.id,
+          studentName: editingRow.name,
+          startDate,
+          targetMeetings,
+        }),
+      });
+    } catch (err) {
+      console.warn('Could not sync subscription to DB:', err);
+    }
+
     showToast({ title: 'Subscription updated successfully', variant: 'success' });
     setEditingRow(null);
   };
