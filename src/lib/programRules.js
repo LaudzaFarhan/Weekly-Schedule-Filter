@@ -19,7 +19,7 @@ const FAMILIES = [
   { family: 'Kinder Core',       category: 'Kinder', test: (c) => /^k\d+$/i.test(c) || /^k$/i.test(c) || /^kinder/i.test(c) },
   { family: 'Junior Foundation', category: 'Junior', test: (c) => /^jf\d*$/i.test(c) || /^junior\s*foundation/i.test(c) },
   { family: 'Junior Core',       category: 'Junior', test: (c) => /^j\d+$/i.test(c) || /^j$/i.test(c) || /^junior/i.test(c) },
-  { family: 'Coder',             category: 'Coder',  test: (c) => /coder/i.test(c) },
+  { family: 'Coder',             category: 'Coder',  test: (c) => /coder|basic|intermediate|advance|python|web|app|scratch|roblox/i.test(c) },
 ];
 
 export const CATEGORIES = ['Kinder', 'Junior', 'Coder'];
@@ -73,6 +73,32 @@ export function lessonsForCategory(category) {
 }
 
 /**
+ * Calculate expected target meetings for a subscription package.
+ * Coder:
+ *   1 Month  -> 4 Meetings
+ *   3 Months -> 12 Meetings (Standard package)
+ *   6 Months -> 24 Meetings
+ *   9 Months -> 36 Meetings
+ *   1 Year / 12 Months -> 48 Meetings
+ * Kinder / Junior:
+ *   10 Lessons per Term
+ */
+export function meetingsForSubscription(subscription, category = 'Coder') {
+  const sub = String(subscription || '').toLowerCase();
+  const cat = String(category || '').toLowerCase();
+
+  if (cat.includes('coder')) {
+    if (sub.includes('1 month') || sub.includes('1 bulan')) return 4;
+    if (sub.includes('6 month') || sub.includes('6 bulan')) return 24;
+    if (sub.includes('9 month') || sub.includes('9 bulan')) return 36;
+    if (sub.includes('1 year') || sub.includes('12 month') || sub.includes('1 tahun')) return 48;
+    return 12; // default standard 3-month package
+  }
+
+  return 10;
+}
+
+/**
  * How likely a student is to carry on after their current level.
  *
  * "Not Decide Yet" leads because it is the honest default for a student nobody
@@ -88,16 +114,23 @@ export const CONTINUATION_OPTIONS = [
 
 /**
  * Fold a legacy numbered Coder level onto its stage: "Coder Advance 2" reads as
- * "Coder Advance". Records written before the numbering was dropped stay
+ * "Coder Advance". Also maps "Basic 1" / "Basic 2" / "Basic" -> "Coder Basic".
+ * Records written before the numbering was dropped stay
  * meaningful, so nothing has to be migrated for the app to behave correctly.
  * Anything that is not a Coder level is returned untouched.
  */
 export function normaliseCoderLevel(value) {
   const raw = String(value || '').trim();
-  if (!/^coder/i.test(raw)) return raw;
-  const stripped = raw.replace(/\s*\d+\s*$/, '').trim();
-  const match = CODER_LEVELS.find((l) => l.toLowerCase() === stripped.toLowerCase());
-  return match || raw;
+  if (!raw) return raw;
+  if (/^coder/i.test(raw)) {
+    const stripped = raw.replace(/\s*\d+\s*$/, '').trim();
+    const match = CODER_LEVELS.find((l) => l.toLowerCase() === stripped.toLowerCase());
+    return match || raw;
+  }
+  if (/^basic/i.test(raw)) return 'Coder Basic';
+  if (/^intermediate/i.test(raw)) return 'Coder Intermediate';
+  if (/^advance/i.test(raw)) return 'Coder Advance';
+  return raw;
 }
 
 /**

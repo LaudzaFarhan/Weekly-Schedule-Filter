@@ -12,18 +12,32 @@ import { isInstructorMatch, isSameTeacher, getInstructorDisplayName } from '../.
  * Normalise level/program to standard options if possible
  */
 function normaliseProgramLevel(rawProgram, rawTerm) {
-  if (!rawProgram) return 'Kinder Core';
-  const str = String(rawProgram).trim();
-  const lower = str.toLowerCase();
-  
-  if (lower.includes('kinder')) {
-    if (lower.includes('foundation')) return 'Kinder Core';
+  if (!rawProgram && !rawTerm) return 'Kinder Core';
+  const prog = String(rawProgram || '').trim().toLowerCase();
+  const term = String(rawTerm || '').trim().toLowerCase();
+  const combined = `${prog} ${term}`.trim();
+
+  // 1. Coder (includes Basic 1, Basic 2, Intermediate, Advance, Python, Web, etc.)
+  if (/coder|basic|intermediate|advance|python|web|app|scratch|roblox/i.test(combined)) {
+    if (combined.includes('intermediate')) return 'Coder Intermediate';
+    if (combined.includes('advance')) return 'Coder Advance';
+    return 'Coder Basic';
+  }
+
+  // 2. Kinder Foundation vs Core
+  if (combined.includes('kinder') || /^kf/i.test(prog) || /^kf/i.test(term) || /^k\d/i.test(prog) || /^k\d/i.test(term)) {
+    if (combined.includes('foundation') || /^kf/i.test(prog) || /^kf/i.test(term)) return 'Kinder Foundation';
     return 'Kinder Core';
   }
-  if (lower.includes('junior')) return 'Junior Core';
-  if (lower.includes('coder')) return 'Coder Advance';
-  
-  return str;
+
+  // 3. Junior Foundation vs Core
+  if (combined.includes('junior') || /^jf/i.test(prog) || /^jf/i.test(term) || /^j\d/i.test(prog) || /^j\d/i.test(term)) {
+    if (combined.includes('foundation') || /^jf/i.test(prog) || /^jf/i.test(term)) return 'Junior Foundation';
+    return 'Junior Core';
+  }
+
+  if (prog.includes('foundation')) return 'Junior Foundation';
+  return String(rawProgram).trim() || 'Junior Core';
 }
 
 const DAY_MATCH_REGEX = /\b(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday|Mon|Tue|Wed|Thu|Fri|Sat|Sun|Senin|Selasa|Rabu|Kamis|Jumat|Sabtu|Minggu)\b/i;

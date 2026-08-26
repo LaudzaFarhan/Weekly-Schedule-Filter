@@ -621,9 +621,10 @@ export default function NewStudentsPage({ onNavigate } = {}) {
 
   // Helper function to get level badge styles
   const getLevelBadgeStyles = (level = '') => {
-    const isKinder = level.toLowerCase().includes('kinder');
-    const isJunior = level.toLowerCase().includes('junior');
-    const isCoder = level.toLowerCase().includes('coder');
+    const lvl = String(level || '').toLowerCase();
+    const isKinder = lvl.includes('kinder') || /^kf?\d/i.test(lvl);
+    const isJunior = lvl.includes('junior') || /^jf?\d/i.test(lvl);
+    const isCoder = lvl.includes('coder') || /basic|intermediate|advance|python|web|app|scratch|roblox/i.test(lvl);
 
     if (isKinder) {
       return {

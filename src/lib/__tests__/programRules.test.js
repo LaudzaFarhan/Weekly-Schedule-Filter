@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseProgram, normaliseCoderLevel, levelsForCategory, lessonsForCategory } from '../programRules';
+import { parseProgram, normaliseCoderLevel, levelsForCategory, lessonsForCategory, meetingsForSubscription } from '../programRules';
 
 describe('parseProgram', () => {
   it('correctly parses short codes', () => {
@@ -33,7 +33,7 @@ describe('parseProgram', () => {
     }));
   });
 
-  it('correctly parses full level names', () => {
+  it('correctly parses full level names and Coder stages', () => {
     expect(parseProgram('Kinder Foundation')).toEqual(expect.objectContaining({
       family: 'Kinder Foundation',
       category: 'Kinder',
@@ -55,6 +55,14 @@ describe('parseProgram', () => {
       category: 'Coder',
     }));
     expect(parseProgram('Coder Basic')).toEqual(expect.objectContaining({
+      family: 'Coder',
+      category: 'Coder',
+    }));
+    expect(parseProgram('Basic 1')).toEqual(expect.objectContaining({
+      family: 'Coder',
+      category: 'Coder',
+    }));
+    expect(parseProgram('Intermediate 2')).toEqual(expect.objectContaining({
       family: 'Coder',
       category: 'Coder',
     }));
@@ -80,7 +88,18 @@ describe('parseProgram', () => {
   });
 });
 
-describe('lessonsForCategory and levelsForCategory', () => {
+describe('normaliseCoderLevel', () => {
+  it('normalises basic and numbered coder levels', () => {
+    expect(normaliseCoderLevel('Basic 1')).toBe('Coder Basic');
+    expect(normaliseCoderLevel('Basic 2')).toBe('Coder Basic');
+    expect(normaliseCoderLevel('Intermediate 1')).toBe('Coder Intermediate');
+    expect(normaliseCoderLevel('Advance 2')).toBe('Coder Advance');
+    expect(normaliseCoderLevel('Coder Advance 2')).toBe('Coder Advance');
+    expect(normaliseCoderLevel('Junior Core')).toBe('Junior Core');
+  });
+});
+
+describe('lessonsForCategory, levelsForCategory, and meetingsForSubscription', () => {
   it('returns appropriate lesson counts', () => {
     expect(lessonsForCategory('Kinder')).toBe(10);
     expect(lessonsForCategory('Junior')).toBe(10);
@@ -92,4 +111,14 @@ describe('lessonsForCategory and levelsForCategory', () => {
     expect(levelsForCategory('Junior')).toEqual(['JF1', 'JF2', 'J1', 'J2', 'J3', 'J4']);
     expect(levelsForCategory('Coder')).toEqual(['Coder Basic', 'Coder Intermediate', 'Coder Advance']);
   });
+
+  it('calculates meetings for subscription packages correctly', () => {
+    expect(meetingsForSubscription('1 Month', 'Coder')).toBe(4);
+    expect(meetingsForSubscription('3 Months', 'Coder')).toBe(12);
+    expect(meetingsForSubscription('6 Months', 'Coder')).toBe(24);
+    expect(meetingsForSubscription('9 Months', 'Coder')).toBe(36);
+    expect(meetingsForSubscription('1 Year', 'Coder')).toBe(48);
+    expect(meetingsForSubscription('3 Months', 'Junior')).toBe(10);
+  });
 });
+

@@ -211,11 +211,9 @@ const programDurationMin = (program) => (isKinderProgram(program) ? 90 : 120);
 /** Classify a level/program string into Kinder | Junior | Coder | null. */
 const categorizeLevel = (str) => {
   const s = String(str || '').toLowerCase();
-  if (s.includes('kinder')) return 'Kinder';
-  if (s.includes('junior')) return 'Junior';
-  if (s.includes('coder')) return 'Coder';
-  if (/^kf|^k\d/.test(s)) return 'Kinder';
-  if (/^jf|^j\d/.test(s)) return 'Junior';
+  if (s.includes('coder') || /basic|intermediate|advance|python|web|app|scratch|roblox/.test(s)) return 'Coder';
+  if (s.includes('kinder') || /^kf|^k\d/.test(s)) return 'Kinder';
+  if (s.includes('junior') || /^jf|^j\d/.test(s)) return 'Junior';
   return null;
 };
 
@@ -229,9 +227,9 @@ const defaultCodeForLevel = (level) => {
   const s = String(level || '').trim();
   if (!s) return '';
   // Coder levels are stored verbatim as the program code. Folded first, so a
-  // student still recorded as "Coder Advance 1" resolves to "Coder Advance"
+  // student still recorded as "Coder Advance 1" or "Basic 1" resolves to "Coder Basic/Advance"
   // rather than failing to match and leaving the program field empty.
-  if (/^coder/i.test(s)) {
+  if (/^coder/i.test(s) || /basic|intermediate|advance|python|web|app|scratch|roblox/i.test(s)) {
     const folded = normaliseCoderLevel(s);
     const exact = PROGRAM_GROUPS.find((g) => g.label === 'Coder')
       ?.codes.find((c) => c.toLowerCase() === folded.toLowerCase());
@@ -296,7 +294,7 @@ const PROGRAM_CATEGORY_OPTIONS = [
 const resolveProgramCategoryName = (levelOrCode) => {
   const s = String(levelOrCode || '').trim().toLowerCase();
   if (!s) return 'Junior Core';
-  if (/coder/i.test(s)) return 'Coder';
+  if (/coder|basic|intermediate|advance|python|web|app|scratch|roblox/i.test(s)) return 'Coder';
   if (s.includes('foundation') || s.startsWith('kf') || s.startsWith('jf')) {
     if (s.includes('kinder') || s.startsWith('kf')) return 'Kinder Foundation';
     return 'Junior Foundation';
@@ -564,12 +562,12 @@ const parseHHMMToMin = (hhmm) => {
 /** Minutes-from-midnight to "HH:MM" (24h), for the modal's time input. */
 const minToHHMM = (mins) => `${String(Math.floor(mins / 60)).padStart(2, '0')}:${String(mins % 60).padStart(2, '0')}`;
 
-/** Parse a stored program value ("JF1.5", "Coder", "K2") into code + lesson. */
+/** Parse a stored program value ("JF1.5", "Coder", "K2", "Basic 1") into code + lesson. */
 const parseProgramValue = (p) => {
   const val = String(p || '').trim();
   if (!val) return { code: '', lesson: '1' };
-  // Coder programs store their full level as the code (e.g. "Coder Advance").
-  if (/^coder/i.test(val)) return { code: val, lesson: '1' };
+  // Coder programs store their full level/stage as code (e.g. "Coder Advance", "Basic 1"). No lesson numbers.
+  if (/coder|basic|intermediate|advance|python|web|app|scratch|roblox/i.test(val)) return { code: val, lesson: null };
   const m = val.match(/^([A-Za-z]{1,3}\d+)(?:[.\s]+(\d+))?$/);
   if (m) return { code: m[1].toUpperCase(), lesson: m[2] || '1' };
   return { code: '', lesson: '1' };
@@ -745,19 +743,21 @@ export default function NewSchedulePage({ onNavigate }) {
     const nameKey = String(st.name || '').trim().toLowerCase();
     const regularClass = st.regulars?.[0] || (placesByStudent.get(normalizeStudentName(st.name)) || []).find((c) => (c.classType || 'Regular') === ATTENDANCE.REGULAR);
 
+    const studentCategory = resolveProgramCategoryName(st.level);
     let initialCode = '';
     let initialTerm = 'Term 1';
     let initialLesson = '1';
-    let initialCategory = resolveProgramCategoryName(st.level);
+    let initialCategory = studentCategory;
 
     if (regularClass) {
       const parsed = parseProgramValue(regularClass.program);
-      initialCategory = resolveProgramCategoryName(regularClass.program || st.level);
+      const regCategory = resolveProgramCategoryName(regularClass.program);
+      initialCategory = (studentCategory === 'Coder' || regCategory === 'Coder') ? 'Coder' : (regCategory || studentCategory);
       initialTerm = regularClass.term || extractTermFromProgram(regularClass.program, regularClass.remarks) || defaultTermForLevel(st.level, parsed.code);
       initialCode = parsed.code || deriveCodeFromCategoryAndTerm(initialCategory, initialTerm, st.level);
       initialLesson = parsed.lesson || '1';
     } else {
-      initialCategory = resolveProgramCategoryName(st.level);
+      initialCategory = studentCategory;
       initialTerm = defaultTermForLevel(st.level, '');
       initialCode = deriveCodeFromCategoryAndTerm(initialCategory, initialTerm, st.level);
     }
@@ -2863,20 +2863,22 @@ export default function NewSchedulePage({ onNavigate }) {
                             <BookOpen size={11} />
                             {c.program}
                           </span>
-                          <span style={{
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: '0.2rem',
-                            background: 'rgba(124, 58, 237, 0.08)',
-                            color: '#7c3aed',
-                            border: '1px solid rgba(124, 58, 237, 0.2)',
-                            padding: '0.1rem 0.4rem',
-                            borderRadius: '5px',
-                            fontSize: '0.68rem',
-                            fontWeight: 600
-                          }}>
-                            {c.term || extractTermFromProgram(c.program, c.remarks)} · L{parseProgramValue(c.program).lesson || '1'}
-                          </span>
+                          {resolveProgramCategoryName(c.program) !== 'Coder' && (
+                            <span style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '0.2rem',
+                              background: 'rgba(124, 58, 237, 0.08)',
+                              color: '#7c3aed',
+                              border: '1px solid rgba(124, 58, 237, 0.2)',
+                              padding: '0.1rem 0.4rem',
+                              borderRadius: '5px',
+                              fontSize: '0.68rem',
+                              fontWeight: 600
+                            }}>
+                              {c.term || extractTermFromProgram(c.program, c.remarks)} · L{parseProgramValue(c.program).lesson || '1'}
+                            </span>
+                          )}
                         </div>
                       </td>
                       <td>
@@ -3183,12 +3185,17 @@ export default function NewSchedulePage({ onNavigate }) {
               {/* Term & Lesson for Junior / Kinder vs Coder */}
               {allocCategory === 'Coder' ? (
                 <div style={{
-                  padding: '0.55rem 0.75rem', borderRadius: '8px',
+                  padding: '0.65rem 0.85rem', borderRadius: '8px',
                   background: 'rgba(8, 145, 178, 0.08)', border: '1px solid rgba(8, 145, 178, 0.2)',
-                  color: '#0891b2', fontSize: '0.75rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.4rem'
+                  color: '#0e7490', fontSize: '0.78rem', fontWeight: 600, display: 'flex', flexDirection: 'column', gap: '0.25rem'
                 }}>
-                  <BookOpen size={14} />
-                  <span>Coder Program — Attendance Only (No specific lesson numbers required)</span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', color: '#0891b2', fontWeight: 700 }}>
+                    <BookOpen size={15} />
+                    <span>Coder Program — Subscription & Meeting Based</span>
+                  </div>
+                  <span style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', fontWeight: 400 }}>
+                    12 meetings per 3-month subscription period (24 meetings for 6 months). No fixed lesson numbers or terms required.
+                  </span>
                 </div>
               ) : (
                 <>
