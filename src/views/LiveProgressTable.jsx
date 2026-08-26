@@ -867,12 +867,41 @@ export default function LiveProgressTable({ category }) {
     // Close first: the save is optimistic, so the tick is already correct and
     // holding the dialog open until the round trip finishes just feels slow.
     closeAttendance();
-    await persist(row, (base) => {
-      const attendance = { ...base.attendance };
-      if (clear) delete attendance[lesson];
-      else attendance[lesson] = { date: draftDate || null, note: draftNote };
-      return { attendance };
-    });
+    const nextAttendance = { ...row.attendance };
+    if (clear) delete nextAttendance[lesson];
+    else nextAttendance[lesson] = { date: draftDate || null, note: draftNote };
+
+    await persist(row, () => ({ attendance: nextAttendance }));
+
+    // Sync updated next undone lesson to internal_classes schedule if applicable
+    if (category !== 'Coder' && row.studentName) {
+      const nextUndone = getNextUndoneLesson(nextAttendance, maxLessons);
+      const levelCode = row.levelCode || row.program;
+      const newProgStr = `${levelCode}.${nextUndone}`;
+
+      const normStudent = String(row.studentName).trim().toLowerCase();
+      const studentClass = (classes || []).find((c) => {
+        const sList = String(c.student || '').split(',').map((s) => s.trim().toLowerCase());
+        return sList.includes(normStudent);
+      });
+
+      if (studentClass && studentClass.id) {
+        try {
+          await updateInternalClass(studentClass.id, {
+            day: studentClass.day,
+            time: studentClass.time,
+            program: newProgStr,
+            student: studentClass.student,
+            teacher: studentClass.teacher,
+            branchName: studentClass.branchName,
+            classType: studentClass.classType || 'Regular',
+            remarks: studentClass.remarks || null,
+          });
+        } catch (e) {
+          console.warn('Could not sync attendance lesson to schedule class:', e);
+        }
+      }
+    }
   };
 
   const toggleVideo = async (row, level) => {

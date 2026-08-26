@@ -580,33 +580,51 @@ const extractTermFromProgram = (p, r) => {
   return match ? `Term ${match[1]}` : 'Term 1';
 };
 
-/** Format program display badge string (e.g. "KF1.1", "KF2.1", "J1.3", "Basic 1") */
-const formatProgramBadge = (program, term, remarks) => {
-  const progStr = String(program || '').trim();
-  if (!progStr) return '';
-
-  // If already formatted like "KF1.2", "J3.4", "K1.1" -> return as is
-  if (/^[A-Za-z]{1,3}\d+\.\d+$/.test(progStr)) {
-    return progStr.toUpperCase();
+/** Helper to get next uncompleted lesson number (1-10) from attendance record map */
+const getNextUndoneLessonFromAttendance = (attendanceMap, maxL = 10) => {
+  if (!attendanceMap) return '1';
+  for (let i = 1; i <= maxL; i++) {
+    if (!attendanceMap[i]) return String(i);
   }
+  return String(maxL);
+};
+
+/** Format program display badge string (e.g. "KF1.1", "KF2.2", "J1.3", "Basic 1") with Live Progress sync */
+const formatProgramBadge = (program, term, remarks, studentName, liveProgressList = []) => {
+  const progStr = String(program || '').trim();
+  if (!progStr && !term) return '';
 
   // Coder programs (Basic 1, Coder Basic, Intermediate, Advance, etc.)
-  if (/coder|basic|intermediate|advance|python|web|app|scratch|roblox/i.test(progStr)) {
-    return progStr;
+  if (/coder|basic|intermediate|advance|python|web|app|scratch|roblox/i.test(progStr || term)) {
+    return progStr || term;
   }
 
-  // Extract lesson number:
-  // 1. From program string if dotted: "KF1.2" -> 2
-  // 2. From remarks: "L2" or "Lesson 2" or "Term 1 - L2" or "Term 1 · L2"
-  // 3. Fallback: "1"
-  let lesson = '1';
-  const dottedMatch = progStr.match(/\.(\d+)$/);
-  if (dottedMatch) {
-    lesson = dottedMatch[1];
-  } else if (remarks) {
-    const remMatch = String(remarks).match(/\bL(?:esson)?\s*(\d+)\b/i);
-    if (remMatch) lesson = remMatch[1];
+  // 1. Look up student live progress record to see if they completed attendance / have arranged lesson
+  let lesson = null;
+  if (studentName && Array.isArray(liveProgressList) && liveProgressList.length > 0) {
+    const sName = String(studentName).trim().toLowerCase();
+    const progRecord = liveProgressList.find((p) => String(p.studentName || '').trim().toLowerCase() === sName);
+    if (progRecord) {
+      if (progRecord.arrangedLesson) {
+        lesson = String(progRecord.arrangedLesson).replace(/^L/i, '');
+      } else if (progRecord.attendance) {
+        lesson = getNextUndoneLessonFromAttendance(progRecord.attendance, 10);
+      }
+    }
   }
+
+  // 2. If no live progress match, extract lesson from program string if dotted: "KF1.2" -> 2
+  if (!lesson) {
+    const dottedMatch = progStr.match(/\.(\d+)$/);
+    if (dottedMatch) {
+      lesson = dottedMatch[1];
+    } else if (remarks) {
+      const remMatch = String(remarks).match(/\bL(?:esson)?\s*(\d+)\b/i);
+      if (remMatch) lesson = remMatch[1];
+    }
+  }
+
+  if (!lesson) lesson = '1';
 
   // Extract or derive code:
   // 1. Check if progStr itself is a code like "KF1", "KF2", "K1", "JF1", "J3"
@@ -630,7 +648,7 @@ const formatProgramBadge = (program, term, remarks) => {
   if (cat === 'Junior Foundation') return `JF${termNo === '2' ? '2' : '1'}.${lesson}`;
   if (cat === 'Junior Core') return `J${termNo}.${lesson}`;
 
-  return progStr;
+  return progStr ? `${progStr}.${lesson}` : `J1.${lesson}`;
 };
 
 /** Format minutes-since-midnight as "h.mm am/pm" (e.g. 13:00 -> "1.00 pm"). */
@@ -2914,7 +2932,7 @@ export default function NewSchedulePage({ onNavigate }) {
                             gap: '0.35rem'
                           }}>
                             <BookOpen size={12} />
-                            {formatProgramBadge(c.program, c.term, c.remarks)}
+                            {formatProgramBadge(c.program, c.term, c.remarks, c.student, liveProgress)}
                           </span>
                         </div>
                       </td>
