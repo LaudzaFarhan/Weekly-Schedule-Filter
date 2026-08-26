@@ -186,4 +186,38 @@ describe('LiveProgressTable - Unassigned Students & Unregistered Instructors', (
     fireEvent.change(branchSelect, { target: { value: 'Kelapa Gading' } });
     expect(screen.getByText('Arya Arkananta')).toBeInTheDocument();
   });
+
+  it('opens video attachment modal, attaches google drive video link, and saves', async () => {
+    render(<LiveProgressTable category="Kinder" />);
+
+    // Find the KF1 video button for Arya Arkananta
+    const kf1Btns = screen.getAllByRole('button', { name: /KF1/i });
+    expect(kf1Btns.length).toBeGreaterThanOrEqual(1);
+
+    // Click on the first KF1 button to open modal
+    fireEvent.click(kf1Btns[0]);
+
+    // Modal should appear
+    expect(screen.getByText('Attach Video Link')).toBeInTheDocument();
+    expect(screen.getByPlaceholderText(/drive\.google\.com/i)).toBeInTheDocument();
+
+    // Type video link
+    const input = screen.getByPlaceholderText(/drive\.google\.com/i);
+    fireEvent.change(input, { target: { value: 'https://drive.google.com/file/d/12345/view' } });
+
+    // Click Save Video Link
+    const saveBtn = screen.getByRole('button', { name: /Save Video Link/i });
+    fireEvent.click(saveBtn);
+
+    expect(saveLiveProgress).toHaveBeenCalledWith(
+      expect.objectContaining({
+        videos: expect.objectContaining({
+          KF1: expect.objectContaining({
+            link: 'https://drive.google.com/file/d/12345/view',
+          }),
+        }),
+      })
+    );
+  });
 });
+

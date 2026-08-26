@@ -33,6 +33,7 @@ import { isSameBranch, getCanonicalBranchName, DEFAULT_BRANCH_LIST } from '../ut
 import {
   Search, X, User, MapPin, Clock, Calendar, GraduationCap, Check, Video,
   StickyNote, AlertTriangle, TrendingUp, BookOpen, Edit3, Save, UserCheck, ChevronDown, CheckCircle2,
+  ExternalLink,
 } from 'lucide-react';
 
 const PAGE_SIZE = 5;
@@ -136,8 +137,12 @@ export default function LiveProgressTable({ category }) {
   const [arrangedDay, setArrangedDay] = useState('Monday');
   const [startTimeChoice, setStartTimeChoice] = useState('3:00 PM');
   const [customStartTime, setCustomStartTime] = useState('3:00 PM');
-  const [isCustomStartTime, setIsCustomStartTime] = useState(false);
   const [arrangingSaving, setArrangingSaving] = useState(false);
+
+  // Video attachment modal state
+  const [videoModal, setVideoModal] = useState(null); // { row, level, link }
+  const [videoLinkInput, setVideoLinkInput] = useState('');
+  const [videoSaving, setVideoSaving] = useState(false);
 
   const getInstructorsForBranch = (branchName) => {
     const bClean = String(branchName || '').trim();
@@ -904,13 +909,73 @@ export default function LiveProgressTable({ category }) {
     }
   };
 
+  const openVideoModal = (row, level) => {
+    const existing = row.videos?.[level];
+    const link = typeof existing === 'string' ? existing : (existing?.link || '');
+    setVideoModal({ row, level, link });
+    setVideoLinkInput(link);
+  };
+
+  const closeVideoModal = () => {
+    setVideoModal(null);
+    setVideoLinkInput('');
+  };
+
+  const handleSaveVideoLink = async () => {
+    if (!videoModal) return;
+    const { row, level } = videoModal;
+    const trimmed = String(videoLinkInput || '').trim();
+    setVideoSaving(true);
+    try {
+      await persist(row, (base) => {
+        const videos = { ...base.videos };
+        if (trimmed) {
+          videos[level] = { link: trimmed, date: new Date().toISOString() };
+        } else {
+          delete videos[level];
+        }
+        return { videos };
+      });
+      showToast({
+        title: trimmed ? 'Video Link Saved' : 'Video Link Cleared',
+        message: trimmed
+          ? `Google video link attached for ${row.studentName} (${level})`
+          : `Video link removed for ${row.studentName} (${level})`,
+        variant: 'success',
+      });
+      closeVideoModal();
+    } catch (err) {
+      showToast({ title: 'Error saving video link', message: err.message, variant: 'error' });
+    } finally {
+      setVideoSaving(false);
+    }
+  };
+
+  const handleRemoveVideoLink = async () => {
+    if (!videoModal) return;
+    const { row, level } = videoModal;
+    setVideoSaving(true);
+    try {
+      await persist(row, (base) => {
+        const videos = { ...base.videos };
+        delete videos[level];
+        return { videos };
+      });
+      showToast({
+        title: 'Video Link Removed',
+        message: `Video link removed for ${row.studentName} (${level})`,
+        variant: 'success',
+      });
+      closeVideoModal();
+    } catch (err) {
+      showToast({ title: 'Error removing video link', message: err.message, variant: 'error' });
+    } finally {
+      setVideoSaving(false);
+    }
+  };
+
   const toggleVideo = async (row, level) => {
-    await persist(row, (base) => {
-      const videos = { ...base.videos };
-      if (videos[level]) delete videos[level];
-      else videos[level] = true;
-      return { videos };
-    });
+    openVideoModal(row, level);
   };
 
   const setContinuation = async (row, value) => {
@@ -1319,26 +1384,32 @@ export default function LiveProgressTable({ category }) {
                         <td>
                           <div style={{ display: 'flex', gap: '0.25rem', flexWrap: 'wrap' }}>
                             {levels.map((lvl) => {
-                              const sent = !!r.videos[lvl];
+                              const videoEntry = r.videos?.[lvl];
+                              const sent = !!videoEntry;
+                              const link = typeof videoEntry === 'string' ? videoEntry : videoEntry?.link;
                               return (
                                 <button
                                   key={lvl}
                                   type="button"
-                                  onClick={() => toggleVideo(r, lvl)}
+                                  onClick={() => openVideoModal(r, lvl)}
                                   title={sent
-                                    ? `${lvl} video sent — click to unmark`
-                                    : `${lvl} video not sent — click to mark as sent`}
+                                    ? link
+                                      ? `${lvl} Video attached: ${link}\nClick to view or edit Google link`
+                                      : `${lvl} Video marked as sent\nClick to attach Google link`
+                                    : `Click to attach ${lvl} Google video link`}
                                   aria-pressed={sent}
                                   style={{
-                                    display: 'inline-flex', alignItems: 'center', gap: '0.2rem',
-                                    padding: '0.12rem 0.35rem', borderRadius: '5px', cursor: 'pointer',
-                                    fontSize: '0.66rem', fontWeight: 700, whiteSpace: 'nowrap',
-                                    border: `1px solid ${sent ? 'rgba(8,145,178,0.8)' : 'var(--border-color)'}`,
-                                    background: sent ? 'rgba(8,145,178,0.12)' : 'transparent',
+                                    display: 'inline-flex', alignItems: 'center', gap: '0.22rem',
+                                    padding: '0.14rem 0.42rem', borderRadius: '6px', cursor: 'pointer',
+                                    fontSize: '0.68rem', fontWeight: 700, whiteSpace: 'nowrap',
+                                    border: `1.5px solid ${sent ? '#0891b2' : 'var(--border-color)'}`,
+                                    background: sent ? 'rgba(8,145,178,0.15)' : 'transparent',
                                     color: sent ? '#0891b2' : 'var(--text-muted)',
+                                    boxShadow: sent ? '0 1px 3px rgba(8,145,178,0.2)' : 'none',
+                                    transition: 'all 0.15s ease',
                                   }}
                                 >
-                                  {sent && <Video size={9} />}
+                                  {sent && <Video size={10} style={{ flexShrink: 0 }} />}
                                   {lvl}
                                 </button>
                               );
@@ -1765,6 +1836,189 @@ export default function LiveProgressTable({ category }) {
           </div>
         );
       })()}
+
+      {/* Video Attachment Modal */}
+      {videoModal && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="video-modal-title"
+          style={{
+            position: 'fixed', inset: 0,
+            background: 'rgba(0, 0, 0, 0.45)', backdropFilter: 'blur(4px)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            zIndex: 9999, padding: '1rem',
+          }}
+          onClick={(e) => { if (e.target === e.currentTarget) closeVideoModal(); }}
+        >
+          <div
+            style={{
+              background: 'var(--panel-bg, #ffffff)',
+              borderRadius: '16px',
+              maxWidth: '480px', width: '100%',
+              boxShadow: '0 16px 40px rgba(0,0,0,0.2)',
+              border: '1px solid var(--border-color)',
+              overflow: 'hidden',
+            }}
+          >
+            {/* Header */}
+            <div style={{
+              padding: '1.2rem 1.5rem',
+              borderBottom: '1px solid var(--border-color)',
+              background: 'var(--bg-color)',
+              display: 'flex', justifyContent: 'space-between', alignItems: 'center'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                <div style={{
+                  width: '36px', height: '36px', borderRadius: '10px',
+                  background: 'rgba(8, 145, 178, 0.12)', color: '#0891b2',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center'
+                }}>
+                  <Video size={18} />
+                </div>
+                <div>
+                  <h3 id="video-modal-title" style={{ margin: 0, fontSize: '1rem', fontWeight: 700 }}>
+                    Attach Video Link
+                  </h3>
+                  <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginTop: '0.1rem' }}>
+                    {videoModal.row.studentName} — <strong>{videoModal.level}</strong>
+                  </div>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={closeVideoModal}
+                style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--text-muted)' }}
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Body */}
+            <div style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1.2rem' }}>
+              <div>
+                <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-secondary)', display: 'block', marginBottom: '0.4rem' }}>
+                  Google Drive / Video Link URL *
+                </label>
+                <input
+                  type="url"
+                  value={videoLinkInput}
+                  onChange={(e) => setVideoLinkInput(e.target.value)}
+                  placeholder="https://drive.google.com/file/d/... or link"
+                  autoFocus
+                  style={{
+                    width: '100%',
+                    padding: '0.6rem 0.8rem',
+                    borderRadius: '8px',
+                    border: '1.5px solid var(--border-color)',
+                    fontSize: '0.85rem',
+                    background: 'var(--bg-color)',
+                    color: 'var(--text-main)',
+                    outline: 'none',
+                    boxSizing: 'border-box',
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      handleSaveVideoLink();
+                    }
+                  }}
+                />
+                <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '0.35rem', display: 'block' }}>
+                  Paste Google Drive, Google Photos, YouTube, or any public video recording link.
+                </span>
+              </div>
+
+              {videoModal.link && (
+                <div style={{
+                  padding: '0.75rem 1rem',
+                  borderRadius: '10px',
+                  background: 'rgba(8, 145, 178, 0.08)',
+                  border: '1px solid rgba(8, 145, 178, 0.2)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between'
+                }}>
+                  <div style={{ fontSize: '0.78rem', color: '#0e7490', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginRight: '0.5rem' }}>
+                    <strong>Attached:</strong> {videoModal.link}
+                  </div>
+                  <a
+                    href={videoModal.link.startsWith('http') ? videoModal.link : `https://${videoModal.link}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{
+                      display: 'inline-flex', alignItems: 'center', gap: '0.3rem',
+                      fontSize: '0.75rem', fontWeight: 600,
+                      color: '#0891b2', textDecoration: 'none', flexShrink: 0
+                    }}
+                  >
+                    Open <ExternalLink size={13} />
+                  </a>
+                </div>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div style={{
+              padding: '1rem 1.5rem',
+              borderTop: '1px solid var(--border-color)',
+              background: 'var(--bg-color)',
+              display: 'flex', justifyContent: 'space-between', alignItems: 'center'
+            }}>
+              <div>
+                {videoModal.row.videos?.[videoModal.level] ? (
+                  <button
+                    type="button"
+                    onClick={handleRemoveVideoLink}
+                    disabled={videoSaving}
+                    style={{
+                      background: 'rgba(239, 68, 68, 0.1)',
+                      color: 'var(--danger, #ef4444)',
+                      border: '1px solid rgba(239, 68, 68, 0.25)',
+                      borderRadius: '8px',
+                      padding: '0.45rem 0.9rem',
+                      fontSize: '0.8rem',
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    Remove Video
+                  </button>
+                ) : null}
+              </div>
+
+              <div style={{ display: 'flex', gap: '0.6rem' }}>
+                <button
+                  type="button"
+                  onClick={closeVideoModal}
+                  disabled={videoSaving}
+                  className="btn"
+                  style={{ background: 'transparent', border: '1px solid var(--border-color)', borderRadius: '8px', fontSize: '0.82rem' }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSaveVideoLink}
+                  disabled={videoSaving || !videoLinkInput.trim()}
+                  className="btn"
+                  style={{
+                    background: '#0891b2',
+                    color: '#ffffff',
+                    border: 'none',
+                    borderRadius: '8px',
+                    padding: '0.45rem 1.1rem',
+                    fontSize: '0.82rem',
+                    fontWeight: 600,
+                    cursor: videoSaving || !videoLinkInput.trim() ? 'not-allowed' : 'pointer',
+                    opacity: videoSaving || !videoLinkInput.trim() ? 0.6 : 1,
+                  }}
+                >
+                  {videoSaving ? 'Saving...' : 'Save Video Link'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </section>
   );
 }

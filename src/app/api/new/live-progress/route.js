@@ -85,7 +85,7 @@ function normaliseAttendance(value, category) {
   return { attendance: out };
 }
 
-/** Validate the video flags. Only ever true; a false flag is simply dropped. */
+/** Validate the video flags. Either true, a URL string, or an object { link: '...', date: '...' } */
 function normaliseVideos(value) {
   if (value == null) return { videos: {} };
   if (typeof value !== 'object' || Array.isArray(value)) {
@@ -95,7 +95,15 @@ function normaliseVideos(value) {
   for (const [key, on] of Object.entries(value)) {
     const level = String(key).trim();
     if (!level) return { error: 'videos contains an empty level code' };
-    if (on) out[level] = true;
+    if (on) {
+      if (typeof on === 'string') {
+        out[level] = { link: on, sent: true };
+      } else if (typeof on === 'object' && on !== null) {
+        out[level] = { link: on.link || '', sent: true, date: on.date || null };
+      } else {
+        out[level] = true;
+      }
+    }
   }
   return { videos: out };
 }
