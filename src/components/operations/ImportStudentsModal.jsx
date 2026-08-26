@@ -5,7 +5,7 @@ import { X, Upload, Download, FileSpreadsheet, CheckCircle2, AlertTriangle, File
 import * as XLSX from 'xlsx';
 
 import { formatNormalizedTimeSlot } from '../../utils/timeUtils';
-import { DEFAULT_BRANCH_LIST } from '../../utils/constants';
+import { DEFAULT_BRANCH_LIST, getCanonicalBranchName } from '../../utils/constants';
 import { isInstructorMatch, isSameTeacher, getInstructorDisplayName } from '../../utils/instructorUtils';
 
 /**
@@ -121,7 +121,7 @@ export default function ImportStudentsModal({
         const daysIdx = headers.findIndex((h) => /DAYS?|DAY|HARI/i.test(h));
         const timeIdx = headers.findIndex((h) => /TIME|JAM|WAKTU|SLOT|JADWAL/i.test(h));
         const instructorIdx = headers.findIndex((h) => /INSTRUCTOR|TEACHER|GURU|PENGAJAR/i.test(h));
-        const branchIdx = headers.findIndex((h) => /BRANCH|CABANG/i.test(h));
+        const branchIdx = headers.findIndex((h) => /BRANCH|CABANG|LOKASI|LOCATION/i.test(h));
         const parentIdx = headers.findIndex((h) => /PARENT|ORANG\s*TUA/i.test(h));
         const contactIdx = headers.findIndex((h) => /CONTACT|PHONE|TELP|WA/i.test(h));
         const remarksIdx = headers.findIndex((h) => /REMARKS?|NOTES?|CATATAN|KETERANGAN|INFO/i.test(h));
@@ -184,11 +184,13 @@ export default function ImportStudentsModal({
 
           const valResult = validateInstructorAlias(rawInstructor, instructorsList);
           const matchedBranch = valResult.instructorObj?.branches?.[0] || valResult.instructorObj?.location;
+          const canonicalBranch = rawBranch ? getCanonicalBranchName(rawBranch) : '';
+          const finalBranch = canonicalBranch || matchedBranch || selectedBranch;
 
           extracted.push({
             name,
             level,
-            branchName: rawBranch || matchedBranch || selectedBranch,
+            branchName: finalBranch,
             parentName: rawParent || null,
             contact: rawContact || '',
             status: 'Active',
@@ -200,6 +202,7 @@ export default function ImportStudentsModal({
             rawTime,
             rawInstructor: valResult.isValid ? (valResult.matchedName || rawInstructor) : rawInstructor,
             originalInstructor: rawInstructor,
+            rawBranch,
             rawRemarks,
             isInstructorValid: valResult.isValid,
             matchedInstructor: valResult.matchedName,
@@ -223,14 +226,14 @@ export default function ImportStudentsModal({
 
   const handleDownloadTemplate = () => {
     const sampleData = [
-      { NO: 1, PROGRAM: 'Kinder Foundation', NAME: 'Liam Theodore', TERM: 'KF2', DAYS: 'Monday', TIME: '1.00-2.30pm', INSTRUCTOR: 'Supandi' },
-      { NO: 2, PROGRAM: 'Kinder Foundation', NAME: 'Marvel Benedict Josojuwono', TERM: 'KF2', DAYS: 'Monday', TIME: '1.00-2.30pm', INSTRUCTOR: 'Supandi' },
-      { NO: 3, PROGRAM: 'Kinder', NAME: 'Keenan Fidem Laksmana', TERM: 'K1', DAYS: 'Monday', TIME: '3.00-4.30pm', INSTRUCTOR: 'Ziyah' },
-      { NO: 4, PROGRAM: 'Kinder', NAME: 'Arya Arkananta', TERM: 'K3', DAYS: 'Monday', TIME: '3.00-4.30pm', INSTRUCTOR: 'Ziyah' },
-      { NO: 5, PROGRAM: 'Kinder', NAME: 'Edmund Glorious Widjaja', TERM: 'K3', DAYS: 'Monday', TIME: '3.00-4.30pm', INSTRUCTOR: 'Ziyah' },
-      { NO: 6, PROGRAM: 'Kinder', NAME: 'Tiffany Callysta Lo', TERM: 'K1', DAYS: 'Monday', TIME: '3.00-4.30pm', INSTRUCTOR: 'Supandi' },
-      { NO: 7, PROGRAM: 'Kinder Foundation', NAME: 'Georgius Marvel Suryadi', TERM: 'KF2', DAYS: 'Monday', TIME: '4.30-6.00pm', INSTRUCTOR: 'Ziyah' },
-      { NO: 8, PROGRAM: 'Kinder', NAME: 'Adriel Djayaputra Kalim', TERM: 'K3', DAYS: 'Monday', TIME: '4.30-6.00pm', INSTRUCTOR: 'Anya' },
+      { NO: 1, BRANCH: 'Puri Indah', PROGRAM: 'Kinder Foundation', NAME: 'Liam Theodore', TERM: 'KF2', DAYS: 'Monday', TIME: '1.00-2.30pm', INSTRUCTOR: 'Supandi' },
+      { NO: 2, BRANCH: 'Kelapa Gading', PROGRAM: 'Kinder Foundation', NAME: 'Marvel Benedict Josojuwono', TERM: 'KF2', DAYS: 'Monday', TIME: '1.00-2.30pm', INSTRUCTOR: 'Supandi' },
+      { NO: 3, BRANCH: 'Pluit Village', PROGRAM: 'Kinder Core', NAME: 'Keenan Fidem Laksmana', TERM: 'K1', DAYS: 'Monday', TIME: '3.00-4.30pm', INSTRUCTOR: 'Ziyah' },
+      { NO: 4, BRANCH: 'Gading Serpong', PROGRAM: 'Junior Core', NAME: 'Arya Arkananta', TERM: 'J1', DAYS: 'Tuesday', TIME: '3.00-5.00pm', INSTRUCTOR: 'Ziyah' },
+      { NO: 5, BRANCH: 'Pondok Indah', PROGRAM: 'Junior Core', NAME: 'Edmund Glorious Widjaja', TERM: 'J2', DAYS: 'Wednesday', TIME: '3.00-5.00pm', INSTRUCTOR: 'Ziyah' },
+      { NO: 6, BRANCH: 'Bekasi', PROGRAM: 'Kinder Core', NAME: 'Tiffany Callysta Lo', TERM: 'K1', DAYS: 'Thursday', TIME: '3.00-4.30pm', INSTRUCTOR: 'Supandi' },
+      { NO: 7, BRANCH: 'Bintaro', PROGRAM: 'Coder', NAME: 'Georgius Marvel Suryadi', TERM: 'Coder Advance', DAYS: 'Saturday', TIME: '1.00-3.00pm', INSTRUCTOR: 'Ziyah' },
+      { NO: 8, BRANCH: 'Puri Indah', PROGRAM: 'Junior Foundation', NAME: 'Adriel Djayaputra Kalim', TERM: 'JF1', DAYS: 'Saturday', TIME: '10.00-12.00am', INSTRUCTOR: 'Anya' },
     ];
 
     const ws = XLSX.utils.json_to_sheet(sampleData);
@@ -306,7 +309,7 @@ export default function ImportStudentsModal({
               Bulk Import Students
             </h2>
             <p style={{ margin: '0.2rem 0 0', fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
-              Upload an Excel (.xlsx, .xls) or CSV file with NO, PROGRAM, NAME, TERM, DAYS, TIME, INSTRUCTOR.
+              Upload an Excel (.xlsx, .xls) or CSV file with NO, BRANCH, PROGRAM, NAME, TERM, DAYS, TIME, INSTRUCTOR.
             </p>
           </div>
           <button
@@ -324,8 +327,8 @@ export default function ImportStudentsModal({
           
           {/* Default Branch Selection */}
           <div style={{ display: 'flex', gap: '1rem', alignItems: 'center', flexWrap: 'wrap' }}>
-            <div style={{ flex: '1 1 200px' }}>
-              <label className="modal-form-label" style={{ marginBottom: '0.3rem' }}>Target Branch</label>
+            <div style={{ flex: '1 1 240px' }}>
+              <label className="modal-form-label" style={{ marginBottom: '0.3rem' }}>Default / Fallback Branch</label>
               <select
                 value={selectedBranch}
                 onChange={(e) => setSelectedBranch(e.target.value)}
@@ -337,7 +340,7 @@ export default function ImportStudentsModal({
                 ))}
               </select>
               <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
-                Applied to imported rows if the sheet doesn't specify a branch column.
+                Used if a row lacks a BRANCH column. If your sheet has a BRANCH column, all students across all branches are imported at once.
               </span>
             </div>
 
@@ -389,7 +392,7 @@ export default function ImportStudentsModal({
               {file ? file.name : 'Click to select or drop your spreadsheet file'}
             </div>
             <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.2rem' }}>
-              Supports .xlsx, .xls, and .csv files
+              Supports .xlsx, .xls, and .csv files with BRANCH column
             </div>
           </div>
 
@@ -445,7 +448,7 @@ export default function ImportStudentsModal({
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <span style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--success)', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                  <CheckCircle2 size={16} /> Found {parsedRows.length} student records ready to import
+                  <CheckCircle2 size={16} /> Found {parsedRows.length} student records across {new Set(parsedRows.map(r => r.branchName).filter(Boolean)).size} branch{new Set(parsedRows.map(r => r.branchName).filter(Boolean)).size === 1 ? '' : 'es'} ready to import
                 </span>
                 <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Showing first 8 preview rows</span>
               </div>
@@ -456,6 +459,7 @@ export default function ImportStudentsModal({
                     <tr>
                       <th style={{ padding: '0.5rem 0.75rem' }}>#</th>
                       <th style={{ padding: '0.5rem 0.75rem' }}>Student Name</th>
+                      <th style={{ padding: '0.5rem 0.75rem' }}>Branch</th>
                       <th style={{ padding: '0.5rem 0.75rem' }}>Program</th>
                       <th style={{ padding: '0.5rem 0.75rem' }}>Term</th>
                       <th style={{ padding: '0.5rem 0.75rem' }}>Schedule</th>
@@ -468,6 +472,20 @@ export default function ImportStudentsModal({
                       <tr key={i} style={{ borderBottom: '1px solid var(--border-color)' }}>
                         <td style={{ padding: '0.45rem 0.75rem', color: 'var(--text-muted)' }}>{i + 1}</td>
                         <td style={{ padding: '0.45rem 0.75rem', fontWeight: 600 }}>{r.name}</td>
+                        <td style={{ padding: '0.45rem 0.75rem' }}>
+                          <span style={{
+                            fontSize: '0.72rem',
+                            fontWeight: 600,
+                            padding: '0.15rem 0.45rem',
+                            borderRadius: '6px',
+                            background: 'rgba(79, 70, 229, 0.08)',
+                            color: 'var(--primary-blue, #4f46e5)',
+                            border: '1px solid rgba(79, 70, 229, 0.2)',
+                            whiteSpace: 'nowrap'
+                          }}>
+                            {r.branchName || selectedBranch}
+                          </span>
+                        </td>
                         <td style={{ padding: '0.45rem 0.75rem' }}>{r.rawProgram || r.level}</td>
                         <td style={{ padding: '0.45rem 0.75rem' }}>{r.rawTerm || '—'}</td>
                         <td style={{ padding: '0.45rem 0.75rem' }}>{r.rawDays} {r.rawTime}</td>

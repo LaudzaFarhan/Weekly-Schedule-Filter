@@ -46,6 +46,7 @@ function normaliseDayName(dayStr) {
   return str.charAt(0).toUpperCase() + str.slice(1);
 }
 import { formatNormalizedTimeSlot } from '../utils/timeUtils';
+import { getCanonicalBranchName } from '../utils/constants';
 import { filterStudents } from '../lib/studentFilter';
 import { Plus, Pencil, Trash2, FileText, Search, X, MapPin, User, UserCheck, GraduationCap, Phone, CheckCircle, HelpCircle, AlertTriangle, Upload, Clock, Sparkles } from 'lucide-react';
 
@@ -413,7 +414,7 @@ export default function NewStudentsPage({ onNavigate } = {}) {
             program: String(s.rawTerm || s.rawProgram || s.level || 'General').trim(),
             student: String(s.name).trim(),
             teacher: canonicalTeacher,
-            branchName: String(s.branchName || 'Puri Indah').trim(),
+            branchName: getCanonicalBranchName(s.branchName || 'Puri Indah'),
             classType: 'Regular',
             remarks: s.rawRemarks || s.remarks || null,
           });

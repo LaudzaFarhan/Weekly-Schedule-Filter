@@ -5,7 +5,7 @@ import { render, screen } from '@testing-library/react';
 import ImportStudentsModal from '../ImportStudentsModal';
 
 describe('ImportStudentsModal', () => {
-  it('renders the header and buttons correctly', () => {
+  it('renders the header, fallback branch selector, and buttons correctly', () => {
     render(
       <ImportStudentsModal
         branches={[{ name: 'Bekasi' }, { name: 'Bintaro' }]}
@@ -17,6 +17,8 @@ describe('ImportStudentsModal', () => {
 
     expect(screen.getByText('Bulk Import Students')).toBeInTheDocument();
     expect(screen.getByText('Download Sample Format (.xlsx)')).toBeInTheDocument();
-    expect(screen.getByText('Target Branch')).toBeInTheDocument();
+    expect(screen.getByText('Default / Fallback Branch')).toBeInTheDocument();
+    expect(screen.getByText(/Supports \.xlsx, \.xls, and \.csv files with BRANCH column/i)).toBeInTheDocument();
   });
 });
+
