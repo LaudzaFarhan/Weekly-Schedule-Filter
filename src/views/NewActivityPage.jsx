@@ -5,6 +5,7 @@ import {
   History, Search, Trash, X, User, AlertTriangle, AlertCircle, Info, Bell, CheckCheck,
 } from 'lucide-react';
 import { subscribeToActivity, deleteActivity, displayUser } from '../services/newActivityService';
+import { parseActivityChanges } from '../lib/scheduleActivityHelper';
 import {
   subscribeToNotifications, readDismissed, dismissNotification, dismissAll, visibleItems,
 } from '../services/newNotificationService';
@@ -289,24 +290,70 @@ export default function NewActivityPage({ onNavigate }) {
                 const meta = ACTION_META[h.action] || { color: 'var(--text-muted)', bg: 'var(--bg-color)', label: (h.action || '').toUpperCase() };
                 const when = new Date(h.createdAt || h.at);
                 const who = displayUser(h.userEmail);
+                const parsed = parseActivityChanges(h);
+
                 return (
-                  <div key={h.id ?? i} style={{ display: 'flex', alignItems: 'center', gap: '0.7rem', padding: '0.6rem 0.75rem', borderRadius: '8px', background: 'var(--bg-color)', border: '1px solid var(--border-color)', flexShrink: 0 }}>
-                    <span style={{ fontSize: '0.64rem', fontWeight: 700, color: meta.color, background: meta.bg, padding: '0.12rem 0.45rem', borderRadius: '5px', flexShrink: 0, minWidth: '52px', textAlign: 'center' }}>{meta.label}</span>
+                  <div
+                    key={h.id ?? i}
+                    style={{
+                      display: 'flex', alignItems: 'flex-start', gap: '0.75rem',
+                      padding: '0.65rem 0.85rem', borderRadius: '8px',
+                      background: 'var(--bg-color)', border: '1px solid var(--border-color)',
+                      flexShrink: 0,
+                    }}
+                  >
+                    <span style={{
+                      fontSize: '0.64rem', fontWeight: 700, color: meta.color, background: meta.bg,
+                      padding: '0.15rem 0.5rem', borderRadius: '5px', flexShrink: 0, minWidth: '54px',
+                      textAlign: 'center', marginTop: '0.15rem',
+                    }}>
+                      {meta.label}
+                    </span>
+
                     <span
                       title={h.userEmail || 'No user recorded'}
                       style={{
                         display: 'inline-flex', alignItems: 'center', gap: '0.25rem', flexShrink: 0,
-                        fontSize: '0.7rem', fontWeight: 600, padding: '0.12rem 0.45rem', borderRadius: '99px',
+                        fontSize: '0.7rem', fontWeight: 600, padding: '0.15rem 0.5rem', borderRadius: '99px',
                         color: h.userEmail ? 'var(--primary-blue, #4f46e5)' : 'var(--text-muted)',
                         background: h.userEmail ? 'var(--primary-blue-light, rgba(79,70,229,0.1))' : 'transparent',
                         border: h.userEmail ? 'none' : '1px dashed var(--border-color)',
                         maxWidth: '140px', overflow: 'hidden', whiteSpace: 'nowrap',
+                        marginTop: '0.1rem',
                       }}
                     >
                       <User size={10} /> {who}
                     </span>
-                    <span style={{ fontSize: '0.86rem', color: 'var(--text-main)', flex: 1 }}>{h.summary}</span>
-                    <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', flexShrink: 0, whiteSpace: 'nowrap' }}>
+
+                    <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                      <span style={{ fontSize: '0.86rem', color: 'var(--text-main)', fontWeight: parsed.hasChanges ? 600 : 400 }}>
+                        {parsed.title}
+                      </span>
+
+                      {/* Before / After Diff Badges */}
+                      {parsed.hasChanges && (
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem', marginTop: '0.1rem' }}>
+                          {parsed.changes.map((c, ci) => (
+                            <span
+                              key={ci}
+                              style={{
+                                display: 'inline-flex', alignItems: 'center', gap: '0.3rem',
+                                fontSize: '0.75rem', padding: '0.18rem 0.5rem', borderRadius: '6px',
+                                background: 'rgba(217,119,6,0.08)', border: '1px solid rgba(217,119,6,0.25)',
+                                color: 'var(--text-main)',
+                              }}
+                            >
+                              <strong style={{ color: '#d97706', fontWeight: 600 }}>{c.field}:</strong>
+                              <span style={{ color: 'var(--text-muted)', textDecoration: 'line-through' }}>{c.before}</span>
+                              <span style={{ color: '#d97706', fontWeight: 700 }}>→</span>
+                              <span style={{ color: 'var(--text-main)', fontWeight: 600 }}>{c.after}</span>
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', flexShrink: 0, whiteSpace: 'nowrap', marginTop: '0.15rem' }}>
                       {isNaN(when.getTime()) ? '' : when.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
                     </span>
                   </div>

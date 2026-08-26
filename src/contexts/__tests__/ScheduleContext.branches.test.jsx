@@ -246,8 +246,8 @@ describe('loading branches from the PostgreSQL-backed store', () => {
 
     const view = await mount();
 
-    expect(rendered(view)).toHaveLength(1);
-    expect(rendered(view)[0]).toMatchObject({ id: 'default' });
+    expect(rendered(view)).toHaveLength(7);
+    expect(rendered(view)[0]).toMatchObject({ id: 'gading-serpong', name: 'Gading Serpong' });
   });
 });
 

@@ -52,7 +52,10 @@ export function AuthProvider({ children }) {
   /** Ask the server whether this browser still holds a session cookie. */
   const refreshPgSession = useCallback(async () => {
     try {
-      const res = await fetch('/api/new/auth/session');
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 3000);
+      const res = await fetch('/api/new/auth/session', { signal: controller.signal });
+      clearTimeout(timeoutId);
       if (!res.ok) {
         setPgUser(null);
         return null;
@@ -80,11 +83,38 @@ export function AuthProvider({ children }) {
       setFirebaseChecked(true);
       return undefined;
     }
-    const unsubscribe = onAuthStateChanged(auth, (nextUser) => {
-      setFirebaseUser(nextUser);
+
+    // Safety fallback timer: guarantee that Firebase initialization never blocks the UI
+    // from rendering on local network IP or offline environments.
+    const timer = setTimeout(() => {
       setFirebaseChecked(true);
-    });
-    return unsubscribe;
+    }, 1500);
+
+    let unsubscribe = () => {};
+    try {
+      unsubscribe = onAuthStateChanged(
+        auth,
+        (nextUser) => {
+          clearTimeout(timer);
+          setFirebaseUser(nextUser);
+          setFirebaseChecked(true);
+        },
+        (err) => {
+          console.warn('Firebase auth state check encountered an error:', err?.message || err);
+          clearTimeout(timer);
+          setFirebaseChecked(true);
+        }
+      );
+    } catch (err) {
+      console.warn('Firebase onAuthStateChanged failed to attach:', err?.message || err);
+      clearTimeout(timer);
+      setFirebaseChecked(true);
+    }
+
+    return () => {
+      clearTimeout(timer);
+      if (typeof unsubscribe === 'function') unsubscribe();
+    };
   }, []);
 
   // A PostgreSQL session wins when both exist: it is the newer system and the one

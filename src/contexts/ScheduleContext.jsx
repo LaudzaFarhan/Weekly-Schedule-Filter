@@ -117,9 +117,11 @@ const DEFAULT_ROLE_TOGGLES = {
 const DEFAULT_SHEET_URL = process.env.NEXT_PUBLIC_DEFAULT_SHEET_URL ||
   'https://docs.google.com/spreadsheets/d/e/2PACX-1vS2ZEndjqsEzgvblfHF44IPQmJQRVHo65zzOya727KEZ0HjtmhXNAmXgzDXTPtGt9q3A02RqG0EV-7d/pubhtml';
 
-const DEFAULT_BRANCHES = [
-  { id: 'default', name: 'Default Branch', url: DEFAULT_SHEET_URL }
-];
+const DEFAULT_BRANCHES = DEFAULT_BRANCH_LIST.map((b) => ({
+  id: b.id,
+  name: b.name,
+  url: DEFAULT_SHEET_URL,
+}));
 
 /**
  * Deep-merge stored role toggles with defaults so newly added sidebar keys
@@ -161,7 +163,13 @@ export function ScheduleProvider({ children }) {
   const [failedBranches, setFailedBranches] = useState([]);
 
   // Config data — initialised from localStorage (instant), then overwritten by API
-  const [branches, setBranches] = useState(() => loadLocal('branches', DEFAULT_BRANCHES));
+  const [branches, setBranches] = useState(() => {
+    const loaded = loadLocal('branches', DEFAULT_BRANCHES);
+    if (!Array.isArray(loaded) || loaded.length === 0 || (loaded.length === 1 && (loaded[0]?.name === 'Default Branch' || loaded[0]?.id === 'default'))) {
+      return DEFAULT_BRANCHES;
+    }
+    return loaded;
+  });
   const [activeBranchId, setActiveBranchId] = useState(() => loadLocal('activeBranchId', 'default'));
   const [leaveList, setLeaveList] = useState(() => {
     const list = loadLocal('leaveList', []);
@@ -314,6 +322,19 @@ export function ScheduleProvider({ children }) {
 
       const stored = data.value;
       if (Array.isArray(stored) && stored.length > 0) {
+        if (stored.length === 1 && (stored[0]?.name === 'Default Branch' || stored[0]?.id === 'default')) {
+          if (cancelled) return;
+          setBranches(DEFAULT_BRANCHES);
+          cacheBranches(DEFAULT_BRANCHES);
+          try {
+            fetch(BRANCHES_ENDPOINT, {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ key: BRANCHES_KEY, value: DEFAULT_BRANCHES }),
+            });
+          } catch {}
+          return;
+        }
         if (cancelled) return;
         setBranches(stored);
         cacheBranches(stored);

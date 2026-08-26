@@ -18,6 +18,15 @@ vi.mock('@/contexts/ScheduleContext', () => ({
   }),
 }));
 
+vi.mock('@/contexts/AuthContext', () => ({
+  useAuth: () => ({ user: { email: 'admin@thelab.id' } }),
+}));
+
+vi.mock('@/services/newActivityService', () => ({
+  logActivity: vi.fn(async () => ({})),
+  displayUser: (email) => (email ? email.split('@')[0] : 'Unknown'),
+}));
+
 vi.mock('@/components/ui/Toast', () => ({
   useToast: () => ({ showToast }),
 }));
@@ -161,5 +170,20 @@ describe('LiveProgressTable - Unassigned Students & Unregistered Instructors', (
     const arrangeButtons = screen.getAllByTitle(/Click to arrange lesson/i);
     expect(arrangeButtons.length).toBeGreaterThanOrEqual(4);
     expect(screen.getByText('+ Assign Instructor')).toBeInTheDocument();
+  });
+
+  it('filters students by branch when selecting branch from dropdown', () => {
+    render(<LiveProgressTable category="Kinder" />);
+
+    const branchSelect = screen.getByDisplayValue('All Branches');
+    expect(branchSelect).toBeInTheDocument();
+
+    // Change to Puri Indah (where no students belong in test data)
+    fireEvent.change(branchSelect, { target: { value: 'Puri Indah' } });
+    expect(screen.getByText('No student matches your filters.')).toBeInTheDocument();
+
+    // Change back to Kelapa Gading
+    fireEvent.change(branchSelect, { target: { value: 'Kelapa Gading' } });
+    expect(screen.getByText('Arya Arkananta')).toBeInTheDocument();
   });
 });

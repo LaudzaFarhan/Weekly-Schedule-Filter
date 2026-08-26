@@ -12,6 +12,7 @@ const mapRow = (row) => ({
   count: row.item_count,
   userEmail: row.user_email,
   source: row.source,
+  details: typeof row.details === 'string' ? JSON.parse(row.details) : (row.details || null),
   createdAt: row.created_at
 });
 
@@ -49,21 +50,21 @@ export async function GET(req) {
 
 /**
  * POST: Record an activity entry.
- * Body: { action, summary, count?, userEmail?, source? }
+ * Body: { action, summary, count?, userEmail?, source?, details? }
  */
 export async function POST(req) {
   try {
     await ready();
     const body = await req.json();
-    const { action, summary, count, userEmail, source } = body;
+    const { action, summary, count, userEmail, source, details } = body;
 
     if (!action || !summary) {
       return NextResponse.json({ error: 'action and summary are required' }, { status: 400 });
     }
 
     const sql = `
-      INSERT INTO internal_activity (action, summary, item_count, user_email, source)
-      VALUES ($1, $2, $3, $4, $5)
+      INSERT INTO internal_activity (action, summary, item_count, user_email, source, details)
+      VALUES ($1, $2, $3, $4, $5, $6)
       RETURNING *
     `;
     const params = [
@@ -71,7 +72,8 @@ export async function POST(req) {
       summary,
       Number.isFinite(Number(count)) ? Number(count) : 1,
       userEmail || null,
-      source || 'schedule'
+      source || 'schedule',
+      details ? (typeof details === 'string' ? details : JSON.stringify(details)) : '{}'
     ];
     const res = await query(sql, params);
     return NextResponse.json(mapRow(res.rows[0]));

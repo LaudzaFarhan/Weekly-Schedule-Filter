@@ -11,8 +11,8 @@ import { useScheduleRules } from '../hooks/useScheduleRules';
 import { CATEGORIES, simulateSlot, CODER_LEVELS } from '../lib/programRules';
 import { SLOT_TYPES, slotTypeMeta } from '../lib/slotTypes';
 import { groupClasses, levelCovers, instructorsAtBranch, overlaps } from '../lib/instructorAvailability';
-import { DAY_NAMES, getWorkingDaysForBranch } from '../utils/constants';
-import { MapPin, Save, Building2, Clock, X, Plus, Trash2, Copy, CalendarClock, AlertTriangle, Wand2, Coffee, ShieldCheck, FlaskConical, CheckCircle2 } from 'lucide-react';
+import { DAY_NAMES, getWorkingDaysForBranch, DEFAULT_BRANCH_LIST } from '../utils/constants';
+import { MapPin, Save, Building2, Clock, X, Plus, Trash2, Copy, CalendarClock, AlertTriangle, Wand2, Coffee, ShieldCheck, FlaskConical, CheckCircle2, RotateCcw } from 'lucide-react';
 
 /** Resolve saved per-day operating hours for a branch: { Monday: {start,end}, ... } */
 export function resolveBranchHours(branch) {
@@ -1034,6 +1034,31 @@ export default function NewOperationalsPage() {
     }
   };
 
+  const handleRestoreDefaultBranches = async () => {
+    if (!window.confirm('Restore 7 standard branches (Gading Serpong, Puri Indah, Pondok Indah, Pluit Village, Kelapa Gading, Bekasi, Bintaro)?')) return;
+    const defaultBranches = DEFAULT_BRANCH_LIST.map((b) => ({
+      id: b.id,
+      name: b.name,
+      url: '',
+    }));
+    try {
+      await updateBranches(defaultBranches);
+      const nextDays = {};
+      for (const b of defaultBranches) {
+        nextDays[b.id] = new Set(DAY_NAMES);
+      }
+      setDraft(nextDays);
+      setDirty(true);
+      showToast({
+        title: 'Restored 7 standard branches',
+        message: 'Default branches loaded. Click "Save Changes" to commit operational settings.',
+        variant: 'success',
+      });
+    } catch (err) {
+      showToast({ title: 'Failed to restore branches', message: err?.message, variant: 'error' });
+    }
+  };
+
   return (
     <section className="dashboard-view active">
       <div className="panel" style={{ margin: 0 }}>
@@ -1046,7 +1071,29 @@ export default function NewOperationalsPage() {
               Set which branches are open on each day, and use the clock icon to set that day&apos;s operating hours. Exact class slots are managed in the Class Operation table below. Stored in PostgreSQL and served by <code>/api/new/operationals</code>.
             </p>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+            {branches.length <= 1 && (
+              <button
+                type="button"
+                onClick={handleRestoreDefaultBranches}
+                className="btn"
+                title="Restore standard 7 branches (Gading Serpong, Puri Indah, Pondok Indah, Pluit Village, Kelapa Gading, Bekasi, Bintaro)"
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.4rem',
+                  borderRadius: '10px',
+                  padding: '0.5rem 1rem',
+                  fontSize: '0.85rem',
+                  background: 'rgba(79, 70, 229, 0.08)',
+                  color: 'var(--primary-blue, #4f46e5)',
+                  border: '1px solid var(--primary-blue, #4f46e5)',
+                  cursor: 'pointer',
+                }}
+              >
+                <RotateCcw size={15} /> Restore Standard Branches
+              </button>
+            )}
             <button
               type="button"
               onClick={() => setShowAddBranchModal(true)}

@@ -91,8 +91,10 @@ const DEFINITIONS = {
         item_count INTEGER DEFAULT 1 NOT NULL,
         user_email VARCHAR(255),
         source VARCHAR(50) DEFAULT 'schedule' NOT NULL,
+        details JSONB DEFAULT '{}'::jsonb,
         created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
     )`,
+    `ALTER TABLE internal_activity ADD COLUMN IF NOT EXISTS details JSONB DEFAULT '{}'::jsonb`,
     `CREATE INDEX IF NOT EXISTS internal_activity_created_at_idx
         ON internal_activity (created_at DESC)`,
   ],

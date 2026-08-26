@@ -55,6 +55,7 @@ export function subscribeToActivity(callback, onError, options = {}) {
  * @param {number} [entry.count] how many records were affected
  * @param {string} [entry.userEmail] who did it
  * @param {string} [entry.source] schedule | crm | students | instructors
+ * @param {object} [entry.details] structured before/after changes & metadata
  */
 export async function logActivity(entry) {
   try {

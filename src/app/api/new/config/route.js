@@ -20,6 +20,7 @@ import { ensureTable } from '@/lib/ensureSchema';
 import { auditAccountAction, canAdminAccounts, identify, isAuthenticated } from '@/lib/apiIdentity';
 import { ROLES } from '@/lib/authSession';
 import { isoDayIndex } from '@/lib/opsSunset';
+import { DEFAULT_BRANCH_LIST } from '@/utils/constants';
 
 /**
  * Settings this route will accept, with the default served when unset.
@@ -31,7 +32,7 @@ import { isoDayIndex } from '@/lib/opsSunset';
  */
 const SETTINGS = {
   /** Branch list. Shape matches what the header and ScheduleContext already use. */
-  branches: { default: [], describe: 'Branches, as [{ id, name, url?, trialUrl? }].' },
+  branches: { default: DEFAULT_BRANCH_LIST, describe: 'Branches, as [{ id, name, url?, trialUrl? }].' },
   /** email -> role. Replaces the Sheet-backed users map behind `useSchedule().users`. */
   userRoles: { default: {}, describe: 'Map of lowercase email to role.' },
   /** Which pages each role may see. Consumed by the sidebar's visibility check. */

@@ -23,11 +23,12 @@ import {
   nextDateForDay,
 } from '../lib/instructorAvailability';
 import { subscribeToActivity, logActivity, deleteActivity, displayUser } from '../services/newActivityService';
+import { computeScheduleDiff, formatScheduleActivitySummary, parseActivityChanges } from '../lib/scheduleActivityHelper';
 import { useAuth } from '../contexts/AuthContext';
 import { doTimeSlotsOverlap, formatNormalizedTimeSlot } from '../utils/timeUtils';
 import { DAY_NAMES, SCHEDULE_PAGE_SIZE, DEFAULT_BRANCH_LIST, isSameBranch } from '../utils/constants';
 import Pagination from '../components/ui/Pagination';
-import { Plus, Pencil, Trash2, Search, X, Calendar, CalendarPlus, MapPin, Repeat, User, Users, UserX, BookOpen, Clock, AlertTriangle, Upload, History, Trash, FileDown, CheckCircle2, ChevronDown, Check } from 'lucide-react';
+import { Plus, Pencil, Trash2, Search, X, Calendar, CalendarPlus, MapPin, Repeat, User, Users, UserX, BookOpen, Clock, AlertTriangle, Upload, History, Trash, FileDown, CheckCircle2, ChevronDown, Check, Lock } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
 
@@ -234,13 +235,98 @@ const defaultCodeForLevel = (level) => {
     const folded = normaliseCoderLevel(s);
     const exact = PROGRAM_GROUPS.find((g) => g.label === 'Coder')
       ?.codes.find((c) => c.toLowerCase() === folded.toLowerCase());
-    return exact || '';
+    return exact || 'Coder Basic';
+  }
+  const parsed = parseProgram(s);
+  if (parsed.code) {
+    const exact = PROGRAM_GROUPS.flatMap((g) => g.codes).find(
+      (c) => c.toLowerCase() === parsed.code.toLowerCase()
+    );
+    if (exact) return exact;
   }
   const lower = s.toLowerCase();
-  const foundation = lower.includes('foundation');
-  if (lower.includes('kinder')) return foundation ? 'KF1' : 'K1';
-  if (lower.includes('junior')) return foundation ? 'JF1' : 'J1';
+
+  // Extract explicit term or level digits: "Term 3", "T3", "Junior 3", "Kinder 2", "Core 3", etc.
+  const termMatch = lower.match(/term\s*([1-4])/i) || lower.match(/\bt([1-4])\b/i) || lower.match(/(?:core|foundation)?\s*([1-4])\b/i);
+  const termNum = termMatch ? termMatch[1] : null;
+
+  const foundation = lower.includes('foundation') || lower.includes('kf') || lower.includes('jf');
+
+  if (lower.includes('kinder') || lower.startsWith('k')) {
+    if (foundation) return termNum === '2' ? 'KF2' : 'KF1';
+    if (termNum && ['1', '2', '3', '4'].includes(termNum)) return `K${termNum}`;
+    return 'K1';
+  }
+
+  if (lower.includes('junior') || lower.startsWith('j')) {
+    if (foundation) return termNum === '2' ? 'JF2' : 'JF1';
+    if (lower.includes('intermediate')) return 'J2';
+    if (lower.includes('advance')) return 'J3';
+    if (lower.includes('master')) return 'J4';
+    if (termNum && ['1', '2', '3', '4'].includes(termNum)) return `J${termNum}`;
+    return 'J1';
+  }
   return '';
+};
+
+/** Extract or derive the default term number for a student's level or program code */
+const defaultTermForLevel = (level, programCode) => {
+  const s = String(level || '').trim();
+  const m = s.match(/Term\s*([1-4])/i) || s.match(/\bT([1-4])\b/i);
+  if (m) return `Term ${m[1]}`;
+  const codeStr = String(programCode || '').trim().toUpperCase();
+  const numMatch = codeStr.match(/^[A-Z]+([1-4])$/);
+  if (numMatch) {
+    const num = Number(numMatch[1]);
+    if (num >= 1 && num <= 4) return `Term ${num}`;
+  }
+  return 'Term 1';
+};
+
+/** Standard Program Category Display Options */
+const PROGRAM_CATEGORY_OPTIONS = [
+  { label: 'Kinder Core', value: 'Kinder Core', desc: 'K1–K4' },
+  { label: 'Kinder Foundation', value: 'Kinder Foundation', desc: 'KF1–KF2' },
+  { label: 'Junior Foundation', value: 'Junior Foundation', desc: 'JF1–JF2' },
+  { label: 'Junior Core', value: 'Junior Core', desc: 'J1–J4' },
+  { label: 'Coder', value: 'Coder', desc: 'Basic, Intermediate, Advance' },
+];
+
+/** Resolve friendly Category Name from raw level or code */
+const resolveProgramCategoryName = (levelOrCode) => {
+  const s = String(levelOrCode || '').trim().toLowerCase();
+  if (!s) return 'Junior Core';
+  if (/coder/i.test(s)) return 'Coder';
+  if (s.includes('foundation') || s.startsWith('kf') || s.startsWith('jf')) {
+    if (s.includes('kinder') || s.startsWith('kf')) return 'Kinder Foundation';
+    return 'Junior Foundation';
+  }
+  if (s.includes('kinder') || s.startsWith('k')) return 'Kinder Core';
+  if (s.includes('junior') || s.startsWith('j')) return 'Junior Core';
+  return 'Junior Core';
+};
+
+/** Derive specific code from Program Category and Term (e.g. Junior Core + Term 3 -> J3) */
+const deriveCodeFromCategoryAndTerm = (categoryName, termNo, rawLevel) => {
+  const cat = String(categoryName || '').trim();
+  const termNum = String(termNo || '').match(/\d+/)?.[0] || '1';
+
+  if (/coder/i.test(cat)) {
+    return defaultCodeForLevel(rawLevel) || 'Coder Basic';
+  }
+  if (cat === 'Kinder Foundation') {
+    return termNum === '2' ? 'KF2' : 'KF1';
+  }
+  if (cat === 'Kinder Core') {
+    return `K${termNum}`;
+  }
+  if (cat === 'Junior Foundation') {
+    return termNum === '2' ? 'JF2' : 'JF1';
+  }
+  if (cat === 'Junior Core') {
+    return `J${termNum}`;
+  }
+  return 'J1';
 };
 
 /** Can a New Ops instructor (level string) teach a given category? */
@@ -625,6 +711,7 @@ export default function NewSchedulePage({ onNavigate }) {
 
   const [liveProgress, setLiveProgress] = useState([]);
   const [allocCode, setAllocCode] = useState('');
+  const [allocCategory, setAllocCategory] = useState('Junior Core');
 
   useEffect(() => {
     const unsubscribe = subscribeToLiveProgress((data) => setLiveProgress(data || []));
@@ -654,11 +741,27 @@ export default function NewSchedulePage({ onNavigate }) {
   }, [completedLessons]);
 
   const handleOpenAllocChooser = (st) => {
-    const initialCode = defaultCodeForLevel(st.level) || (st.level && /coder/i.test(st.level) ? 'Coder Advance' : 'JF1');
-    setAllocChooser(st);
-    setAllocCode(initialCode);
-    setAllocTerm('Term 1');
+    // Look up if student already has a regular schedule
     const nameKey = String(st.name || '').trim().toLowerCase();
+    const regularClass = st.regulars?.[0] || (placesByStudent.get(normalizeStudentName(st.name)) || []).find((c) => (c.classType || 'Regular') === ATTENDANCE.REGULAR);
+
+    let initialCode = '';
+    let initialTerm = 'Term 1';
+    let initialLesson = '1';
+    let initialCategory = resolveProgramCategoryName(st.level);
+
+    if (regularClass) {
+      const parsed = parseProgramValue(regularClass.program);
+      initialCategory = resolveProgramCategoryName(regularClass.program || st.level);
+      initialTerm = regularClass.term || extractTermFromProgram(regularClass.program, regularClass.remarks) || defaultTermForLevel(st.level, parsed.code);
+      initialCode = parsed.code || deriveCodeFromCategoryAndTerm(initialCategory, initialTerm, st.level);
+      initialLesson = parsed.lesson || '1';
+    } else {
+      initialCategory = resolveProgramCategoryName(st.level);
+      initialTerm = defaultTermForLevel(st.level, '');
+      initialCode = deriveCodeFromCategoryAndTerm(initialCategory, initialTerm, st.level);
+    }
+
     const record = (liveProgress || []).find((p) => String(p.studentName || '').trim().toLowerCase() === nameKey);
     const set = new Set();
     if (record?.attendance) {
@@ -666,10 +769,15 @@ export default function NewSchedulePage({ onNavigate }) {
         if (v) set.add(Number(k));
       });
     }
-    let undone = '1';
+    let undone = initialLesson || '1';
     for (let i = 1; i <= 10; i++) {
       if (!set.has(i)) { undone = String(i); break; }
     }
+
+    setAllocChooser({ ...st, regularClass: regularClass || st.regulars?.[0] || null });
+    setAllocCategory(initialCategory);
+    setAllocCode(initialCode);
+    setAllocTerm(initialTerm);
     setAllocLesson(undone);
   };
 
@@ -914,21 +1022,51 @@ export default function NewSchedulePage({ onNavigate }) {
     const categories = new Set(matched.map((st) => categorizeLevel(st.level)).filter(Boolean));
     if (categories.size !== 1) return null;
 
+    const primary = matched[0];
+    const key = normalizeStudentName(primary.name);
+    const existingPlaces = placesByStudent.get(key) || [];
+    const regularClass = existingPlaces.find((c) => (c.classType || 'Regular') === ATTENDANCE.REGULAR);
+
     return {
       category: [...categories][0],
-      level: matched[0].level || '',
-      name: matched[0].name,
+      level: primary.level || '',
+      name: primary.name,
       several: matched.length > 1,
+      regularClass,
     };
-  }, [form.student, students]);
+  }, [form.student, students, placesByStudent]);
+
+  const isStudentLocked = Boolean(formStudentLevel && (formStudentLevel.level || formStudentLevel.category));
+
+  // Automatically lock and populate Program Code and Term when a student is selected
+  useEffect(() => {
+    if (formStudentLevel) {
+      if (formStudentLevel.regularClass) {
+        const parsed = parseProgramValue(formStudentLevel.regularClass.program);
+        const code = parsed.code || defaultCodeForLevel(formStudentLevel.level);
+        if (code) setProgramCode(code);
+        const term = formStudentLevel.regularClass.term || extractTermFromProgram(formStudentLevel.regularClass.program, formStudentLevel.regularClass.remarks) || defaultTermForLevel(formStudentLevel.level, code);
+        if (term) setTermNo(term);
+        if (parsed.lesson) setLessonNo(parsed.lesson);
+      } else if (formStudentLevel.level) {
+        const code = defaultCodeForLevel(formStudentLevel.level);
+        if (code) {
+          setProgramCode(code);
+        }
+        const term = defaultTermForLevel(formStudentLevel.level, code);
+        if (term) {
+          setTermNo(term);
+        }
+      }
+    }
+  }, [formStudentLevel]);
 
   /**
-   * Program groups the dropdown offers. Locked to the student's category unless
-   * the user deliberately unlocks it. The currently selected code is always
-   * kept so an existing class never loses its own program.
+   * Program groups the dropdown offers. Locked to the student's category.
+   * The currently selected code is always kept so an existing class never loses its own program.
    */
   const programGroups = useMemo(() => {
-    if (programUnlocked || !formStudentLevel) return PROGRAM_GROUPS;
+    if (!formStudentLevel) return PROGRAM_GROUPS;
     const wanted = formStudentLevel.category;
     const filtered = PROGRAM_GROUPS.filter((g) => categorizeLevel(g.codes[0]) === wanted);
     if (filtered.length === 0) return PROGRAM_GROUPS;
@@ -938,7 +1076,7 @@ export default function NewSchedulePage({ onNavigate }) {
       if (home) return [...filtered, home];
     }
     return filtered;
-  }, [programUnlocked, formStudentLevel, programCode]);
+  }, [formStudentLevel, programCode]);
 
   /** True when the chosen program does not match the student's own category. */
   const programMismatch = useMemo(() => {
@@ -1022,10 +1160,12 @@ export default function NewSchedulePage({ onNavigate }) {
   const openAllocateModal = (student, classType, presetDay, presetStart, presetTeacher, presetTime, joinProgram, presetTerm, presetLesson, presetCodeParam) => {
     setEditingClass(null);
     setStartTime(presetStart || '');
-    const presetCode = presetCodeParam || dayReco?.programCode || defaultCodeForLevel(student.level) || 'JF1';
+    const regClass = student?.regulars?.[0] || (placesByStudent.get(normalizeStudentName(student?.name)) || []).find((c) => (c.classType || 'Regular') === ATTENDANCE.REGULAR);
+    const regParsed = regClass ? parseProgramValue(regClass.program) : null;
+    const presetCode = presetCodeParam || dayReco?.programCode || regParsed?.code || defaultCodeForLevel(student?.level) || 'JF1';
     const joined = joinProgram ? parseProgramValue(joinProgram) : null;
-    const initialLesson = presetLesson || dayReco?.lesson || (joined && presetCode && joined.code === presetCode ? joined.lesson : '1');
-    const initialTerm = presetTerm || dayReco?.term || 'Term 1';
+    const initialLesson = presetLesson || dayReco?.lesson || (joined && presetCode && joined.code === presetCode ? joined.lesson : null) || regParsed?.lesson || '1';
+    const initialTerm = presetTerm || dayReco?.term || regClass?.term || (regClass ? extractTermFromProgram(regClass.program, regClass.remarks) : null) || defaultTermForLevel(student?.level, presetCode);
     setProgramCode(presetCode);
     setLessonNo(initialLesson);
     setTermNo(initialTerm);
@@ -1081,7 +1221,7 @@ export default function NewSchedulePage({ onNavigate }) {
     const branch = student.branchName || '';
     // The program the student would be enrolled on — the same one the allocate
     // modal prefills, so the compatibility test matches what will be saved.
-    const candidate = defaultCodeForLevel(student.level) || student.level || '';
+    const candidate = dayReco.programCode || defaultCodeForLevel(student.level) || student.level || '';
     if (!candidate) return byDay;
 
     const nameKey = String(student.name || '').trim().toLowerCase();
@@ -1103,6 +1243,19 @@ export default function NewSchedulePage({ onNavigate }) {
       const seatsLeft = capacity - regulars;
       if (seatsLeft <= 0) continue;
 
+      // Collect member details with their programs and lessons for comparison
+      const memberDetails = (g.members || []).map((m) => {
+        const pVal = parseProgramValue(m.program);
+        const tVal = m.term || extractTermFromProgram(m.program, m.remarks);
+        return {
+          student: m.student,
+          program: m.program,
+          code: pVal.code || m.program,
+          lesson: pVal.lesson || '1',
+          term: tVal,
+        };
+      });
+
       const list = byDay.get(g.day) || [];
       list.push({
         key: g.key,
@@ -1112,6 +1265,7 @@ export default function NewSchedulePage({ onNavigate }) {
         endMin: g.endMin,
         teacher: g.teacher,
         students: g.students,
+        members: memberDetails,
         programs: [...new Set(g.programs)],
         regulars,
         guests,
@@ -1318,6 +1472,7 @@ export default function NewSchedulePage({ onNavigate }) {
       const existing = slots.find((s) => s.startMin === j.startMin);
       if (existing) {
         existing.join = j;
+        existing.available = true;
         continue;
       }
       slots.push({
@@ -1523,13 +1678,74 @@ export default function NewSchedulePage({ onNavigate }) {
 
     try {
       if (editingClass) {
+        const changes = computeScheduleDiff(editingClass, form);
+        const summary = formatScheduleActivitySummary('edit', {
+          student: form.student,
+          program: form.program,
+          branchName: form.branchName,
+          day: form.day,
+          time: form.time,
+          teacher: form.teacher,
+          classType: form.classType,
+          changes,
+        });
+
         await updateInternalClass(editingClass.id, form);
         showToast({ title: 'Class updated successfully', variant: 'success' });
-        addHistory({ action: 'edit', count: 1, summary: `Edited ${form.student} — ${form.program} · ${form.day} ${form.time} @ ${form.branchName}` });
+        addHistory({
+          action: 'edit',
+          count: 1,
+          summary,
+          details: {
+            student: form.student,
+            program: form.program,
+            branchName: form.branchName,
+            previous: {
+              teacher: editingClass.teacher || 'Unassigned',
+              time: editingClass.time,
+              day: editingClass.day,
+              program: editingClass.program,
+              branchName: editingClass.branchName,
+              classType: editingClass.classType || 'Regular',
+            },
+            after: {
+              teacher: form.teacher || 'Unassigned',
+              time: form.time,
+              day: form.day,
+              program: form.program,
+              branchName: form.branchName,
+              classType: form.classType || 'Regular',
+            },
+            changes,
+          },
+        });
       } else {
+        const summary = formatScheduleActivitySummary('add', {
+          student: form.student,
+          program: form.program,
+          day: form.day,
+          time: form.time,
+          teacher: form.teacher,
+          branchName: form.branchName,
+          classType: form.classType,
+        });
+
         await createInternalClass(form);
         showToast({ title: 'Class added successfully', variant: 'success' });
-        addHistory({ action: 'add', count: 1, summary: `Added ${form.student} — ${form.program} · ${form.day} ${form.time} @ ${form.branchName}` });
+        addHistory({
+          action: 'add',
+          count: 1,
+          summary,
+          details: {
+            student: form.student,
+            program: form.program,
+            day: form.day,
+            time: form.time,
+            teacher: form.teacher || 'Unassigned',
+            branchName: form.branchName,
+            classType: form.classType || 'Regular',
+          },
+        });
       }
       setShowModal(false);
     } catch (err) {
@@ -1555,6 +1771,9 @@ export default function NewSchedulePage({ onNavigate }) {
         summary: `Cleared all ${res.count || classCount} internal schedule classes`,
         source: 'schedule',
         userEmail: user?.email || null,
+        details: {
+          count: res.count || classCount,
+        },
       });
       showToast({
         title: `Successfully cleared ${res.count || classCount} schedule entries!`,
@@ -1613,7 +1832,15 @@ export default function NewSchedulePage({ onNavigate }) {
     setBulkResult({ ok, failed: failed.length, errors, done: true });
     if (ok > 0) {
       const branches = [...new Set(rows.map((r) => r.branchName))];
-      addHistory({ action: 'bulk', count: ok, summary: `Bulk imported ${ok} class${ok === 1 ? '' : 'es'}${branches.length ? ` @ ${branches.join(', ')}` : ''}` });
+      addHistory({
+        action: 'bulk',
+        count: ok,
+        summary: `Bulk imported ${ok} class${ok === 1 ? '' : 'es'}${branches.length ? ` @ ${branches.join(', ')}` : ''}`,
+        details: {
+          count: ok,
+          branches,
+        },
+      });
       showToast({ title: `Imported ${ok} class${ok === 1 ? '' : 'es'}`, variant: failed.length ? 'warning' : 'success' });
     } else {
       showToast({ title: 'Nothing imported', message: 'Check the format and required fields.', variant: 'error' });
@@ -1622,10 +1849,32 @@ export default function NewSchedulePage({ onNavigate }) {
 
   const handleDelete = async (classId, studentName) => {
     if (!window.confirm(`Delete the class for student "${studentName}"?`)) return;
+    const targetClass = classes.find((c) => c.id === classId);
     try {
       await deleteInternalClass(classId);
       showToast({ title: 'Class deleted successfully', variant: 'success' });
-      addHistory({ action: 'delete', count: 1, summary: `Deleted class for ${studentName}` });
+      const summary = formatScheduleActivitySummary('delete', {
+        student: studentName,
+        program: targetClass?.program,
+        day: targetClass?.day,
+        time: targetClass?.time,
+        teacher: targetClass?.teacher,
+        branchName: targetClass?.branchName,
+        classType: targetClass?.classType,
+      });
+      addHistory({
+        action: 'delete',
+        count: 1,
+        summary,
+        details: {
+          student: studentName,
+          program: targetClass?.program,
+          day: targetClass?.day,
+          time: targetClass?.time,
+          teacher: targetClass?.teacher,
+          branchName: targetClass?.branchName,
+        },
+      });
       // Reset page if it becomes empty
       if (paged.length === 1 && page > 1) {
         setPage(page - 1);
@@ -2050,18 +2299,55 @@ export default function NewSchedulePage({ onNavigate }) {
                                 {/* Who is already in it, so the choice is made on
                                     the actual class rather than a bare time. */}
                                 {j ? (
-                                  <span style={{ display: 'block', fontSize: '0.68rem', color: '#047857' }}>
-                                    {j.teacher} · {j.programs.join(', ')} · {j.regulars}/{j.capacity} seated
-                                    {j.guests > 0 ? ` (+${j.guests} guest${j.guests === 1 ? '' : 's'})` : ''}
-                                  </span>
+                                  <>
+                                    <span style={{ display: 'block', fontSize: '0.68rem', color: '#047857' }}>
+                                      {j.teacher} · {j.programs.join(', ')} · {j.regulars}/{j.capacity} seated
+                                      {j.guests > 0 ? ` (+${j.guests} guest${j.guests === 1 ? '' : 's'})` : ''}
+                                    </span>
+                                    {/* Student Lesson Comparison */}
+                                    {j.members && j.members.length > 0 ? (
+                                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem', marginTop: '0.35rem' }}>
+                                        <div style={{ fontSize: '0.66rem', fontWeight: 600, color: 'var(--text-secondary)' }}>
+                                          Student Lessons in Slot:
+                                        </div>
+                                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.3rem' }}>
+                                          {j.members.map((m, mi) => (
+                                            <span
+                                              key={mi}
+                                              style={{
+                                                display: 'inline-flex', alignItems: 'center', gap: '0.25rem',
+                                                fontSize: '0.68rem', padding: '0.12rem 0.45rem', borderRadius: '5px',
+                                                background: 'rgba(0,0,0,0.04)', border: '1px solid var(--border-color)',
+                                                color: 'var(--text-main)',
+                                              }}
+                                            >
+                                              <span style={{ fontWeight: 600 }}>{m.student}</span>
+                                              <span style={{ color: '#7c3aed', fontWeight: 700 }}>({m.code} · L{m.lesson})</span>
+                                            </span>
+                                          ))}
+                                          {dayReco?.student && (
+                                            <span
+                                              style={{
+                                                display: 'inline-flex', alignItems: 'center', gap: '0.25rem',
+                                                fontSize: '0.68rem', padding: '0.12rem 0.45rem', borderRadius: '5px',
+                                                background: 'rgba(79, 70, 229, 0.1)', border: '1px dashed #4f46e5',
+                                                color: '#4338ca', fontWeight: 700,
+                                              }}
+                                            >
+                                              + {dayReco.student.name} ({dayReco.programCode || 'J1'} · L{dayReco.lesson || '1'})
+                                            </span>
+                                          )}
+                                        </div>
+                                      </div>
+                                    ) : (
+                                      <span style={{ display: 'block', fontSize: '0.66rem', color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                        {j.students.join(', ')}
+                                      </span>
+                                    )}
+                                  </>
                                 ) : (
                                   <span style={{ display: 'block', fontSize: '0.68rem', color: sl.available ? 'var(--success, #10b981)' : 'var(--danger, #ef4444)' }}>
                                     {sl.available ? `✓ ${sl.reason}` : `✕ ${sl.reason}`}
-                                  </span>
-                                )}
-                                {j && (
-                                  <span style={{ display: 'block', fontSize: '0.66rem', color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                    {j.students.join(', ')}
                                   </span>
                                 )}
                               </span>
@@ -2092,7 +2378,7 @@ export default function NewSchedulePage({ onNavigate }) {
                                       JOIN THE EXISTING CLASS
                                     </span>
                                     <button
-                                      onClick={() => openAllocateModal(dayReco.student, dayReco.classType, dayReco.day, sl.start, j.teacher, j.time, j.programs[0])}
+                                      onClick={() => openAllocateModal(dayReco.student, dayReco.classType, dayReco.day, sl.start, j.teacher, j.time, j.programs[0], dayReco.term, dayReco.lesson, dayReco.programCode)}
                                       title={`Add ${dayReco.student.name} to ${j.teacher}'s ${j.time} class`}
                                       style={{
                                         display: 'flex', alignItems: 'center', gap: '0.5rem', width: '100%', textAlign: 'left',
@@ -2130,7 +2416,7 @@ export default function NewSchedulePage({ onNavigate }) {
                                   return (
                                     <button
                                       key={name}
-                                      onClick={() => openAllocateModal(dayReco.student, dayReco.classType, dayReco.day, sl.start, name)}
+                                      onClick={() => openAllocateModal(dayReco.student, dayReco.classType, dayReco.day, sl.start, name, null, null, dayReco.term, dayReco.lesson, dayReco.programCode)}
                                       title={`Allocate ${dayReco.student.name} to ${name} at ${sl.label}`}
                                       style={{
                                         display: 'flex', alignItems: 'center', gap: '0.5rem', width: '100%', textAlign: 'left',
@@ -2235,8 +2521,8 @@ export default function NewSchedulePage({ onNavigate }) {
               // row is used and recent activity is visible without scrolling.
               <div style={{
                 display: 'grid',
-                gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))',
-                gap: '0.4rem', maxHeight: '184px', overflowY: 'auto',
+                gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))',
+                gap: '0.5rem', maxHeight: '210px', overflowY: 'auto',
               }}>
                 {history.map((h, i) => {
                   const meta = {
@@ -2246,18 +2532,60 @@ export default function NewSchedulePage({ onNavigate }) {
                     delete: { color: '#dc2626', bg: 'rgba(220,38,38,0.12)', label: 'DELETE' },
                   }[h.action] || { color: 'var(--text-muted)', bg: 'var(--bg-color)', label: (h.action || '').toUpperCase() };
                   const when = new Date(h.createdAt || h.at);
+                  const parsed = parseActivityChanges(h);
+
                   return (
-                    <div key={h.id ?? i} style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', padding: '0.45rem 0.6rem', borderRadius: '8px', background: 'var(--bg-color)', border: '1px solid var(--border-color)' }}>
-                      <span style={{ fontSize: '0.62rem', fontWeight: 700, color: meta.color, background: meta.bg, padding: '0.1rem 0.4rem', borderRadius: '5px', flexShrink: 0, minWidth: '48px', textAlign: 'center' }}>{meta.label}</span>
-                      <span style={{ flex: 1, minWidth: 0 }}>
-                        <span style={{ display: 'block', fontSize: '0.82rem', color: 'var(--text-main)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{h.summary}</span>
-                        <span style={{ display: 'block', fontSize: '0.66rem', color: 'var(--text-muted)' }}>
-                          by {displayUser(h.userEmail)}
+                    <div
+                      key={h.id ?? i}
+                      style={{
+                        display: 'flex', flexDirection: 'column', gap: '0.35rem',
+                        padding: '0.55rem 0.75rem', borderRadius: '8px',
+                        background: 'var(--bg-color)', border: '1px solid var(--border-color)',
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', justifyContent: 'space-between' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', minWidth: 0 }}>
+                          <span style={{ fontSize: '0.62rem', fontWeight: 700, color: meta.color, background: meta.bg, padding: '0.1rem 0.4rem', borderRadius: '5px', flexShrink: 0 }}>
+                            {meta.label}
+                          </span>
+                          <span style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-main)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {parsed.title}
+                          </span>
+                        </div>
+                        <span style={{ fontSize: '0.68rem', color: 'var(--text-muted)', flexShrink: 0 }}>
+                          {isNaN(when.getTime()) ? '' : when.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
                         </span>
-                      </span>
-                      <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', flexShrink: 0 }}>
-                        {isNaN(when.getTime()) ? '' : when.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
-                      </span>
+                      </div>
+
+                      {/* Before / After Diff Badges */}
+                      {parsed.hasChanges ? (
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.3rem', marginTop: '0.1rem' }}>
+                          {parsed.changes.map((c, ci) => (
+                            <span
+                              key={ci}
+                              style={{
+                                display: 'inline-flex', alignItems: 'center', gap: '0.25rem',
+                                fontSize: '0.72rem', padding: '0.15rem 0.45rem', borderRadius: '6px',
+                                background: 'rgba(217,119,6,0.08)', border: '1px solid rgba(217,119,6,0.2)',
+                                color: 'var(--text-main)',
+                              }}
+                            >
+                              <strong style={{ color: '#d97706', fontWeight: 600 }}>{c.field}:</strong>
+                              <span style={{ color: 'var(--text-muted)', textDecoration: 'line-through' }}>{c.before}</span>
+                              <span style={{ color: '#d97706', fontWeight: 700 }}>→</span>
+                              <span style={{ color: 'var(--text-main)', fontWeight: 600 }}>{c.after}</span>
+                            </span>
+                          ))}
+                        </div>
+                      ) : !parsed.title.includes(h.summary) && (
+                        <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
+                          {h.summary}
+                        </div>
+                      )}
+
+                      <div style={{ fontSize: '0.66rem', color: 'var(--text-muted)' }}>
+                        by {displayUser(h.userEmail)}
+                      </div>
                     </div>
                   );
                 })}
@@ -2806,29 +3134,54 @@ export default function NewSchedulePage({ onNavigate }) {
               
               {/* Level / Program Selector */}
               <div>
-                <label style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-secondary)', display: 'block', marginBottom: '0.3rem' }}>
-                  Target Level / Program *
+                <label style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-secondary)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.3rem' }}>
+                  <span>Target Level / Program *</span>
+                  <span style={{ fontSize: '0.68rem', color: '#4338ca', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                    <Lock size={10} /> Locked to student
+                  </span>
                 </label>
                 <select
-                  value={allocCode}
-                  onChange={(e) => setAllocCode(e.target.value)}
+                  value={allocCategory}
+                  onChange={(e) => setAllocCategory(e.target.value)}
+                  disabled={true}
+                  aria-label="Target Level / Program"
                   className="modal-select-field"
-                  style={{ width: '100%', fontSize: '0.82rem', padding: '0.4rem 0.6rem' }}
+                  style={{
+                    width: '100%', fontSize: '0.82rem', padding: '0.4rem 0.6rem',
+                    cursor: 'not-allowed', opacity: 0.85,
+                    background: 'var(--bg-secondary, rgba(0,0,0,0.03))',
+                  }}
+                  title="Program is locked to student's enrolled level in database"
                 >
-                  {PROGRAM_GROUPS.map((g) => (
-                    <optgroup key={g.label} label={g.label}>
-                      {g.codes.map((code) => (
-                        <option key={code} value={code}>
-                          {code} {allocChooser.level && defaultCodeForLevel(allocChooser.level) === code ? '★ (Enrolled Level)' : ''}
-                        </option>
-                      ))}
-                    </optgroup>
+                  {PROGRAM_CATEGORY_OPTIONS.map((opt) => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.label} ({opt.desc})
+                    </option>
                   ))}
                 </select>
+                {allocChooser?.regularClass ? (
+                  <div style={{
+                    display: 'flex', alignItems: 'center', gap: '0.35rem',
+                    fontSize: '0.7rem', color: '#4338ca',
+                    marginTop: '0.25rem'
+                  }}>
+                    <Lock size={11} />
+                    <span>Auto-inherited from regular class: <strong>{allocChooser.regularClass.program}</strong> ({allocChooser.regularClass.day} {allocChooser.regularClass.time})</span>
+                  </div>
+                ) : allocChooser?.level ? (
+                  <div style={{
+                    display: 'flex', alignItems: 'center', gap: '0.35rem',
+                    fontSize: '0.7rem', color: '#4338ca',
+                    marginTop: '0.25rem'
+                  }}>
+                    <Lock size={11} />
+                    <span>Locked to student record: <strong>{allocChooser.level}</strong> (changeable only in Students database)</span>
+                  </div>
+                ) : null}
               </div>
 
               {/* Term & Lesson for Junior / Kinder vs Coder */}
-              {categorizeLevel(allocCode || allocChooser?.level) === 'Coder' ? (
+              {allocCategory === 'Coder' ? (
                 <div style={{
                   padding: '0.55rem 0.75rem', borderRadius: '8px',
                   background: 'rgba(8, 145, 178, 0.08)', border: '1px solid rgba(8, 145, 178, 0.2)',
@@ -2841,14 +3194,24 @@ export default function NewSchedulePage({ onNavigate }) {
                 <>
                   <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
                     <div style={{ flex: 1 }}>
-                      <label style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-secondary)', display: 'block', marginBottom: '0.3rem' }}>
-                        Target Term *
+                      <label style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-secondary)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.3rem' }}>
+                        <span>Target Term *</span>
+                        <span style={{ fontSize: '0.68rem', color: '#4338ca', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                          <Lock size={10} /> Locked
+                        </span>
                       </label>
                       <select
                         value={allocTerm}
                         onChange={(e) => setAllocTerm(e.target.value)}
+                        disabled={true}
+                        aria-label="Target Term"
                         className="modal-select-field"
-                        style={{ width: '100%', fontSize: '0.82rem', padding: '0.38rem 0.6rem' }}
+                        style={{
+                          width: '100%', fontSize: '0.82rem', padding: '0.38rem 0.6rem',
+                          cursor: 'not-allowed',
+                          opacity: 0.85,
+                          background: 'var(--bg-secondary, rgba(0,0,0,0.03))',
+                        }}
                       >
                         <option value="Term 1">Term 1</option>
                         <option value="Term 2">Term 2</option>
@@ -2863,6 +3226,7 @@ export default function NewSchedulePage({ onNavigate }) {
                       <select
                         value={allocLesson}
                         onChange={(e) => setAllocLesson(e.target.value)}
+                        aria-label="Target Lesson"
                         className="modal-select-field"
                         style={{ width: '100%', fontSize: '0.82rem', padding: '0.38rem 0.6rem' }}
                       >
@@ -2915,7 +3279,7 @@ export default function NewSchedulePage({ onNavigate }) {
                 <button
                   key={opt.type}
                   className="alloc-type-card"
-                  onClick={() => startDayReco(allocChooser, opt.type, allocTerm, allocLesson, allocCode)}
+                  onClick={() => startDayReco(allocChooser, opt.type, allocTerm, allocLesson, deriveCodeFromCategoryAndTerm(allocCategory, allocTerm, allocChooser?.level))}
                   style={{
                     display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '0.35rem',
                     padding: '1.1rem 1rem', borderRadius: '12px', cursor: 'pointer', textAlign: 'left',
@@ -3048,13 +3412,27 @@ export default function NewSchedulePage({ onNavigate }) {
                   </div>
                   
                   <div style={{ flex: 1 }}>
-                    <label className="modal-form-label">Program, Term & Lesson *</label>
+                    <label className="modal-form-label" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <span>Program, Term & Lesson *</span>
+                      {isStudentLocked && (
+                        <span style={{ fontSize: '0.68rem', color: '#4338ca', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                          <Lock size={10} /> Locked to student
+                        </span>
+                      )}
+                    </label>
                     <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
                       <select
                         value={programCode}
                         onChange={(e) => setProgramCode(e.target.value)}
+                        disabled={isStudentLocked}
                         className={`modal-select-field ${formErrors.program ? 'error' : ''}`}
-                        style={{ flex: 2, minWidth: '110px' }}
+                        style={{
+                          flex: 2, minWidth: '110px',
+                          cursor: isStudentLocked ? 'not-allowed' : 'default',
+                          opacity: isStudentLocked ? 0.8 : 1,
+                          background: isStudentLocked ? 'var(--bg-secondary, rgba(0,0,0,0.03))' : undefined,
+                        }}
+                        title={isStudentLocked ? "Program is locked to student's enrolled level in database" : "Select Program"}
                       >
                         <option value="">Program</option>
                         {programGroups.map((g) => (
@@ -3066,9 +3444,15 @@ export default function NewSchedulePage({ onNavigate }) {
                       <select
                         value={termNo}
                         onChange={(e) => setTermNo(e.target.value)}
+                        disabled={isStudentLocked}
                         className="modal-select-field"
-                        style={{ flex: 1, minWidth: '85px' }}
-                        title="Select Term"
+                        style={{
+                          flex: 1, minWidth: '85px',
+                          cursor: isStudentLocked ? 'not-allowed' : 'default',
+                          opacity: isStudentLocked ? 0.8 : 1,
+                          background: isStudentLocked ? 'var(--bg-secondary, rgba(0,0,0,0.03))' : undefined,
+                        }}
+                        title={isStudentLocked ? "Term is locked to student's enrolled level in database" : "Select Term"}
                       >
                         <option value="Term 1">Term 1</option>
                         <option value="Term 2">Term 2</option>
@@ -3095,42 +3479,21 @@ export default function NewSchedulePage({ onNavigate }) {
                       </span>
                     )}
 
-                    {/* The student's own level decides which programs are on
-                        offer. Changing category has to be deliberate. */}
                     {formStudentLevel && (
-                      <span style={{ display: 'flex', alignItems: 'baseline', gap: '0.35rem', flexWrap: 'wrap', fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.2rem' }}>
-                        {programUnlocked ? (
-                          <>
-                            <span>
-                              All programs shown. {formStudentLevel.name} is enrolled in{' '}
-                              <strong style={{ color: 'var(--text-secondary)' }}>{formStudentLevel.level || formStudentLevel.category}</strong>.
-                            </span>
-                            <button
-                              type="button"
-                              onClick={() => setProgramUnlocked(false)}
-                              style={{ background: 'transparent', border: 'none', padding: 0, cursor: 'pointer', color: 'var(--primary-blue, #4f46e5)', fontSize: '0.7rem', fontWeight: 600 }}
-                            >
-                              Limit to {formStudentLevel.category}
-                            </button>
-                          </>
-                        ) : (
-                          <>
-                            <span>
-                              Limited to <strong style={{ color: 'var(--text-secondary)' }}>{formStudentLevel.category}</strong>
-                              {formStudentLevel.several
-                                ? ' — every named student is in that category.'
-                                : ` — ${formStudentLevel.name} is ${formStudentLevel.level || formStudentLevel.category}.`}
-                            </span>
-                            <button
-                              type="button"
-                              onClick={() => setProgramUnlocked(true)}
-                              style={{ background: 'transparent', border: 'none', padding: 0, cursor: 'pointer', color: 'var(--primary-blue, #4f46e5)', fontSize: '0.7rem', fontWeight: 600 }}
-                            >
-                              Change program anyway
-                            </button>
-                          </>
-                        )}
-                      </span>
+                      <div style={{
+                        display: 'flex', alignItems: 'center', gap: '0.4rem',
+                        fontSize: '0.72rem', color: '#4338ca',
+                        marginTop: '0.35rem', padding: '0.35rem 0.6rem',
+                        borderRadius: '6px', background: 'rgba(79, 70, 229, 0.08)',
+                        border: '1px solid rgba(79, 70, 229, 0.2)'
+                      }}>
+                        <Lock size={12} style={{ flexShrink: 0 }} />
+                        <span>
+                          <strong>Locked to Student Database:</strong> {formStudentLevel.name} is enrolled in{' '}
+                          <strong style={{ color: '#3730a3' }}>{formStudentLevel.level || formStudentLevel.category}</strong>.
+                          Program and Term can only be changed in the Students database.
+                        </span>
+                      </div>
                     )}
 
                     {programMismatch && (

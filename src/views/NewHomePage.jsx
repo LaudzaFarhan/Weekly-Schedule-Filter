@@ -7,6 +7,7 @@ import { subscribeToInternalStudents } from '../services/internalStudentService'
 import { subscribeToInternalInstructors } from '../services/internalInstructorService';
 import { useNewOperationals } from '../hooks/useNewOperationals';
 import { subscribeToActivity, displayUser } from '../services/newActivityService';
+import { parseActivityChanges } from '../lib/scheduleActivityHelper';
 import { doTimeSlotsOverlap, parseTimeSlot } from '../utils/timeUtils';
 import { DAY_NAMES } from '../utils/constants';
 import KpiCard from '../components/ui/KpiCard';
@@ -554,11 +555,35 @@ export default function NewHomePage({ onNavigate }) {
                   delete: { color: '#dc2626', label: 'DELETE' },
                 }[h.action] || { color: 'var(--text-muted)', label: (h.action || '').toUpperCase() };
                 const when = new Date(h.createdAt || h.at);
+                const parsed = parseActivityChanges(h);
+
                 return (
                   <div key={h.id ?? i} style={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem', fontSize: '0.8rem' }}>
                     <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: meta.color, marginTop: '0.42rem', flexShrink: 0 }} />
-                    <div style={{ minWidth: 0 }}>
-                      <div style={{ color: 'var(--text-main)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{h.summary}</div>
+                    <div style={{ minWidth: 0, flex: 1 }}>
+                      <div style={{ color: 'var(--text-main)', fontWeight: parsed.hasChanges ? 600 : 400, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {parsed.title}
+                      </div>
+
+                      {parsed.hasChanges && (
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.25rem', margin: '0.15rem 0' }}>
+                          {parsed.changes.map((c, ci) => (
+                            <span
+                              key={ci}
+                              style={{
+                                fontSize: '0.7rem', padding: '0.1rem 0.35rem', borderRadius: '4px',
+                                background: 'rgba(217,119,6,0.08)', border: '1px solid rgba(217,119,6,0.2)',
+                                color: 'var(--text-main)',
+                              }}
+                            >
+                              <strong style={{ color: '#d97706' }}>{c.field}:</strong>{' '}
+                              <span style={{ color: 'var(--text-muted)', textDecoration: 'line-through' }}>{c.before}</span>{' '}
+                              <span style={{ color: '#d97706' }}>→</span> {c.after}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+
                       <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', marginTop: '0.1rem' }}>
                         {meta.label} · {displayUser(h.userEmail)} · {isNaN(when.getTime()) ? '' : when.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
                       </div>

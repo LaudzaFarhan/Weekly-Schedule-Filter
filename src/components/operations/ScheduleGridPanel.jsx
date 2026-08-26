@@ -16,6 +16,7 @@ import { subscribeToLeaves } from '../../services/newLeaveService';
 import { subscribeToLiveProgress, saveLiveProgress } from '../../services/newLiveProgressService';
 import { saveOperational } from '../../services/newOperationalsService';
 import { logActivity } from '../../services/newActivityService';
+import { formatScheduleActivitySummary } from '../../lib/scheduleActivityHelper';
 import { groupClasses } from '../../lib/instructorAvailability';
 import { slotTypeMeta } from '../../lib/slotTypes';
 import { DAY_NAMES, isSameBranch } from '../../utils/constants';
@@ -246,12 +247,24 @@ export default function ScheduleGridPanel({ onNavigate } = {}) {
       setClasses((prev) => prev.map((c) => (
         group.ids.includes(c.id) ? { ...c, time: patch.time, teacher: patch.teacher } : c
       )));
+      const diffList = [];
+      if (patch.time !== group.time) diffList.push({ field: 'Slot', before: group.time, after: patch.time });
+      if (patch.teacher !== group.teacher) diffList.push({ field: 'Teacher', before: group.teacher, after: patch.teacher });
+
       await logActivity({
         action: 'edit',
         summary: `Moved class on ${group.day} at ${group.branchName}: ${changes.join(', ')}`,
         count,
         source: 'schedule',
         userEmail: user?.email || null,
+        details: {
+          day: group.day,
+          branchName: group.branchName,
+          previous: { time: group.time, teacher: group.teacher },
+          after: { time: patch.time, teacher: patch.teacher },
+          changes: diffList,
+          count,
+        },
       });
       showToast({ title: 'Class moved', message: `${count} student${count === 1 ? '' : 's'} rescheduled.`, variant: 'success' });
     }, 'Could not move the class');
@@ -271,9 +284,18 @@ export default function ScheduleGridPanel({ onNavigate } = {}) {
     if (created) setClasses((prev) => [created, ...prev]);
     await logActivity({
       action: 'add',
-      summary: `Added ${entry.student} (${entry.classType}) to ${group.teacher}'s ${group.time} on ${group.day} at ${group.branchName}`,
+      summary: `Added ${entry.student} (${entry.classType || 'Regular'}) — ${entry.program || group.programs[0] || 'General'} · ${group.day} ${group.time} with ${group.teacher} @ ${group.branchName}`,
       source: 'schedule',
       userEmail: user?.email || null,
+      details: {
+        student: entry.student,
+        program: entry.program || group.programs[0] || '',
+        day: group.day,
+        time: group.time,
+        teacher: group.teacher,
+        branchName: group.branchName,
+        classType: entry.classType || 'Regular',
+      },
     });
     showToast({
       title: `${entry.student} added`,
@@ -413,10 +435,19 @@ export default function ScheduleGridPanel({ onNavigate } = {}) {
         });
 
         await logActivity({
-          action: 'reassign',
-          summary: `Ended temporary arrangement for ${studentName} with ${currentTeacher}. Restored to main instructor ${mainTargetTeacher}`,
+          action: 'edit',
+          summary: `Ended temporary arrangement for ${studentName} — Teacher: ${currentTeacher} → ${mainTargetTeacher} @ ${targetBranch}`,
           source: 'schedule',
           userEmail: user?.email || null,
+          details: {
+            student: studentName,
+            branchName: targetBranch,
+            previous: { teacher: currentTeacher },
+            after: { teacher: mainTargetTeacher },
+            changes: [
+              { field: 'Teacher', before: currentTeacher, after: mainTargetTeacher },
+            ],
+          },
         });
 
         showToast({

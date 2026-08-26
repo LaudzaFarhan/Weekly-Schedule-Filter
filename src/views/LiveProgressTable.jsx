@@ -19,6 +19,8 @@ import { resolveCanonicalTeacherName, getInstructorDisplayName, isInstructorMatc
 import {
   subscribeToLiveProgress, saveLiveProgress,
 } from '../services/newLiveProgressService';
+import { logActivity } from '../services/newActivityService';
+import { useAuth } from '../contexts/AuthContext';
 import { useSchedule } from '../contexts/ScheduleContext';
 import Pagination from '../components/ui/Pagination';
 import {
@@ -27,6 +29,7 @@ import {
 } from '../lib/programRules';
 import { resolveProgramCategory, studentProgramCategory } from '../lib/studentFilter';
 import { isoOf } from '../lib/instructorAvailability';
+import { isSameBranch, getCanonicalBranchName, DEFAULT_BRANCH_LIST } from '../utils/constants';
 import {
   Search, X, User, MapPin, Clock, Calendar, GraduationCap, Check, Video,
   StickyNote, AlertTriangle, TrendingUp, BookOpen, Edit3, Save, UserCheck, ChevronDown, CheckCircle2,
@@ -97,6 +100,7 @@ const keyOf = (studentName, programCode) =>
   `${String(studentName || '').trim().toLowerCase()}||${String(programCode || '').trim().toLowerCase()}`;
 
 export default function LiveProgressTable({ category }) {
+  const { user } = useAuth();
   const { showToast } = useToast();
   const { enabledBranches, branches } = useSchedule();
 
@@ -136,7 +140,7 @@ export default function LiveProgressTable({ category }) {
   const [arrangingSaving, setArrangingSaving] = useState(false);
 
   const getInstructorsForBranch = (branchName) => {
-    const bClean = String(branchName || '').trim().toLowerCase();
+    const bClean = String(branchName || '').trim();
     const list = new Set();
 
     (instructorProfiles || []).forEach((inst) => {
@@ -144,24 +148,24 @@ export default function LiveProgressTable({ category }) {
       const primaryName = getInstructorDisplayName(inst) || inst.name;
       if (!primaryName) return;
 
-      if (!bClean || bClean === '—') {
+      if (!bClean || bClean === '—' || bClean.toLowerCase() === 'all branches') {
         const canonical = resolveCanonicalTeacherName(primaryName, instructorProfiles);
         if (canonical && canonical !== 'TBD') list.add(canonical);
         return;
       }
 
       const branches = Array.isArray(inst.branches)
-        ? inst.branches.map((b) => String(b).trim().toLowerCase())
-        : [String(inst.branchName || inst.branch || '').trim().toLowerCase()];
+        ? inst.branches
+        : [inst.branchName || inst.branch || ''];
 
-      if (branches.some((b) => b === bClean || b === 'all branches')) {
+      if (branches.some((b) => isSameBranch(b, bClean) || String(b).trim().toLowerCase() === 'all branches')) {
         const canonical = resolveCanonicalTeacherName(primaryName, instructorProfiles);
         if (canonical && canonical !== 'TBD') list.add(canonical);
       }
     });
 
     classes.forEach((c) => {
-      if (c.teacher && c.teacher !== '—' && (!bClean || bClean === '—' || String(c.branchName || '').trim().toLowerCase() === bClean)) {
+      if (c.teacher && c.teacher !== '—' && (!bClean || bClean === '—' || isSameBranch(c.branchName, bClean) || String(c.branchName || '').trim().toLowerCase() === 'all branches')) {
         const canonical = resolveCanonicalTeacherName(c.teacher, instructorProfiles);
         if (canonical && canonical !== 'TBD') list.add(canonical);
       }
@@ -315,11 +319,9 @@ export default function LiveProgressTable({ category }) {
     const existingTargetClass = classes.find((c) => {
       const sameTeacher = isSameTeacher(c.teacher, targetTeacher) || isSameTeacher(c.teacher, targetCanonical);
       const sameDay = isDayMatch(c.day, day);
-      const sameBranch = (
-        String(c.branchName || '').trim().toLowerCase() === String(branchName || '').trim().toLowerCase() ||
+      const sameBranch = isSameBranch(c.branchName, branchName) ||
         String(c.branchName || '').trim().toLowerCase() === 'all branches' ||
-        String(branchName || '').trim().toLowerCase() === 'all branches'
-      );
+        String(branchName || '').trim().toLowerCase() === 'all branches';
 
       return sameTeacher && sameDay && sameBranch;
     });
@@ -396,6 +398,24 @@ export default function LiveProgressTable({ category }) {
         program: newProgStr,
       });
 
+      await logActivity({
+        action: 'edit',
+        summary: `Arranged lesson for ${arrangingRow.studentName} — Teacher: ${mainTeacher} → ${arrangedTeacher}, Day: ${mainDay} → ${arrangedDay}, Slot: ${mainTime || '—'} → ${computedArrangedTime} @ ${arrangingRow.branchName !== '—' ? arrangingRow.branchName : (branchList[0] || 'Kelapa Gading')}`,
+        source: 'schedule',
+        userEmail: user?.email || null,
+        details: {
+          student: arrangingRow.studentName,
+          branchName: arrangingRow.branchName !== '—' ? arrangingRow.branchName : (branchList[0] || 'Kelapa Gading'),
+          previous: { teacher: mainTeacher, day: mainDay, time: mainTime || '—' },
+          after: { teacher: arrangedTeacher, day: arrangedDay, time: computedArrangedTime },
+          changes: [
+            { field: 'Teacher', before: mainTeacher, after: arrangedTeacher },
+            { field: 'Day', before: mainDay, after: arrangedDay },
+            { field: 'Slot', before: mainTime || '—', after: computedArrangedTime },
+          ],
+        },
+      });
+
       const avail = checkInstructorAvailability(arrangedTeacher, arrangedDay);
       const termCode = arrangingRow.levelCode || arrangingRow.program;
       const formattedLesson = String(arrangedLesson).startsWith('L') ? arrangedLesson : `L${arrangedLesson}`;
@@ -419,13 +439,13 @@ export default function LiveProgressTable({ category }) {
   };
 
   const levels = useMemo(() => levelsForCategory(category), [category]);
-  const branchList = useMemo(
-    () => [...new Set([
+  const branchList = useMemo(() => {
+    const list = [...new Set([
       ...(enabledBranches || []).map((b) => b.name),
       ...(branches || []).map((b) => b.name),
-    ])].filter(Boolean),
-    [enabledBranches, branches]
-  );
+    ])].filter(Boolean);
+    return list.length > 0 ? list : DEFAULT_BRANCH_LIST.map((b) => b.name);
+  }, [enabledBranches, branches]);
 
   useEffect(() => {
     const unsub = subscribeToInternalInstructors((data) => setInstructorProfiles(data || []));
@@ -551,7 +571,7 @@ export default function LiveProgressTable({ category }) {
           isUnregisteredInstructor,
           day: c.day || '—',
           time: c.time || '—',
-          branchName: c.branchName || '—',
+          branchName: getCanonicalBranchName(c.branchName || c.branch_name || c.branch || '—') || '—',
           program: c.program || levelCode || '—',
           levelCode,
           lesson: parsed.lesson,
@@ -621,7 +641,7 @@ export default function LiveProgressTable({ category }) {
         isUnregisteredInstructor,
         day: s.rawDays || remarksDay || '—',
         time: s.rawTime || remarksTime || '—',
-        branchName: s.branchName || s.branch_name || '—',
+        branchName: getCanonicalBranchName(s.branchName || s.branch_name || s.branch || '—') || '—',
         program: s.level || defaultLevelCode || '—',
         levelCode: defaultLevelCode,
         lesson: null,
@@ -653,7 +673,7 @@ export default function LiveProgressTable({ category }) {
 
       let best = list[0];
       if (officialBranch) {
-        const match = list.find((item) => item.branchName.toLowerCase() === officialBranch.toLowerCase());
+        const match = list.find((item) => isSameBranch(item.branchName, officialBranch));
         if (match) best = match;
       }
       result.push(best);
@@ -668,8 +688,11 @@ export default function LiveProgressTable({ category }) {
     let longBreak = 0;
     let inactive = 0;
     let unassigned = 0;
+    let total = 0;
 
     for (const r of rows) {
+      if (filterBranch !== 'all' && !isSameBranch(r.branchName, filterBranch)) continue;
+      total++;
       if (r.isUnassigned) {
         unassigned++;
       }
@@ -683,14 +706,14 @@ export default function LiveProgressTable({ category }) {
       }
     }
 
-    return { active, longBreak, inactive, unassigned, total: rows.length };
-  }, [rows]);
+    return { active, longBreak, inactive, unassigned, total };
+  }, [rows, filterBranch]);
 
   const instructorList = useMemo(() => {
     const set = new Set();
     let hasUnassigned = false;
     for (const r of rows) {
-      if (filterBranch !== 'all' && r.branchName !== filterBranch) continue;
+      if (filterBranch !== 'all' && !isSameBranch(r.branchName, filterBranch)) continue;
       if (filterDay !== 'all' && r.day.trim().toLowerCase() !== filterDay.trim().toLowerCase()) continue;
       if (filterLevel !== 'all' && r.levelCode !== filterLevel) continue;
       if (r.isUnassigned || !r.instructor || r.instructor === '—' || r.instructor.toLowerCase() === 'unassigned') {
@@ -716,7 +739,7 @@ export default function LiveProgressTable({ category }) {
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     return rows.filter((r) => {
-      if (filterBranch !== 'all' && r.branchName !== filterBranch) return false;
+      if (filterBranch !== 'all' && !isSameBranch(r.branchName, filterBranch)) return false;
       if (filterLevel !== 'all' && r.levelCode !== filterLevel) return false;
       if (filterDay !== 'all' && r.day.trim().toLowerCase() !== filterDay.trim().toLowerCase()) return false;
       if (filterInstructor !== 'all') {

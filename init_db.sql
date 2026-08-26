@@ -119,6 +119,7 @@ CREATE TABLE IF NOT EXISTS internal_activity (
     item_count INTEGER DEFAULT 1 NOT NULL,
     user_email VARCHAR(255),
     source VARCHAR(50) DEFAULT 'schedule' NOT NULL, -- schedule | crm | students | ...
+    details JSONB DEFAULT '{}'::jsonb,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
