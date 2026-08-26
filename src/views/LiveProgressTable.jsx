@@ -1187,11 +1187,11 @@ export default function LiveProgressTable({ category }) {
                             const displayLesson = r.arrangedLesson || r.lesson || getNextUndoneLesson(r.attendance, maxLessons);
                             const isArranged = !!r.arrangedTeacher && (!r.instructor || r.arrangedTeacher.toLowerCase() !== r.instructor.toLowerCase());
                             const termCode = r.levelCode || r.program;
-                            const formattedLesson = String(displayLesson).startsWith('L') ? displayLesson : `L${displayLesson}`;
+                            const cleanLesson = String(displayLesson).replace(/^L/i, '') || '1';
                             
                             let badgeLabel = category === 'Coder'
                               ? `Coder · ${displayTeacher || 'Unassigned'}`
-                              : `${termCode} - ${formattedLesson} · ${displayTeacher || 'Unassigned'}`;
+                              : `${termCode}.${cleanLesson} · ${displayTeacher || 'Unassigned'}`;
                             if (!displayTeacher && r.isUnassigned) {
                               badgeLabel = `+ Assign Instructor`;
                             }
@@ -1535,7 +1535,7 @@ export default function LiveProgressTable({ category }) {
                         const termCode = arrangingRow.levelCode || arrangingRow.program;
                         return (
                           <option key={n} value={String(n)}>
-                            {termCode} - L{n} {isDone ? ' (Done ✓)' : ' (Not done)'}
+                            {termCode}.{n} {isDone ? ' (Done ✓)' : ' (Not done)'}
                           </option>
                         );
                       })}
@@ -1543,9 +1543,9 @@ export default function LiveProgressTable({ category }) {
 
                     <div style={{ fontSize: '0.72rem', marginTop: '0.4rem', color: arrangingRow.attendance[arrangedLesson] ? '#b45309' : '#059669', fontWeight: 500 }}>
                       {arrangingRow.attendance[arrangedLesson] ? (
-                        <span>⚠️ Note: {arrangingRow.studentName} has already completed {(arrangingRow.levelCode || arrangingRow.program)} - L{arrangedLesson}.</span>
+                        <span>⚠️ Note: {arrangingRow.studentName} has already completed {(arrangingRow.levelCode || arrangingRow.program)}.{String(arrangedLesson).replace(/^L/i, '')}.</span>
                       ) : (
-                        <span>💡 Arranging {(arrangingRow.levelCode || arrangingRow.program)} - L{arrangedLesson} for {arrangingRow.studentName}.</span>
+                        <span>💡 Arranging {(arrangingRow.levelCode || arrangingRow.program)}.{String(arrangedLesson).replace(/^L/i, '')} for {arrangingRow.studentName}.</span>
                       )}
                     </div>
                   </div>

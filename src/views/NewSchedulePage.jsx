@@ -580,6 +580,59 @@ const extractTermFromProgram = (p, r) => {
   return match ? `Term ${match[1]}` : 'Term 1';
 };
 
+/** Format program display badge string (e.g. "KF1.1", "KF2.1", "J1.3", "Basic 1") */
+const formatProgramBadge = (program, term, remarks) => {
+  const progStr = String(program || '').trim();
+  if (!progStr) return '';
+
+  // If already formatted like "KF1.2", "J3.4", "K1.1" -> return as is
+  if (/^[A-Za-z]{1,3}\d+\.\d+$/.test(progStr)) {
+    return progStr.toUpperCase();
+  }
+
+  // Coder programs (Basic 1, Coder Basic, Intermediate, Advance, etc.)
+  if (/coder|basic|intermediate|advance|python|web|app|scratch|roblox/i.test(progStr)) {
+    return progStr;
+  }
+
+  // Extract lesson number:
+  // 1. From program string if dotted: "KF1.2" -> 2
+  // 2. From remarks: "L2" or "Lesson 2" or "Term 1 - L2" or "Term 1 · L2"
+  // 3. Fallback: "1"
+  let lesson = '1';
+  const dottedMatch = progStr.match(/\.(\d+)$/);
+  if (dottedMatch) {
+    lesson = dottedMatch[1];
+  } else if (remarks) {
+    const remMatch = String(remarks).match(/\bL(?:esson)?\s*(\d+)\b/i);
+    if (remMatch) lesson = remMatch[1];
+  }
+
+  // Extract or derive code:
+  // 1. Check if progStr itself is a code like "KF1", "KF2", "K1", "JF1", "J3"
+  const codeMatch = progStr.match(/^([A-Za-z]{1,3}\d+)/i);
+  if (codeMatch && /^(kf|jf|k|j)\d+$/i.test(codeMatch[1])) {
+    return `${codeMatch[1].toUpperCase()}.${lesson}`;
+  }
+
+  // 2. Check term string e.g. "KF2", "K1", "JF1", "J3"
+  const termStr = String(term || '').trim();
+  const termCodeMatch = termStr.match(/^([A-Za-z]{1,3}\d+)/i);
+  if (termCodeMatch && /^(kf|jf|k|j)\d+$/i.test(termCodeMatch[1])) {
+    return `${termCodeMatch[1].toUpperCase()}.${lesson}`;
+  }
+
+  // 3. Derive from category and term number
+  const cat = resolveProgramCategoryName(progStr);
+  const termNo = termStr.match(/\d+/)?.[0] || '1';
+  if (cat === 'Kinder Foundation') return `KF${termNo === '2' ? '2' : '1'}.${lesson}`;
+  if (cat === 'Kinder Core') return `K${termNo}.${lesson}`;
+  if (cat === 'Junior Foundation') return `JF${termNo === '2' ? '2' : '1'}.${lesson}`;
+  if (cat === 'Junior Core') return `J${termNo}.${lesson}`;
+
+  return progStr;
+};
+
 /** Format minutes-since-midnight as "h.mm am/pm" (e.g. 13:00 -> "1.00 pm"). */
 const formatClock = (mins) => {
   const h24 = Math.floor(mins / 60) % 24;
@@ -2848,37 +2901,21 @@ export default function NewSchedulePage({ onNavigate }) {
                         </span>
                       </td>
                       <td>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem', alignItems: 'flex-start' }}>
+                        <div style={{ display: 'flex', alignItems: 'center' }}>
                           <span style={{ 
                             background: c.program.toLowerCase().includes('trial') ? 'var(--primary-orange-light)' : 'var(--primary-blue-light)',
                             color: c.program.toLowerCase().includes('trial') ? 'var(--primary-orange)' : 'var(--primary-blue)',
-                            padding: '0.15rem 0.5rem',
-                            borderRadius: '4px',
-                            fontSize: '0.75rem',
-                            fontWeight: 600,
+                            padding: '0.2rem 0.55rem',
+                            borderRadius: '6px',
+                            fontSize: '0.78rem',
+                            fontWeight: 700,
                             display: 'inline-flex',
                             alignItems: 'center',
-                            gap: '0.3rem'
+                            gap: '0.35rem'
                           }}>
-                            <BookOpen size={11} />
-                            {c.program}
+                            <BookOpen size={12} />
+                            {formatProgramBadge(c.program, c.term, c.remarks)}
                           </span>
-                          {resolveProgramCategoryName(c.program) !== 'Coder' && (
-                            <span style={{
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              gap: '0.2rem',
-                              background: 'rgba(124, 58, 237, 0.08)',
-                              color: '#7c3aed',
-                              border: '1px solid rgba(124, 58, 237, 0.2)',
-                              padding: '0.1rem 0.4rem',
-                              borderRadius: '5px',
-                              fontSize: '0.68rem',
-                              fontWeight: 600
-                            }}>
-                              {c.term || extractTermFromProgram(c.program, c.remarks)} · L{parseProgramValue(c.program).lesson || '1'}
-                            </span>
-                          )}
                         </div>
                       </td>
                       <td>
