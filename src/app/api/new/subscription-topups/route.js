@@ -38,6 +38,7 @@ export const mapRow = (row) => ({
   meetings: row.meetings,
   paidAt: row.paid_at instanceof Date ? isoOf(row.paid_at) : row.paid_at,
   packageLabel: row.package_label,
+  invoiceUrl: row.invoice_url,
   note: row.note,
   createdAt: row.created_at,
   updatedAt: row.updated_at,
@@ -139,6 +140,45 @@ function checkPackageLabel(raw) {
   return { value: text };
 }
 
+/** Generous, but bounded — a Drive share link is long, a megabyte of text is not. */
+const INVOICE_URL_MAX = 2048;
+
+/**
+ * The link to the invoice the parent was given, normally a Google Drive file.
+ *
+ * ONLY `http:` and `https:` are accepted. This value is rendered as a clickable
+ * link, so anything else is an injection vector rather than an address: a
+ * `javascript:` URL saved here would execute in whoever clicked it, and
+ * `data:` would let a stored payload masquerade as an invoice. Scheme-relative
+ * (`//host/path`) is refused too, because it is not a link anyone would paste
+ * deliberately and it resolves differently depending on the page it renders in.
+ *
+ * The host is deliberately not restricted to Google. Drive links appear as
+ * `drive.google.com`, `docs.google.com` and shortened forms, and a whitelist
+ * would reject a legitimate invoice the day one of those changes.
+ */
+function checkInvoiceUrl(raw) {
+  if (raw === null || raw === undefined) return { value: null };
+  const text = String(raw).trim();
+  if (text === '') return { value: null };
+  if (text.length > INVOICE_URL_MAX) {
+    return { error: `invoiceUrl must be ${INVOICE_URL_MAX} characters or fewer — got ${text.length}` };
+  }
+
+  let parsed;
+  try {
+    parsed = new URL(text);
+  } catch {
+    return { error: `invoiceUrl must be a full http(s) link — got ${received(raw)}` };
+  }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    return {
+      error: `invoiceUrl must start with http:// or https:// — got "${parsed.protocol}"`,
+    };
+  }
+  return { value: parsed.toString() };
+}
+
 /** Optional display name, stored so the ledger survives a rename. */
 function checkStudentName(raw) {
   if (raw === null || raw === undefined) return { value: null };
@@ -174,6 +214,9 @@ export function validateTopUpPayload(body) {
   const studentName = checkStudentName(body.studentName);
   if (studentName.error) return { error: studentName.error };
 
+  const invoiceUrl = checkInvoiceUrl(body.invoiceUrl);
+  if (invoiceUrl.error) return { error: invoiceUrl.error };
+
   return {
     value: {
       studentId: studentId.value,
@@ -181,6 +224,7 @@ export function validateTopUpPayload(body) {
       meetings: meetings.value,
       paidAt: paidAt.value,
       packageLabel: packageLabel.value,
+      invoiceUrl: invoiceUrl.value,
       note: body.note === null || body.note === undefined ? null : String(body.note),
     },
   };
@@ -242,16 +286,16 @@ export async function POST(req) {
   // must not create the table, open a connection or write a row.
   const parsed = validateTopUpPayload(body);
   if (parsed.error) return NextResponse.json({ error: parsed.error }, { status: 400 });
-  const { studentId, studentName, meetings, paidAt, packageLabel, note } = parsed.value;
+  const { studentId, studentName, meetings, paidAt, packageLabel, invoiceUrl, note } = parsed.value;
 
   try {
     await ready();
     const res = await query(
       `INSERT INTO internal_subscription_topups
-         (student_id, student_name, meetings, paid_at, package_label, note)
-       VALUES ($1, $2, $3, $4, $5, $6)
+         (student_id, student_name, meetings, paid_at, package_label, invoice_url, note)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
        RETURNING *`,
-      [studentId, studentName, meetings, paidAt, packageLabel, note]
+      [studentId, studentName, meetings, paidAt, packageLabel, invoiceUrl, note]
     );
     return NextResponse.json(mapRow(res.rows[0]), { status: 201 });
   } catch (error) {

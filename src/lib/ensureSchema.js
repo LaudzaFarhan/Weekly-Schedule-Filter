@@ -490,10 +490,21 @@ const DEFINITIONS = {
         meetings INTEGER NOT NULL CHECK (meetings BETWEEN 1 AND 100),
         paid_at DATE NOT NULL,
         package_label VARCHAR(120),
+        invoice_url TEXT,
         note TEXT,
         created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
     )`,
+    /*
+     * The invoice link, for databases that already have the table from before
+     * the column existed. `IF NOT EXISTS` makes this a no-op everywhere else.
+     *
+     * A link rather than an upload: the invoices already live in Google Drive,
+     * and a URL costs nothing to store while a file would need somewhere to put
+     * it and something to serve it from.
+     */
+    `ALTER TABLE internal_subscription_topups
+        ADD COLUMN IF NOT EXISTS invoice_url TEXT`,
     // Newest payment first is the only order the history panel reads, so the
     // index carries the tie-break on `id` too.
     `CREATE INDEX IF NOT EXISTS internal_subscription_topups_student_idx

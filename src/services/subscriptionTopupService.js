@@ -20,6 +20,7 @@ const API_PATH = '/api/new/subscription-topups';
  * @property {number} meetings       how many meetings this payment bought
  * @property {string} paidAt         "YYYY-MM-DD", the date the parent paid
  * @property {string|null} packageLabel
+ * @property {string|null} invoiceUrl  link to the invoice, normally Google Drive
  * @property {string|null} note
  * @property {string} createdAt
  * @property {string} updatedAt
@@ -55,7 +56,8 @@ export async function getTopUps({ studentId } = {}) {
  * Record one payment.
  *
  * @param {{ studentId: number|string, studentName?: string, meetings: number,
- *   paidAt: string, packageLabel?: string|null, note?: string|null }} payload
+ *   paidAt: string, packageLabel?: string|null, invoiceUrl?: string|null,
+ *   note?: string|null }} payload
  * @returns {Promise<SubscriptionTopUp>}
  * @throws {Error} carrying the API's `error` message on a non-ok response.
  */

@@ -17,14 +17,22 @@ import {
   todayISO,
   totalMeetingsPaid,
   DEFAULT_TARGET_MEETINGS,
-  SUBSCRIPTION_PACKAGES,
-  TOP_UP_PRESETS,
+} from '../utils/subscriptionUtils';
+import {
+  isTermBasedCategory,
+  packagesForCategory,
+  topUpPresetsFor,
+  termsFromMeetings,
+  meetingsForTerms,
+  isHttpUrl,
+  MEETINGS_PER_TERM,
+  MAX_TERMS,
 } from '../utils/subscriptionUtils';
 import { getTopUps, createTopUp, deleteTopUp } from '../services/subscriptionTopupService';
 import {
   Search, X, User, MapPin, Clock, Calendar, GraduationCap, AlertTriangle,
   CheckCircle, HelpCircle, Edit3, ShieldAlert, Sparkles, RefreshCw, Filter, Plus,
-  Wallet, Trash2, Receipt,
+  Wallet, Trash2, Receipt, Paperclip, ExternalLink,
 } from 'lucide-react';
 
 const PAGE_SIZE = 5;
@@ -64,6 +72,19 @@ export default function NewStudentSubscriptionsPage() {
   const [draftStartDate, setDraftStartDate] = useState('');
   const [draftTarget, setDraftTarget] = useState(DEFAULT_TARGET_MEETINGS);
   const [customTopUpVal, setCustomTopUpVal] = useState('');
+  // Custom term count, for the Kinder/Junior packages that are sold by the term.
+  const [customTermVal, setCustomTermVal] = useState('');
+  /**
+   * Whether the start date is unlocked for editing.
+   *
+   * Locked by default: the date comes from the first attendance the instructor
+   * recorded in Live Progress, so the common case is confirming it rather than
+   * typing it. Editing is a deliberate act behind a trigger, which also stops a
+   * stray click on a date field from silently overriding real attendance.
+   */
+  const [editingStartDate, setEditingStartDate] = useState(false);
+  // Link to the invoice given to the parent, attached to the staged payment.
+  const [invoiceUrlDraft, setInvoiceUrlDraft] = useState('');
 
   /**
    * Payment ledger state for the student being edited.
@@ -128,6 +149,9 @@ export default function NewStudentSubscriptionsPage() {
     setDraftStartDate(row.startDateStr || '');
     setDraftTarget(row.targetMeetings || DEFAULT_TARGET_MEETINGS);
     setCustomTopUpVal('');
+    setCustomTermVal('');
+    setEditingStartDate(false);
+    setInvoiceUrlDraft('');
     setTopUpDate(todayISO());
     setPendingPayments([]);
     setSavedPayments([]);
@@ -172,6 +196,17 @@ export default function NewStudentSubscriptionsPage() {
       });
       return;
     }
+    // Optional, but a value that is present has to be a real link — otherwise it
+    // is saved and then fails only when someone tries to open the invoice.
+    const invoiceUrl = invoiceUrlDraft.trim();
+    if (invoiceUrl && !isHttpUrl(invoiceUrl)) {
+      showToast({
+        title: 'Invalid invoice link',
+        message: 'Paste the full Google Drive link, starting with https://',
+        variant: 'error',
+      });
+      return;
+    }
 
     setDraftTarget((prev) => {
       const next = prev + val;
@@ -189,9 +224,48 @@ export default function NewStudentSubscriptionsPage() {
         key: `pending-${Date.now()}-${prev.length}`,
         meetings: val,
         paidAt: topUpDate,
-        packageLabel: packageLabelFor(val),
+        packageLabel: packageLabelFor(val, editingRow?.category),
+        invoiceUrl: invoiceUrl || null,
       },
     ]);
+    // Cleared so the next top-up cannot silently inherit the previous invoice.
+    setInvoiceUrlDraft('');
+  };
+
+  /**
+   * Drop the manual start date and go back to the one Live Progress derives from
+   * the first recorded attendance.
+   */
+  const revertStartDateToAuto = () => {
+    setDraftStartDate(editingRow?.autoStartDate || '');
+    setEditingStartDate(false);
+  };
+
+  /**
+   * Set the package to a custom number of terms.
+   *
+   * Kinder and Junior are sold by the term, so the number the user types is
+   * terms; the stored target stays in meetings, which is what every calculation
+   * downstream reads.
+   */
+  const handleApplyCustomTerms = () => {
+    const terms = parseInt(customTermVal, 10);
+    if (!Number.isInteger(terms) || terms < 1 || terms > MAX_TERMS) {
+      showToast({
+        title: 'Invalid term count',
+        message: `Enter a number of terms from 1 to ${MAX_TERMS}.`,
+        variant: 'error',
+      });
+      return;
+    }
+    const meetings = meetingsForTerms(terms);
+    setDraftTarget(meetings);
+    setCustomTermVal('');
+    showToast({
+      title: `Package set to ${terms} term${terms === 1 ? '' : 's'}`,
+      message: `${meetings} meetings (${MEETINGS_PER_TERM} per term)`,
+      variant: 'success',
+    });
   };
 
   const handleApplyCustomTopUp = () => {
@@ -245,7 +319,19 @@ export default function NewStudentSubscriptionsPage() {
       const override = overrides[nameKey] || {};
 
       const { attendedCount, firstMeetingDate } = parseProgressDetails(prog);
-      const startDateStr = override.startDate || firstMeetingDate || (st.createdAt ? formatDateISO(st.createdAt) : null);
+      /*
+       * The start date is derived, not entered. The instructor ticking the first
+       * attendance in Live Progress is what sets it, so `firstMeetingDate` is the
+       * real answer and a manual value is an override on top of it — kept
+       * separate here so the modal can say which one is in force and offer to go
+       * back to the automatic one.
+       */
+      const autoStartDate = firstMeetingDate;
+      const overriddenStartDate = override.startDate || null;
+      const startDateStr = overriddenStartDate || autoStartDate || (st.createdAt ? formatDateISO(st.createdAt) : null);
+      const startDateSource = overriddenStartDate
+        ? 'manual'
+        : (autoStartDate ? 'attendance' : 'created');
       const targetMeetings = override.targetMeetings || DEFAULT_TARGET_MEETINGS;
 
       const category = (st.level || '').toLowerCase().includes('kinder')
@@ -270,6 +356,8 @@ export default function NewStudentSubscriptionsPage() {
         day: sched?.day || '—',
         time: sched?.time || '—',
         startDateStr,
+        autoStartDate,
+        startDateSource,
         targetMeetings,
         attendedCount,
         progressPercent: Math.min(100, Math.round((attendedCount / targetMeetings) * 100)),
@@ -338,6 +426,7 @@ export default function NewStudentSubscriptionsPage() {
           meetings: entry.meetings,
           paidAt: entry.paidAt,
           packageLabel: entry.packageLabel,
+          invoiceUrl: entry.invoiceUrl,
         });
         recorded.push(row);
       }
@@ -657,6 +746,24 @@ export default function NewStudentSubscriptionsPage() {
         // way it will read once Save Changes goes through.
         const purchaseCount = savedPayments.length + pendingPayments.length;
         const meetingsPaid = totalMeetingsPaid(savedPayments) + totalMeetingsPaid(pendingPayments);
+        // Kinder and Junior are sold by the term; Coder by the month. That
+        // decides the unit the package picker and the top-up presets speak in.
+        const isTermBased = isTermBasedCategory(editingRow.category);
+        const packageOptions = packagesForCategory(editingRow.category);
+        const topUpPresets = topUpPresetsFor(editingRow.category);
+        const draftTerms = isTermBased ? termsFromMeetings(draftTarget) : null;
+        // Where the date on screen came from, so nobody has to guess whether a
+        // value is real attendance or something typed in by hand.
+        const invoiceDraftInvalid = invoiceUrlDraft.trim() !== '' && !isHttpUrl(invoiceUrlDraft);
+        const isAutoStartDate = Boolean(editingRow.autoStartDate)
+          && draftStartDate === editingRow.autoStartDate;
+        const startDateOrigin = isAutoStartDate
+          ? 'Auto-filled from the first attendance recorded in Live Progress.'
+          : (editingRow.autoStartDate
+            ? `Manually set. Live Progress recorded ${formatDateFriendly(editingRow.autoStartDate)}.`
+            : (editingRow.startDateSource === 'created'
+              ? 'No attendance recorded yet, so this falls back to when the student was added.'
+              : 'Manually set. No attendance recorded in Live Progress yet.'));
         return (
         <div style={{
           position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
@@ -703,34 +810,149 @@ export default function NewStudentSubscriptionsPage() {
 
               {/* Start Date */}
               <div>
-                <label className="modal-form-label">1st Meeting Date (Start Date)</label>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem' }}>
+                  <label className="modal-form-label" htmlFor="subscription-start-date" style={{ marginBottom: 0 }}>
+                    1st Meeting Date (Start Date)
+                  </label>
+                  {/* Editing is behind a trigger because the date is derived from
+                      the first attendance the instructor recorded — the usual
+                      action here is reading it, not changing it. */}
+                  {!editingStartDate ? (
+                    <button
+                      type="button"
+                      onClick={() => setEditingStartDate(true)}
+                      aria-label="Edit first meeting date"
+                      title="Override the date derived from Live Progress attendance"
+                      style={{
+                        display: 'inline-flex', alignItems: 'center', gap: '0.25rem',
+                        background: 'transparent', border: 'none', cursor: 'pointer',
+                        color: 'var(--primary-blue, #4f46e5)', fontSize: '0.72rem', fontWeight: 700, padding: '0.1rem',
+                      }}
+                    >
+                      <Edit3 size={12} /> Edit
+                    </button>
+                  ) : (
+                    <span style={{ display: 'inline-flex', gap: '0.5rem' }}>
+                      {editingRow.autoStartDate && draftStartDate !== editingRow.autoStartDate && (
+                        <button
+                          type="button"
+                          onClick={revertStartDateToAuto}
+                          aria-label="Use the first meeting date derived from attendance"
+                          title="Go back to the date from the first recorded attendance"
+                          style={{
+                            display: 'inline-flex', alignItems: 'center', gap: '0.25rem',
+                            background: 'transparent', border: 'none', cursor: 'pointer',
+                            color: 'var(--text-secondary)', fontSize: '0.72rem', fontWeight: 700, padding: '0.1rem',
+                          }}
+                        >
+                          <RefreshCw size={12} /> Use auto
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => setEditingStartDate(false)}
+                        aria-label="Finish editing the first meeting date"
+                        style={{
+                          background: 'transparent', border: 'none', cursor: 'pointer',
+                          color: 'var(--text-muted)', fontSize: '0.72rem', fontWeight: 700, padding: '0.1rem',
+                        }}
+                      >
+                        Done
+                      </button>
+                    </span>
+                  )}
+                </div>
                 <input
+                  id="subscription-start-date"
                   type="date"
                   value={draftStartDate}
                   onChange={(e) => setDraftStartDate(e.target.value)}
                   className="modal-input-field"
+                  readOnly={!editingStartDate}
+                  aria-readonly={!editingStartDate}
+                  style={editingStartDate ? { marginTop: '0.3rem' } : {
+                    marginTop: '0.3rem',
+                    background: 'var(--bg-color)',
+                    color: 'var(--text-secondary)',
+                    cursor: 'default',
+                  }}
                 />
                 <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.2rem', display: 'block' }}>
+                  {startDateOrigin}
+                </span>
+                <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', display: 'block' }}>
                   Predicted end: {currentEnd ? formatDateFriendly(currentEnd) : '—'} ({draftTarget} weeks + 2 weeks buffer)
                 </span>
               </div>
 
               {/* Package Selection */}
               <div>
-                <label className="modal-form-label">Package Meetings Count</label>
+                <label className="modal-form-label" htmlFor="package-select">
+                  {isTermBased ? 'Package Terms' : 'Package Meetings Count'}
+                </label>
                 <select
+                  id="package-select"
                   value={draftTarget}
                   onChange={(e) => setDraftTarget(Number(e.target.value))}
                   className="modal-select-field"
                 >
-                  {SUBSCRIPTION_PACKAGES.map((p) => (
+                  {packageOptions.map((p) => (
                     <option key={p.meetings} value={p.meetings}>{p.label}</option>
                   ))}
                   {/* Show current value if it's a custom number from top-ups */}
-                  {!SUBSCRIPTION_PACKAGES.some((p) => p.meetings === draftTarget) && (
-                    <option value={draftTarget}>Custom ({draftTarget} Meetings)</option>
+                  {!packageOptions.some((p) => p.meetings === draftTarget) && (
+                    <option value={draftTarget}>
+                      {draftTerms
+                        ? `Custom (${draftTerms} Term${draftTerms === 1 ? '' : 's'} — ${draftTarget} Meetings)`
+                        : `Custom (${draftTarget} Meetings)`}
+                    </option>
                   )}
                 </select>
+
+                {/* Kinder and Junior run term by term, so the package length is
+                    chosen in terms and any number of them is allowed. The stored
+                    target stays in meetings. */}
+                {isTermBased && (
+                  <div style={{ marginTop: '0.5rem' }}>
+                    <div style={{ display: 'flex', gap: '0.45rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                      <input
+                        type="number"
+                        min={1}
+                        max={MAX_TERMS}
+                        placeholder={`Custom terms (1–${MAX_TERMS})`}
+                        value={customTermVal}
+                        onChange={(e) => setCustomTermVal(e.target.value)}
+                        aria-label="Custom number of terms"
+                        className="modal-input-field field-compact"
+                        style={{ width: '165px' }}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            handleApplyCustomTerms();
+                          }
+                        }}
+                      />
+                      <button
+                        type="button"
+                        onClick={handleApplyCustomTerms}
+                        className="btn"
+                        style={{
+                          padding: '0.42rem 0.8rem', borderRadius: '8px', fontSize: '0.78rem', fontWeight: 700,
+                          border: '1.5px solid var(--border-color)', background: 'transparent',
+                          color: 'var(--text-secondary)', cursor: 'pointer',
+                        }}
+                      >
+                        Set Terms
+                      </button>
+                    </div>
+                    <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.3rem', display: 'block' }}>
+                      Each term is {MEETINGS_PER_TERM} meetings.
+                      {draftTerms
+                        ? ` Currently ${draftTerms} term${draftTerms === 1 ? '' : 's'} (${draftTarget} meetings).`
+                        : ` Currently ${draftTarget} meetings, which is not a whole number of terms.`}
+                    </span>
+                  </div>
+                )}
               </div>
 
               {/* Top Up Section */}
@@ -739,11 +961,12 @@ export default function NewStudentSubscriptionsPage() {
                 borderRadius: '10px', padding: '0.85rem 1rem',
               }}>
                 <div style={{ fontSize: '0.8rem', fontWeight: 700, color: '#047857', marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
-                  <RefreshCw size={14} /> Top Up Meetings
+                  <RefreshCw size={14} /> {isTermBased ? 'Top Up Terms' : 'Top Up Meetings'}
                 </div>
                 <p style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', margin: '0 0 0.6rem' }}>
-                  Add extra meetings on top of the current package ({draftTarget} meetings). This will extend the
-                  subscription and record a payment on the date below.
+                  {isTermBased
+                    ? `Add another term on top of the current package (${draftTarget} meetings). This will extend the subscription and record a payment on the date below.`
+                    : `Add extra meetings on top of the current package (${draftTarget} meetings). This will extend the subscription and record a payment on the date below.`}
                 </p>
 
                 {/* Payment date — the day the parent paid. Every top-up added
@@ -767,28 +990,69 @@ export default function NewStudentSubscriptionsPage() {
                   />
                 </div>
 
+                {/* The invoice the parent was given. A Drive link rather than an
+                    upload, because that is where the invoices already are. */}
+                <div style={{ marginBottom: '0.65rem' }}>
+                  <label
+                    htmlFor="topup-invoice-url"
+                    style={{ fontSize: '0.72rem', fontWeight: 700, color: '#047857', display: 'block', marginBottom: '0.25rem' }}
+                  >
+                    Invoice Link <span style={{ fontWeight: 500, color: 'var(--text-muted)' }}>(optional)</span>
+                  </label>
+                  <input
+                    id="topup-invoice-url"
+                    type="url"
+                    inputMode="url"
+                    placeholder="https://drive.google.com/..."
+                    value={invoiceUrlDraft}
+                    onChange={(e) => setInvoiceUrlDraft(e.target.value)}
+                    className={`modal-input-field field-compact${invoiceDraftInvalid ? ' error' : ''}`}
+                    aria-invalid={invoiceDraftInvalid}
+                    aria-describedby="topup-invoice-help"
+                  />
+                  <span
+                    id="topup-invoice-help"
+                    style={{
+                      fontSize: '0.68rem', marginTop: '0.2rem', display: 'block',
+                      color: invoiceDraftInvalid ? 'var(--danger, #dc2626)' : 'var(--text-muted)',
+                    }}
+                  >
+                    {invoiceDraftInvalid
+                      ? 'Paste the full link, starting with https://'
+                      : 'Attached to the payment added below, so the invoice can be opened from the history.'}
+                  </span>
+                </div>
+
                 <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
-                  {TOP_UP_PRESETS.map((n) => (
-                    <button
-                      key={n}
-                      type="button"
-                      onClick={() => stageTopUp(n)}
-                      style={{
-                        padding: '0.35rem 0.75rem', borderRadius: '8px', cursor: 'pointer',
-                        fontSize: '0.78rem', fontWeight: 700, border: '1.5px solid rgba(16,185,129,0.35)',
-                        background: 'rgba(16,185,129,0.08)', color: '#047857',
-                        transition: 'all 0.15s ease',
-                      }}
-                    >
-                      +{n} Meetings
-                    </button>
-                  ))}
+                  {topUpPresets.map((n) => {
+                    const presetTerms = isTermBased ? termsFromMeetings(n) : null;
+                    return (
+                      <button
+                        key={n}
+                        type="button"
+                        onClick={() => stageTopUp(n)}
+                        title={presetTerms ? `${n} meetings` : undefined}
+                        style={{
+                          padding: '0.35rem 0.75rem', borderRadius: '8px', cursor: 'pointer',
+                          fontSize: '0.78rem', fontWeight: 700, border: '1.5px solid rgba(16,185,129,0.35)',
+                          background: 'rgba(16,185,129,0.08)', color: '#047857',
+                          transition: 'all 0.15s ease',
+                        }}
+                      >
+                        {presetTerms
+                          ? `+${presetTerms} Term${presetTerms === 1 ? '' : 's'} (${n})`
+                          : `+${n} Meetings`}
+                      </button>
+                    );
+                  })}
                   <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', flexWrap: 'wrap', marginTop: '0.15rem' }}>
                     <input
                       type="number"
                       min={1}
                       max={100}
-                      placeholder="Custom (e.g. 5)"
+                      placeholder="Custom meetings"
+                      aria-label="Custom top-up in meetings"
+                      title="A top-up in meetings, for a part-term addition such as a make-up session"
                       value={customTopUpVal}
                       onChange={(e) => setCustomTopUpVal(e.target.value)}
                       style={{
@@ -920,6 +1184,11 @@ export default function NewStudentSubscriptionsPage() {
                           <div style={{ fontSize: '0.68rem', color: 'var(--text-secondary)' }}>
                             {formatDateFriendly(p.paidAt)}
                           </div>
+                          {p.invoiceUrl && (
+                            <div style={{ fontSize: '0.64rem', color: 'var(--text-muted)', marginTop: '0.15rem', display: 'flex', alignItems: 'center', gap: '0.2rem' }}>
+                              <Paperclip size={10} /> Invoice attached
+                            </div>
+                          )}
                           <div style={{ fontSize: '0.64rem', color: '#047857', fontWeight: 700, marginTop: '0.15rem' }}>
                             UNSAVED — saves with Save Changes
                           </div>
@@ -957,6 +1226,25 @@ export default function NewStudentSubscriptionsPage() {
                             <div style={{ fontSize: '0.64rem', color: 'var(--text-muted)', marginTop: '0.15rem', overflowWrap: 'anywhere' }}>
                               {p.packageLabel}
                             </div>
+                          )}
+                          {/* Only rendered when the stored value is a real
+                              http(s) link. `noopener noreferrer` because the
+                              target is a URL somebody typed. */}
+                          {isHttpUrl(p.invoiceUrl) && (
+                            <a
+                              href={p.invoiceUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              title={`Open the invoice for the payment dated ${formatDateFriendly(p.paidAt)}`}
+                              style={{
+                                display: 'inline-flex', alignItems: 'center', gap: '0.2rem', marginTop: '0.25rem',
+                                fontSize: '0.66rem', fontWeight: 700, color: 'var(--primary-blue, #4f46e5)',
+                                textDecoration: 'none',
+                              }}
+                            >
+                              <Paperclip size={10} /> View invoice
+                              <ExternalLink size={9} />
+                            </a>
                           )}
                         </div>
                         <button
