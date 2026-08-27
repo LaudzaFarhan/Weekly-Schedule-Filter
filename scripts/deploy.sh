@@ -142,28 +142,61 @@ fi
 # ── 4. Restart ─────────────────────────────────────────────────────────────
 
 log "Restarting the app"
-if command -v pm2 >/dev/null 2>&1 && pm2 describe thelab >/dev/null 2>&1; then
-  pm2 restart thelab --update-env
+
+# The process name is looked up rather than assumed. This script used to hardcode
+# "thelab", but the VPS runs the app under "weekly-schedule", so every deploy
+# built the new bundle and then quietly skipped the restart — the site kept
+# serving the old build and the only clue was a message at the end nobody reads.
+#
+# Override with PM2_APP_NAME=... ./scripts/deploy.sh if the name changes again.
+PM2_APP=""
+if command -v pm2 >/dev/null 2>&1; then
+  for candidate in "${PM2_APP_NAME:-}" weekly-schedule thelab; do
+    [ -n "$candidate" ] || continue
+    if pm2 describe "$candidate" >/dev/null 2>&1; then
+      PM2_APP="$candidate"
+      break
+    fi
+  done
+fi
+
+SYSTEMD_APP=""
+for candidate in "${SYSTEMD_UNIT_NAME:-}" weekly-schedule thelab; do
+  [ -n "$candidate" ] || continue
+  if systemctl list-units --type=service --all 2>/dev/null | grep -q "${candidate}\.service"; then
+    SYSTEMD_APP="$candidate"
+    break
+  fi
+done
+
+if [ -n "$PM2_APP" ]; then
+  pm2 restart "$PM2_APP" --update-env
   pm2 save
-  log "Restarted under pm2. Logs: pm2 logs thelab"
-elif systemctl list-units --type=service --all 2>/dev/null | grep -q 'thelab.service'; then
-  sudo systemctl restart thelab
-  log "Restarted under systemd. Logs: journalctl -u thelab -f"
+  log "Restarted pm2 process \"$PM2_APP\". Logs: pm2 logs $PM2_APP"
+elif [ -n "$SYSTEMD_APP" ]; then
+  sudo systemctl restart "$SYSTEMD_APP"
+  log "Restarted ${SYSTEMD_APP}.service. Logs: journalctl -u $SYSTEMD_APP -f"
 else
   cat <<EOF
 
-No pm2 process named "thelab" and no thelab.service found, so the build is ready
-but nothing has been restarted. Restart it however this box runs the app, then
-add the name here so future deploys do it for you.
+No pm2 process and no systemd unit matching a known app name was found, so the
+build is ready but nothing has been restarted. Restart it however this box runs
+the app, then set PM2_APP_NAME so future deploys do it for you.
 
 If it is not yet running under a process manager, pm2 is the shortest path:
 
   npm install -g pm2
-  pm2 start npm --name thelab -- start
+  pm2 start npm --name weekly-schedule -- start
   pm2 startup && pm2 save
 
 EOF
 fi
 
 log "Deployed $(git rev-parse --short HEAD) from $APP_DIR"
-echo "    Rollback: rm -rf .next && mv .next.previous .next && (pm2 restart thelab || sudo systemctl restart thelab)"
+if [ -n "$PM2_APP" ]; then
+  echo "    Rollback: rm -rf .next && mv .next.previous .next && pm2 restart $PM2_APP"
+elif [ -n "$SYSTEMD_APP" ]; then
+  echo "    Rollback: rm -rf .next && mv .next.previous .next && sudo systemctl restart $SYSTEMD_APP"
+else
+  echo "    Rollback: rm -rf .next && mv .next.previous .next, then restart the app"
+fi
