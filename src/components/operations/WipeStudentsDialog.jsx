@@ -64,6 +64,9 @@ export default function WipeStudentsDialog({
   studentCount,
   filtersActive = false,
   students = [],
+  // Class rows, so the backup carries each student's day, time and instructor.
+  // Without them a restore could recreate the students but not their schedule.
+  classes = [],
   branches = [],
   onCancel,
   onConfirm,
@@ -170,7 +173,11 @@ export default function WipeStudentsDialog({
   const handleExport = useCallback(() => {
     setExportError(null);
     try {
-      const elapsedMs = downloadStudentExport(Array.isArray(students) ? students : []);
+      const elapsedMs = downloadStudentExport(
+        Array.isArray(students) ? students : [],
+        new Date(),
+        Array.isArray(classes) ? classes : [],
+      );
       if (elapsedMs > EXPORT_TIME_BUDGET_MS) {
         // Over budget counts as a failure: no arming, retry still allowed.
         // Req 2.6, 2.10
@@ -189,7 +196,7 @@ export default function WipeStudentsDialog({
         + 'Try the export again.',
       );
     }
-  }, [students]);
+  }, [students, classes]);
 
   const handleWipe = useCallback(async () => {
     if (phase === 'running') return; // repeat activation is a no-op. Req 6.7

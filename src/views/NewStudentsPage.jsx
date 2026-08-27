@@ -1256,6 +1256,7 @@ export default function NewStudentsPage({ onNavigate } = {}) {
           studentCount={students.length}
           filtersActive={filtersActive}
           students={students}
+          classes={classes}
           branches={enabledBranches || branches || []}
           onCancel={closeWipeDialog}
           onConfirm={handleWipeConfirm}
