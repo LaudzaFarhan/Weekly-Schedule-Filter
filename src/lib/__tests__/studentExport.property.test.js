@@ -14,10 +14,32 @@ import {
   studentExportFileName,
 } from '@/lib/studentExport';
 
-/** The eight record fields, in the order the sheet's columns take them. */
+/** The student-record fields, in the order the sheet's columns take them. */
 const FIELDS = ['id', 'name', 'level', 'branchName', 'parentName', 'contact', 'status', 'remarks'];
 
-const EXPECTED_HEADERS = ['ID', 'Name', 'Level', 'Branch', 'Parent Name', 'Contact', 'Status', 'Remarks'];
+/**
+ * Day, Time, Instructor and Program sit between Status and Remarks. They come
+ * from the student's class row rather than the student record, so with no
+ * classes supplied — as in every case generated here — they are blank.
+ */
+const SCHEDULE_HEADERS = ['Day', 'Time', 'Instructor', 'Program'];
+const EXPECTED_HEADERS = [
+  'ID', 'Name', 'Level', 'Branch', 'Parent Name', 'Contact', 'Status',
+  ...SCHEDULE_HEADERS,
+  'Remarks',
+];
+
+/** Which header each student field is written under. */
+const FIELD_HEADERS = {
+  id: 'ID',
+  name: 'Name',
+  level: 'Level',
+  branchName: 'Branch',
+  parentName: 'Parent Name',
+  contact: 'Contact',
+  status: 'Status',
+  remarks: 'Remarks',
+};
 
 /**
  * One field value: present-and-ordinary, empty, null, very long, non-ASCII, or
@@ -79,13 +101,21 @@ describe('studentExport pure functions', () => {
 
           students.forEach((record, index) => {
             const row = rows[index + 1];
-            expect(row).toHaveLength(8);
-            FIELDS.forEach((field, column) => {
+            expect(row).toHaveLength(EXPECTED_HEADERS.length);
+            // Each student field lands in the column its header occupies, which
+            // is no longer the field's own position now that the schedule
+            // columns sit between Status and Remarks.
+            FIELDS.forEach((field) => {
+              const column = EXPECTED_HEADERS.indexOf(FIELD_HEADERS[field]);
               const expected = expectedCell(record[field]);
               // Value present as a string, '' for absent, and not shortened.
               expect(row[column]).toBe(expected);
               expect(typeof row[column]).toBe('string');
               expect(row[column].length).toBe(expected.length);
+            });
+            // No classes were supplied, so nothing is invented for the schedule.
+            SCHEDULE_HEADERS.forEach((header) => {
+              expect(row[EXPECTED_HEADERS.indexOf(header)]).toBe('');
             });
           });
 

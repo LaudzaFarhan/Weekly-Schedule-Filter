@@ -70,7 +70,10 @@ vi.mock('@/services/newActivityService', () => ({
 }));
 
 vi.mock('@/lib/studentExport', () => ({
-  STUDENT_EXPORT_HEADERS: ['ID', 'Name', 'Level', 'Branch', 'Parent Name', 'Contact', 'Status', 'Remarks'],
+  STUDENT_EXPORT_HEADERS: [
+    'ID', 'Name', 'Level', 'Branch', 'Parent Name', 'Contact', 'Status',
+    'Day', 'Time', 'Instructor', 'Program', 'Remarks',
+  ],
   buildStudentExportRows: () => [],
   studentExportFileName: () => 'students-export-2026-01-01.xlsx',
   downloadStudentExport,
