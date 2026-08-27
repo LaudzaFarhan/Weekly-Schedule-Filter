@@ -125,19 +125,45 @@ else
 fi
 
 log "Building"
-# Into a scratch directory, so a failure cannot leave the running app with a
-# half-written .next.
+
+# This step used to try to build into `.next.building` by setting NEXT_DIST_DIR,
+# then swap it into place. Next does not read that variable — the output
+# directory comes from `distDir` in next.config.mjs and nothing else — so the
+# build wrote to `.next` and exited 0, the "success" branch moved that fresh
+# build aside to `.next.previous`, and the swap then failed because
+# `.next.building` had never existed. With `set -e` the script stopped there,
+# leaving NO `.next` at all and never reaching the restart. `next start` then
+# crash-looped and nginx served 502 until someone rebuilt by hand.
+#
+# So the swap is done with renames around a normal build instead. The live build
+# is moved aside first, and put straight back if the build fails, which is the
+# case that used to take the site down.
+#
+# Renames rather than a copy, deliberately: a copy would keep the old build
+# readable throughout, but `.next` runs to hundreds of megabytes and doubling it
+# can fill a small VPS disk mid-deploy, which is a worse failure than the one it
+# avoids. The cost is a window during the build where the running app has no
+# `.next` on disk and may serve errors. The build it replaced overwrote `.next`
+# in place and had the same window, so this is not a regression — just say so
+# rather than leave it as a surprise.
 rm -rf .next.building
-if ! NEXT_DIST_DIR=.next.building npx next build --no-lint 2>/dev/null; then
-  # Older Next versions ignore NEXT_DIST_DIR. Fall back to a plain build, which
-  # is what the previous deploy did anyway.
-  rm -rf .next.building
-  npm run build
-else
+if [ -d .next ]; then
   rm -rf .next.previous
-  [ -d .next ] && mv .next .next.previous
-  mv .next.building .next
+  mv .next .next.previous
 fi
+
+if ! npm run build; then
+  rm -rf .next
+  if [ -d .next.previous ]; then
+    mv .next.previous .next
+    fail "Build failed. The previous build has been restored and the app was NOT restarted, so it keeps serving the version it was already on."
+  fi
+  fail "Build failed, and there was no previous build to restore. The app cannot start until a build succeeds."
+fi
+
+# `npm run build` exiting 0 without producing the directory would leave the app
+# unstartable, and it is cheaper to say so here than to debug a restart loop.
+[ -d .next ] || fail "The build reported success but .next does not exist. Refusing to restart."
 
 # ── 4. Restart ─────────────────────────────────────────────────────────────
 
