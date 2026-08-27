@@ -67,6 +67,8 @@ export default function NewUsersPage() {
   // different sentence: it is answered by signing in, never by retrying.
   const [errorStatus, setErrorStatus] = useState(null);
   const [keyConfigured, setKeyConfigured] = useState(true);
+  /** Why the key is unusable: `{ reason: 'missing'|'invalid', message }` or null. */
+  const [keyProblem, setKeyProblem] = useState(null);
 
   const [search, setSearch] = useState('');
   const [roleFilter, setRoleFilter] = useState('all');
@@ -143,6 +145,7 @@ export default function NewUsersPage() {
       const body = await res.json();
       setUsers(body.users || []);
       setKeyConfigured(body.credentialKeyConfigured !== false);
+      setKeyProblem(body.credentialKey?.ok === false ? body.credentialKey : null);
       // Revealed passwords are dropped on every reload: leaving them visible
       // across a refresh would mean a page left open keeps showing credentials.
       setRevealed({});
@@ -429,12 +432,32 @@ export default function NewUsersPage() {
             display: 'flex', gap: '0.5rem', alignItems: 'flex-start', fontSize: '0.78rem',
           }}>
             <AlertTriangle size={15} style={{ color: '#b45309', flexShrink: 0, marginTop: 1 }} />
-            <span>
-              <strong>EMPLOYEE_CREDENTIAL_KEY is not set on this deployment.</strong> Passwords
-              cannot be read, set or checked until it is, so nobody can sign in with these
-              accounts. Generate one with <code>openssl rand -base64 32</code> and add it to
-              the environment.
-            </span>
+            {/*
+              A missing key and a malformed one need opposite advice, so they get
+              different text. This used to say "is not set" either way and tell
+              the operator to generate a new key — which, when a key was already
+              set and merely wrong, would have made every stored password
+              permanently unreadable.
+            */}
+            {keyProblem?.reason === 'invalid' ? (
+              <span>
+                <strong>EMPLOYEE_CREDENTIAL_KEY is set, but it is not a valid key.</strong>{' '}
+                {keyProblem.message} Passwords cannot be read, set or checked, so nobody can sign
+                in with these accounts.
+                <br />
+                <strong>Do not generate a new key</strong> if these accounts already have
+                passwords: they were encrypted with the key this one was supposed to be, and a
+                fresh key makes all of them unreadable for good. Restore the original 32-byte key
+                on this deployment instead.
+              </span>
+            ) : (
+              <span>
+                <strong>EMPLOYEE_CREDENTIAL_KEY is not set on this deployment.</strong> Passwords
+                cannot be read, set or checked until it is, so nobody can sign in with these
+                accounts. Generate one with <code>openssl rand -base64 32</code> and add it to
+                the environment.
+              </span>
+            )}
           </div>
         )}
 

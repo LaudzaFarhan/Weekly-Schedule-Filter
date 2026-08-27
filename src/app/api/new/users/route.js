@@ -27,7 +27,9 @@ import { ensureTable } from '@/lib/ensureSchema';
 import { buildListQuery, withLimit } from '@/lib/listQuery';
 import { auditAccountAction, canAdminAccounts, identify } from '@/lib/apiIdentity';
 import { isKnownRole, ROLES } from '@/lib/authSession';
-import { CredentialKeyError, encryptPassword, isCredentialKeyConfigured } from '@/lib/employeeCredentials';
+import {
+  CredentialKeyError, describeCredentialKey, encryptPassword, isCredentialKeyConfigured,
+} from '@/lib/employeeCredentials';
 import { defaultPasswordFor } from '@/lib/employeeAccounts';
 
 /** Account statuses. Anything other than Active is refused at login. */
@@ -110,6 +112,12 @@ export async function GET(req) {
       statuses: STATUSES,
       /** So a client can warn that reveal and sign-in will fail before trying. */
       credentialKeyConfigured: isCredentialKeyConfigured(),
+      /**
+       * Why it is unusable, when it is. A missing key and a malformed one need
+       * opposite advice — generate a new one, versus do not, because a new one
+       * orphans every password already stored.
+       */
+      credentialKey: describeCredentialKey(),
     });
   } catch (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });

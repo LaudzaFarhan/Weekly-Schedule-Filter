@@ -109,6 +109,38 @@ export function isCredentialKeyConfigured() {
 }
 
 /**
+ * Why the key is unusable, so a screen can say something true about it.
+ *
+ * "Not set" and "set to the wrong thing" need different advice, and telling them
+ * apart is what stops the wrong advice being followed. A deployment with no key
+ * should generate one. A deployment whose key is the wrong length must NOT:
+ * every password already stored was encrypted under the key this one was meant
+ * to be, and a fresh key makes all of them permanently unreadable. The fix there
+ * is to find the original key, not to mint a replacement.
+ *
+ * The message carries the decoded byte count, which is a length and not a
+ * secret. The key itself is never returned.
+ *
+ * @returns {{ ok: boolean, reason: 'missing'|'invalid'|null, message: string|null }}
+ */
+export function describeCredentialKey() {
+  const raw = process.env[KEY_ENV_VAR];
+  if (typeof raw !== 'string' || raw.trim() === '') {
+    return {
+      ok: false,
+      reason: 'missing',
+      message: `${KEY_ENV_VAR} is not set on this deployment.`,
+    };
+  }
+  try {
+    readKey();
+    return { ok: true, reason: null, message: null };
+  } catch (error) {
+    return { ok: false, reason: 'invalid', message: error.message };
+  }
+}
+
+/**
  * Encrypt a password for storage.
  *
  * @param {string} plain the password as typed
