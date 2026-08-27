@@ -5,13 +5,74 @@
  * Standard subscription = 3 Months (12 meetings total, 1 meeting/week = 7 days per meeting).
  * Predicted End Date = First Meeting Date + (Target Meetings * 7 days) + 14 days (2-week buffer for absences).
  * Overdue: Current Date > Predicted End Date AND Attended Meetings < Target Meetings.
+ *
+ * Two ways of selling the same thing, so the unit depends on the category:
+ * Kinder and Junior are bought by the term (ten meetings each, any number of
+ * terms), Coder by the month. Everything downstream still works in meetings —
+ * terms are how the number is chosen and described, not a second stored field.
  */
+
+import { LESSONS_PER_LEVEL } from '../lib/programRules';
 
 export const DEFAULT_TARGET_MEETINGS = 12; // 3-month package
 export const BUFFER_WEEKS = 2; // 14 days buffer for missed/sick days
 
 /**
- * The packages a parent can buy, as (meetings, label) pairs.
+ * Meetings in one Kinder/Junior term.
+ *
+ * A term is a level (K1..K4, J1..J4) and a level is ten lessons, so this is
+ * `LESSONS_PER_LEVEL` rather than a second literal 10 that could drift away
+ * from the curriculum rules.
+ */
+export const MEETINGS_PER_TERM = LESSONS_PER_LEVEL;
+
+/**
+ * Which categories sell by term rather than by month.
+ *
+ * Kinder and Junior progress term by term, ten meetings each, so a parent buys
+ * "two more terms" and not "twenty more meetings". Coder has no terms — it is
+ * bought as a month-length package and extended with top-ups.
+ *
+ * @param {string} category
+ * @returns {boolean}
+ */
+export function isTermBasedCategory(category) {
+  const cat = String(category || '').trim().toLowerCase();
+  return cat.includes('kinder') || cat.includes('junior');
+}
+
+/** Meetings a given number of terms buys. */
+export function meetingsForTerms(terms) {
+  return (Number(terms) || 0) * MEETINGS_PER_TERM;
+}
+
+/**
+ * Terms a meeting count corresponds to, or `null` when it does not divide
+ * evenly — a target of 25 is not "two and a half terms", it is a target that no
+ * whole number of terms produced, and saying so is more useful than rounding.
+ *
+ * @param {number} meetings
+ * @returns {number|null}
+ */
+export function termsFromMeetings(meetings) {
+  const count = Number(meetings) || 0;
+  if (count <= 0 || count % MEETINGS_PER_TERM !== 0) return null;
+  return count / MEETINGS_PER_TERM;
+}
+
+/** Term counts offered in the picker before the custom field is needed. */
+export const TERM_PACKAGE_COUNTS = [1, 2, 3, 4];
+
+/** How many terms a Kinder/Junior student may be sold in one package. */
+export const MAX_TERMS = 12;
+
+/** Plural-safe "1 Term" / "3 Terms". */
+function termWord(terms) {
+  return `${terms} Term${terms === 1 ? '' : 's'}`;
+}
+
+/**
+ * The month-length packages, for categories that are sold that way.
  *
  * Exported rather than written inline in the package `<select>` so the payment
  * ledger and the picker cannot drift: a recorded payment's label is looked up
@@ -24,20 +85,58 @@ export const SUBSCRIPTION_PACKAGES = [
   { meetings: 10, label: '10 Meetings (Legacy short package)' },
 ];
 
-/** The preset top-up sizes offered beside the custom field. */
-export const TOP_UP_PRESETS = [4, 8, 12];
+/** The term packages, derived so the ten stays in one place. */
+export const TERM_PACKAGES = TERM_PACKAGE_COUNTS.map((terms) => ({
+  terms,
+  meetings: meetingsForTerms(terms),
+  label: `${termWord(terms)} (${meetingsForTerms(terms)} Meetings)`,
+}));
 
 /**
- * What to call a payment of `meetings` meetings.
+ * The packages to offer a student in `category`.
+ *
+ * @param {string} category  'Kinder' | 'Junior' | 'Coder'
+ * @returns {Array<{ meetings: number, label: string, terms?: number }>}
+ */
+export function packagesForCategory(category) {
+  return isTermBasedCategory(category) ? TERM_PACKAGES : SUBSCRIPTION_PACKAGES;
+}
+
+/**
+ * The preset top-up sizes for a category, in meetings.
+ *
+ * Kinder and Junior top up by the term, so their presets are whole terms. Coder
+ * tops up by the meeting.
+ *
+ * @param {string} category
+ * @returns {number[]}
+ */
+export function topUpPresetsFor(category) {
+  return isTermBasedCategory(category)
+    ? [1, 2, 4].map(meetingsForTerms)
+    : [4, 8, 12];
+}
+
+/**
+ * What to call a payment of `meetings` meetings for a student in `category`.
  *
  * A payment that matches a catalogue package is named after it; anything else is
  * described as a top-up, which is what an off-catalogue number is in practice.
  *
  * @param {number} meetings
+ * @param {string} [category]
  * @returns {string}
  */
-export function packageLabelFor(meetings) {
+export function packageLabelFor(meetings, category) {
   const count = Number(meetings) || 0;
+  if (isTermBasedCategory(category)) {
+    const terms = termsFromMeetings(count);
+    // A whole number of terms is named as terms; a leftover count is not forced
+    // into a term it does not fill.
+    return terms
+      ? `${termWord(terms)} (${count} Meetings)`
+      : `Top-Up (+${count} Meetings)`;
+  }
   const known = SUBSCRIPTION_PACKAGES.find((p) => p.meetings === count);
   return known ? known.label : `Top-Up (+${count} Meetings)`;
 }

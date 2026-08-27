@@ -17,8 +17,15 @@ import {
   todayISO,
   totalMeetingsPaid,
   DEFAULT_TARGET_MEETINGS,
-  SUBSCRIPTION_PACKAGES,
-  TOP_UP_PRESETS,
+} from '../utils/subscriptionUtils';
+import {
+  isTermBasedCategory,
+  packagesForCategory,
+  topUpPresetsFor,
+  termsFromMeetings,
+  meetingsForTerms,
+  MEETINGS_PER_TERM,
+  MAX_TERMS,
 } from '../utils/subscriptionUtils';
 import { getTopUps, createTopUp, deleteTopUp } from '../services/subscriptionTopupService';
 import {
@@ -64,6 +71,8 @@ export default function NewStudentSubscriptionsPage() {
   const [draftStartDate, setDraftStartDate] = useState('');
   const [draftTarget, setDraftTarget] = useState(DEFAULT_TARGET_MEETINGS);
   const [customTopUpVal, setCustomTopUpVal] = useState('');
+  // Custom term count, for the Kinder/Junior packages that are sold by the term.
+  const [customTermVal, setCustomTermVal] = useState('');
 
   /**
    * Payment ledger state for the student being edited.
@@ -128,6 +137,7 @@ export default function NewStudentSubscriptionsPage() {
     setDraftStartDate(row.startDateStr || '');
     setDraftTarget(row.targetMeetings || DEFAULT_TARGET_MEETINGS);
     setCustomTopUpVal('');
+    setCustomTermVal('');
     setTopUpDate(todayISO());
     setPendingPayments([]);
     setSavedPayments([]);
@@ -189,9 +199,36 @@ export default function NewStudentSubscriptionsPage() {
         key: `pending-${Date.now()}-${prev.length}`,
         meetings: val,
         paidAt: topUpDate,
-        packageLabel: packageLabelFor(val),
+        packageLabel: packageLabelFor(val, editingRow?.category),
       },
     ]);
+  };
+
+  /**
+   * Set the package to a custom number of terms.
+   *
+   * Kinder and Junior are sold by the term, so the number the user types is
+   * terms; the stored target stays in meetings, which is what every calculation
+   * downstream reads.
+   */
+  const handleApplyCustomTerms = () => {
+    const terms = parseInt(customTermVal, 10);
+    if (!Number.isInteger(terms) || terms < 1 || terms > MAX_TERMS) {
+      showToast({
+        title: 'Invalid term count',
+        message: `Enter a number of terms from 1 to ${MAX_TERMS}.`,
+        variant: 'error',
+      });
+      return;
+    }
+    const meetings = meetingsForTerms(terms);
+    setDraftTarget(meetings);
+    setCustomTermVal('');
+    showToast({
+      title: `Package set to ${terms} term${terms === 1 ? '' : 's'}`,
+      message: `${meetings} meetings (${MEETINGS_PER_TERM} per term)`,
+      variant: 'success',
+    });
   };
 
   const handleApplyCustomTopUp = () => {
@@ -657,6 +694,12 @@ export default function NewStudentSubscriptionsPage() {
         // way it will read once Save Changes goes through.
         const purchaseCount = savedPayments.length + pendingPayments.length;
         const meetingsPaid = totalMeetingsPaid(savedPayments) + totalMeetingsPaid(pendingPayments);
+        // Kinder and Junior are sold by the term; Coder by the month. That
+        // decides the unit the package picker and the top-up presets speak in.
+        const isTermBased = isTermBasedCategory(editingRow.category);
+        const packageOptions = packagesForCategory(editingRow.category);
+        const topUpPresets = topUpPresetsFor(editingRow.category);
+        const draftTerms = isTermBased ? termsFromMeetings(draftTarget) : null;
         return (
         <div style={{
           position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
@@ -703,8 +746,11 @@ export default function NewStudentSubscriptionsPage() {
 
               {/* Start Date */}
               <div>
-                <label className="modal-form-label">1st Meeting Date (Start Date)</label>
+                <label className="modal-form-label" htmlFor="subscription-start-date">
+                  1st Meeting Date (Start Date)
+                </label>
                 <input
+                  id="subscription-start-date"
                   type="date"
                   value={draftStartDate}
                   onChange={(e) => setDraftStartDate(e.target.value)}
@@ -717,20 +763,72 @@ export default function NewStudentSubscriptionsPage() {
 
               {/* Package Selection */}
               <div>
-                <label className="modal-form-label">Package Meetings Count</label>
+                <label className="modal-form-label" htmlFor="package-select">
+                  {isTermBased ? 'Package Terms' : 'Package Meetings Count'}
+                </label>
                 <select
+                  id="package-select"
                   value={draftTarget}
                   onChange={(e) => setDraftTarget(Number(e.target.value))}
                   className="modal-select-field"
                 >
-                  {SUBSCRIPTION_PACKAGES.map((p) => (
+                  {packageOptions.map((p) => (
                     <option key={p.meetings} value={p.meetings}>{p.label}</option>
                   ))}
                   {/* Show current value if it's a custom number from top-ups */}
-                  {!SUBSCRIPTION_PACKAGES.some((p) => p.meetings === draftTarget) && (
-                    <option value={draftTarget}>Custom ({draftTarget} Meetings)</option>
+                  {!packageOptions.some((p) => p.meetings === draftTarget) && (
+                    <option value={draftTarget}>
+                      {draftTerms
+                        ? `Custom (${draftTerms} Term${draftTerms === 1 ? '' : 's'} — ${draftTarget} Meetings)`
+                        : `Custom (${draftTarget} Meetings)`}
+                    </option>
                   )}
                 </select>
+
+                {/* Kinder and Junior run term by term, so the package length is
+                    chosen in terms and any number of them is allowed. The stored
+                    target stays in meetings. */}
+                {isTermBased && (
+                  <div style={{ marginTop: '0.5rem' }}>
+                    <div style={{ display: 'flex', gap: '0.45rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                      <input
+                        type="number"
+                        min={1}
+                        max={MAX_TERMS}
+                        placeholder={`Custom terms (1–${MAX_TERMS})`}
+                        value={customTermVal}
+                        onChange={(e) => setCustomTermVal(e.target.value)}
+                        aria-label="Custom number of terms"
+                        className="modal-input-field field-compact"
+                        style={{ width: '165px' }}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            handleApplyCustomTerms();
+                          }
+                        }}
+                      />
+                      <button
+                        type="button"
+                        onClick={handleApplyCustomTerms}
+                        className="btn"
+                        style={{
+                          padding: '0.42rem 0.8rem', borderRadius: '8px', fontSize: '0.78rem', fontWeight: 700,
+                          border: '1.5px solid var(--border-color)', background: 'transparent',
+                          color: 'var(--text-secondary)', cursor: 'pointer',
+                        }}
+                      >
+                        Set Terms
+                      </button>
+                    </div>
+                    <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.3rem', display: 'block' }}>
+                      Each term is {MEETINGS_PER_TERM} meetings.
+                      {draftTerms
+                        ? ` Currently ${draftTerms} term${draftTerms === 1 ? '' : 's'} (${draftTarget} meetings).`
+                        : ` Currently ${draftTarget} meetings, which is not a whole number of terms.`}
+                    </span>
+                  </div>
+                )}
               </div>
 
               {/* Top Up Section */}
@@ -739,11 +837,12 @@ export default function NewStudentSubscriptionsPage() {
                 borderRadius: '10px', padding: '0.85rem 1rem',
               }}>
                 <div style={{ fontSize: '0.8rem', fontWeight: 700, color: '#047857', marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
-                  <RefreshCw size={14} /> Top Up Meetings
+                  <RefreshCw size={14} /> {isTermBased ? 'Top Up Terms' : 'Top Up Meetings'}
                 </div>
                 <p style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', margin: '0 0 0.6rem' }}>
-                  Add extra meetings on top of the current package ({draftTarget} meetings). This will extend the
-                  subscription and record a payment on the date below.
+                  {isTermBased
+                    ? `Add another term on top of the current package (${draftTarget} meetings). This will extend the subscription and record a payment on the date below.`
+                    : `Add extra meetings on top of the current package (${draftTarget} meetings). This will extend the subscription and record a payment on the date below.`}
                 </p>
 
                 {/* Payment date — the day the parent paid. Every top-up added
@@ -768,27 +867,35 @@ export default function NewStudentSubscriptionsPage() {
                 </div>
 
                 <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
-                  {TOP_UP_PRESETS.map((n) => (
-                    <button
-                      key={n}
-                      type="button"
-                      onClick={() => stageTopUp(n)}
-                      style={{
-                        padding: '0.35rem 0.75rem', borderRadius: '8px', cursor: 'pointer',
-                        fontSize: '0.78rem', fontWeight: 700, border: '1.5px solid rgba(16,185,129,0.35)',
-                        background: 'rgba(16,185,129,0.08)', color: '#047857',
-                        transition: 'all 0.15s ease',
-                      }}
-                    >
-                      +{n} Meetings
-                    </button>
-                  ))}
+                  {topUpPresets.map((n) => {
+                    const presetTerms = isTermBased ? termsFromMeetings(n) : null;
+                    return (
+                      <button
+                        key={n}
+                        type="button"
+                        onClick={() => stageTopUp(n)}
+                        title={presetTerms ? `${n} meetings` : undefined}
+                        style={{
+                          padding: '0.35rem 0.75rem', borderRadius: '8px', cursor: 'pointer',
+                          fontSize: '0.78rem', fontWeight: 700, border: '1.5px solid rgba(16,185,129,0.35)',
+                          background: 'rgba(16,185,129,0.08)', color: '#047857',
+                          transition: 'all 0.15s ease',
+                        }}
+                      >
+                        {presetTerms
+                          ? `+${presetTerms} Term${presetTerms === 1 ? '' : 's'} (${n})`
+                          : `+${n} Meetings`}
+                      </button>
+                    );
+                  })}
                   <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', flexWrap: 'wrap', marginTop: '0.15rem' }}>
                     <input
                       type="number"
                       min={1}
                       max={100}
-                      placeholder="Custom (e.g. 5)"
+                      placeholder="Custom meetings"
+                      aria-label="Custom top-up in meetings"
+                      title="A top-up in meetings, for a part-term addition such as a make-up session"
                       value={customTopUpVal}
                       onChange={(e) => setCustomTopUpVal(e.target.value)}
                       style={{
