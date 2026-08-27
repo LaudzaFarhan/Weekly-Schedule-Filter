@@ -242,13 +242,34 @@ export function isSameTeacher(t1, t2) {
         tok1 === tok2 ||
         ALIAS_MAP[tok1] === tok2 ||
         ALIAS_MAP[tok2] === tok1 ||
-        (tok1.length >= 3 && tok2.length >= 3 && (tok1.includes(tok2) || tok2.includes(tok1)))
+        tokensShareAnAffix(tok1, tok2)
       ) {
         return true;
       }
     }
   }
   return false;
+}
+
+/**
+ * Do two name tokens overlap enough to be the same person?
+ *
+ * One must START or END with the other. Nicknames are formed by clipping a name
+ * at one end — Ziyah from FauZIYAH, Pandi from SuPANDI — so an affix is the shape
+ * a real nickname has.
+ *
+ * A match anywhere inside the token, which this used to allow, is not. "Ani"
+ * sits in the middle of "V-ani-a", so `'vania'.includes('ani')` made Vania Mitzi
+ * Dinata and Ani Bestari Sih Weningtyas the same person, and importing Vania's
+ * students filed them under Ani's nickname, Iyas.
+ *
+ * Both tokens must be at least four characters. Three was low enough that a
+ * short syllable could bridge two unrelated names.
+ */
+function tokensShareAnAffix(tok1, tok2) {
+  if (tok1.length < 4 || tok2.length < 4) return false;
+  const [shorter, longer] = tok1.length <= tok2.length ? [tok1, tok2] : [tok2, tok1];
+  return longer.startsWith(shorter) || longer.endsWith(shorter);
 }
 
 /**
@@ -287,18 +308,54 @@ export function resolveCanonicalTeacherName(rawName, knownInstructors = []) {
   if (!rawName) return 'TBD';
   const trimmed = String(rawName).trim();
   if (!trimmed || trimmed === '-' || trimmed.toUpperCase() === 'TBD') return 'TBD';
+  const needle = trimmed.toLowerCase();
 
-  for (const inst of knownInstructors) {
-    if (!inst) continue;
-    if (isInstructorMatch(trimmed, inst)) {
-      const displayName = getInstructorDisplayName(inst);
-      if (displayName && displayName !== 'TBD' && (displayName.length <= trimmed.length || !trimmed.includes(' '))) {
-        return displayName;
-      }
-      return trimmed;
-    }
+  /*
+   * Exact identity first, and only then a fuzzy guess.
+   *
+   * This used to take the FIRST instructor that matched at all, fuzzily, walking
+   * a list the API sorts by name. So "Vania" met Ani Bestari Sih Weningtyas
+   * before it ever reached Vania Mitzi Dinata — whose registered alias is
+   * literally "Vania" — and the import wrote Ani's nickname, Iyas. Thirteen
+   * labels resolved to the wrong instructor that way, six of them full
+   * registered names.
+   *
+   * An exact hit on a name or a verified alias is the instructor saying who they
+   * are, so nothing fuzzy is allowed to outrank it.
+   */
+  const exactMatches = knownInstructors.filter((inst) => {
+    if (!inst) return false;
+    if (typeof inst === 'string') return inst.trim().toLowerCase() === needle;
+    const own = [inst.name, inst.fullname, inst.nickname];
+    if (own.some((n) => n && String(n).trim().toLowerCase() === needle)) return true;
+    return getVerifiedAliases(inst).some(
+      (a) => a && String(typeof a === 'object' ? a.name : a).trim().toLowerCase() === needle
+    );
+  });
+
+  if (exactMatches.length === 1) return preferredNameFor(exactMatches[0], trimmed);
+  // Two instructors answering to the same name is a registry problem to fix by
+  // hand. Picking one would attribute students to a coin toss, so keep the raw
+  // name: it shows up as an unrecognised teacher rather than a confident error.
+  if (exactMatches.length > 1) return trimmed;
+
+  const fuzzyMatches = knownInstructors.filter((inst) => inst && isInstructorMatch(trimmed, inst));
+  if (fuzzyMatches.length === 1) return preferredNameFor(fuzzyMatches[0], trimmed);
+  return trimmed;
+}
+
+/**
+ * The display name to store for a matched instructor, or the raw name when the
+ * display name would be a worse label than what was written.
+ *
+ * The length guard is the original rule, kept: a specific full name that was
+ * typed out is not replaced by something longer.
+ */
+function preferredNameFor(inst, trimmed) {
+  const displayName = getInstructorDisplayName(inst);
+  if (displayName && displayName !== 'TBD' && (displayName.length <= trimmed.length || !trimmed.includes(' '))) {
+    return displayName;
   }
-
   return trimmed;
 }
 
