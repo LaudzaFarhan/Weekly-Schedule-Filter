@@ -11,6 +11,61 @@ export const DEFAULT_TARGET_MEETINGS = 12; // 3-month package
 export const BUFFER_WEEKS = 2; // 14 days buffer for missed/sick days
 
 /**
+ * The packages a parent can buy, as (meetings, label) pairs.
+ *
+ * Exported rather than written inline in the package `<select>` so the payment
+ * ledger and the picker cannot drift: a recorded payment's label is looked up
+ * from this same list.
+ */
+export const SUBSCRIPTION_PACKAGES = [
+  { meetings: 12, label: '3 Months Package (12 Meetings - Standard)' },
+  { meetings: 24, label: '6 Months Package (24 Meetings)' },
+  { meetings: 36, label: '1 Year Package (36 Meetings)' },
+  { meetings: 10, label: '10 Meetings (Legacy short package)' },
+];
+
+/** The preset top-up sizes offered beside the custom field. */
+export const TOP_UP_PRESETS = [4, 8, 12];
+
+/**
+ * What to call a payment of `meetings` meetings.
+ *
+ * A payment that matches a catalogue package is named after it; anything else is
+ * described as a top-up, which is what an off-catalogue number is in practice.
+ *
+ * @param {number} meetings
+ * @returns {string}
+ */
+export function packageLabelFor(meetings) {
+  const count = Number(meetings) || 0;
+  const known = SUBSCRIPTION_PACKAGES.find((p) => p.meetings === count);
+  return known ? known.label : `Top-Up (+${count} Meetings)`;
+}
+
+/**
+ * Today as `YYYY-MM-DD` in the browser's own time zone.
+ *
+ * Local rather than UTC on purpose: a payment entered on a Jakarta evening
+ * (UTC+7) would otherwise be filed under the previous day.
+ *
+ * @param {Date} [now]
+ * @returns {string}
+ */
+export function todayISO(now = new Date()) {
+  return formatDateISO(now);
+}
+
+/**
+ * Total meetings a student has paid for, across every recorded payment.
+ *
+ * @param {Array<{ meetings: number }>} payments
+ * @returns {number}
+ */
+export function totalMeetingsPaid(payments) {
+  return (payments || []).reduce((sum, p) => sum + (Number(p?.meetings) || 0), 0);
+}
+
+/**
  * Calculate predicted end date for a student subscription.
  * @param {string|Date} startDateStr - The date of the 1st meeting (YYYY-MM-DD)
  * @param {number} targetMeetings - Total meetings in package (default 12)

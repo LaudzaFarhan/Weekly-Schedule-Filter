@@ -13,11 +13,18 @@ import {
   parseProgressDetails,
   formatDateFriendly,
   formatDateISO,
+  packageLabelFor,
+  todayISO,
+  totalMeetingsPaid,
   DEFAULT_TARGET_MEETINGS,
+  SUBSCRIPTION_PACKAGES,
+  TOP_UP_PRESETS,
 } from '../utils/subscriptionUtils';
+import { getTopUps, createTopUp, deleteTopUp } from '../services/subscriptionTopupService';
 import {
   Search, X, User, MapPin, Clock, Calendar, GraduationCap, AlertTriangle,
   CheckCircle, HelpCircle, Edit3, ShieldAlert, Sparkles, RefreshCw, Filter, Plus,
+  Wallet, Trash2, Receipt,
 } from 'lucide-react';
 
 const PAGE_SIZE = 5;
@@ -57,6 +64,22 @@ export default function NewStudentSubscriptionsPage() {
   const [draftStartDate, setDraftStartDate] = useState('');
   const [draftTarget, setDraftTarget] = useState(DEFAULT_TARGET_MEETINGS);
   const [customTopUpVal, setCustomTopUpVal] = useState('');
+
+  /**
+   * Payment ledger state for the student being edited.
+   *
+   * `savedPayments` are rows already in the database. `pendingPayments` are
+   * top-ups staged in this modal and not yet written, so Cancel discards them
+   * the same way it discards an unsaved target — a payment must not be recorded
+   * by a dialog the user then backed out of.
+   */
+  const [savedPayments, setSavedPayments] = useState([]);
+  const [pendingPayments, setPendingPayments] = useState([]);
+  const [paymentsLoading, setPaymentsLoading] = useState(false);
+  const [paymentsError, setPaymentsError] = useState(null);
+  const [saving, setSaving] = useState(false);
+  // The date a staged top-up is recorded against: the day the parent paid.
+  const [topUpDate, setTopUpDate] = useState(todayISO());
 
   // Real-time Subscriptions
   useEffect(() => {
@@ -105,22 +128,109 @@ export default function NewStudentSubscriptionsPage() {
     setDraftStartDate(row.startDateStr || '');
     setDraftTarget(row.targetMeetings || DEFAULT_TARGET_MEETINGS);
     setCustomTopUpVal('');
+    setTopUpDate(todayISO());
+    setPendingPayments([]);
+    setSavedPayments([]);
+    setPaymentsError(null);
+    loadPayments(row.id);
+  };
+
+  /** Read this student's recorded payments. Failure is shown, not swallowed. */
+  const loadPayments = async (studentId) => {
+    if (!studentId) return;
+    setPaymentsLoading(true);
+    setPaymentsError(null);
+    try {
+      const rows = await getTopUps({ studentId });
+      setSavedPayments(Array.isArray(rows) ? rows : []);
+    } catch (err) {
+      setPaymentsError(err?.message || 'Could not load payment history.');
+    } finally {
+      setPaymentsLoading(false);
+    }
+  };
+
+  /**
+   * Stage a top-up: add the meetings to the draft target and queue a payment row
+   * dated `topUpDate`. Nothing is written until Save Changes.
+   */
+  const stageTopUp = (meetings) => {
+    const val = Number(meetings);
+    if (!Number.isInteger(val) || val < 1 || val > 100) {
+      showToast({
+        title: 'Invalid Meeting Count',
+        message: 'Please enter a valid number of meetings to add (1–100).',
+        variant: 'error',
+      });
+      return;
+    }
+    if (!topUpDate) {
+      showToast({
+        title: 'Payment date required',
+        message: 'Pick the date the parent paid before adding a top-up.',
+        variant: 'error',
+      });
+      return;
+    }
+
+    setDraftTarget((prev) => {
+      const next = prev + val;
+      showToast({
+        title: `+${val} meetings added`,
+        message: `New total: ${next} meetings · payment dated ${formatDateFriendly(topUpDate)}`,
+        variant: 'success',
+      });
+      return next;
+    });
+    setPendingPayments((prev) => [
+      ...prev,
+      {
+        // Local key only; the database assigns the real id on save.
+        key: `pending-${Date.now()}-${prev.length}`,
+        meetings: val,
+        paidAt: topUpDate,
+        packageLabel: packageLabelFor(val),
+      },
+    ]);
   };
 
   const handleApplyCustomTopUp = () => {
     const val = parseInt(customTopUpVal, 10);
-    if (!isNaN(val) && val > 0 && val <= 100) {
-      setDraftTarget((prev) => prev + val);
-      showToast({
-        title: `+${val} Meetings Top-Up Added`,
-        message: `New total target: ${draftTarget + val} meetings`,
-        variant: 'success',
-      });
-      setCustomTopUpVal('');
-    } else {
+    if (Number.isNaN(val)) {
       showToast({
         title: 'Invalid Meeting Count',
         message: 'Please enter a valid number of meetings to add (1–100).',
+        variant: 'error',
+      });
+      return;
+    }
+    stageTopUp(val);
+    setCustomTopUpVal('');
+  };
+
+  /** Drop a staged top-up again, returning its meetings to the draft target. */
+  const removePendingPayment = (key) => {
+    const entry = pendingPayments.find((p) => p.key === key);
+    if (!entry) return;
+    setPendingPayments((prev) => prev.filter((p) => p.key !== key));
+    setDraftTarget((prev) => Math.max(1, prev - entry.meetings));
+  };
+
+  /** Delete a payment already on record, after an explicit confirmation. */
+  const removeSavedPayment = async (payment) => {
+    const confirmed = window.confirm(
+      `Delete the ${payment.meetings}-meeting payment dated ${formatDateFriendly(payment.paidAt)}?\n\n`
+      + 'This removes the payment record only. The package meeting count is not changed.'
+    );
+    if (!confirmed) return;
+    try {
+      await deleteTopUp(payment.id);
+      setSavedPayments((prev) => prev.filter((p) => p.id !== payment.id));
+      showToast({ title: 'Payment record deleted', variant: 'success' });
+    } catch (err) {
+      showToast({
+        title: 'Could not delete payment record',
+        message: err?.message || 'Please try again.',
         variant: 'error',
       });
     }
@@ -210,10 +320,42 @@ export default function NewStudentSubscriptionsPage() {
 
   const handleSaveModal = async (e) => {
     e.preventDefault();
-    if (!editingRow) return;
+    if (!editingRow || saving) return;
 
     const targetMeetings = Number(draftTarget) || DEFAULT_TARGET_MEETINGS;
     const startDate = draftStartDate || null;
+    setSaving(true);
+
+    // Payments first. If the ledger cannot be written the save stops here rather
+    // than raising the target anyway: a target that counts meetings nobody can
+    // show a payment for is worse than an edit the user has to retry.
+    const recorded = [];
+    try {
+      for (const entry of pendingPayments) {
+        const row = await createTopUp({
+          studentId: editingRow.id,
+          studentName: editingRow.name,
+          meetings: entry.meetings,
+          paidAt: entry.paidAt,
+          packageLabel: entry.packageLabel,
+        });
+        recorded.push(row);
+      }
+    } catch (err) {
+      setSaving(false);
+      // Whatever did get written is already on record, so reflect it and keep
+      // only the top-ups still unsaved staged.
+      if (recorded.length > 0) {
+        setSavedPayments((prev) => [...recorded, ...prev]);
+        setPendingPayments((prev) => prev.slice(recorded.length));
+      }
+      showToast({
+        title: 'Could not record the payment',
+        message: err?.message || 'The subscription was not changed. Please try again.',
+        variant: 'error',
+      });
+      return;
+    }
 
     saveOverride(editingRow.name, {
       startDate,
@@ -221,8 +363,9 @@ export default function NewStudentSubscriptionsPage() {
     });
     setOverrides(readOverrides());
 
+    let syncFailed = null;
     try {
-      await fetch('/api/new/subscriptions', {
+      const res = await fetch('/api/new/subscriptions', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -232,11 +375,33 @@ export default function NewStudentSubscriptionsPage() {
           targetMeetings,
         }),
       });
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        syncFailed = errData.error || `Server responded ${res.status}`;
+      }
     } catch (err) {
-      console.warn('Could not sync subscription to DB:', err);
+      syncFailed = err?.message || 'Network error';
     }
 
-    showToast({ title: 'Subscription updated successfully', variant: 'success' });
+    setSaving(false);
+
+    if (syncFailed) {
+      // The old code swallowed this entirely and still claimed success, which is
+      // how a route that 500s on every request went unnoticed. Say so instead.
+      showToast({
+        title: 'Saved on this device only',
+        message: `The package could not be synced to the database: ${syncFailed}`,
+        variant: 'error',
+      });
+    } else {
+      showToast({
+        title: 'Subscription updated successfully',
+        message: recorded.length > 0
+          ? `${recorded.length} payment${recorded.length === 1 ? '' : 's'} recorded`
+          : undefined,
+        variant: 'success',
+      });
+    }
     setEditingRow(null);
   };
 
@@ -488,6 +653,10 @@ export default function NewStudentSubscriptionsPage() {
       {editingRow && (() => {
         const meetingsLeft = Math.max(0, draftTarget - editingRow.attendedCount);
         const currentEnd = calculatePredictedEndDate(draftStartDate, draftTarget);
+        // Staged top-ups count towards both figures: the panel should read the
+        // way it will read once Save Changes goes through.
+        const purchaseCount = savedPayments.length + pendingPayments.length;
+        const meetingsPaid = totalMeetingsPaid(savedPayments) + totalMeetingsPaid(pendingPayments);
         return (
         <div style={{
           position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
@@ -495,8 +664,9 @@ export default function NewStudentSubscriptionsPage() {
           display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999, padding: '1rem',
         }}>
           <div style={{
-            background: 'var(--panel-bg)', width: '100%', maxWidth: '520px', borderRadius: '16px',
+            background: 'var(--panel-bg)', width: '100%', maxWidth: '900px', maxHeight: '92vh', borderRadius: '16px',
             boxShadow: '0 12px 32px rgba(0,0,0,0.18)', overflow: 'hidden', border: '1px solid var(--border-color)',
+            display: 'flex', flexDirection: 'column',
           }}>
             <div style={{ padding: '1.25rem 1.5rem', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--bg-color)' }}>
               <div>
@@ -508,7 +678,9 @@ export default function NewStudentSubscriptionsPage() {
               </button>
             </div>
 
-            <form onSubmit={handleSaveModal} style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+            <form onSubmit={handleSaveModal} style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+             <div style={{ display: 'flex', overflow: 'hidden' }}>
+              <div style={{ flex: 1, minWidth: 0, padding: '1.5rem', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
               {/* Current Meeting Status Summary */}
               <div style={{
                 display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.6rem',
@@ -551,12 +723,11 @@ export default function NewStudentSubscriptionsPage() {
                   onChange={(e) => setDraftTarget(Number(e.target.value))}
                   className="modal-select-field"
                 >
-                  <option value={12}>3 Months Package (12 Meetings - Standard)</option>
-                  <option value={24}>6 Months Package (24 Meetings)</option>
-                  <option value={36}>1 Year Package (36 Meetings)</option>
-                  <option value={10}>10 Meetings (Legacy short package)</option>
+                  {SUBSCRIPTION_PACKAGES.map((p) => (
+                    <option key={p.meetings} value={p.meetings}>{p.label}</option>
+                  ))}
                   {/* Show current value if it's a custom number from top-ups */}
-                  {![10, 12, 24, 36].includes(draftTarget) && (
+                  {!SUBSCRIPTION_PACKAGES.some((p) => p.meetings === draftTarget) && (
                     <option value={draftTarget}>Custom ({draftTarget} Meetings)</option>
                   )}
                 </select>
@@ -571,17 +742,37 @@ export default function NewStudentSubscriptionsPage() {
                   <RefreshCw size={14} /> Top Up Meetings
                 </div>
                 <p style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', margin: '0 0 0.6rem' }}>
-                  Add extra meetings on top of the current package ({draftTarget} meetings). This will extend the subscription.
+                  Add extra meetings on top of the current package ({draftTarget} meetings). This will extend the
+                  subscription and record a payment on the date below.
                 </p>
+
+                {/* Payment date — the day the parent paid. Every top-up added
+                    below is filed under this date, so it is set before the
+                    amount rather than after. */}
+                <div style={{ marginBottom: '0.65rem' }}>
+                  <label
+                    htmlFor="topup-paid-at"
+                    style={{ fontSize: '0.72rem', fontWeight: 700, color: '#047857', display: 'block', marginBottom: '0.25rem' }}
+                  >
+                    Payment Date
+                  </label>
+                  <input
+                    id="topup-paid-at"
+                    type="date"
+                    value={topUpDate}
+                    max={todayISO()}
+                    onChange={(e) => setTopUpDate(e.target.value)}
+                    className="modal-input-field field-compact"
+                    style={{ maxWidth: '200px' }}
+                  />
+                </div>
+
                 <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
-                  {[4, 8, 12].map((n) => (
+                  {TOP_UP_PRESETS.map((n) => (
                     <button
                       key={n}
                       type="button"
-                      onClick={() => {
-                        setDraftTarget((prev) => prev + n);
-                        showToast({ title: `+${n} meetings added`, message: `New total: ${draftTarget + n} meetings`, variant: 'success' });
-                      }}
+                      onClick={() => stageTopUp(n)}
                       style={{
                         padding: '0.35rem 0.75rem', borderRadius: '8px', cursor: 'pointer',
                         fontSize: '0.78rem', fontWeight: 700, border: '1.5px solid rgba(16,185,129,0.35)',
@@ -640,13 +831,159 @@ export default function NewStudentSubscriptionsPage() {
                   </div>
                 </div>
               </div>
+              </div>
 
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', marginTop: '0.5rem' }}>
-                <button type="button" onClick={() => setEditingRow(null)} className="btn btn-secondary">
+              {/*
+                Payment history — the ledger beside the controls that change it.
+                Answers two questions the meeting figures cannot: when each
+                package was paid for, and how many packages have been bought.
+              */}
+              <div style={{
+                width: '300px', flexShrink: 0, borderLeft: '1px solid var(--border-color)',
+                background: 'var(--bg-color)', padding: '1.5rem 1.25rem', overflowY: 'auto',
+                display: 'flex', flexDirection: 'column', gap: '0.75rem',
+              }}>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: '0.9rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                    <Wallet size={15} /> Payment History
+                  </h3>
+                  <span style={{ fontSize: '0.72rem', color: 'var(--text-secondary)' }}>
+                    Every package this parent has paid for.
+                  </span>
+                </div>
+
+                {/* Purchase count and meetings paid for, the two figures the
+                    list is a breakdown of. */}
+                <div style={{
+                  display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem',
+                  background: 'var(--panel-bg)', border: '1px solid var(--border-color)',
+                  borderRadius: '10px', padding: '0.6rem 0.5rem',
+                }}>
+                  <div style={{ textAlign: 'center' }}>
+                    <div style={{ fontSize: '0.62rem', color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.4px' }}>Packages</div>
+                    <div style={{ fontSize: '1.15rem', fontWeight: 800, color: '#4f46e5' }}>{purchaseCount}×</div>
+                  </div>
+                  <div style={{ textAlign: 'center' }}>
+                    <div style={{ fontSize: '0.62rem', color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.4px' }}>Meetings Paid</div>
+                    <div style={{ fontSize: '1.15rem', fontWeight: 800, color: '#047857' }}>{meetingsPaid}</div>
+                  </div>
+                </div>
+
+                {/* A ledger that disagrees with the package target is worth
+                    knowing about: it means a top-up was applied without a
+                    payment being recorded, or vice versa. */}
+                {purchaseCount > 0 && meetingsPaid !== draftTarget && (
+                  <div style={{
+                    display: 'flex', gap: '0.35rem', alignItems: 'flex-start',
+                    background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.3)',
+                    borderRadius: '8px', padding: '0.45rem 0.55rem',
+                    fontSize: '0.68rem', color: '#92400e', lineHeight: 1.35,
+                  }}>
+                    <AlertTriangle size={12} style={{ flexShrink: 0, marginTop: '0.1rem' }} />
+                    <span>
+                      Recorded payments total {meetingsPaid} meetings, but the package target is {draftTarget}.
+                    </span>
+                  </div>
+                )}
+
+                {paymentsError && (
+                  <div style={{
+                    fontSize: '0.7rem', color: '#dc2626', background: 'rgba(220,38,38,0.08)',
+                    border: '1px solid rgba(220,38,38,0.25)', borderRadius: '8px', padding: '0.45rem 0.55rem',
+                  }}>
+                    {paymentsError}
+                  </div>
+                )}
+
+                {paymentsLoading ? (
+                  <p style={{ fontSize: '0.76rem', color: 'var(--text-muted)', margin: 0 }}>Loading payments…</p>
+                ) : (purchaseCount === 0 ? (
+                  <p style={{ fontSize: '0.76rem', color: 'var(--text-muted)', margin: 0 }}>
+                    No payment recorded yet. Add a top-up on the left and it will appear here once saved.
+                  </p>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                    {/* Staged first: they are the newest and still cancellable. */}
+                    {pendingPayments.map((p) => (
+                      <div
+                        key={p.key}
+                        style={{
+                          border: '1px dashed rgba(16,185,129,0.5)', background: 'rgba(16,185,129,0.06)',
+                          borderRadius: '8px', padding: '0.5rem 0.6rem',
+                          display: 'flex', alignItems: 'flex-start', gap: '0.4rem',
+                        }}
+                      >
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-main)' }}>
+                            +{p.meetings} meetings
+                          </div>
+                          <div style={{ fontSize: '0.68rem', color: 'var(--text-secondary)' }}>
+                            {formatDateFriendly(p.paidAt)}
+                          </div>
+                          <div style={{ fontSize: '0.64rem', color: '#047857', fontWeight: 700, marginTop: '0.15rem' }}>
+                            UNSAVED — saves with Save Changes
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => removePendingPayment(p.key)}
+                          title="Remove this staged top-up"
+                          aria-label={`Remove staged top-up of ${p.meetings} meetings`}
+                          style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: '0.1rem', lineHeight: 0 }}
+                        >
+                          <X size={13} />
+                        </button>
+                      </div>
+                    ))}
+
+                    {savedPayments.map((p) => (
+                      <div
+                        key={p.id}
+                        style={{
+                          border: '1px solid var(--border-color)', background: 'var(--panel-bg)',
+                          borderRadius: '8px', padding: '0.5rem 0.6rem',
+                          display: 'flex', alignItems: 'flex-start', gap: '0.4rem',
+                        }}
+                      >
+                        <Receipt size={13} style={{ flexShrink: 0, color: 'var(--text-muted)', marginTop: '0.15rem' }} />
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-main)' }}>
+                            +{p.meetings} meetings
+                          </div>
+                          <div style={{ fontSize: '0.68rem', color: 'var(--text-secondary)' }}>
+                            {formatDateFriendly(p.paidAt)}
+                          </div>
+                          {p.packageLabel && (
+                            <div style={{ fontSize: '0.64rem', color: 'var(--text-muted)', marginTop: '0.15rem', overflowWrap: 'anywhere' }}>
+                              {p.packageLabel}
+                            </div>
+                          )}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => removeSavedPayment(p)}
+                          title="Delete this payment record"
+                          aria-label={`Delete payment of ${p.meetings} meetings dated ${formatDateFriendly(p.paidAt)}`}
+                          style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: '0.1rem', lineHeight: 0 }}
+                        >
+                          <Trash2 size={13} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                ))}
+              </div>
+             </div>
+
+              <div style={{
+                padding: '1rem 1.5rem', borderTop: '1px solid var(--border-color)', background: 'var(--bg-color)',
+                display: 'flex', justifyContent: 'flex-end', gap: '0.5rem',
+              }}>
+                <button type="button" onClick={() => setEditingRow(null)} className="btn btn-secondary" disabled={saving}>
                   Cancel
                 </button>
-                <button type="submit" className="btn btn-primary">
-                  Save Changes
+                <button type="submit" className="btn btn-primary" disabled={saving}>
+                  {saving ? 'Saving…' : 'Save Changes'}
                 </button>
               </div>
             </form>
