@@ -24,6 +24,7 @@ import {
   topUpPresetsFor,
   termsFromMeetings,
   meetingsForTerms,
+  isHttpUrl,
   MEETINGS_PER_TERM,
   MAX_TERMS,
 } from '../utils/subscriptionUtils';
@@ -31,7 +32,7 @@ import { getTopUps, createTopUp, deleteTopUp } from '../services/subscriptionTop
 import {
   Search, X, User, MapPin, Clock, Calendar, GraduationCap, AlertTriangle,
   CheckCircle, HelpCircle, Edit3, ShieldAlert, Sparkles, RefreshCw, Filter, Plus,
-  Wallet, Trash2, Receipt,
+  Wallet, Trash2, Receipt, Paperclip, ExternalLink,
 } from 'lucide-react';
 
 const PAGE_SIZE = 5;
@@ -73,6 +74,17 @@ export default function NewStudentSubscriptionsPage() {
   const [customTopUpVal, setCustomTopUpVal] = useState('');
   // Custom term count, for the Kinder/Junior packages that are sold by the term.
   const [customTermVal, setCustomTermVal] = useState('');
+  /**
+   * Whether the start date is unlocked for editing.
+   *
+   * Locked by default: the date comes from the first attendance the instructor
+   * recorded in Live Progress, so the common case is confirming it rather than
+   * typing it. Editing is a deliberate act behind a trigger, which also stops a
+   * stray click on a date field from silently overriding real attendance.
+   */
+  const [editingStartDate, setEditingStartDate] = useState(false);
+  // Link to the invoice given to the parent, attached to the staged payment.
+  const [invoiceUrlDraft, setInvoiceUrlDraft] = useState('');
 
   /**
    * Payment ledger state for the student being edited.
@@ -138,6 +150,8 @@ export default function NewStudentSubscriptionsPage() {
     setDraftTarget(row.targetMeetings || DEFAULT_TARGET_MEETINGS);
     setCustomTopUpVal('');
     setCustomTermVal('');
+    setEditingStartDate(false);
+    setInvoiceUrlDraft('');
     setTopUpDate(todayISO());
     setPendingPayments([]);
     setSavedPayments([]);
@@ -182,6 +196,17 @@ export default function NewStudentSubscriptionsPage() {
       });
       return;
     }
+    // Optional, but a value that is present has to be a real link — otherwise it
+    // is saved and then fails only when someone tries to open the invoice.
+    const invoiceUrl = invoiceUrlDraft.trim();
+    if (invoiceUrl && !isHttpUrl(invoiceUrl)) {
+      showToast({
+        title: 'Invalid invoice link',
+        message: 'Paste the full Google Drive link, starting with https://',
+        variant: 'error',
+      });
+      return;
+    }
 
     setDraftTarget((prev) => {
       const next = prev + val;
@@ -200,8 +225,20 @@ export default function NewStudentSubscriptionsPage() {
         meetings: val,
         paidAt: topUpDate,
         packageLabel: packageLabelFor(val, editingRow?.category),
+        invoiceUrl: invoiceUrl || null,
       },
     ]);
+    // Cleared so the next top-up cannot silently inherit the previous invoice.
+    setInvoiceUrlDraft('');
+  };
+
+  /**
+   * Drop the manual start date and go back to the one Live Progress derives from
+   * the first recorded attendance.
+   */
+  const revertStartDateToAuto = () => {
+    setDraftStartDate(editingRow?.autoStartDate || '');
+    setEditingStartDate(false);
   };
 
   /**
@@ -282,7 +319,19 @@ export default function NewStudentSubscriptionsPage() {
       const override = overrides[nameKey] || {};
 
       const { attendedCount, firstMeetingDate } = parseProgressDetails(prog);
-      const startDateStr = override.startDate || firstMeetingDate || (st.createdAt ? formatDateISO(st.createdAt) : null);
+      /*
+       * The start date is derived, not entered. The instructor ticking the first
+       * attendance in Live Progress is what sets it, so `firstMeetingDate` is the
+       * real answer and a manual value is an override on top of it — kept
+       * separate here so the modal can say which one is in force and offer to go
+       * back to the automatic one.
+       */
+      const autoStartDate = firstMeetingDate;
+      const overriddenStartDate = override.startDate || null;
+      const startDateStr = overriddenStartDate || autoStartDate || (st.createdAt ? formatDateISO(st.createdAt) : null);
+      const startDateSource = overriddenStartDate
+        ? 'manual'
+        : (autoStartDate ? 'attendance' : 'created');
       const targetMeetings = override.targetMeetings || DEFAULT_TARGET_MEETINGS;
 
       const category = (st.level || '').toLowerCase().includes('kinder')
@@ -307,6 +356,8 @@ export default function NewStudentSubscriptionsPage() {
         day: sched?.day || '—',
         time: sched?.time || '—',
         startDateStr,
+        autoStartDate,
+        startDateSource,
         targetMeetings,
         attendedCount,
         progressPercent: Math.min(100, Math.round((attendedCount / targetMeetings) * 100)),
@@ -375,6 +426,7 @@ export default function NewStudentSubscriptionsPage() {
           meetings: entry.meetings,
           paidAt: entry.paidAt,
           packageLabel: entry.packageLabel,
+          invoiceUrl: entry.invoiceUrl,
         });
         recorded.push(row);
       }
@@ -700,6 +752,18 @@ export default function NewStudentSubscriptionsPage() {
         const packageOptions = packagesForCategory(editingRow.category);
         const topUpPresets = topUpPresetsFor(editingRow.category);
         const draftTerms = isTermBased ? termsFromMeetings(draftTarget) : null;
+        // Where the date on screen came from, so nobody has to guess whether a
+        // value is real attendance or something typed in by hand.
+        const invoiceDraftInvalid = invoiceUrlDraft.trim() !== '' && !isHttpUrl(invoiceUrlDraft);
+        const isAutoStartDate = Boolean(editingRow.autoStartDate)
+          && draftStartDate === editingRow.autoStartDate;
+        const startDateOrigin = isAutoStartDate
+          ? 'Auto-filled from the first attendance recorded in Live Progress.'
+          : (editingRow.autoStartDate
+            ? `Manually set. Live Progress recorded ${formatDateFriendly(editingRow.autoStartDate)}.`
+            : (editingRow.startDateSource === 'created'
+              ? 'No attendance recorded yet, so this falls back to when the student was added.'
+              : 'Manually set. No attendance recorded in Live Progress yet.'));
         return (
         <div style={{
           position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
@@ -746,17 +810,77 @@ export default function NewStudentSubscriptionsPage() {
 
               {/* Start Date */}
               <div>
-                <label className="modal-form-label" htmlFor="subscription-start-date">
-                  1st Meeting Date (Start Date)
-                </label>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem' }}>
+                  <label className="modal-form-label" htmlFor="subscription-start-date" style={{ marginBottom: 0 }}>
+                    1st Meeting Date (Start Date)
+                  </label>
+                  {/* Editing is behind a trigger because the date is derived from
+                      the first attendance the instructor recorded — the usual
+                      action here is reading it, not changing it. */}
+                  {!editingStartDate ? (
+                    <button
+                      type="button"
+                      onClick={() => setEditingStartDate(true)}
+                      aria-label="Edit first meeting date"
+                      title="Override the date derived from Live Progress attendance"
+                      style={{
+                        display: 'inline-flex', alignItems: 'center', gap: '0.25rem',
+                        background: 'transparent', border: 'none', cursor: 'pointer',
+                        color: 'var(--primary-blue, #4f46e5)', fontSize: '0.72rem', fontWeight: 700, padding: '0.1rem',
+                      }}
+                    >
+                      <Edit3 size={12} /> Edit
+                    </button>
+                  ) : (
+                    <span style={{ display: 'inline-flex', gap: '0.5rem' }}>
+                      {editingRow.autoStartDate && draftStartDate !== editingRow.autoStartDate && (
+                        <button
+                          type="button"
+                          onClick={revertStartDateToAuto}
+                          aria-label="Use the first meeting date derived from attendance"
+                          title="Go back to the date from the first recorded attendance"
+                          style={{
+                            display: 'inline-flex', alignItems: 'center', gap: '0.25rem',
+                            background: 'transparent', border: 'none', cursor: 'pointer',
+                            color: 'var(--text-secondary)', fontSize: '0.72rem', fontWeight: 700, padding: '0.1rem',
+                          }}
+                        >
+                          <RefreshCw size={12} /> Use auto
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => setEditingStartDate(false)}
+                        aria-label="Finish editing the first meeting date"
+                        style={{
+                          background: 'transparent', border: 'none', cursor: 'pointer',
+                          color: 'var(--text-muted)', fontSize: '0.72rem', fontWeight: 700, padding: '0.1rem',
+                        }}
+                      >
+                        Done
+                      </button>
+                    </span>
+                  )}
+                </div>
                 <input
                   id="subscription-start-date"
                   type="date"
                   value={draftStartDate}
                   onChange={(e) => setDraftStartDate(e.target.value)}
                   className="modal-input-field"
+                  readOnly={!editingStartDate}
+                  aria-readonly={!editingStartDate}
+                  style={editingStartDate ? { marginTop: '0.3rem' } : {
+                    marginTop: '0.3rem',
+                    background: 'var(--bg-color)',
+                    color: 'var(--text-secondary)',
+                    cursor: 'default',
+                  }}
                 />
                 <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.2rem', display: 'block' }}>
+                  {startDateOrigin}
+                </span>
+                <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', display: 'block' }}>
                   Predicted end: {currentEnd ? formatDateFriendly(currentEnd) : '—'} ({draftTarget} weeks + 2 weeks buffer)
                 </span>
               </div>
@@ -864,6 +988,39 @@ export default function NewStudentSubscriptionsPage() {
                     className="modal-input-field field-compact"
                     style={{ maxWidth: '200px' }}
                   />
+                </div>
+
+                {/* The invoice the parent was given. A Drive link rather than an
+                    upload, because that is where the invoices already are. */}
+                <div style={{ marginBottom: '0.65rem' }}>
+                  <label
+                    htmlFor="topup-invoice-url"
+                    style={{ fontSize: '0.72rem', fontWeight: 700, color: '#047857', display: 'block', marginBottom: '0.25rem' }}
+                  >
+                    Invoice Link <span style={{ fontWeight: 500, color: 'var(--text-muted)' }}>(optional)</span>
+                  </label>
+                  <input
+                    id="topup-invoice-url"
+                    type="url"
+                    inputMode="url"
+                    placeholder="https://drive.google.com/..."
+                    value={invoiceUrlDraft}
+                    onChange={(e) => setInvoiceUrlDraft(e.target.value)}
+                    className={`modal-input-field field-compact${invoiceDraftInvalid ? ' error' : ''}`}
+                    aria-invalid={invoiceDraftInvalid}
+                    aria-describedby="topup-invoice-help"
+                  />
+                  <span
+                    id="topup-invoice-help"
+                    style={{
+                      fontSize: '0.68rem', marginTop: '0.2rem', display: 'block',
+                      color: invoiceDraftInvalid ? 'var(--danger, #dc2626)' : 'var(--text-muted)',
+                    }}
+                  >
+                    {invoiceDraftInvalid
+                      ? 'Paste the full link, starting with https://'
+                      : 'Attached to the payment added below, so the invoice can be opened from the history.'}
+                  </span>
                 </div>
 
                 <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
@@ -1027,6 +1184,11 @@ export default function NewStudentSubscriptionsPage() {
                           <div style={{ fontSize: '0.68rem', color: 'var(--text-secondary)' }}>
                             {formatDateFriendly(p.paidAt)}
                           </div>
+                          {p.invoiceUrl && (
+                            <div style={{ fontSize: '0.64rem', color: 'var(--text-muted)', marginTop: '0.15rem', display: 'flex', alignItems: 'center', gap: '0.2rem' }}>
+                              <Paperclip size={10} /> Invoice attached
+                            </div>
+                          )}
                           <div style={{ fontSize: '0.64rem', color: '#047857', fontWeight: 700, marginTop: '0.15rem' }}>
                             UNSAVED — saves with Save Changes
                           </div>
@@ -1064,6 +1226,25 @@ export default function NewStudentSubscriptionsPage() {
                             <div style={{ fontSize: '0.64rem', color: 'var(--text-muted)', marginTop: '0.15rem', overflowWrap: 'anywhere' }}>
                               {p.packageLabel}
                             </div>
+                          )}
+                          {/* Only rendered when the stored value is a real
+                              http(s) link. `noopener noreferrer` because the
+                              target is a URL somebody typed. */}
+                          {isHttpUrl(p.invoiceUrl) && (
+                            <a
+                              href={p.invoiceUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              title={`Open the invoice for the payment dated ${formatDateFriendly(p.paidAt)}`}
+                              style={{
+                                display: 'inline-flex', alignItems: 'center', gap: '0.2rem', marginTop: '0.25rem',
+                                fontSize: '0.66rem', fontWeight: 700, color: 'var(--primary-blue, #4f46e5)',
+                                textDecoration: 'none',
+                              }}
+                            >
+                              <Paperclip size={10} /> View invoice
+                              <ExternalLink size={9} />
+                            </a>
                           )}
                         </div>
                         <button

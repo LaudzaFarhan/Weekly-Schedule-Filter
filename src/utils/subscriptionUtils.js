@@ -165,6 +165,28 @@ export function totalMeetingsPaid(payments) {
 }
 
 /**
+ * Is this a link that is safe to render and follow?
+ *
+ * `http:` and `https:` only. The invoice link is turned into an anchor, so a
+ * `javascript:` or `data:` value would be executable content rather than an
+ * address. The API enforces the same rule — this exists so the form can say no
+ * before a round trip, not instead of the server check.
+ *
+ * @param {string} value
+ * @returns {boolean}
+ */
+export function isHttpUrl(value) {
+  const text = String(value || '').trim();
+  if (!text) return false;
+  try {
+    const { protocol } = new URL(text);
+    return protocol === 'http:' || protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Calculate predicted end date for a student subscription.
  * @param {string|Date} startDateStr - The date of the 1st meeting (YYYY-MM-DD)
  * @param {number} targetMeetings - Total meetings in package (default 12)
