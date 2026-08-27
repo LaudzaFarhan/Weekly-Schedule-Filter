@@ -16,7 +16,7 @@ import { NextResponse } from 'next/server';
  * unset the gate stays open, so existing deployments keep working until the
  * variable is configured.
  */
-export function middleware(request) {
+export function proxy(request) {
   const apiKey = process.env.NEW_OPS_API_KEY;
 
   // No key configured — behave exactly as before.
