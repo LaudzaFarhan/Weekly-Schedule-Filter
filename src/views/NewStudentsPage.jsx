@@ -31,7 +31,7 @@ import { bulkCreateInternalClasses, subscribeToInternalClasses, updateInternalCl
 import { getLiveProgress, deleteLiveProgress, bulkDeleteAllLiveProgress } from '../services/newLiveProgressService';
 import { subscribeToInternalInstructors } from '../services/internalInstructorService';
 import { resolveCanonicalTeacherName, isInstructorMatch, isSameTeacher, getInstructorDisplayName } from '../utils/instructorUtils';
-import { STUDENT_LEVELS, normaliseCoderLevel } from '../lib/programRules';
+import { STUDENT_LEVELS, normaliseCoderLevel, lessonsForCategory } from '../lib/programRules';
 
 function normaliseDayName(dayStr) {
   if (!dayStr) return 'Monday';
@@ -52,9 +52,26 @@ import { Plus, Pencil, Trash2, FileText, Search, X, MapPin, User, UserCheck, Gra
 
 const STUDENTS_PAGE_SIZE = 5;
 
+/** Meetings in one month, at the usual one-a-week cadence. */
+const MEETINGS_PER_MONTH = 4;
+
+/**
+ * Kinder | Junior | Coder, from a level string. Drives how many meetings a
+ * subscription period is worth, which differs by programme.
+ */
+function categoryForLevel(level) {
+  const s = String(level || '').toLowerCase();
+  if (s.includes('coder')) return 'Coder';
+  if (s.includes('kinder')) return 'Kinder';
+  return 'Junior';
+}
+
 /**
  * Helper to determine a student's subscription status badge.
- * Defaults: Coder -> 3 Months, Kinder/Junior -> 1 Month, Trial -> Trial.
+ *
+ * Everyone defaults to 3 Months — the standard package — except a student whose
+ * status says Trial. An explicit value on the record, or a `[Subscription: …]`
+ * tag in the remarks, wins over the default.
  */
 export function getStudentSubscriptionStatus(st) {
   if (!st) return '3 Months';
@@ -151,7 +168,10 @@ export default function NewStudentsPage({ onNavigate } = {}) {
     parentName: '',
     contact: '',
     status: 'Active',
-    subscriptionStatus: '1 Month',
+    // Matches the default `getStudentSubscriptionStatus` reports and the value
+    // `openAddModal` sets. This said '1 Month', so the initial form disagreed
+    // with the badge shown for the very same student.
+    subscriptionStatus: '3 Months',
     remarks: ''
   });
 
@@ -223,6 +243,10 @@ export default function NewStudentsPage({ onNavigate } = {}) {
   // the wipe dialog discloses because the wipe itself is never narrowed. Req 3.9
   const filtersActive =
     search !== '' || filterLevel !== 'all' || filterBranch !== 'all' || filterStatus !== 'all' || filterSubscription !== 'all';
+
+  // The programme of whoever is open in the modal, so the subscription options
+  // can quote that student's own meeting count rather than one fixed number.
+  const subscriptionCategory = categoryForLevel(form.level);
 
   const openAddModal = () => {
     setEditingStudent(null);
@@ -1157,8 +1181,19 @@ export default function NewStudentsPage({ onNavigate } = {}) {
                       onChange={(e) => setForm({ ...form, subscriptionStatus: e.target.value })}
                       className="modal-select-field"
                     >
-                      <option value="1 Month">1 Month (10 meetings)</option>
-                      <option value="3 Months">3 Months (12 meetings - Coder)</option>
+                      {/*
+                        The meeting count follows the student's own programme, so
+                        a Junior is not shown Coder's figure. Kinder and Junior run
+                        ten meetings to a term, Coder twelve.
+
+                        "1 Month (10 meetings)" used to sit at the top, which was
+                        simply not true: at one meeting a week ten of them take
+                        about ten weeks. Ten meetings IS the three-month package.
+                      */}
+                      <option value="1 Month">1 Month ({MEETINGS_PER_MONTH} meetings)</option>
+                      <option value="3 Months">
+                        3 Months ({lessonsForCategory(subscriptionCategory)} meetings)
+                      </option>
                       <option value="6 Months">6 Months</option>
                       <option value="1 Year">1 Year</option>
                       <option value="Trial">Trial</option>
