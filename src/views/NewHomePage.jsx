@@ -9,6 +9,8 @@ import { useNewOperationals } from '../hooks/useNewOperationals';
 import { subscribeToActivity, displayUser } from '../services/newActivityService';
 import { parseActivityChanges } from '../lib/scheduleActivityHelper';
 import { doTimeSlotsOverlap, parseTimeSlot } from '../utils/timeUtils';
+import { buildPlacesByStudent, findUnallocatedStudents } from '../lib/studentAllocation';
+import { isoOf } from '../lib/instructorAvailability';
 import { DAY_NAMES } from '../utils/constants';
 import KpiCard from '../components/ui/KpiCard';
 import {
@@ -136,17 +138,10 @@ export default function NewHomePage({ onNavigate }) {
     const junior = scopedInstructors.filter((i) => canTeach(i.level, 'Junior'));
     const coder = scopedInstructors.filter((i) => canTeach(i.level, 'Coder'));
 
-    // Students with no class anywhere in the New Ops schedule.
-    const allocated = new Set();
-    classes.forEach((c) => {
-      String(c.student || '').split(',').forEach((n) => {
-        const t = n.trim().toLowerCase();
-        if (t) allocated.add(t);
-      });
-    });
-    const unallocated = scopedStudents.filter(
-      (s) => s.name && !allocated.has(s.name.trim().toLowerCase())
-    );
+    // Students with no class anywhere in the New Ops schedule. Shares its rules
+    // with the schedule page's Unallocated panel so the two counts agree.
+    const places = buildPlacesByStudent(classes, isoOf(new Date()));
+    const unallocated = findUnallocatedStudents(scopedStudents, places);
 
     return {
       instructors: { count: scopedInstructors.length, list: scopedInstructors.map((i) => `${i.name} — ${i.level}`) },
