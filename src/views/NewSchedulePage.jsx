@@ -26,6 +26,9 @@ import { subscribeToActivity, logActivity, deleteActivity, displayUser } from '.
 import { computeScheduleDiff, formatScheduleActivitySummary, parseActivityChanges } from '../lib/scheduleActivityHelper';
 import { useAuth } from '../contexts/AuthContext';
 import { doTimeSlotsOverlap, formatNormalizedTimeSlot } from '../utils/timeUtils';
+import {
+  normalizeStudentName, buildPlacesByStudent, findUnallocatedStudents,
+} from '../lib/studentAllocation';
 import { DAY_NAMES, SCHEDULE_PAGE_SIZE, DEFAULT_BRANCH_LIST, isSameBranch } from '../utils/constants';
 import Pagination from '../components/ui/Pagination';
 import { Plus, Pencil, Trash2, Search, X, Calendar, CalendarPlus, MapPin, Repeat, User, Users, UserX, BookOpen, Clock, AlertTriangle, Upload, History, Trash, FileDown, CheckCircle2, ChevronDown, Check, Lock } from 'lucide-react';
@@ -176,8 +179,6 @@ function downloadImportTemplate() {
   XLSX.writeFile(wb, 'schedule-import-template.xlsx');
 }
 
-/** Normalise a student name for allocation matching (case/space/punct-insensitive). */
-const normalizeStudentName = (s) => String(s || '').toLowerCase().replace(/\([^)]*\)/g, '').replace(/[^a-z0-9]/g, '');
 
 // Program catalogue. Kinder & Junior programs each have 10 lessons; Coder has
 // no lesson number. Codes: KF1/KF2 (Kinder Foundation), K1-K4 (Kinder Core),
@@ -998,60 +999,27 @@ export default function NewSchedulePage({ onNavigate }) {
   const totalPages = Math.ceil(sortedFiltered.length / SCHEDULE_PAGE_SIZE);
   const paged = sortedFiltered.slice((page - 1) * SCHEDULE_PAGE_SIZE, page * SCHEDULE_PAGE_SIZE);
 
-  const validInstructorNames = useMemo(() => {
-    const set = new Set();
-    (instructors || []).forEach((i) => {
-      const norm = (s) => String(s || '').trim().toLowerCase();
-      if (i.name) set.add(norm(i.name));
-      if (i.fullname) set.add(norm(i.fullname));
-      if (i.nickname) set.add(norm(i.nickname));
-      if (Array.isArray(i.aliases)) i.aliases.forEach((a) => set.add(norm(typeof a === 'object' ? a.name : a)));
-      if (Array.isArray(i.verifiedAliases)) i.verifiedAliases.forEach((a) => set.add(norm(a)));
-    });
-    return set;
-  }, [instructors]);
-
   /**
    * Every class row each student holds, keyed by normalised name.
    *
    * A spent replacement or extra session is left out: it is over, so it neither
    * holds a seat nor makes the student count as allocated. That is what "removed
    * from the schedule once the date has passed" means in practice.
+   *
+   * The rules live in `lib/studentAllocation` so the home KPI and the
+   * notification bell count the same students as this panel. In particular a
+   * class whose teacher is not in the instructor registry still allocates its
+   * students — see that module for why.
    */
-  const placesByStudent = useMemo(() => {
-    const map = new Map();
-    classes.forEach((c) => {
-      if (isExpired({ classType: c.classType, sessionDates: c.sessionDates }, todayISO)) return;
-
-      const teacherNorm = String(c.teacher || '').trim().toLowerCase();
-      if (
-        !teacherNorm ||
-        teacherNorm === '-' ||
-        teacherNorm === 'tbd' ||
-        (validInstructorNames.size > 0 && !validInstructorNames.has(teacherNorm))
-      ) {
-        return;
-      }
-
-      String(c.student || '')
-        .split(',')
-        .forEach((part) => {
-          const key = normalizeStudentName(part);
-          if (!key) return;
-          if (!map.has(key)) map.set(key, []);
-          map.get(key).push(c);
-        });
-    });
-    return map;
-  }, [classes, todayISO, validInstructorNames]);
+  const placesByStudent = useMemo(
+    () => buildPlacesByStudent(classes, todayISO),
+    [classes, todayISO]
+  );
 
   // Students that exist in the Students list but aren't allocated to any class.
   // A class's `student` field may hold several comma-separated names.
   const unallocatedStudents = useMemo(
-    () => students.filter((st) => {
-      const key = normalizeStudentName(st.name);
-      return key && !placesByStudent.has(key);
-    }),
+    () => findUnallocatedStudents(students, placesByStudent),
     [students, placesByStudent]
   );
 

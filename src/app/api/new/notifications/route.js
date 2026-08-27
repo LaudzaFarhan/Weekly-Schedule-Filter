@@ -2,6 +2,7 @@ import { query } from '@/lib/db';
 import { ensureTable } from '@/lib/ensureSchema';
 import { NextResponse } from 'next/server';
 import { maxStudentsFor, withDefaults } from '@/lib/programRules';
+import { buildPlacesByStudent, findUnallocatedStudents } from '@/lib/studentAllocation';
 import { DAY_NAMES } from '@/utils/constants';
 
 /**
@@ -18,12 +19,6 @@ const ready = () => ensureTable('internal_leaves');
 
 const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 
-/** Compare student names the way the rest of New Ops does. */
-const normalizeName = (s) => String(s || '')
-  .toLowerCase()
-  .replace(/\([^)]*\)/g, '')
-  .replace(/[^a-z0-9]/g, '');
-
 export async function GET() {
   try {
     await ready();
@@ -35,32 +30,40 @@ export async function GET() {
     const tomorrowISO = iso(tomorrow);
     const todayName = DAY_NAMES[(today.getDay() + 6) % 7];
 
-    const [students, classes, leaves, leads, rules, ruleRow] = await Promise.all([
+    const [students, classes, leaves, leads, rules, ruleRow, sessions] = await Promise.all([
       query('SELECT id, name, level, branch_name, status FROM internal_students'),
       query('SELECT id, day, time, program, student, teacher, branch_name, class_type FROM internal_classes'),
       query('SELECT instructor_name, start_date, end_date, status FROM internal_leaves'),
       query('SELECT id, name, status, branch, trial_date FROM new_crm_leads'),
       query('SELECT branch_name, day, is_open FROM internal_operationals'),
       query('SELECT rules FROM internal_schedule_rules WHERE id = 1').catch(() => ({ rows: [] })),
+      // Attendance dates decide whether a replacement or extra session is spent.
+      // Forgiving: without them a dated place is treated as still pending, which
+      // is the same thing the schedule page does when the dates are missing.
+      query('SELECT class_id, session_date FROM internal_class_sessions').catch(() => ({ rows: [] })),
     ]);
 
     const seatRules = withDefaults(ruleRow.rows[0]?.rules || null);
     const items = [];
     const add = (item) => items.push(item);
 
-    // 1. Students with no class at all.
-    const allocated = new Set();
-    for (const c of classes.rows) {
-      for (const part of String(c.student || '').split(',')) {
-        const key = normalizeName(part);
-        if (key) allocated.add(key);
-      }
+    // 1. Students with no class at all. Same rules as the schedule page's
+    //    Unallocated panel, so the bell and the panel never disagree.
+    const datesByClass = new Map();
+    for (const row of sessions.rows) {
+      const day = row.session_date instanceof Date
+        ? iso(row.session_date)
+        : String(row.session_date).slice(0, 10);
+      if (!datesByClass.has(row.class_id)) datesByClass.set(row.class_id, []);
+      datesByClass.get(row.class_id).push(day);
     }
-    const unallocated = students.rows.filter((s) => {
-      if (String(s.status || 'Active') !== 'Active') return false;
-      const key = normalizeName(s.name);
-      return key && !allocated.has(key);
-    });
+    const classRows = classes.rows.map((c) => ({
+      ...c,
+      classType: c.class_type,
+      sessionDates: datesByClass.get(c.id) || [],
+    }));
+    const places = buildPlacesByStudent(classRows, todayISO);
+    const unallocated = findUnallocatedStudents(students.rows, places, { activeOnly: true });
     if (unallocated.length > 0) {
       add({
         id: 'unallocated',

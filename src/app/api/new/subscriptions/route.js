@@ -9,9 +9,15 @@ import {
 } from '@/utils/subscriptionUtils';
 import { NextResponse } from 'next/server';
 
-/** Ensure underlying schema and progress tables exist */
+/**
+ * Ensure the tables this route reads exist.
+ *
+ * Only `internal_live_progress` is self-provisioned. `internal_students` and
+ * `internal_classes` come from `init_db.sql` and have no `DEFINITIONS` entry, so
+ * asking `ensureTable` for them threw "No schema definition for table" and made
+ * every GET and PUT here a 500 — silently, because the caller swallowed it.
+ */
 const ready = async () => {
-  await ensureTable('internal_students');
   await ensureTable('internal_live_progress');
 };
 

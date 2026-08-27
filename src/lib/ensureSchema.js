@@ -454,6 +454,56 @@ const DEFINITIONS = {
     },
   ],
 
+  /**
+   * One row per package payment a parent makes: the top-up ledger.
+   *
+   * A subscription's meeting target is a single number, so on its own it cannot
+   * answer "when was this paid?" or "how many packages has this student
+   * bought?" — a 24 looks identical whether it was one 24-meeting package or a
+   * 12 plus three top-ups. Each payment is a row here, so the count of rows is
+   * the number of purchases and `paid_at` is the date the parent paid.
+   *
+   * Deliberately append-only in spirit: rows are inserted, never upserted.
+   * Two payments of the same size on the same day are a real thing (two
+   * siblings' packages settled together, a correction re-paid), so there is no
+   * unique constraint to make the second one vanish.
+   *
+   * `meetings` is the number of meetings that payment bought. Summing the
+   * column gives the meetings paid for, which is the cross-check against the
+   * subscription's target.
+   *
+   * No price or currency column. Like `internal_student_terms`, this records
+   * that a payment happened and what it bought, not what it cost — the repo has
+   * no billing system and this is not the start of one.
+   *
+   * `student_id` carries no foreign key and `student_name` is stored alongside
+   * it, for the same two reasons as `internal_student_history`: the app's
+   * database user does not own `internal_students`, so a referencing constraint
+   * cannot be created, and a payment record should stay readable even if the
+   * student row is later renamed or removed.
+   */
+  internal_subscription_topups: [
+    `CREATE TABLE IF NOT EXISTS internal_subscription_topups (
+        id SERIAL PRIMARY KEY,
+        student_id INTEGER NOT NULL,
+        student_name VARCHAR(255),
+        meetings INTEGER NOT NULL CHECK (meetings BETWEEN 1 AND 100),
+        paid_at DATE NOT NULL,
+        package_label VARCHAR(120),
+        note TEXT,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    )`,
+    // Newest payment first is the only order the history panel reads, so the
+    // index carries the tie-break on `id` too.
+    `CREATE INDEX IF NOT EXISTS internal_subscription_topups_student_idx
+        ON internal_subscription_topups (student_id, paid_at DESC, id DESC)`,
+    {
+      trigger: 'update_internal_subscription_topups_changetimestamp',
+      table: 'internal_subscription_topups',
+    },
+  ],
+
   internal_meetings: [
     `CREATE TABLE IF NOT EXISTS internal_meetings (
         id SERIAL PRIMARY KEY,

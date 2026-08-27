@@ -232,7 +232,7 @@ describe.skipIf(!TARGET_URL)('bulk student wipe against real PostgreSQL', () => 
   let WIPE_LOCK_KEY;
   let WIPE_CONFIRMATION_PHRASE;
   let DELETE;
-  let middleware;
+  let proxy;
   let closeAppPool;
 
   beforeAll(async () => {
@@ -255,7 +255,7 @@ describe.skipIf(!TARGET_URL)('bulk student wipe against real PostgreSQL', () => 
     ({ bulkWipeStudents, WIPE_LOCK_KEY } = await import('@/lib/bulkWipeStudents'));
     ({ WIPE_CONFIRMATION_PHRASE } = await import('@/lib/wipeConfirmation'));
     ({ DELETE } = await import('@/app/api/new/students/route'));
-    ({ middleware } = await import('@/middleware'));
+    ({ proxy } = await import('@/proxy'));
 
     observer = new Pool({
       connectionString: TARGET_URL,
@@ -493,7 +493,7 @@ describe.skipIf(!TARGET_URL)('bulk student wipe against real PostgreSQL', () => 
       const request = deleteRequest(headers, {});
 
       // The guard admits the request...
-      const gate = middleware(request);
+      const gate = proxy(request);
       expect(gate.status, `${label} should be admitted by the API guard`).not.toBe(401);
 
       // ...and the handler still refuses it for want of a confirmation phrase.
