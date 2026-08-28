@@ -142,6 +142,9 @@ export default function LiveProgressTable({ category }) {
   const [filterLevel, setFilterLevel] = useState('all');
   const [filterDay, setFilterDay] = useState('all');
   const [filterInstructor, setFilterInstructor] = useState('all');
+  const [filterTime, setFilterTime] = useState('all');
+  /** 'default' groups by instructor; 'az'/'za' sort flat by student name. */
+  const [sortOrder, setSortOrder] = useState('default');
   const [filterContinuation, setFilterContinuation] = useState('all');
   const [filterStatus, setFilterStatus] = useState('all');
   const [page, setPage] = useState(1);
@@ -784,6 +787,34 @@ export default function LiveProgressTable({ category }) {
     return list;
   }, [rows, filterBranch, filterDay, filterLevel]);
 
+  /**
+   * The time slots present in what the other filters have already narrowed to,
+   * in clock order rather than alphabetical — "10.00 am" belongs before
+   * "4.30 pm", which a string sort would reverse.
+   */
+  const timeList = useMemo(() => {
+    const set = new Set();
+    for (const r of rows) {
+      if (filterBranch !== 'all' && !isSameBranch(r.branchName, filterBranch)) continue;
+      if (filterDay !== 'all' && r.day.trim().toLowerCase() !== filterDay.trim().toLowerCase()) continue;
+      if (filterLevel !== 'all' && r.levelCode !== filterLevel) continue;
+      if (filterInstructor !== 'all' && r.instructor !== filterInstructor) continue;
+      const time = String(r.time || '').trim();
+      if (time && time !== '—') set.add(time);
+    }
+    return Array.from(set).sort((a, b) => {
+      const byStart = getStartMinutes(a) - getStartMinutes(b);
+      return byStart !== 0 ? byStart : a.localeCompare(b);
+    });
+  }, [rows, filterBranch, filterDay, filterLevel, filterInstructor]);
+
+  /**
+   * Narrowing another filter can remove the chosen slot from the list. Derived
+   * rather than reset in an effect, so the value cannot be briefly applied after
+   * it stopped being offered.
+   */
+  const effectiveTime = filterTime !== 'all' && !timeList.includes(filterTime) ? 'all' : filterTime;
+
   useEffect(() => {
     if (filterInstructor !== 'all' && !instructorList.includes(filterInstructor)) {
       setFilterInstructor('all');
@@ -805,6 +836,7 @@ export default function LiveProgressTable({ category }) {
           return false;
         }
       }
+      if (effectiveTime !== 'all' && String(r.time || '').trim() !== effectiveTime) return false;
       if (filterContinuation !== 'all' && r.continuation !== filterContinuation) return false;
       if (filterStatus !== 'all') {
         const rSt = String(r.status || 'Active').toLowerCase();
@@ -827,7 +859,7 @@ export default function LiveProgressTable({ category }) {
       }
       return true;
     });
-  }, [rows, search, filterBranch, filterLevel, filterDay, filterInstructor, filterContinuation, filterStatus]);
+  }, [rows, search, filterBranch, filterLevel, filterDay, filterInstructor, effectiveTime, filterContinuation, filterStatus]);
 
   /**
    * Default order: instructor first, so one instructor's students sit together.
@@ -842,27 +874,40 @@ export default function LiveProgressTable({ category }) {
    * are the ones needing a decision, not part of anyone's roster.
    */
   const sorted = useMemo(
-    () => [...filtered].sort((a, b) => {
-      const unassignedA = isUnassignedRow(a);
-      const unassignedB = isUnassignedRow(b);
-      if (unassignedA !== unassignedB) return unassignedA ? 1 : -1;
-
-      if (!unassignedA) {
-        const byInstructor = String(a.instructor || '').localeCompare(String(b.instructor || ''));
-        if (byInstructor !== 0) return byInstructor;
+    () => {
+      // A–Z / Z–A is a flat sort by student name, for looking one person up.
+      // It deliberately drops the instructor grouping — keeping it would mean a
+      // name near the end of the alphabet still appeared near the top, which is
+      // not what picking "A–Z" asks for.
+      if (sortOrder === 'az' || sortOrder === 'za') {
+        const direction = sortOrder === 'az' ? 1 : -1;
+        return [...filtered].sort(
+          (a, b) => direction * String(a.studentName || '').localeCompare(String(b.studentName || ''))
+        );
       }
 
-      const dayA = getDayIndex(a.day);
-      const dayB = getDayIndex(b.day);
-      if (dayA !== dayB) return dayA - dayB;
+      return [...filtered].sort((a, b) => {
+        const unassignedA = isUnassignedRow(a);
+        const unassignedB = isUnassignedRow(b);
+        if (unassignedA !== unassignedB) return unassignedA ? 1 : -1;
 
-      const startA = getStartMinutes(a.time);
-      const startB = getStartMinutes(b.time);
-      if (startA !== startB) return startA - startB;
+        if (!unassignedA) {
+          const byInstructor = String(a.instructor || '').localeCompare(String(b.instructor || ''));
+          if (byInstructor !== 0) return byInstructor;
+        }
 
-      return a.studentName.localeCompare(b.studentName);
-    }),
-    [filtered]
+        const dayA = getDayIndex(a.day);
+        const dayB = getDayIndex(b.day);
+        if (dayA !== dayB) return dayA - dayB;
+
+        const startA = getStartMinutes(a.time);
+        const startB = getStartMinutes(b.time);
+        if (startA !== startB) return startA - startB;
+
+        return a.studentName.localeCompare(b.studentName);
+      });
+    },
+    [filtered, sortOrder]
   );
 
   const totalPages = Math.max(1, Math.ceil(sorted.length / PAGE_SIZE));
@@ -1218,6 +1263,15 @@ export default function LiveProgressTable({ category }) {
             </select>
           </div>
 
+          {/* Sits next to Day, because a slot only means something within one. */}
+          <div className="input-group" style={{ margin: 0, width: '160px' }}>
+            <label style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '0.3rem', display: 'block' }}>Time</label>
+            <select value={effectiveTime} onChange={(e) => { setFilterTime(e.target.value); setPage(1); }} style={{ width: '100%' }}>
+              <option value="all">All Times</option>
+              {timeList.map((t) => <option key={t} value={t}>{t}</option>)}
+            </select>
+          </div>
+
           <div className="input-group" style={{ margin: 0, width: '140px' }}>
             <label style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '0.3rem', display: 'block' }}>Level</label>
             <select value={filterLevel} onChange={(e) => { setFilterLevel(e.target.value); setPage(1); }} style={{ width: '100%' }}>
@@ -1239,6 +1293,17 @@ export default function LiveProgressTable({ category }) {
             <select value={filterContinuation} onChange={(e) => { setFilterContinuation(e.target.value); setPage(1); }} style={{ width: '100%' }}>
               <option value="all">All Answers</option>
               {CONTINUATION_OPTIONS.map((o) => <option key={o} value={o}>{o}</option>)}
+            </select>
+          </div>
+
+          {/* Named after what it orders by, not just "A–Z", so it is clear the
+              default is a different thing rather than an unsorted list. */}
+          <div className="input-group" style={{ margin: 0, width: '175px' }}>
+            <label style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '0.3rem', display: 'block' }}>Sort</label>
+            <select value={sortOrder} onChange={(e) => { setSortOrder(e.target.value); setPage(1); }} style={{ width: '100%' }}>
+              <option value="default">Instructor &amp; time</option>
+              <option value="az">Student name A–Z</option>
+              <option value="za">Student name Z–A</option>
             </select>
           </div>
         </div>
