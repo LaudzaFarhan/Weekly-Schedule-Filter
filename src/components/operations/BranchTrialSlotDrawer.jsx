@@ -13,7 +13,7 @@
  * `internal_operationals`.
  */
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { Clock, Calendar, X, Plus, Trash2, Check, AlertTriangle, Users } from 'lucide-react';
 import { useToast } from '../ui/Toast';
 import { saveOperational } from '../../services/newOperationalsService';
@@ -42,6 +42,14 @@ const prettyTime = (hhmm) => {
 
 /** Standard length of a class of this kind, in minutes. */
 const durationFor = (type) => (type === 'kinder' ? 90 : 120);
+
+/**
+ * How long the closing animation runs, matching `.trial-drawer-panel.is-closing`
+ * in globals.css. The unmount is timed rather than driven by `animationend`
+ * because reduced motion removes the animation, and then the event would never
+ * fire and the drawer would stay open.
+ */
+const EXIT_MS = 190;
 
 /**
  * Collapse a branch's per-day slot arrays into one entry per distinct window,
@@ -103,6 +111,17 @@ export default function BranchTrialSlotDrawer({
   const { showToast } = useToast();
   const [tab, setTab] = useState('slots');
   const [saving, setSaving] = useState(false);
+  const [closing, setClosing] = useState(false);
+
+  // Play the exit animation, then let the parent unmount us.
+  const exitTimer = useRef(null);
+  useEffect(() => () => clearTimeout(exitTimer.current), []);
+
+  const requestClose = () => {
+    if (closing) return;
+    setClosing(true);
+    exitTimer.current = setTimeout(onClose, EXIT_MS);
+  };
 
   // One draft object, seeded once on mount, so nothing is written until Apply.
   const [draft, setDraft] = useState(() => seedFrom(rules, branchName));
@@ -287,7 +306,7 @@ export default function BranchTrialSlotDrawer({
         variant: 'success',
       });
       setDirty(false);
-      onClose();
+      requestClose();
     } catch (err) {
       showToast({ title: 'Could not save the plan', message: err.message, variant: 'error' });
     } finally {
@@ -318,7 +337,8 @@ export default function BranchTrialSlotDrawer({
 
   return (
     <div
-      onClick={onClose}
+      onClick={requestClose}
+      className={`trial-drawer-overlay${closing ? ' is-closing' : ''}`}
       style={{
         position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.5)', zIndex: 1200,
         display: 'flex', justifyContent: 'flex-end',
@@ -328,6 +348,7 @@ export default function BranchTrialSlotDrawer({
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-label={`Configure trial availability for ${branchName}`}
+        className={`trial-drawer-panel${closing ? ' is-closing' : ''}`}
         style={{
           width: '100%', maxWidth: '620px', background: 'var(--panel-bg, white)',
           display: 'flex', flexDirection: 'column', height: '100%',
@@ -347,7 +368,7 @@ export default function BranchTrialSlotDrawer({
               The windows this branch opens for trials, and the hours they sit inside.
             </p>
           </div>
-          <button onClick={onClose} aria-label="Close" style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'flex' }}>
+          <button onClick={requestClose} aria-label="Close" style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'flex' }}>
             <X size={18} />
           </button>
         </div>
@@ -376,8 +397,9 @@ export default function BranchTrialSlotDrawer({
           ))}
         </div>
 
-        {/* Body */}
-        <div style={{ flex: 1, overflowY: 'auto', padding: '1.25rem' }}>
+        {/* Body. Keyed by tab so the panel animation replays on each switch. */}
+        <div className="trial-drawer-body" style={{ flex: 1, overflowY: 'auto', padding: '1.25rem' }}>
+          <div className="trial-drawer-tabpanel" key={tab}>
           {tab === 'slots' ? (
             <>
               {/* Add a window */}
@@ -606,6 +628,7 @@ export default function BranchTrialSlotDrawer({
               </div>
             </>
           )}
+          </div>
         </div>
 
         {/* Footer */}
@@ -616,7 +639,7 @@ export default function BranchTrialSlotDrawer({
           <div style={{ display: 'flex', gap: '0.5rem' }}>
             <button
               type="button"
-              onClick={onClose}
+              onClick={requestClose}
               style={{ padding: '0.45rem 0.9rem', borderRadius: 8, border: '1px solid var(--border-color)', background: 'transparent', color: 'inherit', cursor: 'pointer', fontSize: '0.78rem', fontWeight: 600 }}
             >
               Cancel

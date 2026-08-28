@@ -711,6 +711,7 @@ function BranchHoursCard({ card, selected, onSelect, onConfigure }) {
         <button
           type="button"
           onClick={onConfigure}
+          className="trial-configure-btn"
           title={`Configure ${card.name} slot rules and hours`}
           style={{
             display: 'inline-flex', alignItems: 'center', gap: '0.3rem', font: 'inherit',
