@@ -30,13 +30,18 @@ import {
 import { resolveProgramCategory, studentProgramCategory } from '../lib/studentFilter';
 import { isoOf } from '../lib/instructorAvailability';
 import { isSameBranch, getCanonicalBranchName, DEFAULT_BRANCH_LIST } from '../utils/constants';
+import { parseTimeSlot } from '../utils/timeUtils';
 import {
   Search, X, User, MapPin, Clock, Calendar, GraduationCap, Check, Video,
   StickyNote, AlertTriangle, TrendingUp, BookOpen, Edit3, Save, UserCheck, ChevronDown, CheckCircle2,
   ExternalLink,
 } from 'lucide-react';
 
-const PAGE_SIZE = 5;
+/**
+ * Rows per page. Five meant 88 pages for one category's 440 students, so the
+ * list was mostly pagination.
+ */
+const PAGE_SIZE = 15;
 const DAY_OPTIONS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 const DAY_ORDER = {
   monday: 1,
@@ -48,6 +53,23 @@ const DAY_ORDER = {
   sunday: 7,
 };
 const getDayIndex = (day) => DAY_ORDER[String(day || '').trim().toLowerCase()] || 99;
+
+/**
+ * Start of a class in minutes from midnight, for ordering. An unparseable or
+ * missing time sorts after every real one rather than before, so a row with no
+ * time does not lead the day.
+ */
+const getStartMinutes = (time) => {
+  const slot = parseTimeSlot(String(time || ''));
+  return Number.isFinite(slot?.start) ? slot.start : Number.MAX_SAFE_INTEGER;
+};
+
+/** A row nobody is assigned to teach. `instructor` is the literal 'Unassigned'. */
+const isUnassignedRow = (row) => {
+  if (row?.isUnassigned) return true;
+  const name = String(row?.instructor || '').trim().toLowerCase();
+  return name === '' || name === '—' || name === 'unassigned';
+};
 
 /** Colour per continuation answer, so a table of them can be read at a glance. */
 const CONTINUATION_TINT = {
@@ -120,6 +142,12 @@ export default function LiveProgressTable({ category }) {
   const [filterLevel, setFilterLevel] = useState('all');
   const [filterDay, setFilterDay] = useState('all');
   const [filterInstructor, setFilterInstructor] = useState('all');
+  const [filterTime, setFilterTime] = useState('all');
+  /**
+   * 'default' groups by instructor; 'timeAsc'/'timeDesc' order the whole list by
+   * the slot's start time, earliest or latest first.
+   */
+  const [sortOrder, setSortOrder] = useState('default');
   const [filterContinuation, setFilterContinuation] = useState('all');
   const [filterStatus, setFilterStatus] = useState('all');
   const [page, setPage] = useState(1);
@@ -762,6 +790,34 @@ export default function LiveProgressTable({ category }) {
     return list;
   }, [rows, filterBranch, filterDay, filterLevel]);
 
+  /**
+   * The time slots present in what the other filters have already narrowed to,
+   * in clock order rather than alphabetical — "10.00 am" belongs before
+   * "4.30 pm", which a string sort would reverse.
+   */
+  const timeList = useMemo(() => {
+    const set = new Set();
+    for (const r of rows) {
+      if (filterBranch !== 'all' && !isSameBranch(r.branchName, filterBranch)) continue;
+      if (filterDay !== 'all' && r.day.trim().toLowerCase() !== filterDay.trim().toLowerCase()) continue;
+      if (filterLevel !== 'all' && r.levelCode !== filterLevel) continue;
+      if (filterInstructor !== 'all' && r.instructor !== filterInstructor) continue;
+      const time = String(r.time || '').trim();
+      if (time && time !== '—') set.add(time);
+    }
+    return Array.from(set).sort((a, b) => {
+      const byStart = getStartMinutes(a) - getStartMinutes(b);
+      return byStart !== 0 ? byStart : a.localeCompare(b);
+    });
+  }, [rows, filterBranch, filterDay, filterLevel, filterInstructor]);
+
+  /**
+   * Narrowing another filter can remove the chosen slot from the list. Derived
+   * rather than reset in an effect, so the value cannot be briefly applied after
+   * it stopped being offered.
+   */
+  const effectiveTime = filterTime !== 'all' && !timeList.includes(filterTime) ? 'all' : filterTime;
+
   useEffect(() => {
     if (filterInstructor !== 'all' && !instructorList.includes(filterInstructor)) {
       setFilterInstructor('all');
@@ -783,6 +839,7 @@ export default function LiveProgressTable({ category }) {
           return false;
         }
       }
+      if (effectiveTime !== 'all' && String(r.time || '').trim() !== effectiveTime) return false;
       if (filterContinuation !== 'all' && r.continuation !== filterContinuation) return false;
       if (filterStatus !== 'all') {
         const rSt = String(r.status || 'Active').toLowerCase();
@@ -805,16 +862,78 @@ export default function LiveProgressTable({ category }) {
       }
       return true;
     });
-  }, [rows, search, filterBranch, filterLevel, filterDay, filterInstructor, filterContinuation, filterStatus]);
+  }, [rows, search, filterBranch, filterLevel, filterDay, filterInstructor, effectiveTime, filterContinuation, filterStatus]);
 
+  /**
+   * Default order: instructor first, so one instructor's students sit together.
+   *
+   * This used to lead with the day, which scattered an instructor's students
+   * across the list and, at fifteen rows a page, across pages too. Ticking
+   * attendance is done one instructor at a time, so that is the grouping the
+   * page should open on. Within an instructor the order is the week as they
+   * teach it: day, then start time, then student name.
+   *
+   * Students with nobody assigned sort to the end rather than under "U" — they
+   * are the ones needing a decision, not part of anyone's roster.
+   */
   const sorted = useMemo(
-    () => [...filtered].sort((a, b) => {
-      const dayA = getDayIndex(a.day);
-      const dayB = getDayIndex(b.day);
-      if (dayA !== dayB) return dayA - dayB;
-      return a.studentName.localeCompare(b.studentName);
-    }),
-    [filtered]
+    () => {
+      /*
+       * Ordering by the slot itself, across every instructor, so the earliest
+       * (or latest) classes of the week lead the list.
+       *
+       * Time of day comes before the day of the week on purpose: with All Days
+       * selected, a label reading "earliest time first" that opened on Monday
+       * 4.30 pm while a Tuesday 8.30 am existed would simply be wrong. So the
+       * 10 am classes group together across the week, then the 1 pm ones, and so
+       * on. Day, instructor and student break ties in their normal order.
+       *
+       * A row whose time cannot be read stays last in BOTH directions — reversing
+       * would otherwise make unknown times lead the descending list.
+       */
+      if (sortOrder === 'timeAsc' || sortOrder === 'timeDesc') {
+        const direction = sortOrder === 'timeAsc' ? 1 : -1;
+        return [...filtered].sort((a, b) => {
+          const startA = getStartMinutes(a.time);
+          const startB = getStartMinutes(b.time);
+          const unknownA = startA === Number.MAX_SAFE_INTEGER;
+          const unknownB = startB === Number.MAX_SAFE_INTEGER;
+          if (unknownA !== unknownB) return unknownA ? 1 : -1;
+          if (!unknownA && startA !== startB) return direction * (startA - startB);
+
+          const dayA = getDayIndex(a.day);
+          const dayB = getDayIndex(b.day);
+          if (dayA !== dayB) return dayA - dayB;
+
+          const byInstructor = String(a.instructor || '').localeCompare(String(b.instructor || ''));
+          if (byInstructor !== 0) return byInstructor;
+
+          return String(a.studentName || '').localeCompare(String(b.studentName || ''));
+        });
+      }
+
+      return [...filtered].sort((a, b) => {
+        const unassignedA = isUnassignedRow(a);
+        const unassignedB = isUnassignedRow(b);
+        if (unassignedA !== unassignedB) return unassignedA ? 1 : -1;
+
+        if (!unassignedA) {
+          const byInstructor = String(a.instructor || '').localeCompare(String(b.instructor || ''));
+          if (byInstructor !== 0) return byInstructor;
+        }
+
+        const dayA = getDayIndex(a.day);
+        const dayB = getDayIndex(b.day);
+        if (dayA !== dayB) return dayA - dayB;
+
+        const startA = getStartMinutes(a.time);
+        const startB = getStartMinutes(b.time);
+        if (startA !== startB) return startA - startB;
+
+        return a.studentName.localeCompare(b.studentName);
+      });
+    },
+    [filtered, sortOrder]
   );
 
   const totalPages = Math.max(1, Math.ceil(sorted.length / PAGE_SIZE));
@@ -1170,6 +1289,15 @@ export default function LiveProgressTable({ category }) {
             </select>
           </div>
 
+          {/* Sits next to Day, because a slot only means something within one. */}
+          <div className="input-group" style={{ margin: 0, width: '160px' }}>
+            <label style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '0.3rem', display: 'block' }}>Time</label>
+            <select value={effectiveTime} onChange={(e) => { setFilterTime(e.target.value); setPage(1); }} style={{ width: '100%' }}>
+              <option value="all">All Times</option>
+              {timeList.map((t) => <option key={t} value={t}>{t}</option>)}
+            </select>
+          </div>
+
           <div className="input-group" style={{ margin: 0, width: '140px' }}>
             <label style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '0.3rem', display: 'block' }}>Level</label>
             <select value={filterLevel} onChange={(e) => { setFilterLevel(e.target.value); setPage(1); }} style={{ width: '100%' }}>
@@ -1191,6 +1319,17 @@ export default function LiveProgressTable({ category }) {
             <select value={filterContinuation} onChange={(e) => { setFilterContinuation(e.target.value); setPage(1); }} style={{ width: '100%' }}>
               <option value="all">All Answers</option>
               {CONTINUATION_OPTIONS.map((o) => <option key={o} value={o}>{o}</option>)}
+            </select>
+          </div>
+
+          {/* Named after what it orders by, so the default does not read as an
+              unsorted list. */}
+          <div className="input-group" style={{ margin: 0, width: '185px' }}>
+            <label style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '0.3rem', display: 'block' }}>Sort</label>
+            <select value={sortOrder} onChange={(e) => { setSortOrder(e.target.value); setPage(1); }} style={{ width: '100%' }}>
+              <option value="default">Instructor, then time</option>
+              <option value="timeAsc">Time — earliest first</option>
+              <option value="timeDesc">Time — latest first</option>
             </select>
           </div>
         </div>
