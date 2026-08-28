@@ -18,7 +18,7 @@ import { saveOperational } from '../../services/newOperationalsService';
 import { logActivity } from '../../services/newActivityService';
 import { formatScheduleActivitySummary } from '../../lib/scheduleActivityHelper';
 import { groupClasses } from '../../lib/instructorAvailability';
-import { slotTypeMeta } from '../../lib/slotTypes';
+import { slotTypeMeta, cleanSlotList } from '../../lib/slotTypes';
 import { DAY_NAMES, isSameBranch } from '../../utils/constants';
 import { isSameTeacher, resolveCanonicalTeacherName } from '../../utils/instructorUtils';
 import ScheduleGrid from './ScheduleGrid';
@@ -139,16 +139,7 @@ export default function ScheduleGridPanel({ onNavigate } = {}) {
       isOpen: !!draft[branchId]?.has(day),
       openTime: hrs?.start || null,
       closeTime: hrs?.end || null,
-      slots: (slots || [])
-        .filter((s) => s && s.start && s.end && s.end > s.start)
-        .map((s) => ({
-          type: s.type || 'any',
-          start: s.start,
-          end: s.end,
-          label: (s.label || '').trim(),
-          ...(s.instructor ? { instructor: s.instructor } : {}),
-        }))
-        .sort((a, b) => a.start.localeCompare(b.start)),
+      slots: cleanSlotList(slots),
     };
     await saveOperational(payload);
     applyLocal(payload);

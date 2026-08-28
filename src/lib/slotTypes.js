@@ -18,6 +18,64 @@ export const SLOT_TYPES = [
 export const slotTypeMeta = (key) =>
   SLOT_TYPES.find((t) => t.key === key) || SLOT_TYPES[SLOT_TYPES.length - 1];
 
+/**
+ * Seats a slot may declare, matching the range `/api/new/schedule-rules`
+ * accepts for a category's `maxStudents`.
+ */
+export const MIN_SLOT_CAPACITY = 1;
+export const MAX_SLOT_CAPACITY = 20;
+
+/**
+ * A slot's own seat limit, or null when it should follow the category default.
+ *
+ * Only a bookable slot can carry one — a break belongs to the whole branch and
+ * holds nobody. Anything out of range is treated as unset rather than clamped,
+ * so a typo falls back to the configured rule instead of silently capping a
+ * class at 1.
+ */
+export function slotCapacity(slot) {
+  if (!slot || !slotTypeMeta(slot.type).bookable) return null;
+  const n = Number(slot.capacity);
+  if (!Number.isInteger(n) || n < MIN_SLOT_CAPACITY || n > MAX_SLOT_CAPACITY) return null;
+  return n;
+}
+
+/**
+ * Canonicalise one slot for saving to `internal_operationals`.
+ *
+ * Every writer must go through this. There used to be three hand-written
+ * mappers and they drifted: the Operationals page's Save Changes rebuilt slots
+ * from only type/start/end/label, which silently wiped the instructor on every
+ * slot each time it ran.
+ *
+ * Fields are omitted rather than sent as null when unset, because the API
+ * rebuilds the object from scratch and treats an absent key as "not set".
+ */
+export function normaliseSlotForSave(slot) {
+  const type = slot?.type || 'any';
+  const out = {
+    type,
+    start: slot.start,
+    end: slot.end,
+    label: String(slot.label || '').trim(),
+  };
+  if (slot.instructor) out.instructor = slot.instructor;
+  const seats = slotCapacity({ ...slot, type });
+  if (seats != null) out.capacity = seats;
+  return out;
+}
+
+/**
+ * Canonicalise a whole day's plan: drop unusable windows, normalise the rest,
+ * and order by start time so the stored array reads chronologically.
+ */
+export function cleanSlotList(list) {
+  return (Array.isArray(list) ? list : [])
+    .filter((s) => s && s.start && s.end && s.end > s.start)
+    .map(normaliseSlotForSave)
+    .sort((a, b) => a.start.localeCompare(b.start));
+}
+
 /** Category color definitions for Schedule Grid: Kinder (Yellow), Junior (Cyan #00FFFF), Coder (Navy) */
 export function getCategoryColorStyle(category) {
   const cat = String(category || '').toLowerCase();

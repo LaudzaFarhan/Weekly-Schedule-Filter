@@ -9,7 +9,7 @@ import { saveOperational, saveOperationals, deleteOperational } from '../service
 import { useNewOperationals } from '../hooks/useNewOperationals';
 import { useScheduleRules } from '../hooks/useScheduleRules';
 import { CATEGORIES, simulateSlot, CODER_LEVELS } from '../lib/programRules';
-import { SLOT_TYPES, slotTypeMeta } from '../lib/slotTypes';
+import { SLOT_TYPES, slotTypeMeta, cleanSlotList } from '../lib/slotTypes';
 import { groupClasses, levelCovers, instructorsAtBranch, overlaps } from '../lib/instructorAvailability';
 import { DAY_NAMES, getWorkingDaysForBranch, DEFAULT_BRANCH_LIST } from '../utils/constants';
 import { MapPin, Save, Building2, Clock, X, Plus, Trash2, Copy, CalendarClock, AlertTriangle, Wand2, Coffee, ShieldCheck, FlaskConical, CheckCircle2, RotateCcw } from 'lucide-react';
@@ -635,19 +635,7 @@ export default function NewOperationalsPage() {
       isOpen: !!draft[branchId]?.has(day),
       openTime: hrs?.start || null,
       closeTime: hrs?.end || null,
-      slots: (slots || [])
-        .filter((s) => s && s.start && s.end && s.end > s.start)
-        .map((s) => ({
-          type: s.type || 'any',
-          start: s.start,
-          end: s.end,
-          label: (s.label || '').trim(),
-          // Optional. Set when the slot was opened from the schedule grid,
-          // where a cell already identifies an instructor. Slots without one
-          // stay valid and simply count as unassigned.
-          ...(s.instructor ? { instructor: s.instructor } : {}),
-        }))
-        .sort((a, b) => a.start.localeCompare(b.start)),
+      slots: cleanSlotList(slots),
     });
   };
 
@@ -853,19 +841,13 @@ export default function NewOperationalsPage() {
     }
     setSaving(true);
     try {
-      // Drop any slot whose end isn't after its start — those can't be used.
-      const cleanSlots = (list) => (Array.isArray(list) ? list : [])
-        .filter((s) => s && s.start && s.end && s.end > s.start)
-        .map((s) => ({ type: s.type || 'any', start: s.start, end: s.end, label: (s.label || '').trim() }))
-        .sort((a, b) => a.start.localeCompare(b.start));
-
       // One row per branch/day. POST upserts on (branchName, day).
       const payload = [];
       for (const b of branches) {
         for (const day of DAY_NAMES) {
           const isOpen = !!draft[b.id]?.has(day);
           const hrs = draftHours[b.id]?.[day];
-          const slots = cleanSlots(draftOps[b.id]?.[day]);
+          const slots = cleanSlotList(draftOps[b.id]?.[day]);
           // Skip days that are closed and hold nothing — no point storing them.
           if (!isOpen && !hrs && slots.length === 0) continue;
           payload.push({
