@@ -143,7 +143,10 @@ export default function LiveProgressTable({ category }) {
   const [filterDay, setFilterDay] = useState('all');
   const [filterInstructor, setFilterInstructor] = useState('all');
   const [filterTime, setFilterTime] = useState('all');
-  /** 'default' groups by instructor; 'az'/'za' sort flat by student name. */
+  /**
+   * 'default' groups by instructor; 'timeAsc'/'timeDesc' order the whole list by
+   * the slot's start time, earliest or latest first.
+   */
   const [sortOrder, setSortOrder] = useState('default');
   const [filterContinuation, setFilterContinuation] = useState('all');
   const [filterStatus, setFilterStatus] = useState('all');
@@ -875,15 +878,38 @@ export default function LiveProgressTable({ category }) {
    */
   const sorted = useMemo(
     () => {
-      // A–Z / Z–A is a flat sort by student name, for looking one person up.
-      // It deliberately drops the instructor grouping — keeping it would mean a
-      // name near the end of the alphabet still appeared near the top, which is
-      // not what picking "A–Z" asks for.
-      if (sortOrder === 'az' || sortOrder === 'za') {
-        const direction = sortOrder === 'az' ? 1 : -1;
-        return [...filtered].sort(
-          (a, b) => direction * String(a.studentName || '').localeCompare(String(b.studentName || ''))
-        );
+      /*
+       * Ordering by the slot itself, across every instructor, so the earliest
+       * (or latest) classes of the week lead the list.
+       *
+       * Time of day comes before the day of the week on purpose: with All Days
+       * selected, a label reading "earliest time first" that opened on Monday
+       * 4.30 pm while a Tuesday 8.30 am existed would simply be wrong. So the
+       * 10 am classes group together across the week, then the 1 pm ones, and so
+       * on. Day, instructor and student break ties in their normal order.
+       *
+       * A row whose time cannot be read stays last in BOTH directions — reversing
+       * would otherwise make unknown times lead the descending list.
+       */
+      if (sortOrder === 'timeAsc' || sortOrder === 'timeDesc') {
+        const direction = sortOrder === 'timeAsc' ? 1 : -1;
+        return [...filtered].sort((a, b) => {
+          const startA = getStartMinutes(a.time);
+          const startB = getStartMinutes(b.time);
+          const unknownA = startA === Number.MAX_SAFE_INTEGER;
+          const unknownB = startB === Number.MAX_SAFE_INTEGER;
+          if (unknownA !== unknownB) return unknownA ? 1 : -1;
+          if (!unknownA && startA !== startB) return direction * (startA - startB);
+
+          const dayA = getDayIndex(a.day);
+          const dayB = getDayIndex(b.day);
+          if (dayA !== dayB) return dayA - dayB;
+
+          const byInstructor = String(a.instructor || '').localeCompare(String(b.instructor || ''));
+          if (byInstructor !== 0) return byInstructor;
+
+          return String(a.studentName || '').localeCompare(String(b.studentName || ''));
+        });
       }
 
       return [...filtered].sort((a, b) => {
@@ -1296,14 +1322,14 @@ export default function LiveProgressTable({ category }) {
             </select>
           </div>
 
-          {/* Named after what it orders by, not just "A–Z", so it is clear the
-              default is a different thing rather than an unsorted list. */}
-          <div className="input-group" style={{ margin: 0, width: '175px' }}>
+          {/* Named after what it orders by, so the default does not read as an
+              unsorted list. */}
+          <div className="input-group" style={{ margin: 0, width: '185px' }}>
             <label style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '0.3rem', display: 'block' }}>Sort</label>
             <select value={sortOrder} onChange={(e) => { setSortOrder(e.target.value); setPage(1); }} style={{ width: '100%' }}>
-              <option value="default">Instructor &amp; time</option>
-              <option value="az">Student name A–Z</option>
-              <option value="za">Student name Z–A</option>
+              <option value="default">Instructor, then time</option>
+              <option value="timeAsc">Time — earliest first</option>
+              <option value="timeDesc">Time — latest first</option>
             </select>
           </div>
         </div>
