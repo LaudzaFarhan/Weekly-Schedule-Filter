@@ -30,13 +30,18 @@ import {
 import { resolveProgramCategory, studentProgramCategory } from '../lib/studentFilter';
 import { isoOf } from '../lib/instructorAvailability';
 import { isSameBranch, getCanonicalBranchName, DEFAULT_BRANCH_LIST } from '../utils/constants';
+import { parseTimeSlot } from '../utils/timeUtils';
 import {
   Search, X, User, MapPin, Clock, Calendar, GraduationCap, Check, Video,
   StickyNote, AlertTriangle, TrendingUp, BookOpen, Edit3, Save, UserCheck, ChevronDown, CheckCircle2,
   ExternalLink,
 } from 'lucide-react';
 
-const PAGE_SIZE = 5;
+/**
+ * Rows per page. Five meant 88 pages for one category's 440 students, so the
+ * list was mostly pagination.
+ */
+const PAGE_SIZE = 15;
 const DAY_OPTIONS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 const DAY_ORDER = {
   monday: 1,
@@ -48,6 +53,23 @@ const DAY_ORDER = {
   sunday: 7,
 };
 const getDayIndex = (day) => DAY_ORDER[String(day || '').trim().toLowerCase()] || 99;
+
+/**
+ * Start of a class in minutes from midnight, for ordering. An unparseable or
+ * missing time sorts after every real one rather than before, so a row with no
+ * time does not lead the day.
+ */
+const getStartMinutes = (time) => {
+  const slot = parseTimeSlot(String(time || ''));
+  return Number.isFinite(slot?.start) ? slot.start : Number.MAX_SAFE_INTEGER;
+};
+
+/** A row nobody is assigned to teach. `instructor` is the literal 'Unassigned'. */
+const isUnassignedRow = (row) => {
+  if (row?.isUnassigned) return true;
+  const name = String(row?.instructor || '').trim().toLowerCase();
+  return name === '' || name === '—' || name === 'unassigned';
+};
 
 /** Colour per continuation answer, so a table of them can be read at a glance. */
 const CONTINUATION_TINT = {
@@ -807,11 +829,37 @@ export default function LiveProgressTable({ category }) {
     });
   }, [rows, search, filterBranch, filterLevel, filterDay, filterInstructor, filterContinuation, filterStatus]);
 
+  /**
+   * Default order: instructor first, so one instructor's students sit together.
+   *
+   * This used to lead with the day, which scattered an instructor's students
+   * across the list and, at fifteen rows a page, across pages too. Ticking
+   * attendance is done one instructor at a time, so that is the grouping the
+   * page should open on. Within an instructor the order is the week as they
+   * teach it: day, then start time, then student name.
+   *
+   * Students with nobody assigned sort to the end rather than under "U" — they
+   * are the ones needing a decision, not part of anyone's roster.
+   */
   const sorted = useMemo(
     () => [...filtered].sort((a, b) => {
+      const unassignedA = isUnassignedRow(a);
+      const unassignedB = isUnassignedRow(b);
+      if (unassignedA !== unassignedB) return unassignedA ? 1 : -1;
+
+      if (!unassignedA) {
+        const byInstructor = String(a.instructor || '').localeCompare(String(b.instructor || ''));
+        if (byInstructor !== 0) return byInstructor;
+      }
+
       const dayA = getDayIndex(a.day);
       const dayB = getDayIndex(b.day);
       if (dayA !== dayB) return dayA - dayB;
+
+      const startA = getStartMinutes(a.time);
+      const startB = getStartMinutes(b.time);
+      if (startA !== startB) return startA - startB;
+
       return a.studentName.localeCompare(b.studentName);
     }),
     [filtered]
