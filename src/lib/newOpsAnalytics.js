@@ -25,7 +25,15 @@ export function maxStudentsForProgram(program) {
   return isKinderProgram(program) ? 4 : 6;
 }
 
-/** Classify a program or level string into Kinder | Junior | Coder | null. */
+/**
+ * Classify a program or level string into Kinder | Junior | Coder | null.
+ *
+ * The bare stage names are Coder levels recorded before "Coder" was prefixed —
+ * "Basic 1", "Advance 2". Without them a legacy Coder class classified as null
+ * and so matched no category, which made it invisible to anything asking "which
+ * classes could a Coder student join?". `normaliseCoderLevel` already maps these,
+ * so this keeps the two in step.
+ */
 export function categorize(str) {
   const s = String(str || '').toLowerCase();
   if (s.includes('kinder')) return 'Kinder';
@@ -33,6 +41,7 @@ export function categorize(str) {
   if (s.includes('coder')) return 'Coder';
   if (/^kf|^k\d/.test(s)) return 'Kinder';
   if (/^jf|^j\d/.test(s)) return 'Junior';
+  if (/^(basic|intermediate|advance)/.test(s)) return 'Coder';
   return null;
 }
 
@@ -124,6 +133,21 @@ export function hourlyWindows(openMin, closeMin, duration) {
 }
 
 /**
+ * The student names held in one `internal_classes.student` field.
+ *
+ * Usually one name per row, but a row can carry a comma-separated list. Every
+ * other reader of this column splits it; the seat maths here must too, or a row
+ * reading "Ann, Bob, Cara" counts as a single student and the slot looks emptier
+ * than it is.
+ */
+export function splitStudents(field) {
+  return String(field || '')
+    .split(',')
+    .map((n) => n.trim())
+    .filter(Boolean);
+}
+
+/**
  * Group classes into teaching slots keyed by day + time + teacher + branch.
  * A slot is one lesson an instructor runs, however many students are in it.
  */
@@ -143,7 +167,9 @@ export function groupIntoSlots(classes) {
       });
     }
     const slot = slots.get(key);
-    slot.students.push(c.student);
+    // One row can name several students, so the field is split rather than
+    // pushed whole — pushing it whole under-counted a shared row as one seat.
+    for (const name of splitStudents(c.student)) slot.students.push(name);
     slot.classIds.push(c.id);
     // Remarks flag a student on leave ("izin"). A slot where every student is
     // on leave doesn't count towards workload.

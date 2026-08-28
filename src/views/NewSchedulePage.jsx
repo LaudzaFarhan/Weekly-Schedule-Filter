@@ -20,7 +20,7 @@ import { useScheduleRules } from '../hooks/useScheduleRules';
 import { canCombine, maxStudentsFor, parseProgram, CODER_LEVELS, normaliseCoderLevel } from '../lib/programRules';
 import {
   availabilityFor, groupClasses, classWindow, ATTENDANCE, isDatedKind, isExpired, isoOf,
-  nextDateForDay,
+  nextDateForDay, levelCovers,
 } from '../lib/instructorAvailability';
 import { subscribeToActivity, logActivity, deleteActivity, displayUser } from '../services/newActivityService';
 import { computeScheduleDiff, formatScheduleActivitySummary, parseActivityChanges } from '../lib/scheduleActivityHelper';
@@ -1661,11 +1661,62 @@ export default function NewSchedulePage({ onNavigate }) {
     return v && !v.free ? v : null;
   }, [teacherStatus, form.teacher]);
 
+  /**
+   * Who is qualified for the program in the form, independent of day and time.
+   *
+   * `teacherStatus` also checks this, but it returns an empty map until a day AND
+   * a time are chosen, because everything else it reports is about a specific
+   * window. Qualification is not: it is a fact about the instructor and the
+   * programme. Deriving it separately is what stops an unqualified instructor
+   * being picked — and saved — before a time has been entered.
+   */
+  const teacherQualification = useMemo(() => {
+    const category = parseProgram(form.program).category;
+    const out = new Map();
+    for (const name of modalInstructors) {
+      const inst = (instructors || []).find((i) => i.name === name);
+      out.set(name, {
+        category,
+        level: inst?.level || '',
+        // No category (a program that names none) means nothing to check.
+        qualified: !category || levelCovers(inst?.level, category),
+      });
+    }
+    return out;
+  }, [modalInstructors, instructors, form.program]);
+
+  /**
+   * The instructors offered, split by whether they can teach this programme.
+   *
+   * Unqualified names are shown but disabled rather than removed. Removing them
+   * would look like the instructor had vanished from the branch, and it would
+   * silently drop the stored value when editing an older class whose teacher has
+   * since changed level — so the currently selected name stays selectable
+   * whatever its level.
+   */
+  const modalInstructorGroups = useMemo(() => {
+    const qualified = [];
+    const unqualified = [];
+    for (const name of modalInstructors) {
+      const q = teacherQualification.get(name);
+      if (!q || q.qualified || name === form.teacher) qualified.push(name);
+      else unqualified.push(name);
+    }
+    return { qualified, unqualified };
+  }, [modalInstructors, teacherQualification, form.teacher]);
+
   const validateForm = () => {
     const errors = {};
     if (!form.time.trim()) errors.time = 'Time slot is required';
     if (!form.program.trim()) errors.program = 'Program/Lesson detail is required';
     if (!form.teacher) errors.teacher = 'Instructor is required';
+    // Qualification first, and not via `teacherConflict`: that one is silent
+    // until a day and a time are set, so a mismatched instructor used to save
+    // cleanly whenever the time had not been filled in yet.
+    else if (!(teacherQualification.get(form.teacher)?.qualified ?? true)) {
+      const q = teacherQualification.get(form.teacher);
+      errors.teacher = `${form.teacher} is ${q.level || 'unclassified'} — cannot teach ${q.category}`;
+    }
     // Never let a save double-book an instructor. This check did not exist.
     else if (teacherConflict) errors.teacher = teacherConflict.reason;
     if (!form.student.trim()) errors.student = 'Student name is required';
@@ -3585,7 +3636,7 @@ export default function NewSchedulePage({ onNavigate }) {
                     <option value="">
                       {form.branchName ? 'Select Instructor' : 'Select a branch first'}
                     </option>
-                    {modalInstructors.map((t) => {
+                    {modalInstructorGroups.qualified.map((t) => {
                       const v = teacherStatus.get(t);
                       return (
                         <option key={t} value={t}>
@@ -3593,10 +3644,34 @@ export default function NewSchedulePage({ onNavigate }) {
                         </option>
                       );
                     })}
+                    {/* Listed but not selectable: the reason stays visible, so
+                        nobody hunts for an instructor that was filtered away. */}
+                    {modalInstructorGroups.unqualified.length > 0 && (
+                      <optgroup
+                        label={`Not qualified for ${parseProgram(form.program).category || 'this program'}`}
+                      >
+                        {modalInstructorGroups.unqualified.map((t) => {
+                          const q = teacherQualification.get(t);
+                          return (
+                            <option key={t} value={t} disabled>
+                              {`${t} — ${q?.level || 'unclassified'}`}
+                            </option>
+                          );
+                        })}
+                      </optgroup>
+                    )}
                   </select>
                   {form.branchName && modalInstructors.length === 0 && (
                     <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '0.2rem', display: 'block' }}>
                       No instructors assigned to {form.branchName}. Add them under Instructors.
+                    </span>
+                  )}
+                  {/* Qualification is reported even with no time entered, since
+                      it does not depend on one. */}
+                  {form.teacher && !(teacherQualification.get(form.teacher)?.qualified ?? true) && (
+                    <span style={{ fontSize: '0.72rem', marginTop: '0.25rem', display: 'block', color: 'var(--danger)' }}>
+                      ✕ {form.teacher} is {teacherQualification.get(form.teacher).level || 'unclassified'} — cannot
+                      teach {teacherQualification.get(form.teacher).category}
                     </span>
                   )}
                   {/* Live availability for the chosen instructor, so the reason

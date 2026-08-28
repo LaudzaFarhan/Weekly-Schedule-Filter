@@ -2865,3 +2865,107 @@ td.schedule-grid-sticky-col {
     animation: none;
   }
 }
+
+/* ── Branch trial slot drawer ─────────────────────────────────────────────
+   Opened by the Configure button on a branch card.
+
+   The panel slides in from the right edge while the backdrop fades. Two separate
+   animations rather than one on a wrapper: fading the panel as well made it read
+   as dissolving into place instead of arriving from the side, which loses the
+   sense that it came from the card you clicked.
+
+   Closing is driven by an `.is-closing` class plus a timer in the component
+   rather than `animationend`. Under reduced motion there is no animation to end,
+   so an `animationend` listener would never fire and the drawer would never
+   unmount. */
+.trial-drawer-overlay {
+  animation: trial-drawer-fade-in 180ms ease-out both;
+}
+.trial-drawer-overlay.is-closing {
+  animation: trial-drawer-fade-out 190ms ease-in both;
+}
+
+.trial-drawer-panel {
+  animation: trial-drawer-slide-in 280ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  will-change: transform;
+}
+.trial-drawer-panel.is-closing {
+  animation: trial-drawer-slide-out 190ms cubic-bezier(0.4, 0, 1, 1) both;
+}
+
+@keyframes trial-drawer-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+@keyframes trial-drawer-fade-out {
+  from { opacity: 1; }
+  to   { opacity: 0; }
+}
+@keyframes trial-drawer-slide-in {
+  from { transform: translateX(100%); }
+  to   { transform: translateX(0); }
+}
+@keyframes trial-drawer-slide-out {
+  from { transform: translateX(0); }
+  to   { transform: translateX(100%); }
+}
+
+/* The body catches up a beat after the panel, so the eye lands on the panel
+   edge first and then the content, rather than everything arriving at once. */
+.trial-drawer-body {
+  animation: trial-drawer-rise 300ms cubic-bezier(0.16, 1, 0.3, 1) 90ms both;
+}
+.trial-drawer-panel.is-closing .trial-drawer-body {
+  animation: none;
+}
+
+/* Re-runs on every tab change, because the content is keyed by tab. */
+.trial-drawer-tabpanel {
+  animation: trial-drawer-rise 220ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@keyframes trial-drawer-rise {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* Tactile feedback on the button that opens all this. The lift is on hover and
+   the dip on press, so a click feels answered before the drawer arrives. */
+.trial-configure-btn {
+  transition: transform 120ms ease, background-color 120ms ease, border-color 120ms ease;
+}
+.trial-configure-btn:hover {
+  transform: translateY(-1px);
+  background: var(--primary-blue-light, rgba(79, 70, 229, 0.12));
+  border-color: var(--primary-blue, #4f46e5);
+}
+.trial-configure-btn:active {
+  transform: translateY(0) scale(0.96);
+}
+
+/* Reduced motion keeps the fade and drops the movement. The drawer is equally
+   usable without the slide, but some visible change is still needed or the panel
+   would appear with no indication that anything happened. */
+@media (prefers-reduced-motion: reduce) {
+  .trial-drawer-panel {
+    animation: trial-drawer-fade-in 120ms ease-out both;
+  }
+  /* Hidden at once: the timed unmount still runs, so there is no animation left
+     to watch and lingering for it would just look like a stuck panel. */
+  .trial-drawer-panel.is-closing,
+  .trial-drawer-overlay.is-closing {
+    animation: none;
+    opacity: 0;
+  }
+  .trial-drawer-body,
+  .trial-drawer-tabpanel {
+    animation: trial-drawer-fade-in 1ms linear both;
+  }
+  .trial-configure-btn {
+    transition: background-color 120ms ease, border-color 120ms ease;
+  }
+  .trial-configure-btn:hover,
+  .trial-configure-btn:active {
+    transform: none;
+  }
+}

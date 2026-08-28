@@ -36,6 +36,14 @@ const INSTRUCTOR_TYPES = [...BOOKABLE_TYPES, 'training', 'meeting'];
 const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
 
 /**
+ * Seats a single slot may declare, overriding the category default from
+ * `internal_schedule_rules`. Same range that endpoint accepts, so a branch
+ * cannot set a limit the rules editor would refuse.
+ */
+const MIN_CAPACITY = 1;
+const MAX_CAPACITY = 20;
+
+/**
  * Validate and normalise the incoming slots array. Rejects unknown types and
  * any window whose end is not after its start, so the stored plan is always
  * usable by the Schedule page.
@@ -69,6 +77,20 @@ function normaliseSlots(slots) {
         return { error: `slots[${i}].instructor is not valid for "${type}" — a break applies to the whole branch` };
       }
       slot.instructor = instructor;
+    }
+
+    // Optional seat limit for this window, overriding the category default.
+    // Absent means "follow the rules"; an out-of-range number is rejected
+    // rather than clamped, so a typo can't quietly cap a class at one student.
+    if (s.capacity !== undefined && s.capacity !== null && s.capacity !== '') {
+      if (!BOOKABLE_TYPES.includes(type)) {
+        return { error: `slots[${i}].capacity is not valid for "${type}" — only a class slot holds students` };
+      }
+      const seats = Number(s.capacity);
+      if (!Number.isInteger(seats) || seats < MIN_CAPACITY || seats > MAX_CAPACITY) {
+        return { error: `slots[${i}].capacity must be a whole number from ${MIN_CAPACITY} to ${MAX_CAPACITY}` };
+      }
+      slot.capacity = seats;
     }
 
     out.push(slot);
