@@ -88,6 +88,7 @@ import { subscribeToInternalStudents } from '../services/internalStudentService'
 import { logActivity } from '../services/newActivityService';
 import { getEvaluations, saveEvaluation } from '../services/studentEvaluationService';
 import { getTerms, saveTerm } from '../services/studentTermService';
+import { getRubricCompetencies } from '../services/rubricCompetenciesService';
 
 /** Printed and shown where a value is genuinely absent (Req 4.5, 4.6). */
 const EM_DASH = '\u2014';
@@ -438,6 +439,8 @@ export default function NewStudentReportCardsPage({ onNavigate, params, initialM
     return () => unsubscribe();
   }, []);
 
+  const [rubricMap, setRubricMap] = useState({});
+
   // Instructor names for the form's `<select>` (Req 1.10). Fetched once: the
   // list is a lookup, not live data, and a failure leaves the form usable with
   // whatever name the record already carries.
@@ -454,6 +457,19 @@ export default function NewStudentReportCardsPage({ onNavigate, params, initialM
       .catch((error) => {
         console.warn('Could not load the instructor list:', error?.message || error);
       });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    getRubricCompetencies()
+      .then((res) => {
+        if (cancelled) return;
+        if (res?.competencies) setRubricMap(res.competencies);
+      })
+      .catch(() => {});
     return () => {
       cancelled = true;
     };
@@ -1241,7 +1257,10 @@ export default function NewStudentReportCardsPage({ onNavigate, params, initialM
             >
               {/* LEFT COLUMN: Scoring Guidelines — sticky so it stays visible while scrolling the form */}
               <div className="guidelines-scroll-sidebar" style={{ position: 'sticky', top: '1rem', maxHeight: 'calc(100vh - 2rem)', overflowY: 'auto', paddingRight: '0.25rem' }}>
-                <ScoringGuidelinesPanel variant="compact" />
+                <ScoringGuidelinesPanel
+                  variant="compact"
+                  competencies={rubricMap[activeCategory] || COMPETENCIES}
+                />
               </div>
 
               {/* RIGHT COLUMN: Evaluation Form + Charts */}
@@ -1257,6 +1276,7 @@ export default function NewStudentReportCardsPage({ onNavigate, params, initialM
                   evaluations={shownEvaluations}
                   student={selectedStudent}
                   instructorNames={instructorNames}
+                  competencies={rubricMap[activeCategory] || COMPETENCIES}
                   onSave={handleSave}
                   saving={saving}
                 />

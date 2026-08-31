@@ -178,6 +178,8 @@ function instructorFromSignedInUser(user, instructorNames) {
  * @param {Array<Object>} [props.evaluations] the selected student's evaluation history
  * @param {Object|null} [props.student] the selected student record; `student.id` goes on the payload
  * @param {Array<string>} [props.instructorNames] names from `/api/new/instructors`
+ * @param {Array<{ key: string, label: string, color: string, descriptors?: Record<string|number, string> }>} [props.competencies]
+ * @param {Record<string, Record<string|number, string>>} [props.rubricLevels]
  * @param {(payload: Object) => Promise<any>} props.onSave rejects with the API's message
  * @param {boolean} [props.saving] true while a save is in flight
  */
@@ -197,10 +199,25 @@ export default function EvaluationForm({
   evaluations,
   student = null,
   instructorNames,
+  competencies = COMPETENCIES,
+  rubricLevels = null,
   onSave,
   saving = false,
 }) {
   const { user } = useAuth();
+  const compList = Array.isArray(competencies) && competencies.length > 0 ? competencies : COMPETENCIES;
+
+  const getDescriptor = (compKey, rating) => {
+    if (rating === null || rating === undefined) return '';
+    const comp = compList.find((c) => c.key === compKey);
+    return (
+      comp?.descriptors?.[rating] ??
+      comp?.descriptors?.[String(rating)] ??
+      rubricLevels?.[compKey]?.[rating] ??
+      rubricLevels?.[compKey]?.[String(rating)] ??
+      descriptorFor(compKey, rating)
+    );
+  };
 
   /** The student's evaluation history. Either prop name is accepted. */
   const history = Array.isArray(evaluations)
@@ -565,20 +582,21 @@ export default function EvaluationForm({
           </div>
         </div>
 
-        {/* The five rating rows */}
+        {/* The rating rows */}
         <div role="group" aria-label="Competency ratings" style={{ display: 'grid', gap: '0.9rem' }}>
-          {COMPETENCIES.map((competency) => {
+          {compList.map((competency) => {
             const selected = form.scores[competency.key];
             const groupLabelId = `rating-label-${competency.key}`;
             const descriptorId = `rating-descriptor-${competency.key}`;
-            const descriptor = descriptorFor(competency.key, selected);
+            const descriptor = getDescriptor(competency.key, selected);
+            const compColor = competency.color || '#3b82f6';
 
             return (
               <div
                 key={competency.key}
                 style={{
                   border: '1px solid var(--border-color)',
-                  borderLeft: `3px solid ${competency.color}`,
+                  borderLeft: `3px solid ${compColor}`,
                   borderRadius: '10px',
                   padding: '0.7rem 0.9rem',
                   background: 'var(--bg-color)',
@@ -595,7 +613,7 @@ export default function EvaluationForm({
                 >
                   <span
                     id={groupLabelId}
-                    style={{ fontSize: '0.85rem', fontWeight: 700, color: competency.color }}
+                    style={{ fontSize: '0.85rem', fontWeight: 700, color: compColor }}
                   >
                     {competency.label}
                   </span>
@@ -611,7 +629,7 @@ export default function EvaluationForm({
                       const isSelected = selected === rating;
                       const filled = selected !== null && rating <= selected;
                       // Req 1.18 — the score and its meaning, never "star 4".
-                      const optionLabel = `${competency.label}, ${rating} of 5, ${descriptorFor(
+                      const optionLabel = `${competency.label}, ${rating} of 5, ${getDescriptor(
                         competency.key,
                         rating
                       )}`;
@@ -636,13 +654,13 @@ export default function EvaluationForm({
                             display: 'flex',
                             alignItems: 'center',
                             lineHeight: 0,
-                            color: filled ? competency.color : 'var(--text-muted)',
+                            color: filled ? compColor : 'var(--text-muted)',
                           }}
                         >
                           <Star
                             size={22}
                             aria-hidden="true"
-                            fill={filled ? competency.color : 'none'}
+                            fill={filled ? compColor : 'none'}
                             strokeWidth={1.75}
                           />
                         </button>

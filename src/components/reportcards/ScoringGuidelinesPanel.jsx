@@ -69,12 +69,16 @@ const VARIANTS = {
  * @param {Object} props
  * @param {'compact'|'full'} [props.variant='compact'] density and chrome; anything
  *   other than `'full'` renders the compact form
+ * @param {Array<{ key: string, label: string, color: string, descriptors?: Record<string|number, string> }>} [props.competencies]
+ * @param {Record<string, Record<string|number, string>>} [props.rubricLevels]
  * @param {string} [props.title] overrides the heading text
  * @param {string} [props.subtitle] overrides the sub-heading; `''` hides it
  * @param {string} [props.idPrefix] id stem for the `aria-labelledby` wiring
  */
 export default function ScoringGuidelinesPanel({
   variant = 'compact',
+  competencies = COMPETENCIES,
+  rubricLevels = RUBRIC_LEVELS,
   title,
   subtitle,
   idPrefix,
@@ -87,6 +91,8 @@ export default function ScoringGuidelinesPanel({
   const prefix = idPrefix || `scoring-guidelines-${isFull ? 'full' : 'compact'}`;
   const headingId = `${prefix}-heading`;
 
+  const list = Array.isArray(competencies) && competencies.length > 0 ? competencies : COMPETENCIES;
+
   const grid = (
     <div
       style={{
@@ -95,84 +101,97 @@ export default function ScoringGuidelinesPanel({
         gap: style.gap,
       }}
     >
-      {COMPETENCIES.map((competency) => (
-        <article
-          key={competency.key}
-          style={{
-            border: '1px solid var(--border-color)',
-            borderRadius: '10px',
-            background: 'var(--bg-color)',
-            padding: style.cardPadding,
-            borderTop: `3px solid ${competency.color}`,
-          }}
-        >
-          {isFull ? (
-            <h3
-              style={{
-                margin: '0 0 0.6rem',
-                fontSize: style.labelSize,
-                fontWeight: 700,
-                color: competency.color,
-              }}
-            >
-              {competency.label}
-            </h3>
-          ) : (
-            <h4
-              style={{
-                margin: '0 0 0.4rem',
-                fontSize: style.labelSize,
-                fontWeight: 700,
-                color: competency.color,
-              }}
-            >
-              {competency.label}
-            </h4>
-          )}
-
-          {/*
-            A description list, so each descriptor is bound to its rating in the
-            markup rather than by sitting next to it on screen. The numeral is
-            never the only carrier of the meaning: every term also announces
-            "Rating N of 5".
-          */}
-          <dl style={{ margin: 0, display: 'grid', gap: '0.35rem' }}>
-            {RATINGS.map((rating) => (
-              <div
-                key={rating}
-                style={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem' }}
+      {list.map((competency) => {
+        const itemColor = competency.color || '#3b82f6';
+        return (
+          <article
+            key={competency.key || competency.id || competency.label}
+            style={{
+              border: '1px solid var(--border-color)',
+              borderRadius: '10px',
+              background: 'var(--bg-color)',
+              padding: style.cardPadding,
+              borderTop: `3px solid ${itemColor}`,
+            }}
+          >
+            {isFull ? (
+              <h3
+                style={{
+                  margin: '0 0 0.6rem',
+                  fontSize: style.labelSize,
+                  fontWeight: 700,
+                  color: itemColor,
+                }}
               >
-                <dt
-                  style={{
-                    flexShrink: 0,
-                    minWidth: '1.35rem',
-                    textAlign: 'center',
-                    fontSize: style.ratingSize,
-                    fontWeight: 700,
-                    lineHeight: 1.5,
-                    borderRadius: '6px',
-                    color: competency.color,
-                    border: `1px solid ${competency.color}`,
-                  }}
-                >
-                  <span style={VISUALLY_HIDDEN}>{`Rating ${rating} of 5`}</span>
-                  <span aria-hidden="true">{rating}</span>
-                </dt>
-                <dd
-                  style={{
-                    margin: 0,
-                    fontSize: style.descriptorSize,
-                    lineHeight: 1.5,
-                    color: 'var(--text-secondary)',
-                  }}
-                >
-                  {RUBRIC_LEVELS[competency.key][rating]}
-                </dd>
-              </div>
-            ))}
-          </dl>
-        </article>
-      ))}
+                {competency.label}
+              </h3>
+            ) : (
+              <h4
+                style={{
+                  margin: '0 0 0.4rem',
+                  fontSize: style.labelSize,
+                  fontWeight: 700,
+                  color: itemColor,
+                }}
+              >
+                {competency.label}
+              </h4>
+            )}
+
+            {/*
+              A description list, so each descriptor is bound to its rating in the
+              markup rather than by sitting next to it on screen. The numeral is
+              never the only carrier of the meaning: every term also announces
+              "Rating N of 5".
+            */}
+            <dl style={{ margin: 0, display: 'grid', gap: '0.35rem' }}>
+              {RATINGS.map((rating) => {
+                const text =
+                  competency.descriptors?.[rating] ??
+                  competency.descriptors?.[String(rating)] ??
+                  rubricLevels?.[competency.key]?.[rating] ??
+                  rubricLevels?.[competency.key]?.[String(rating)] ??
+                  RUBRIC_LEVELS[competency.key]?.[rating] ??
+                  '—';
+
+                return (
+                  <div
+                    key={rating}
+                    style={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem' }}
+                  >
+                    <dt
+                      style={{
+                        flexShrink: 0,
+                        minWidth: '1.35rem',
+                        textAlign: 'center',
+                        fontSize: style.ratingSize,
+                        fontWeight: 700,
+                        lineHeight: 1.5,
+                        borderRadius: '6px',
+                        color: itemColor,
+                        border: `1px solid ${itemColor}`,
+                      }}
+                    >
+                      <span style={VISUALLY_HIDDEN}>{`Rating ${rating} of 5`}</span>
+                      <span aria-hidden="true">{rating}</span>
+                    </dt>
+                    <dd
+                      style={{
+                        margin: 0,
+                        fontSize: style.descriptorSize,
+                        lineHeight: 1.5,
+                        color: 'var(--text-secondary)',
+                      }}
+                    >
+                      {text}
+                    </dd>
+                  </div>
+                );
+              })}
+            </dl>
+          </article>
+        );
+      })}
     </div>
   );
 
