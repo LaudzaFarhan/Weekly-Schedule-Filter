@@ -150,6 +150,7 @@ export default function LiveProgressTable({ category }) {
   const [sortOrder, setSortOrder] = useState('default');
   const [filterContinuation, setFilterContinuation] = useState('all');
   const [filterStatus, setFilterStatus] = useState('all');
+  const [filterAllocation, setFilterAllocation] = useState('all'); // 'all' | 'allocated' | 'unallocated'
   const [page, setPage] = useState(1);
 
   // The attendance cell being edited: { rowKey, lesson }.
@@ -860,6 +861,11 @@ export default function LiveProgressTable({ category }) {
       }
       if (effectiveTime !== 'all' && String(r.time || '').trim() !== effectiveTime) return false;
       if (filterContinuation !== 'all' && r.continuation !== filterContinuation) return false;
+      if (filterAllocation === 'allocated') {
+        if (r.isUnassigned) return false;
+      } else if (filterAllocation === 'unallocated') {
+        if (!r.isUnassigned) return false;
+      }
       if (filterStatus !== 'all') {
         const rSt = String(r.status || 'Active').toLowerCase();
         const fSt = filterStatus.toLowerCase();
@@ -881,7 +887,7 @@ export default function LiveProgressTable({ category }) {
       }
       return true;
     });
-  }, [rows, search, filterBranch, filterLevel, filterDay, filterInstructor, effectiveTime, filterContinuation, filterStatus]);
+  }, [rows, search, filterBranch, filterLevel, filterDay, filterInstructor, effectiveTime, filterContinuation, filterStatus, filterAllocation]);
 
   /**
    * Default order: instructor first, so one instructor's students sit together.
@@ -1303,21 +1309,35 @@ export default function LiveProgressTable({ category }) {
               <span>Inactive: <strong>{statusStats.inactive}</strong></span>
             </div>
 
-            {/* Unassigned Students Counter Badge */}
+            {/* Unallocated / Unassigned Students Counter Badge */}
             <div
-              onClick={() => { setFilterStatus(filterStatus === 'Unassigned' ? 'all' : 'Unassigned'); setPage(1); }}
+              onClick={() => {
+                if (filterAllocation === 'unallocated' || filterStatus === 'Unassigned') {
+                  setFilterAllocation('all');
+                  setFilterStatus('all');
+                } else {
+                  setFilterAllocation('unallocated');
+                }
+                setPage(1);
+              }}
               title="Click to filter Unassigned students"
               style={{
                 display: 'inline-flex', alignItems: 'center', gap: '0.35rem',
                 padding: '0.3rem 0.65rem', borderRadius: '20px', cursor: 'pointer',
-                background: filterStatus === 'Unassigned' ? 'rgba(124,58,237,0.22)' : 'rgba(124,58,237,0.1)',
-                border: filterStatus === 'Unassigned' ? '1.5px solid #7c3aed' : '1px solid rgba(124,58,237,0.3)',
-                color: '#6d28d9', fontSize: '0.75rem', fontWeight: 600,
+                background: (filterAllocation === 'unallocated' || filterStatus === 'Unassigned') ? 'rgba(124,58,237,0.25)' : (filterAllocation === 'allocated' ? 'rgba(124,58,237,0.04)' : 'rgba(124,58,237,0.1)'),
+                border: (filterAllocation === 'unallocated' || filterStatus === 'Unassigned') ? '1.5px solid #7c3aed' : (filterAllocation === 'allocated' ? '1px dashed rgba(124,58,237,0.25)' : '1px solid rgba(124,58,237,0.3)'),
+                color: filterAllocation === 'allocated' ? 'var(--text-muted)' : '#6d28d9',
+                fontSize: '0.75rem', fontWeight: 600,
+                opacity: filterAllocation === 'allocated' ? 0.6 : 1,
                 transition: 'all 0.15s ease',
               }}
             >
               <span style={{ width: '7px', height: '7px', borderRadius: '50%', background: '#7c3aed' }}></span>
-              <span>Unassigned: <strong>{statusStats.unassigned}</strong></span>
+              <span>
+                Unassigned: <strong>{statusStats.unassigned}</strong>
+                {filterAllocation === 'allocated' && <span style={{ fontSize: '0.68rem', marginLeft: '0.25rem', opacity: 0.8 }}>(Hidden)</span>}
+                {filterAllocation === 'unallocated' && <span style={{ fontSize: '0.68rem', marginLeft: '0.25rem', opacity: 0.9 }}>(Only)</span>}
+              </span>
             </div>
 
             <span aria-hidden="true" style={{ color: 'var(--border-color)', margin: '0 0.15rem' }}>·</span>
@@ -1350,9 +1370,27 @@ export default function LiveProgressTable({ category }) {
             </div>
           </div>
 
+          {/* Allocation Filter: Hide unallocated, Show all, or Show only unallocated */}
+          <div className="input-group" style={{ margin: 0, width: '195px' }}>
+            <label htmlFor="allocation-filter-select" style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '0.3rem', display: 'block' }}>
+              Allocation
+            </label>
+            <select
+              id="allocation-filter-select"
+              aria-label="Allocation"
+              value={filterAllocation}
+              onChange={(e) => { setFilterAllocation(e.target.value); setPage(1); }}
+              style={{ width: '100%' }}
+            >
+              <option value="all">Show All (With Unallocated)</option>
+              <option value="allocated">Hide Unallocated (Allocated Only)</option>
+              <option value="unallocated">Show Only Unallocated ({statusStats.unassigned})</option>
+            </select>
+          </div>
+
           <div className="input-group" style={{ margin: 0, width: '150px' }}>
-            <label style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '0.3rem', display: 'block' }}>Status</label>
-            <select value={filterStatus} onChange={(e) => { setFilterStatus(e.target.value); setPage(1); }} style={{ width: '100%' }}>
+            <label htmlFor="status-filter-select" style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '0.3rem', display: 'block' }}>Status</label>
+            <select id="status-filter-select" aria-label="Status" value={filterStatus} onChange={(e) => { setFilterStatus(e.target.value); setPage(1); }} style={{ width: '100%' }}>
               <option value="all">All Statuses</option>
               <option value="Active">Active ({statusStats.active})</option>
               <option value="Long Break">Long Break ({statusStats.longBreak})</option>

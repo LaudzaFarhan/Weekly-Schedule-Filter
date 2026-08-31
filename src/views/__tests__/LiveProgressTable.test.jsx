@@ -157,8 +157,7 @@ describe('LiveProgressTable - Unassigned Students & Unregistered Instructors', (
   it('filters to only unassigned students when selecting Unassigned in Status dropdown', async () => {
     render(<LiveProgressTable category="Kinder" />);
 
-    const comboboxes = screen.getAllByRole('combobox');
-    const statusSelect = comboboxes[0]; // Status select is the first combobox
+    const statusSelect = screen.getByLabelText('Status');
     fireEvent.change(statusSelect, { target: { value: 'Unassigned' } });
 
     expect(screen.getByText('Marvel Benedict')).toBeInTheDocument();
@@ -358,6 +357,54 @@ describe('LiveProgressTable - Unassigned Students & Unregistered Instructors', (
         remarks: expect.stringContaining('https://crm.zoho.com/crm/org123/tab/Contacts/555666'),
       })
     );
+  });
+
+  it('filters students by Allocation: Hide Unallocated, Show All, and Only Unallocated', async () => {
+    // Student 1 (Arya) is allocated with class; Student 3 (Liam) is unassigned without class
+    render(<LiveProgressTable category="Kinder" />);
+
+    // Initially (Show All), both allocated and unallocated students are present
+    expect(screen.getByText('Arya Arkananta')).toBeInTheDocument();
+    expect(screen.getByText('Liam Theodore')).toBeInTheDocument();
+
+    // Select "Hide Unallocated (Allocated Only)"
+    const allocationSelect = screen.getByRole('combobox', { name: /Allocation/i });
+    fireEvent.change(allocationSelect, { target: { value: 'allocated' } });
+
+    // Arya is present, but Liam (unallocated) is hidden
+    expect(screen.getByText('Arya Arkananta')).toBeInTheDocument();
+    expect(screen.queryByText('Liam Theodore')).not.toBeInTheDocument();
+
+    // Select "Show Only Unallocated"
+    fireEvent.change(allocationSelect, { target: { value: 'unallocated' } });
+
+    // Liam (unallocated) is present, but Arya (allocated) is hidden
+    expect(screen.getByText('Liam Theodore')).toBeInTheDocument();
+    expect(screen.queryByText('Arya Arkananta')).not.toBeInTheDocument();
+
+    // Select "Show All (With Unallocated)"
+    fireEvent.change(allocationSelect, { target: { value: 'all' } });
+
+    // Both are shown again
+    expect(screen.getByText('Arya Arkananta')).toBeInTheDocument();
+    expect(screen.getByText('Liam Theodore')).toBeInTheDocument();
+  });
+
+  it('toggles unallocated filter when clicking the Unallocated header badge', () => {
+    render(<LiveProgressTable category="Kinder" />);
+
+    const unallocatedBadge = screen.getByTitle('Click to filter Unassigned students');
+    expect(unallocatedBadge).toBeInTheDocument();
+
+    // Click to filter to only unallocated
+    fireEvent.click(unallocatedBadge);
+    expect(screen.getByText('Liam Theodore')).toBeInTheDocument();
+    expect(screen.queryByText('Arya Arkananta')).not.toBeInTheDocument();
+
+    // Click again to return to Show All
+    fireEvent.click(unallocatedBadge);
+    expect(screen.getByText('Liam Theodore')).toBeInTheDocument();
+    expect(screen.getByText('Arya Arkananta')).toBeInTheDocument();
   });
 });
 
