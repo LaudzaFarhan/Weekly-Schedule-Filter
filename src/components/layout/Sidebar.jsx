@@ -9,6 +9,7 @@ import {
   TrendingUp, ChevronDown, ChevronRight, ShieldCheck
 } from 'lucide-react';
 import { listenToMyTasks } from '@/services/taskService';
+import { resolveUserRole, canAccessPage } from '@/utils/roles';
 
 /**
  * Each navItem maps to a sidebar `roleKey` (used in the Role Permissions
@@ -76,35 +77,25 @@ const LIVE_PROGRESS_PAGES = [
  */
 export default function Sidebar({ currentPage, onNavigate, onToggleSearch, opsMode = 'old', setOpsMode, onToggleSidebar, sidebarCollapsed, sunsetBadge }) {
   const { user, logout } = useAuth();
-  const { roleToggles, users, featureToggles } = useSchedule();
+  const { roleToggles, users, featureToggles, rolePermissions, userPermissions } = useSchedule();
 
   const handleLogout = async () => {
     await logout();
   };
 
-  const userEmail = user?.email?.toLowerCase() || '';
-  const userRole = users?.[userEmail] || 'Instructor';
-  const currentToggles = roleToggles?.[userRole] || roleToggles?.['Instructor'] || {};
+  const userEmail = user?.email?.toLowerCase() || user?.username?.toLowerCase() || '';
+  const userRole = resolveUserRole(users, userEmail, user);
+  const canAccess = (pageId) => canAccessPage(userRole, pageId, rolePermissions, userPermissions, userEmail);
 
   const [pendingCount, setPendingCount] = useState(0);
 
   const liveProgressActive = LIVE_PROGRESS_PAGES.some((p) => p.id === currentPage);
-  /**
-   * Whether the Live Progress group is expanded.
-   *
-   * Seeded from the page showing at mount, so a reload or a shared
-   * /new/progress-junior link opens with the group already revealed rather than
-   * hiding the active page. A lazy initialiser rather than an effect: correcting
-   * this from an effect would both flash the wrong state on first paint and add
-   * another set-state-in-effect error to this file.
-   */
   const [liveProgressOpen, setLiveProgressOpen] = useState(() => liveProgressActive);
 
   const studentPagesActive = STUDENT_PAGES.some((p) => p.id === currentPage) || currentPage === 'students';
   const [studentsOpen, setStudentsOpen] = useState(() => studentPagesActive);
 
   const reportCardsActive = REPORT_CARD_PAGES.some((p) => p.id === currentPage);
-  /** Expanded when one of its pages is showing, seeded the same way as above. */
   const [reportCardsOpen, setReportCardsOpen] = useState(() => reportCardsActive);
 
   // Determine the logged in user's instructor name for task queries
@@ -124,19 +115,6 @@ export default function Sidebar({ currentPage, onNavigate, onToggleSearch, opsMo
     });
     return () => unsubscribe();
   }, [user, myTeacherName]);
-
-  const isItemVisible = (item) => {
-    // Role-permission gate: missing key defaults to enabled
-    if (item.roleKey && currentToggles[item.roleKey] === false) return false;
-
-    // Global feature gate
-    if (item.globalCheck) {
-      if (!item.globalCheck(featureToggles)) return false;
-    } else if (item.globalKey && featureToggles?.[item.globalKey] === false) {
-      return false;
-    }
-    return true;
-  };
 
   return (
     <aside className={`sidebar ${sidebarCollapsed ? 'collapsed' : ''}`}>
@@ -161,37 +139,48 @@ export default function Sidebar({ currentPage, onNavigate, onToggleSearch, opsMo
       </div>
 
       <nav data-tour="sidebar-nav" className="sidebar-nav">
-        <button
-          className={`nav-item ${currentPage === 'home' || currentPage === 'dashboard' ? 'active' : ''}`}
-              onClick={() => onNavigate('home')}
-              style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                <Home size={20} />
-                Dashboard
-              </div>
-            </button>
-            <button
-              data-tour="nav-schedule"
-              className={`nav-item ${NEW_OPS_PAGES.includes(currentPage) ? '' : 'active'}`}
-              onClick={() => onNavigate('schedule')}
-              style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                <Calendar size={20} />
-                Schedule
-              </div>
-            </button>
-            <button
-              className={`nav-item ${currentPage === 'operationals' ? 'active' : ''}`}
-              onClick={() => onNavigate('operationals')}
-              style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                <Building2 size={20} />
-                Operationals
-              </div>
-            </button>
+        {canAccess('dashboard') && (
+          <button
+            className={`nav-item ${currentPage === 'home' || currentPage === 'dashboard' ? 'active' : ''}`}
+            onClick={() => onNavigate('home')}
+            style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+              <Home size={20} />
+              Dashboard
+            </div>
+          </button>
+        )}
+
+        {canAccess('schedule') && (
+          <button
+            data-tour="nav-schedule"
+            className={`nav-item ${NEW_OPS_PAGES.includes(currentPage) ? '' : 'active'}`}
+            onClick={() => onNavigate('schedule')}
+            style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+              <Calendar size={20} />
+              Schedule
+            </div>
+          </button>
+        )}
+
+        {canAccess('operationals') && (
+          <button
+            className={`nav-item ${currentPage === 'operationals' ? 'active' : ''}`}
+            onClick={() => onNavigate('operationals')}
+            style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+              <Building2 size={20} />
+              Operationals
+            </div>
+          </button>
+        )}
+
+        {canAccess('students') && (
+          <>
             <button
               data-tour="nav-students"
               className={`nav-item ${studentPagesActive ? 'active' : ''}`}
@@ -229,10 +218,11 @@ export default function Sidebar({ currentPage, onNavigate, onToggleSearch, opsMo
                 {sub.label}
               </button>
             ))}
-            {/* Report Cards — a destination AND a disclosure. The label navigates
-                to Evaluate; the chevron is a separate control for opening the
-                group, so one click still gets to the page anyone actually wants
-                while Rubrics and Setup stays one click away. */}
+          </>
+        )}
+
+        {canAccess('report-cards') && (
+          <>
             <button
               className={`nav-item ${reportCardsActive ? 'active' : ''}`}
               onClick={() => { setReportCardsOpen(true); onNavigate('report-cards'); }}
@@ -247,7 +237,6 @@ export default function Sidebar({ currentPage, onNavigate, onToggleSearch, opsMo
                 tabIndex={0}
                 aria-label={reportCardsOpen ? 'Collapse Report Cards' : 'Expand Report Cards'}
                 aria-expanded={reportCardsOpen}
-                // Stops the parent's navigation, so the chevron only toggles.
                 onClick={(e) => { e.stopPropagation(); setReportCardsOpen((v) => !v); }}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' || e.key === ' ') {
@@ -270,84 +259,107 @@ export default function Sidebar({ currentPage, onNavigate, onToggleSearch, opsMo
                 {sub.label}
               </button>
             ))}
-            <button
-              data-tour="nav-instructors"
-              className={`nav-item ${currentPage === 'instructors' ? 'active' : ''}`}
-              onClick={() => onNavigate('instructors')}
-              style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                <User size={20} />
-                Instructors
-              </div>
-            </button>
-            <button
-              data-tour="nav-crm"
-              className={`nav-item ${currentPage === 'crm' ? 'active' : ''}`}
-              onClick={() => onNavigate('crm')}
-              style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                <Users size={20} />
-                CRM Pipeline
-              </div>
-            </button>
-            <button
-              className={`nav-item ${currentPage === 'meetings' ? 'active' : ''}`}
-              onClick={() => onNavigate('meetings')}
-              style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                <Video size={20} />
-                Meetings
-              </div>
-            </button>
-            <button
-              data-tour="nav-workload"
-              className={`nav-item ${currentPage === 'workload' ? 'active' : ''}`}
-              onClick={() => onNavigate('workload')}
-              style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                <BarChart3 size={20} />
-                Workload
-              </div>
-            </button>
-            <button
-              data-tour="nav-leave"
-              className={`nav-item ${currentPage === 'leave' ? 'active' : ''}`}
-              onClick={() => onNavigate('leave')}
-              style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                <CalendarOff size={20} />
-                Leave Management
-              </div>
-            </button>
-            <button
-              data-tour="nav-availability"
-              className={`nav-item ${currentPage === 'trial-availability' ? 'active' : ''}`}
-              onClick={() => onNavigate('trial-availability')}
-              style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                <Star size={20} />
-                Trial Availability
-              </div>
-            </button>
-            <button
-              className={`nav-item ${currentPage === 'activity' ? 'active' : ''}`}
-              onClick={() => onNavigate('activity')}
-              style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                <Activity size={20} />
-                Activity
-              </div>
-            </button>
-            {/* Live Progress — a disclosure with one page per category. The
-                parent expands rather than navigating, since there is no
-                combined view behind it. */}
+          </>
+        )}
+
+        {canAccess('instructors') && (
+          <button
+            data-tour="nav-instructors"
+            className={`nav-item ${currentPage === 'instructors' ? 'active' : ''}`}
+            onClick={() => onNavigate('instructors')}
+            style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+              <User size={20} />
+              Instructors
+            </div>
+          </button>
+        )}
+
+        {canAccess('crm') && (
+          <button
+            data-tour="nav-crm"
+            className={`nav-item ${currentPage === 'crm' ? 'active' : ''}`}
+            onClick={() => onNavigate('crm')}
+            style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+              <Users size={20} />
+              CRM Pipeline
+            </div>
+          </button>
+        )}
+
+        {canAccess('meetings') && (
+          <button
+            className={`nav-item ${currentPage === 'meetings' ? 'active' : ''}`}
+            onClick={() => onNavigate('meetings')}
+            style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+              <Video size={20} />
+              Meetings
+            </div>
+          </button>
+        )}
+
+        {canAccess('workload') && (
+          <button
+            data-tour="nav-workload"
+            className={`nav-item ${currentPage === 'workload' ? 'active' : ''}`}
+            onClick={() => onNavigate('workload')}
+            style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+              <BarChart3 size={20} />
+              Workload
+            </div>
+          </button>
+        )}
+
+        {canAccess('leave') && (
+          <button
+            data-tour="nav-leave"
+            className={`nav-item ${currentPage === 'leave' ? 'active' : ''}`}
+            onClick={() => onNavigate('leave')}
+            style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+              <CalendarOff size={20} />
+              Leave Management
+            </div>
+          </button>
+        )}
+
+        {canAccess('trial-availability') && (
+          <button
+            data-tour="nav-availability"
+            className={`nav-item ${currentPage === 'trial-availability' ? 'active' : ''}`}
+            onClick={() => onNavigate('trial-availability')}
+            style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+              <Star size={20} />
+              Trial Availability
+            </div>
+          </button>
+        )}
+
+        {canAccess('activity') && (
+          <button
+            className={`nav-item ${currentPage === 'activity' ? 'active' : ''}`}
+            onClick={() => onNavigate('activity')}
+            style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+              <Activity size={20} />
+              Activity
+            </div>
+          </button>
+        )}
+
+        {canAccess('live-progress') && (
+          <>
             <button
               className={`nav-item ${liveProgressActive ? 'active' : ''}`}
               onClick={() => setLiveProgressOpen((v) => !v)}
@@ -372,30 +384,35 @@ export default function Sidebar({ currentPage, onNavigate, onToggleSearch, opsMo
                 {sub.label}
               </button>
             ))}
-            {/* New Operations accounts, separate from the Old Operations users in
-                Admin Settings. Sits next to API Documentation because both are
-                administrative rather than day-to-day. */}
-            <button
-              data-tour="nav-users"
-              className={`nav-item ${currentPage === 'users' ? 'active' : ''}`}
-              onClick={() => onNavigate('users')}
-              style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                <ShieldCheck size={20} />
-                Users
-              </div>
-            </button>
-            <button
-              className={`nav-item ${currentPage === 'api' ? 'active' : ''}`}
-              onClick={() => onNavigate('api')}
-              style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                <Terminal size={20} />
-                API
-              </div>
-            </button>
+          </>
+        )}
+
+        {canAccess('users') && (
+          <button
+            data-tour="nav-users"
+            className={`nav-item ${currentPage === 'users' ? 'active' : ''}`}
+            onClick={() => onNavigate('users')}
+            style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+              <ShieldCheck size={20} />
+              Users
+            </div>
+          </button>
+        )}
+
+        {canAccess('api') && (
+          <button
+            className={`nav-item ${currentPage === 'api' ? 'active' : ''}`}
+            onClick={() => onNavigate('api')}
+            style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+              <Terminal size={20} />
+              API
+            </div>
+          </button>
+        )}
         <div style={{ flexGrow: 1 }} />
         <button className="nav-item logout-btn" onClick={handleLogout}>
           <LogOut size={20} />

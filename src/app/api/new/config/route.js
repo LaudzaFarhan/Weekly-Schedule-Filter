@@ -37,6 +37,10 @@ const SETTINGS = {
   userRoles: { default: {}, describe: 'Map of lowercase email to role.' },
   /** Which pages each role may see. Consumed by the sidebar's visibility check. */
   rolePages: { default: {}, describe: 'Map of role to the list of page ids it may open.' },
+  /** Granular permissions per role: { [role]: { [module]: { view, read, write, admin } } } */
+  rolePermissions: { default: {}, describe: 'Granular permissions matrix per role.' },
+  /** Custom permission overrides per individual user email. */
+  userPermissions: { default: {}, describe: 'Custom permission overrides per individual user email.' },
   /** Global on/off switches for pages, independent of role. */
   featureToggles: { default: {}, describe: 'Map of page id to boolean.' },
   /** Free-text operational notes shown on the dashboard. */
@@ -98,6 +102,11 @@ function validate(key, value) {
         return `rolePages.${role} must be a list of page ids.`;
       }
     }
+    return null;
+  }
+
+  if (key === 'rolePermissions' || key === 'userPermissions') {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return `${key} must be an object.`;
     return null;
   }
 

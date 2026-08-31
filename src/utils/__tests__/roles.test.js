@@ -1,9 +1,15 @@
 import { describe, it, expect } from 'vitest';
-import { ADMIN_ROLE, DEFAULT_ROLE, resolveUserRole, isAdmin } from '@/utils/roles';
+import {
+  ADMIN_ROLE, DEFAULT_ROLE, resolveUserRole, isAdmin,
+  SYSTEM_ROLES, APP_MODULES, DEFAULT_ROLE_PERMISSIONS,
+  getEffectivePermissions, canAccessPage, canReadModule, canWriteModule, pageToModuleId
+} from '@/utils/roles';
 
 const users = {
   'boss@lab.com': 'Admin',
   'sales@lab.com': 'Sales',
+  'teacher@lab.com': 'Instructor',
+  'advisor@lab.com': 'EC',
 };
 
 describe('resolveUserRole', () => {
@@ -50,5 +56,57 @@ describe('isAdmin', () => {
 
   it('is false for a case variant of the role value', () => {
     expect(isAdmin({ 'boss@lab.com': 'admin' }, 'boss@lab.com')).toBe(false);
+  });
+});
+
+describe('RBAC System Modules and Permissions', () => {
+  it('defines 15 core system modules', () => {
+    expect(APP_MODULES.length).toBe(15);
+    expect(SYSTEM_ROLES).toEqual(['Admin', 'Supervisor', 'SPA', 'EC', 'Instructor']);
+  });
+
+  it('allows Admin full unrestricted access to any page or module', () => {
+    for (const mod of APP_MODULES) {
+      expect(canAccessPage('Admin', mod.pageId)).toBe(true);
+      expect(canReadModule('Admin', mod.id)).toBe(true);
+      expect(canWriteModule('Admin', mod.id)).toBe(true);
+      const perms = getEffectivePermissions('Admin', mod.id);
+      expect(perms.view).toBe(true);
+      expect(perms.read).toBe(true);
+      expect(perms.write).toBe(true);
+    }
+  });
+
+  it('correctly maps pages to module ids', () => {
+    expect(pageToModuleId('home')).toBe('dashboard');
+    expect(pageToModuleId('dashboard')).toBe('dashboard');
+    expect(pageToModuleId('progress-junior')).toBe('live-progress');
+    expect(pageToModuleId('student-subscriptions')).toBe('students');
+    expect(pageToModuleId('report-cards-rubric')).toBe('report-cards');
+  });
+
+  it('allows Instructors to view and write to their live progress and schedule by default', () => {
+    expect(canAccessPage('Instructor', 'schedule')).toBe(true);
+    expect(canAccessPage('Instructor', 'progress-junior')).toBe(true);
+    expect(canWriteModule('Instructor', 'live-progress')).toBe(true);
+    expect(canWriteModule('Instructor', 'schedule')).toBe(true);
+  });
+
+  it('restricts Instructors from modifying user accounts or viewing developer API', () => {
+    expect(canAccessPage('Instructor', 'users')).toBe(false);
+    expect(canAccessPage('Instructor', 'api')).toBe(false);
+    expect(canWriteModule('Instructor', 'users')).toBe(false);
+    expect(canWriteModule('Instructor', 'api')).toBe(false);
+  });
+
+  it('supports custom overrides in permissions matrix', () => {
+    const customMatrix = {
+      Instructor: {
+        api: { view: true, read: true, write: false, admin: false },
+      },
+    };
+    expect(canAccessPage('Instructor', 'api', customMatrix)).toBe(true);
+    expect(canReadModule('Instructor', 'api', customMatrix)).toBe(true);
+    expect(canWriteModule('Instructor', 'api', customMatrix)).toBe(false);
   });
 });

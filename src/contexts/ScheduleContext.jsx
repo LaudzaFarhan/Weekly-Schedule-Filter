@@ -10,6 +10,7 @@ import { onAuthStateChanged } from 'firebase/auth';
 import { useToast } from '../components/ui/Toast';
 import { logActivity } from '../services/activityService';
 import { getWorkingDaysForBranch, DEFAULT_BRANCH_LIST, isSameBranch } from '../utils/constants';
+import { DEFAULT_ROLE_PERMISSIONS } from '../utils/roles';
 import SyncReportModal from '../components/ui/SyncReportModal';
 
 const ScheduleContext = createContext(null);
@@ -193,6 +194,8 @@ export function ScheduleProvider({ children }) {
     return normalized;
   });
   const [roleToggles, setRoleToggles] = useState(() => mergeRoleToggles(loadLocal('roleToggles', DEFAULT_ROLE_TOGGLES)));
+  const [rolePermissions, setRolePermissions] = useState(() => loadLocal('rolePermissions', DEFAULT_ROLE_PERMISSIONS));
+  const [userPermissions, setUserPermissions] = useState(() => loadLocal('userPermissions', {}));
 
   // Instructor Profiles
   const [instructorProfiles, setInstructorProfiles] = useState([]);
@@ -599,6 +602,26 @@ export function ScheduleProvider({ children }) {
     persistConfig('roleToggles', newRoleToggles);
   }, []);
 
+  const updateRolePermissions = useCallback(async (newPermissions) => {
+    setRolePermissions(newPermissions);
+    try { localStorage.setItem('rolePermissions', JSON.stringify(newPermissions)); } catch {}
+    return fetch('/api/new/config', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key: 'rolePermissions', value: newPermissions }),
+    }).then((res) => res.json()).catch(() => null);
+  }, []);
+
+  const updateUserPermissions = useCallback(async (newUserPerms) => {
+    setUserPermissions(newUserPerms);
+    try { localStorage.setItem('userPermissions', JSON.stringify(newUserPerms)); } catch {}
+    return fetch('/api/new/config', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key: 'userPermissions', value: newUserPerms }),
+    }).then((res) => res.json()).catch(() => null);
+  }, []);
+
   const refreshProfiles = useCallback(async () => {
     try {
       const profiles = await getAllProfiles();
@@ -863,6 +886,8 @@ export function ScheduleProvider({ children }) {
     disabledInstructors, updateDisabledInstructors,
     users, updateUsers,
     roleToggles, updateRoleToggles,
+    rolePermissions, updateRolePermissions,
+    userPermissions, updateUserPermissions,
     instructorProfiles, refreshProfiles,
   };
 
