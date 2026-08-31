@@ -9,10 +9,13 @@ import { subscribeToLeaves, createLeave, deleteLeave, updateLeave } from '../ser
 import { useNewOperationals } from '../hooks/useNewOperationals';
 import { doTimeSlotsOverlap } from '../utils/timeUtils';
 import { DAY_NAMES } from '../utils/constants';
+import { normalizeDayName } from '../utils/workloadUtils';
+import { isInstructorMatch, isSameTeacher } from '../utils/instructorUtils';
+import { parseProgram } from '../lib/programRules';
 import Pagination from '../components/ui/Pagination';
 import {
   CalendarOff, CalendarDays, Trash2, Wand2, CheckCircle, MapPin, Plus, X,
-  ChevronLeft, ChevronRight, AlertTriangle, User
+  ChevronLeft, ChevronRight, AlertTriangle, User, AlertCircle, ShieldAlert, Sparkles
 } from 'lucide-react';
 
 const PAGE_SIZE = 8;
@@ -68,7 +71,8 @@ function weekdaysInRange(startISO, endISO) {
 
 /** Does a leave record cover a given day name? */
 function leaveCoversDay(leave, dayName) {
-  return weekdaysInRange(leave.startDate, leave.endDate).includes(dayName);
+  const targetDay = normalizeDayName(dayName) || dayName;
+  return weekdaysInRange(leave.startDate, leave.endDate).includes(targetDay);
 }
 
 /** Is a leave active on a specific date? */
@@ -80,8 +84,8 @@ function leaveCoversDate(leave, date) {
 }
 
 const canTeach = (level, category) => {
-  const l = String(level || '').toLowerCase();
   if (!category) return true;
+  const l = String(level || '').toLowerCase();
   if (category === 'Kinder') return l.includes('kinder');
   if (category === 'Junior') return l.includes('junior');
   if (category === 'Coder') return l.includes('coder');
@@ -89,17 +93,22 @@ const canTeach = (level, category) => {
 };
 
 const categorize = (program) => {
-  const s = String(program || '').toLowerCase();
-  if (s.includes('kinder') || /^kf|^k\d/.test(s)) return 'Kinder';
-  if (s.includes('junior') || /^jf|^j\d/.test(s)) return 'Junior';
-  if (s.includes('coder')) return 'Coder';
+  if (!program) return null;
+  const parsed = parseProgram(program);
+  if (parsed.category) return parsed.category;
+  const s = String(program).toLowerCase();
+  if (s.includes('kinder') || /^kf|^k\d/i.test(s)) return 'Kinder';
+  if (s.includes('junior') || /^jf|^j\d/i.test(s)) return 'Junior';
+  if (s.includes('coder') || /^cf|^c\d/i.test(s) || /python|scratch|roblox|web|game/i.test(s)) return 'Coder';
   return null;
 };
 
 const atBranch = (instructor, branchName) => {
-  if (!branchName) return true;
-  const brs = Array.isArray(instructor.branches) ? instructor.branches : [];
-  return brs.includes(branchName) || brs.includes('All Branches');
+  if (!branchName || !instructor) return true;
+  const brs = Array.isArray(instructor.branches)
+    ? instructor.branches
+    : (instructor.location ? [instructor.location] : []);
+  return brs.includes(branchName) || brs.includes('All Branches') || instructor.location === 'All Branches' || instructor.location === branchName;
 };
 
 export default function NewLeavePage({ params }) {
@@ -180,10 +189,10 @@ export default function NewLeavePage({ params }) {
   const visibleLeaves = useMemo(() => {
     if (branchFilter === 'all') return leaves;
     return leaves.filter((l) => {
-      const inst = instructorByName.get(l.name);
+      const inst = instructorByName.get(l.name) || instructors.find((i) => isInstructorMatch(l.name, i));
       return inst ? atBranch(inst, branchFilter) : false;
     });
-  }, [leaves, branchFilter, instructorByName]);
+  }, [leaves, branchFilter, instructorByName, instructors]);
 
   const totalPages = Math.max(1, Math.ceil(visibleLeaves.length / PAGE_SIZE));
   const paged = visibleLeaves.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
@@ -238,23 +247,30 @@ export default function NewLeavePage({ params }) {
   };
 
   /**
-   * Classes hit by a leave, with substitute suggestions. A substitute must be
-   * an active New Ops instructor at the class's branch, able to teach the
-   * program's category, not on leave that day, and free at that time.
+   * Classes hit by a leave, with substitute suggestions.
+   * Resolves aliases and nicknames, normalizes day names, and checks candidate availability.
    */
-  const simulate = (leave) => {
+  const simulate = (leave, allowCrossBranch = crossBranch) => {
     const affectedDays = weekdaysInRange(leave.startDate, leave.endDate);
+    const leaveInst = instructors.find((i) => isInstructorMatch(leave.name, i));
 
     // One entry per lesson (day + time + branch), not per enrolled student.
     const lessons = new Map();
     for (const c of classes) {
-      if (c.teacher !== leave.name) continue;
-      if (!affectedDays.includes(c.day)) continue;
-      const key = `${c.day}||${c.time}||${c.branchName}`;
+      if (!c.teacher || c.teacher === '-') continue;
+      const isMatch = isInstructorMatch(c.teacher, leaveInst) || isSameTeacher(c.teacher, leave.name);
+      if (!isMatch) continue;
+
+      const cDay = normalizeDayName(c.day) || String(c.day).trim();
+      if (!affectedDays.includes(cDay)) continue;
+
+      const key = `${cDay}||${c.time}||${c.branchName}`;
       if (!lessons.has(key)) {
-        lessons.set(key, { ...c, students: [] });
+        lessons.set(key, { ...c, day: cDay, students: [] });
       }
-      lessons.get(key).students.push(c.student);
+      if (c.student) {
+        lessons.get(key).students.push(c.student);
+      }
     }
 
     const byDay = {};
@@ -263,29 +279,64 @@ export default function NewLeavePage({ params }) {
       const subs = [];
 
       for (const cand of activeInstructors) {
-        if (cand.name === leave.name) continue;
+        // 1. Skip the instructor on leave
+        if (cand.name === leave.name || isInstructorMatch(leave.name, cand) || isSameTeacher(cand.name, leave.name)) {
+          continue;
+        }
 
-        // Branch scope: strict by default, any-branch when the toggle is on.
-        if (!crossBranch && !atBranch(cand, lesson.branchName)) continue;
+        // 2. Branch scope: strict by default, any-branch when toggle is on
+        const isSameBranch = atBranch(cand, lesson.branchName);
+        if (!allowCrossBranch && !isSameBranch) continue;
 
+        // 3. Level / category capability check
         if (!canTeach(cand.level, category)) continue;
 
+        // 4. Check if candidate is on leave on this day
         const candOnLeave = leaves.some(
-          (l) => l.name === cand.name && l.id !== leave.id && leaveCoversDay(l, lesson.day)
+          (l) => (l.name === cand.name || isSameTeacher(l.name, cand.name)) &&
+            l.id !== leave.id &&
+            (l.status ? l.status !== 'Rejected' : true) &&
+            leaveCoversDay(l, lesson.day)
         );
         if (candOnLeave) continue;
 
-        const busy = classes.some(
-          (c) => c.teacher === cand.name && c.day === lesson.day && c.time && doTimeSlotsOverlap(c.time, lesson.time)
-        );
+        // 5. Part-Time availability check
+        const isPT = cand.employmentType === 'Part-Time' || cand.employment_type === 'Part-Time' || cand.status === 'parttime';
+        if (isPT) {
+          const rawAvDays = Array.isArray(cand.availableDays)
+            ? cand.availableDays
+            : (Array.isArray(cand.available_days) ? cand.available_days : (Array.isArray(cand.workingDays) ? cand.workingDays : []));
+          const avDays = rawAvDays.map((d) => normalizeDayName(d) || d);
+          if (avDays.length > 0 && !avDays.includes(lesson.day)) {
+            continue; // Candidate not available on this day
+          }
+        }
+
+        // 6. Conflict check: candidate cannot be teaching another class at overlapping time
+        const busy = classes.some((c) => {
+          const isCandTeacher = c.teacher === cand.name || isInstructorMatch(c.teacher, cand) || isSameTeacher(c.teacher, cand.name);
+          if (!isCandTeacher) return false;
+          const dayNorm = normalizeDayName(c.day) || String(c.day).trim();
+          if (dayNorm !== lesson.day) return false;
+          return c.time && doTimeSlotsOverlap(c.time, lesson.time);
+        });
         if (busy) continue;
 
         subs.push({
           name: cand.name,
           level: cand.level,
-          sameBranch: atBranch(cand, lesson.branchName),
+          employmentType: isPT ? 'Part-Time' : 'Full-Time',
+          sameBranch: isSameBranch,
+          branches: Array.isArray(cand.branches) ? cand.branches : [cand.location].filter(Boolean),
         });
       }
+
+      // Sort subs: same branch first, then alphabetically
+      subs.sort((a, b) => {
+        if (a.sameBranch && !b.sameBranch) return -1;
+        if (!a.sameBranch && b.sameBranch) return 1;
+        return a.name.localeCompare(b.name);
+      });
 
       if (!byDay[lesson.day]) byDay[lesson.day] = [];
       byDay[lesson.day].push({ lesson, category, subs });
@@ -295,6 +346,28 @@ export default function NewLeavePage({ params }) {
     return DAY_NAMES.concat('Sunday')
       .filter((d) => byDay[d])
       .map((d) => [d, byDay[d]]);
+  };
+
+  const getLeaveCoverageSummary = (leave) => {
+    const dayGroups = simulate(leave, crossBranch);
+    let totalLessons = 0;
+    let unstaffedLessons = 0;
+    let totalSubsFound = 0;
+
+    dayGroups.forEach(([_, items]) => {
+      items.forEach((item) => {
+        totalLessons += 1;
+        if (item.subs.length === 0) unstaffedLessons += 1;
+        totalSubsFound += item.subs.length;
+      });
+    });
+
+    return {
+      totalLessons,
+      unstaffedLessons,
+      totalSubsFound,
+      dayCount: dayGroups.length,
+    };
   };
 
   return (
@@ -413,23 +486,26 @@ export default function NewLeavePage({ params }) {
                 <tr>
                   <th style={{ minWidth: '150px' }}>Instructor</th>
                   <th style={{ minWidth: '110px' }}>Level</th>
-                  <th style={{ minWidth: '190px' }}>Dates</th>
-                  <th style={{ minWidth: '140px' }}>Reason</th>
+                  <th style={{ minWidth: '180px' }}>Dates</th>
+                  <th style={{ minWidth: '130px' }}>Reason</th>
                   <th style={{ minWidth: '110px' }}>Status</th>
-                  <th style={{ width: 100, textAlign: 'center' }}>Action</th>
+                  <th style={{ minWidth: '170px' }}>Schedule Coverage</th>
+                  <th style={{ width: 90, textAlign: 'center' }}>Action</th>
                 </tr>
               </thead>
               <tbody>
                 {loading ? (
-                  <tr><td colSpan="6" style={{ textAlign: 'center', padding: '2.5rem', color: 'var(--text-muted)' }}>Loading leave records…</td></tr>
+                  <tr><td colSpan="7" style={{ textAlign: 'center', padding: '2.5rem', color: 'var(--text-muted)' }}>Loading leave records…</td></tr>
                 ) : visibleLeaves.length === 0 ? (
-                  <tr><td colSpan="6" style={{ textAlign: 'center', padding: '2.5rem', color: 'var(--text-muted)' }}>
+                  <tr><td colSpan="7" style={{ textAlign: 'center', padding: '2.5rem', color: 'var(--text-muted)' }}>
                     No instructors on leave{branchFilter !== 'all' ? ` at ${branchFilter}` : ''}.
                   </td></tr>
                 ) : paged.map((l) => {
-                  const inst = instructorByName.get(l.name);
+                  const inst = instructorByName.get(l.name) || instructors.find((i) => isInstructorMatch(l.name, i));
                   const days = weekdaysInRange(l.startDate, l.endDate).length;
                   const isOpen = simulateId === l.id;
+                  const cov = getLeaveCoverageSummary(l);
+
                   return (
                     <Fragment key={l.id}>
                       <tr style={isOpen ? { background: 'var(--primary-blue-light)' } : undefined}>
@@ -457,18 +533,58 @@ export default function NewLeavePage({ params }) {
                             {['Approved', 'Pending', 'Rejected'].map((s) => <option key={s} value={s}>{s}</option>)}
                           </select>
                         </td>
+                        <td>
+                          {cov.totalLessons === 0 ? (
+                            <span style={{ fontSize: '0.74rem', color: 'var(--text-muted)', display: 'inline-flex', alignItems: 'center', gap: '0.25rem' }}>
+                              0 classes affected
+                            </span>
+                          ) : cov.unstaffedLessons > 0 ? (
+                            <button
+                              type="button"
+                              onClick={() => setSimulateId(isOpen ? null : l.id)}
+                              style={{
+                                background: 'rgba(239, 68, 68, 0.12)', color: '#dc2626',
+                                border: '1px solid rgba(239, 68, 68, 0.3)', borderRadius: '6px',
+                                padding: '0.15rem 0.55rem', fontSize: '0.72rem', fontWeight: 600,
+                                cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '0.3rem',
+                              }}
+                              title="Click to view substitute recommendations"
+                            >
+                              <AlertCircle size={12} /> {cov.unstaffedLessons}/{cov.totalLessons} unstaffed
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => setSimulateId(isOpen ? null : l.id)}
+                              style={{
+                                background: 'rgba(16, 185, 129, 0.12)', color: 'var(--success, #059669)',
+                                border: '1px solid rgba(16, 185, 129, 0.3)', borderRadius: '6px',
+                                padding: '0.15rem 0.55rem', fontSize: '0.72rem', fontWeight: 600,
+                                cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '0.3rem',
+                              }}
+                              title="Click to view substitute recommendations"
+                            >
+                              <CheckCircle size={12} /> {cov.totalLessons} class{cov.totalLessons === 1 ? '' : 'es'} · {cov.totalSubsFound} sub{cov.totalSubsFound === 1 ? '' : 's'}
+                            </button>
+                          )}
+                        </td>
                         <td style={{ textAlign: 'center' }}>
                           <button
                             onClick={() => setSimulateId(isOpen ? null : l.id)}
-                            title="Simulate impact and suggest substitutes"
-                            style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: isOpen ? 'var(--primary-blue)' : 'var(--text-secondary)', padding: '0.25rem', marginRight: '0.3rem' }}
+                            title="Simulate impact and view recommended substitutes"
+                            style={{
+                              background: isOpen ? 'var(--primary-blue-light)' : 'transparent',
+                              border: 'none', cursor: 'pointer',
+                              color: isOpen ? 'var(--primary-blue)' : 'var(--text-secondary)',
+                              padding: '0.3rem', marginRight: '0.2rem', borderRadius: '4px',
+                            }}
                           >
                             <Wand2 size={16} />
                           </button>
                           <button
                             onClick={() => handleRemove(l)}
                             title="Remove leave"
-                            style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--danger)', padding: '0.25rem' }}
+                            style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--danger)', padding: '0.3rem', borderRadius: '4px' }}
                           >
                             <Trash2 size={16} />
                           </button>
@@ -477,70 +593,96 @@ export default function NewLeavePage({ params }) {
 
                       {isOpen && (
                         <tr>
-                          <td colSpan="6" style={{ padding: 0 }}>
-                            <div style={{ padding: '1rem 1.1rem', background: 'var(--bg-color)', borderLeft: '3px solid var(--primary-blue)' }}>
-                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap', marginBottom: '0.85rem' }}>
-                                <h4 style={{ fontSize: '0.86rem', margin: 0, display: 'flex', alignItems: 'center', gap: '0.4rem', color: 'var(--text-main)' }}>
-                                  <Wand2 size={15} /> Impact for {l.name}
-                                </h4>
-                                <label style={{ fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.35rem', cursor: 'pointer', color: 'var(--text-secondary)' }}>
+                          <td colSpan="7" style={{ padding: 0 }}>
+                            <div style={{ padding: '1.1rem 1.25rem', background: 'var(--bg-color)', borderLeft: '3px solid var(--primary-blue)' }}>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap', marginBottom: '0.9rem' }}>
+                                <div>
+                                  <h4 style={{ fontSize: '0.92rem', margin: 0, display: 'flex', alignItems: 'center', gap: '0.45rem', color: 'var(--text-main)', fontWeight: 700 }}>
+                                    <Sparkles size={16} style={{ color: 'var(--primary-blue)' }} />
+                                    Schedule Impact & Cover for {l.name}
+                                  </h4>
+                                  <span style={{ fontSize: '0.74rem', color: 'var(--text-secondary)' }}>
+                                    Classes scheduled for {l.name} during this leave window, with matching free substitute instructors.
+                                  </span>
+                                </div>
+                                <label style={{ fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.35rem', cursor: 'pointer', color: 'var(--text-secondary)', fontWeight: 500 }}>
                                   <input type="checkbox" checked={crossBranch} onChange={(e) => setCrossBranch(e.target.checked)} />
                                   Include instructors from other branches
                                 </label>
                               </div>
 
-                              {simulate(l).length === 0 ? (
-                                <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-                                  No classes fall inside this leave period.
+                              {simulate(l, crossBranch).length === 0 ? (
+                                <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', padding: '0.75rem 0', fontStyle: 'italic' }}>
+                                  No classes found for {l.name} in the schedule during this leave period.
                                 </div>
                               ) : (
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.9rem' }}>
-                                  {simulate(l).map(([day, items]) => (
-                                    <div key={day}>
-                                      <strong style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '0.4rem' }}>{day}</strong>
-                                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                                  {simulate(l, crossBranch).map(([day, items]) => (
+                                    <div key={day} style={{ background: 'var(--panel-bg, white)', borderRadius: '10px', padding: '0.85rem 1rem', border: '1px solid var(--border-color)' }}>
+                                      <strong style={{ fontSize: '0.82rem', color: 'var(--text-main)', display: 'block', marginBottom: '0.6rem', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.35rem' }}>
+                                        📅 {day}
+                                      </strong>
+                                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.65rem' }}>
                                         {items.map((item, idx) => (
-                                          <div key={idx} style={{ padding: '0.6rem 0.8rem', background: 'var(--panel-bg)', borderRadius: '9px', border: '1px solid var(--border-color)' }}>
+                                          <div key={idx} style={{ padding: '0.65rem 0.85rem', background: 'var(--bg-color)', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
                                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap', marginBottom: '0.45rem' }}>
-                                              <span style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-main)' }}>
+                                              <span style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--text-main)' }}>
                                                 {item.lesson.time}
-                                                <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}> · {item.lesson.branchName}</span>
+                                                <span style={{ color: 'var(--text-muted)', fontWeight: 500 }}> · {item.lesson.branchName}</span>
                                               </span>
-                                              <span style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                                                <span style={{ fontSize: '0.68rem', fontWeight: 700, color: 'var(--primary-blue)', background: 'var(--primary-blue-light)', padding: '0.1rem 0.45rem', borderRadius: '5px' }}>
+                                              <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                                                <span style={{ fontSize: '0.68rem', fontWeight: 700, color: 'var(--primary-blue)', background: 'var(--primary-blue-light)', padding: '0.12rem 0.5rem', borderRadius: '5px' }}>
                                                   {item.lesson.program}
                                                 </span>
-                                                <span style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }}>
+                                                <span style={{ fontSize: '0.68rem', color: 'var(--text-secondary)' }}>
                                                   {item.lesson.students.length} student{item.lesson.students.length === 1 ? '' : 's'}
                                                 </span>
-                                              </span>
+                                              </div>
                                             </div>
-                                            <div style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', marginBottom: '0.35rem' }}>
-                                              Available substitutes{item.category ? ` (${item.category}-capable)` : ''}:
+
+                                            {item.lesson.students.length > 0 && (
+                                              <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginBottom: '0.45rem' }}>
+                                                Students: {item.lesson.students.filter(Boolean).join(', ')}
+                                              </div>
+                                            )}
+
+                                            <div style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', marginBottom: '0.35rem', fontWeight: 600 }}>
+                                              Recommended substitutes{item.category ? ` (${item.category}-capable)` : ''}:
                                             </div>
                                             {item.subs.length === 0 ? (
-                                              <div style={{ fontSize: '0.75rem', color: '#b45309', fontStyle: 'italic' }}>
-                                                No free instructor can cover this class.
+                                              <div style={{
+                                                fontSize: '0.74rem', color: '#b45309', background: 'rgba(245, 158, 11, 0.12)',
+                                                border: '1px dashed rgba(245, 158, 11, 0.4)', borderRadius: '6px',
+                                                padding: '0.4rem 0.6rem', display: 'flex', alignItems: 'center', gap: '0.35rem',
+                                              }}>
+                                                <AlertCircle size={13} />
+                                                <span>No free instructor available at {item.lesson.branchName}. {!crossBranch ? 'Enable "Include instructors from other branches" to see cross-branch candidates.' : ''}</span>
                                               </div>
                                             ) : (
-                                              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem' }}>
+                                              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem' }}>
                                                 {item.subs.map((s) => (
                                                   <span
                                                     key={s.name}
-                                                    title={s.level}
+                                                    title={`${s.name} · ${s.level || 'No level'} · ${s.employmentType} · ${s.sameBranch ? 'Same Branch' : 'Cross-Branch'}`}
                                                     style={{
-                                                      display: 'inline-flex', alignItems: 'center', gap: '0.25rem',
-                                                      fontSize: '0.72rem', fontWeight: 600,
-                                                      padding: '0.2rem 0.55rem', borderRadius: '99px',
+                                                      display: 'inline-flex', alignItems: 'center', gap: '0.35rem',
+                                                      fontSize: '0.73rem', fontWeight: 600,
+                                                      padding: '0.25rem 0.65rem', borderRadius: '8px',
                                                       background: s.sameBranch ? 'rgba(16,185,129,0.12)' : 'rgba(245,158,11,0.14)',
                                                       color: s.sameBranch ? 'var(--success, #059669)' : '#b45309',
                                                       border: `1px solid ${s.sameBranch ? 'rgba(16,185,129,0.4)' : 'rgba(245,158,11,0.4)'}`,
                                                     }}
                                                   >
-                                                    <CheckCircle size={10} />
-                                                    {s.name}
+                                                    <CheckCircle size={12} />
+                                                    <span>{s.name}</span>
+                                                    <span style={{
+                                                      fontSize: '0.62rem', fontWeight: 500, padding: '0.05rem 0.3rem',
+                                                      borderRadius: '4px', background: 'rgba(0,0,0,0.06)',
+                                                    }}>
+                                                      {s.level?.includes('Kinder') && s.level?.includes('Junior') ? 'K & J' : (s.level?.includes('Junior') && s.level?.includes('Coder') ? 'J & C' : (s.level || 'Inst'))}
+                                                    </span>
                                                     {!s.sameBranch && (
-                                                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.1rem', opacity: 0.85, fontWeight: 400 }}>
+                                                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.1rem', fontSize: '0.65rem', opacity: 0.85, fontWeight: 500 }}>
                                                         <MapPin size={9} /> other branch
                                                       </span>
                                                     )}
@@ -572,7 +714,7 @@ export default function NewLeavePage({ params }) {
         </div>
       </div>
 
-      <LeaveCalendar leaves={visibleLeaves} instructorByName={instructorByName} openDaysFor={openDaysFor} />
+      <LeaveCalendar leaves={visibleLeaves} instructors={instructors} instructorByName={instructorByName} openDaysFor={openDaysFor} />
     </section>
   );
 }
@@ -581,7 +723,7 @@ export default function NewLeavePage({ params }) {
 
 const WEEKDAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
-function LeaveCalendar({ leaves, instructorByName, openDaysFor }) {
+function LeaveCalendar({ leaves, instructors = [], instructorByName, openDaysFor }) {
   const [viewDate, setViewDate] = useState(() => {
     const d = new Date();
     return new Date(d.getFullYear(), d.getMonth(), 1);
@@ -594,8 +736,7 @@ function LeaveCalendar({ leaves, instructorByName, openDaysFor }) {
 
   /**
    * Map each date in the visible month to who is on leave. A leave only shows
-   * on days the instructor's branch actually operates, so a Sunday closure
-   * doesn't read as a missed shift.
+   * on days the instructor actually operates (or branch open days).
    */
   const leaveByDate = useMemo(() => {
     const map = new Map();
@@ -611,13 +752,21 @@ function LeaveCalendar({ leaves, instructorByName, openDaysFor }) {
       const to = end > monthEnd ? monthEnd : end;
       if (to < from) continue;
 
-      // Working days come from the instructor's first branch, if we know it.
-      // Null means "show every date" — used when the branch has no rules yet.
-      const inst = instructorByName.get(l.name);
-      const branchName = (Array.isArray(inst?.branches) ? inst.branches : [])
-        .find((b) => b && b !== 'All Branches');
-      const configured = branchName ? openDaysFor(branchName) : [];
-      const workingDays = configured.length ? configured : null;
+      const inst = instructorByName.get(l.name) || instructors.find((i) => isInstructorMatch(l.name, i));
+      const isPT = inst?.employmentType === 'Part-Time' || inst?.employment_type === 'Part-Time' || inst?.status === 'parttime';
+      const ptDays = isPT
+        ? (Array.isArray(inst?.availableDays) ? inst.availableDays : (Array.isArray(inst?.available_days) ? inst.available_days : (Array.isArray(inst?.workingDays) ? inst.workingDays : []))).map((d) => normalizeDayName(d) || d)
+        : null;
+
+      let workingDays = null;
+      if (ptDays && ptDays.length > 0) {
+        workingDays = ptDays;
+      } else {
+        const branchName = (Array.isArray(inst?.branches) ? inst.branches : [])
+          .find((b) => b && b !== 'All Branches') || inst?.location;
+        const configured = branchName ? openDaysFor(branchName) : [];
+        workingDays = configured.length ? configured : null;
+      }
 
       const cursor = new Date(from);
       while (cursor <= to) {
@@ -632,7 +781,7 @@ function LeaveCalendar({ leaves, instructorByName, openDaysFor }) {
       }
     }
     return map;
-  }, [leaves, year, month, instructorByName, openDaysFor]);
+  }, [leaves, year, month, instructorByName, instructors, openDaysFor]);
 
   const weeks = useMemo(() => {
     const startWeekday = new Date(year, month, 1).getDay();
