@@ -1344,11 +1344,11 @@ export default function LiveProgressTable({ category }) {
             <table id="schedule-table" style={{ minWidth: '1280px' }}>
               <thead>
                 <tr>
-                  <th style={{ minWidth: '170px' }}>Student Name</th>
-                  <th style={{ width: '140px' }}>Instructor</th>
                   <th style={{ width: '100px' }}>Day</th>
                   <th style={{ width: '130px' }}>Time</th>
                   <th style={{ width: '110px' }}>Program</th>
+                  <th style={{ width: '140px' }}>Instructor</th>
+                  <th style={{ minWidth: '170px' }}>Student Name</th>
                   <th style={{ minWidth: '240px' }}>Lesson Arrangement</th>
                   <th style={{ minWidth: category === 'Coder' ? '300px' : '250px' }}>{category === 'Coder' ? 'Attendance (Meetings)' : `Attendance 1–${maxLessons}`}</th>
                   <th style={{ minWidth: '180px' }}>Video Sent</th>
@@ -1377,33 +1377,30 @@ export default function LiveProgressTable({ category }) {
                     const tint = CONTINUATION_TINT[r.continuation] || CONTINUATION_TINT['Not Decide Yet'];
                     return (
                       <tr key={`${r.rowKey}-${r.classId || 'unassigned'}`}>
-                        {/* Student Name */}
+                        {/* Day */}
                         <td>
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
-                              <User size={13} style={{ color: 'var(--text-muted)' }} />
-                              <strong style={{ fontSize: '0.85rem' }}>{r.studentName}</strong>
-                            </div>
-                            {r.isUnassigned && (
-                              <span style={{
-                                alignSelf: 'flex-start',
-                                fontSize: '0.62rem',
-                                fontWeight: 700,
-                                textTransform: 'uppercase',
-                                letterSpacing: '0.4px',
-                                padding: '0.08rem 0.35rem',
-                                borderRadius: '4px',
-                                background: 'rgba(124, 58, 237, 0.12)',
-                                color: '#7c3aed',
-                                border: '1px solid rgba(124, 58, 237, 0.25)',
-                              }}>
-                                UNASSIGNED
-                              </span>
-                            )}
-                            <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
-                              <MapPin size={11} /> {r.branchName}
-                            </span>
-                          </div>
+                          <span style={{ fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                            <Calendar size={12} style={{ color: 'var(--text-muted)' }} /> {r.day}
+                          </span>
+                        </td>
+
+                        {/* Time */}
+                        <td>
+                          <span style={{ fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                            <Clock size={12} style={{ color: 'var(--text-muted)' }} /> {r.time}
+                          </span>
+                        </td>
+
+                        {/* Program */}
+                        <td>
+                          <span style={{
+                            display: 'inline-flex', alignItems: 'center', gap: '0.3rem',
+                            padding: '0.2rem 0.5rem', borderRadius: '6px',
+                            fontSize: '0.75rem', fontWeight: 600,
+                            background: 'rgba(79, 70, 229, 0.08)', color: 'var(--primary-blue, #4f46e5)',
+                          }}>
+                            <GraduationCap size={11} /> {r.program}
+                          </span>
                         </td>
 
                         {/* Instructor */}
@@ -1436,28 +1433,33 @@ export default function LiveProgressTable({ category }) {
                           )}
                         </td>
 
-                        {/* Schedule (Day & Time) */}
+                        {/* Student Name */}
                         <td>
-                          <span style={{ fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
-                            <Calendar size={12} style={{ color: 'var(--text-muted)' }} /> {r.day}
-                          </span>
-                        </td>
-                        <td>
-                          <span style={{ fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
-                            <Clock size={12} style={{ color: 'var(--text-muted)' }} /> {r.time}
-                          </span>
-                        </td>
-
-                        {/* Program */}
-                        <td>
-                          <span style={{
-                            display: 'inline-flex', alignItems: 'center', gap: '0.3rem',
-                            padding: '0.2rem 0.5rem', borderRadius: '6px',
-                            fontSize: '0.75rem', fontWeight: 600,
-                            background: 'rgba(79, 70, 229, 0.08)', color: 'var(--primary-blue, #4f46e5)',
-                          }}>
-                            <GraduationCap size={11} /> {r.program}
-                          </span>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                              <User size={13} style={{ color: 'var(--text-muted)' }} />
+                              <strong style={{ fontSize: '0.85rem' }}>{r.studentName}</strong>
+                            </div>
+                            {r.isUnassigned && (
+                              <span style={{
+                                alignSelf: 'flex-start',
+                                fontSize: '0.62rem',
+                                fontWeight: 700,
+                                textTransform: 'uppercase',
+                                letterSpacing: '0.4px',
+                                padding: '0.08rem 0.35rem',
+                                borderRadius: '4px',
+                                background: 'rgba(124, 58, 237, 0.12)',
+                                color: '#7c3aed',
+                                border: '1px solid rgba(124, 58, 237, 0.25)',
+                              }}>
+                                UNASSIGNED
+                              </span>
+                            )}
+                            <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                              <MapPin size={11} /> {r.branchName}
+                            </span>
+                          </div>
                         </td>
 
                         {/* Lesson Arrangement (SPA arrangement) */}
