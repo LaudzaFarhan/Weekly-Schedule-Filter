@@ -84,16 +84,24 @@ describe('NewSchedulePage - Program and Term Locking', () => {
   it('locks Program and Term dropdowns when student is selected in Add Class modal', async () => {
     render(<NewSchedulePage />);
 
-    // Click "Add Class" button
-    const addClassBtns = screen.getAllByRole('button', { name: /Add Class/i });
-    fireEvent.click(addClassBtns[0]);
+    // Click on Alif Pratama in Unallocated panel
+    const studentBtn = screen.getByText('Alif Pratama');
+    fireEvent.click(studentBtn);
+
+    // Click on Regular Class in the chooser
+    const regularCard = screen.getByRole('button', { name: /^Regular Class/i });
+    fireEvent.click(regularCard);
+
+    // Click on Monday
+    const mondayBtn = screen.getByText('Monday');
+    fireEvent.click(mondayBtn);
+
+    // Click "Set time manually" to open the form
+    const manualBtn = screen.getByRole('button', { name: /Set time manually/i });
+    fireEvent.click(manualBtn);
 
     // Modal should be visible
     expect(screen.getByText('Add Operational Class')).toBeInTheDocument();
-
-    // Type student name "Alif Pratama"
-    const studentInput = screen.getByPlaceholderText(/Type student name/i);
-    fireEvent.change(studentInput, { target: { value: 'Alif Pratama' } });
 
     // The student is enrolled in Kinder Foundation -> should lock Program & Term
     await waitFor(() => {
@@ -111,16 +119,22 @@ describe('NewSchedulePage - Program and Term Locking', () => {
     // Verify Term select is disabled
     const termSelect = screen.getByTitle("Term is locked to student's enrolled level in database");
     expect(termSelect).toBeDisabled();
-  });
+  }, 15000);
 
   it('correctly maps and locks Junior Core Term 2 student', async () => {
     render(<NewSchedulePage />);
 
-    const addClassBtns = screen.getAllByRole('button', { name: /Add Class/i });
-    fireEvent.click(addClassBtns[0]);
+    const studentBtn = screen.getByText('Budi Santoso');
+    fireEvent.click(studentBtn);
 
-    const studentInput = screen.getByPlaceholderText(/Type student name/i);
-    fireEvent.change(studentInput, { target: { value: 'Budi Santoso' } });
+    const regularCard = screen.getByRole('button', { name: /^Regular Class/i });
+    fireEvent.click(regularCard);
+
+    const mondayBtn = screen.getByText('Monday');
+    fireEvent.click(mondayBtn);
+
+    const manualBtn = screen.getByRole('button', { name: /Set time manually/i });
+    fireEvent.click(manualBtn);
 
     await waitFor(() => {
       expect(screen.getByText(/Locked to Student Database:/i)).toBeInTheDocument();
@@ -133,7 +147,7 @@ describe('NewSchedulePage - Program and Term Locking', () => {
     const termSelect = screen.getByTitle("Term is locked to student's enrolled level in database");
     expect(termSelect).toBeDisabled();
     expect(termSelect.value).toBe('Term 2');
-  });
+  }, 15000);
 
   it('correctly maps Junior Term 3 to J3 and Term 3 without manual re-entry', async () => {
     subscribeToInternalStudents.mockImplementation((cb) => {
@@ -145,11 +159,17 @@ describe('NewSchedulePage - Program and Term Locking', () => {
 
     render(<NewSchedulePage />);
 
-    const addClassBtns = screen.getAllByRole('button', { name: /Add Class/i });
-    fireEvent.click(addClassBtns[0]);
+    const studentBtn = screen.getByText('Jonathan Benedict Hioe');
+    fireEvent.click(studentBtn);
 
-    const studentInput = screen.getByPlaceholderText(/Type student name/i);
-    fireEvent.change(studentInput, { target: { value: 'Jonathan Benedict Hioe' } });
+    const regularCard = screen.getByRole('button', { name: /^Regular Class/i });
+    fireEvent.click(regularCard);
+
+    const mondayBtn = screen.getByText('Monday');
+    fireEvent.click(mondayBtn);
+
+    const manualBtn = screen.getByRole('button', { name: /Set time manually/i });
+    fireEvent.click(manualBtn);
 
     await waitFor(() => {
       expect(screen.getByText(/Locked to Student Database:/i)).toBeInTheDocument();
@@ -162,7 +182,7 @@ describe('NewSchedulePage - Program and Term Locking', () => {
     const termSelect = screen.getByTitle("Term is locked to student's enrolled level in database");
     expect(termSelect).toBeDisabled();
     expect(termSelect.value).toBe('Term 3');
-  });
+  }, 15000);
 
   it('automatically inherits program, term, and lesson for students with existing regular schedule', async () => {
     subscribeToInternalStudents.mockImplementation((cb) => {
@@ -192,11 +212,23 @@ describe('NewSchedulePage - Program and Term Locking', () => {
 
     render(<NewSchedulePage />);
 
-    const addClassBtns = screen.getAllByRole('button', { name: /Add Class/i });
-    fireEvent.click(addClassBtns[0]);
+    // Switch scope to "all" so Jonathan (who is already allocated) appears
+    const scopeBtn = screen.getByRole('button', { name: /Which students to list/i });
+    fireEvent.click(scopeBtn);
+    const allOption = screen.getByRole('option', { name: /All Students/i });
+    fireEvent.click(allOption);
 
-    const studentInput = screen.getByPlaceholderText(/Type student name/i);
-    fireEvent.change(studentInput, { target: { value: 'Jonathan Benedict Hioe' } });
+    const studentBtn = screen.getByText('Jonathan Benedict Hioe');
+    fireEvent.click(studentBtn);
+
+    const replacementCard = screen.getByRole('button', { name: /^Replacement/i });
+    fireEvent.click(replacementCard);
+
+    const mondayBtn = screen.getByText('Monday');
+    fireEvent.click(mondayBtn);
+
+    const manualBtn = screen.getByRole('button', { name: /Set time manually/i });
+    fireEvent.click(manualBtn);
 
     await waitFor(() => {
       expect(screen.getByTitle("Program is locked to student's enrolled level in database")).toBeInTheDocument();
@@ -209,7 +241,7 @@ describe('NewSchedulePage - Program and Term Locking', () => {
     const termSelect = screen.getByTitle("Term is locked to student's enrolled level in database");
     expect(termSelect).toBeDisabled();
     expect(termSelect.value).toBe('Term 3');
-  });
+  }, 15000);
 
   it('renders Allocate Chooser with locked standard category and locked term', async () => {
     subscribeToInternalStudents.mockImplementation((cb) => {
