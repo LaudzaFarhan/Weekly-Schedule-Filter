@@ -165,6 +165,7 @@ export default function LiveProgressTable({ category }) {
   const [arrangedDay, setArrangedDay] = useState('Monday');
   const [startTimeChoice, setStartTimeChoice] = useState('3:00 PM');
   const [customStartTime, setCustomStartTime] = useState('3:00 PM');
+  const [isCustomStartTime, setIsCustomStartTime] = useState(false);
   const [arrangingSaving, setArrangingSaving] = useState(false);
 
   // Video attachment modal state
@@ -216,8 +217,9 @@ export default function LiveProgressTable({ category }) {
   };
 
   const getNextUndoneLesson = (attendanceMap, maxL = 10) => {
+    const att = attendanceMap || {};
     for (let i = 1; i <= maxL; i++) {
-      if (!attendanceMap[i]) return String(i);
+      if (!att[i]) return String(i);
     }
     return String(maxL);
   };
@@ -1840,7 +1842,7 @@ export default function LiveProgressTable({ category }) {
                       style={{ width: '100%', fontSize: '0.85rem', padding: '0.5rem 0.75rem' }}
                     >
                       {Array.from({ length: arrangingRow.targetMeetings || maxLessons }, (_, i) => i + 1).map((n) => {
-                        const isDone = !!arrangingRow.attendance[n];
+                        const isDone = !!(arrangingRow.attendance && arrangingRow.attendance[n]);
                         const termCode = arrangingRow.levelCode || arrangingRow.program;
                         return (
                           <option key={n} value={String(n)}>
@@ -1850,8 +1852,8 @@ export default function LiveProgressTable({ category }) {
                       })}
                     </select>
 
-                    <div style={{ fontSize: '0.72rem', marginTop: '0.4rem', color: arrangingRow.attendance[arrangedLesson] ? '#b45309' : '#059669', fontWeight: 500 }}>
-                      {arrangingRow.attendance[arrangedLesson] ? (
+                    <div style={{ fontSize: '0.72rem', marginTop: '0.4rem', color: (arrangingRow.attendance && arrangingRow.attendance[arrangedLesson]) ? '#b45309' : '#059669', fontWeight: 500 }}>
+                      {(arrangingRow.attendance && arrangingRow.attendance[arrangedLesson]) ? (
                         <span>⚠️ Note: {arrangingRow.studentName} has already completed {(arrangingRow.levelCode || arrangingRow.program)}.{String(arrangedLesson).replace(/^L/i, '')}.</span>
                       ) : (
                         <span>💡 Arranging {(arrangingRow.levelCode || arrangingRow.program)}.{String(arrangedLesson).replace(/^L/i, '')} for {arrangingRow.studentName}.</span>

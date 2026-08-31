@@ -251,6 +251,16 @@ describe('LiveProgressTable - Unassigned Students & Unregistered Instructors', (
     expect(meeting24).toBeInTheDocument();
     expect(screen.getByText(/0 \/ 24 meetings \(0%\)/i)).toBeInTheDocument();
   });
+
+  it('opens lesson arrangement modal when clicking lesson arrangement button', () => {
+    render(<LiveProgressTable category="Kinder" />);
+
+    const arrangeButtons = screen.getAllByTitle(/Click to arrange lesson/i);
+    fireEvent.click(arrangeButtons[0]);
+
+    expect(screen.getByRole('heading', { name: /Lesson Arrangement/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Save Lesson Arrangement/i })).toBeInTheDocument();
+  });
 });
 
 
