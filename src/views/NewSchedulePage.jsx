@@ -1850,7 +1850,7 @@ export default function NewSchedulePage({ onNavigate }) {
       showToast({ title: 'No schedule classes to clear', variant: 'warning' });
       return;
     }
-    if (!window.confirm(`Are you sure you want to remove ALL ${classCount} schedule entries from Internal Operations?\n\nThis action cannot be undone.`)) {
+    if (!window.confirm(`Are you sure you want to remove ALL ${classCount} schedule entries?\n\nThis action cannot be undone.`)) {
       return;
     }
     try {
@@ -2691,7 +2691,7 @@ export default function NewSchedulePage({ onNavigate }) {
       <div data-tour="schedule-grid" className="panel full-schedule-panel">
         <div className="panel-header" style={{ flexWrap: 'wrap', gap: '0.75rem', justifyContent: 'space-between', alignItems: 'center' }}>
           <div>
-            <h2 style={{ fontSize: '1.25rem', fontWeight: 600 }}>Internal Operations Schedule</h2>
+            <h2 style={{ fontSize: '1.25rem', fontWeight: 600 }}>Schedule</h2>
             <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', margin: '0.2rem 0 0' }}>
               Manage and view active classes directly inside the application.
             </p>
@@ -2730,7 +2730,7 @@ export default function NewSchedulePage({ onNavigate }) {
             <button
               onClick={handleClearAllClasses}
               className="btn"
-              title="Remove all schedule data in Internal Operations"
+              title="Remove all schedule data"
               style={{
                 display: 'flex', alignItems: 'center', gap: '0.4rem', borderRadius: '10px', padding: '0.5rem 0.9rem', fontSize: '0.82rem',
                 border: '1px solid var(--danger, #ef4444)', background: 'rgba(239, 68, 68, 0.08)', color: 'var(--danger, #ef4444)',
