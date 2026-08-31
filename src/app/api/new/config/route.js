@@ -41,6 +41,8 @@ const SETTINGS = {
   rolePermissions: { default: {}, describe: 'Granular permissions matrix per role.' },
   /** Custom permission overrides per individual user email. */
   userPermissions: { default: {}, describe: 'Custom permission overrides per individual user email.' },
+  /** Custom sidebar item order (array of item IDs). */
+  sidebarOrder: { default: [], describe: 'Ordered array of sidebar nav item IDs.' },
   /** Global on/off switches for pages, independent of role. */
   featureToggles: { default: {}, describe: 'Map of page id to boolean.' },
   /** Free-text operational notes shown on the dashboard. */
@@ -107,6 +109,13 @@ function validate(key, value) {
 
   if (key === 'rolePermissions' || key === 'userPermissions') {
     if (!value || typeof value !== 'object' || Array.isArray(value)) return `${key} must be an object.`;
+    return null;
+  }
+
+  if (key === 'sidebarOrder') {
+    if (!Array.isArray(value) || value.some((id) => typeof id !== 'string')) {
+      return 'sidebarOrder must be an array of nav item IDs.';
+    }
     return null;
   }
 

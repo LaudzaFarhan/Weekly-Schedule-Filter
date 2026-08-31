@@ -143,6 +143,21 @@ function mergeRoleToggles(stored) {
   return merged;
 }
 
+export const DEFAULT_SIDEBAR_ORDER = [
+  'dashboard',
+  'schedule',
+  'operationals',
+  'students',
+  'report-cards',
+  'instructors',
+  'crm',
+  'meetings',
+  'activity',
+  'live-progress',
+  'users',
+  'api',
+];
+
 /* ─── provider ───────────────────────────────────────────────────── */
 
 export function ScheduleProvider({ children }) {
@@ -184,7 +199,7 @@ export function ScheduleProvider({ children }) {
   const [disabledInstructors, setDisabledInstructors] = useState(() => new Set(loadLocal('disabledInstructors', [])));
   const [disabledBranches, setDisabledBranches] = useState(() => new Set(loadLocal('disabledBranches', [])));
 
-  // RBAC Config
+  // RBAC Config & Navigation Order
   const [users, setUsers] = useState(() => {
     const loaded = loadLocal('users', { 'admin@schedule.local': 'Admin' });
     const normalized = {};
@@ -196,6 +211,7 @@ export function ScheduleProvider({ children }) {
   const [roleToggles, setRoleToggles] = useState(() => mergeRoleToggles(loadLocal('roleToggles', DEFAULT_ROLE_TOGGLES)));
   const [rolePermissions, setRolePermissions] = useState(() => loadLocal('rolePermissions', DEFAULT_ROLE_PERMISSIONS));
   const [userPermissions, setUserPermissions] = useState(() => loadLocal('userPermissions', {}));
+  const [sidebarOrder, setSidebarOrder] = useState(() => loadLocal('sidebarOrder', DEFAULT_SIDEBAR_ORDER));
 
   // Instructor Profiles
   const [instructorProfiles, setInstructorProfiles] = useState([]);
@@ -622,6 +638,29 @@ export function ScheduleProvider({ children }) {
     }).then((res) => res.json()).catch(() => null);
   }, []);
 
+  const updateSidebarOrder = useCallback(async (newOrder) => {
+    setSidebarOrder(newOrder);
+    try { localStorage.setItem('sidebarOrder', JSON.stringify(newOrder)); } catch {}
+    return fetch('/api/new/config', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key: 'sidebarOrder', value: newOrder }),
+    }).then((res) => res.json()).catch(() => null);
+  }, []);
+
+  // Synchronize sidebar order from backend store on load
+  useEffect(() => {
+    fetch('/api/new/config?key=sidebarOrder')
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (data && Array.isArray(data.value) && data.value.length > 0) {
+          setSidebarOrder(data.value);
+          try { localStorage.setItem('sidebarOrder', JSON.stringify(data.value)); } catch {}
+        }
+      })
+      .catch(() => {});
+  }, []);
+
   const refreshProfiles = useCallback(async () => {
     try {
       const profiles = await getAllProfiles();
@@ -888,6 +927,7 @@ export function ScheduleProvider({ children }) {
     roleToggles, updateRoleToggles,
     rolePermissions, updateRolePermissions,
     userPermissions, updateUserPermissions,
+    sidebarOrder, updateSidebarOrder,
     instructorProfiles, refreshProfiles,
   };
 
