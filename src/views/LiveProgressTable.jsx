@@ -14,7 +14,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useToast } from '../components/ui/Toast';
 import { subscribeToInternalClasses, updateInternalClass, createInternalClass, deleteInternalClass } from '../services/internalScheduleService';
 import { subscribeToInternalInstructors } from '../services/internalInstructorService';
-import { subscribeToInternalStudents } from '../services/internalStudentService';
+import { subscribeToInternalStudents, updateInternalStudent } from '../services/internalStudentService';
 import { resolveCanonicalTeacherName, getInstructorDisplayName, isInstructorMatch, isSameTeacher } from '../utils/instructorUtils';
 import {
   subscribeToLiveProgress, saveLiveProgress,
@@ -172,6 +172,11 @@ export default function LiveProgressTable({ category }) {
   const [videoModal, setVideoModal] = useState(null); // { row, level, link }
   const [videoLinkInput, setVideoLinkInput] = useState('');
   const [videoSaving, setVideoSaving] = useState(false);
+
+  // Zoho attachment modal state
+  const [zohoModal, setZohoModal] = useState(null); // { row, currentLink }
+  const [zohoLinkInput, setZohoLinkInput] = useState('');
+  const [zohoSaving, setZohoSaving] = useState(false);
 
   const getInstructorsForBranch = (branchName) => {
     const bClean = String(branchName || '').trim();
@@ -551,12 +556,16 @@ export default function LiveProgressTable({ category }) {
         targetMeetings = meetingsForSubscription(s.subscription, category);
       }
 
+      const zohoMatch = rem.match(/\[Zoho(?:Link|URL)?:\s*([^\]]+)\]/i);
+      const zohoLink = s.zohoLink || s.zoho_link || (zohoMatch ? zohoMatch[1].trim() : '') || (rem.match(/https?:\/\/[^\s]*zoho[^\s]*/i)?.[0] || '');
+
       map.set(sName, {
         id: s.id,
         branchName: bName || null,
         status: s.status || 'Active',
         targetMeetings: targetMeetings || (category === 'Coder' ? 12 : 10),
         remarks: s.remarks || '',
+        zohoLink,
       });
     }
     return map;
@@ -620,6 +629,9 @@ export default function LiveProgressTable({ category }) {
         const isUnassigned = !hasValidInstructor || !c.day || c.day === '—' || !c.time || c.time === '—';
         const isUnregisteredInstructor = !hasValidInstructor && Boolean(rawTeacher && rawTeacher !== '—' && rawTeacher.toUpperCase() !== 'TBD' && rawTeacher.toLowerCase() !== 'unassigned');
 
+        const zohoFromNote = (stored?.continuationNote || '').match(/\[Zoho(?:Link|URL)?:\s*([^\]]+)\]/i)?.[1]?.trim() || ((stored?.continuationNote || '').match(/https?:\/\/[^\s]*zoho[^\s]*/i)?.[0] || '');
+        const zohoLink = info?.zohoLink || stored?.zohoLink || zohoFromNote || '';
+
         const item = {
           rowKey,
           classId: c.id,
@@ -645,6 +657,7 @@ export default function LiveProgressTable({ category }) {
           arrangedLesson: stored?.arrangedLesson || null,
           arrangedTeacher: stored?.arrangedTeacher ? resolveCanonicalTeacherName(stored.arrangedTeacher, instructorProfiles) : null,
           mainTeacher: storedMain || null,
+          zohoLink,
         };
 
         if (!candidatesByKey.has(rowKey)) {
@@ -692,6 +705,9 @@ export default function LiveProgressTable({ category }) {
       const displayTeacher = isKnown ? resolveCanonicalTeacherName(rawTeacher, instructorProfiles) : rawTeacher;
       const isUnregisteredInstructor = !isKnown && Boolean(rawTeacher && rawTeacher !== '—' && rawTeacher.toUpperCase() !== 'TBD' && rawTeacher.toLowerCase() !== 'unassigned');
 
+      const zohoFromNote = (stored?.continuationNote || '').match(/\[Zoho(?:Link|URL)?:\s*([^\]]+)\]/i)?.[1]?.trim() || ((stored?.continuationNote || '').match(/https?:\/\/[^\s]*zoho[^\s]*/i)?.[0] || '');
+      const zohoLink = info?.zohoLink || stored?.zohoLink || zohoFromNote || '';
+
       const item = {
         rowKey,
         classId: null,
@@ -717,6 +733,7 @@ export default function LiveProgressTable({ category }) {
         arrangedLesson: stored?.arrangedLesson || null,
         arrangedTeacher: stored?.arrangedTeacher ? resolveCanonicalTeacherName(stored.arrangedTeacher, instructorProfiles) : null,
         mainTeacher: stored?.mainTeacher || null,
+        zohoLink,
       };
 
       candidatesByKey.set(rowKey, [item]);
@@ -1126,6 +1143,75 @@ export default function LiveProgressTable({ category }) {
     openVideoModal(row, level);
   };
 
+  const openZohoModal = (row) => {
+    const current = row.zohoLink || '';
+    setZohoModal({ row, currentLink: current });
+    setZohoLinkInput(current);
+  };
+
+  const closeZohoModal = () => {
+    setZohoModal(null);
+    setZohoLinkInput('');
+  };
+
+  const handleSaveZohoLink = async () => {
+    if (!zohoModal) return;
+    const { row } = zohoModal;
+    const cleanLink = String(zohoLinkInput || '').trim();
+    setZohoSaving(true);
+    try {
+      // 1. Update in internal_students if student exists in studentRegistry
+      const studentNameNorm = row.studentName.trim().toLowerCase();
+      const studentRecord = (studentRegistry || []).find((s) => String(s.name || '').trim().toLowerCase() === studentNameNorm);
+
+      if (studentRecord) {
+        let existingRemarks = String(studentRecord.remarks || '');
+        existingRemarks = existingRemarks.replace(/\[Zoho(?:Link|URL)?:\s*[^\]]+\]/gi, '').trim();
+        if (cleanLink) {
+          existingRemarks = `[Zoho: ${cleanLink}] ${existingRemarks}`.trim();
+        }
+        await updateInternalStudent(studentRecord.id, {
+          name: studentRecord.name,
+          level: studentRecord.level,
+          branchName: studentRecord.branchName,
+          parentName: studentRecord.parentName,
+          contact: studentRecord.contact,
+          status: studentRecord.status,
+          remarks: existingRemarks,
+          zohoLink: cleanLink,
+        });
+      }
+
+      // 2. Also persist in live progress continuationNote tag so it's reliably saved
+      await persist(row, (current) => {
+        let cNote = String(current.continuationNote || '');
+        cNote = cNote.replace(/\[Zoho(?:Link|URL)?:\s*[^\]]+\]/gi, '').trim();
+        if (cleanLink) {
+          cNote = `[Zoho: ${cleanLink}] ${cNote}`.trim();
+        }
+        return { continuationNote: cNote };
+      });
+
+      showToast({
+        title: cleanLink ? 'Zoho Link Saved' : 'Zoho Link Cleared',
+        message: cleanLink
+          ? `Zoho link attached to ${row.studentName}.`
+          : `Zoho link removed from ${row.studentName}.`,
+        variant: 'success',
+      });
+      closeZohoModal();
+    } catch (err) {
+      console.error('Error saving Zoho link:', err);
+      showToast({
+        title: 'Failed to save Zoho link',
+        message: err?.message || 'An error occurred while saving Zoho link.',
+        variant: 'error',
+      });
+    } finally {
+      setZohoSaving(false);
+    }
+  };
+
   const setContinuation = async (row, value) => {
     await persist(row, () => ({ continuation: value }));
   };
@@ -1438,9 +1524,77 @@ export default function LiveProgressTable({ category }) {
                         {/* Student Name */}
                         <td>
                           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
-                              <User size={13} style={{ color: 'var(--text-muted)' }} />
-                              <strong style={{ fontSize: '0.85rem' }}>{r.studentName}</strong>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', flexWrap: 'nowrap' }}>
+                              <User size={13} style={{ color: 'var(--text-muted)', flexShrink: 0 }} />
+                              {r.zohoLink ? (
+                                <a
+                                  href={r.zohoLink.startsWith('http') ? r.zohoLink : `https://${r.zohoLink}`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  title={`Open Zoho Profile for ${r.studentName}`}
+                                  style={{
+                                    fontSize: '0.85rem',
+                                    fontWeight: 700,
+                                    color: '#4f46e5',
+                                    textDecoration: 'none',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '0.25rem',
+                                    cursor: 'pointer',
+                                  }}
+                                  onMouseEnter={(e) => { e.currentTarget.style.textDecoration = 'underline'; }}
+                                  onMouseLeave={(e) => { e.currentTarget.style.textDecoration = 'none'; }}
+                                >
+                                  <span>{r.studentName}</span>
+                                  <ExternalLink size={12} style={{ color: '#4f46e5', flexShrink: 0 }} />
+                                </a>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => openZohoModal(r)}
+                                  title={`Attach Zoho link for ${r.studentName}`}
+                                  style={{
+                                    fontSize: '0.85rem',
+                                    fontWeight: 700,
+                                    color: 'var(--text-main)',
+                                    background: 'transparent',
+                                    border: 'none',
+                                    padding: 0,
+                                    margin: 0,
+                                    cursor: 'pointer',
+                                    textAlign: 'left',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '0.25rem',
+                                  }}
+                                >
+                                  <span>{r.studentName}</span>
+                                </button>
+                              )}
+
+                              <button
+                                type="button"
+                                onClick={(e) => { e.stopPropagation(); openZohoModal(r); }}
+                                title={r.zohoLink ? `Edit Zoho link for ${r.studentName}` : `Attach Zoho link for ${r.studentName}`}
+                                style={{
+                                  background: r.zohoLink ? 'rgba(79,70,229,0.08)' : 'transparent',
+                                  border: `1px solid ${r.zohoLink ? 'rgba(79,70,229,0.2)' : 'transparent'}`,
+                                  color: r.zohoLink ? '#4f46e5' : 'var(--text-muted)',
+                                  borderRadius: '4px',
+                                  padding: '0.1rem 0.25rem',
+                                  cursor: 'pointer',
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  fontSize: '0.65rem',
+                                  lineHeight: 1,
+                                  opacity: r.zohoLink ? 1 : 0.6,
+                                  transition: 'all 0.15s ease',
+                                }}
+                                onMouseEnter={(e) => { e.currentTarget.style.opacity = '1'; }}
+                                onMouseLeave={(e) => { if (!r.zohoLink) e.currentTarget.style.opacity = '0.6'; }}
+                              >
+                                <ExternalLink size={10} />
+                              </button>
                             </div>
                             {r.isUnassigned && (
                               <span style={{
@@ -2226,6 +2380,182 @@ export default function LiveProgressTable({ category }) {
                   {videoSaving ? 'Saving...' : 'Save Video Link'}
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Zoho Attachment Modal */}
+      {zohoModal && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="zoho-modal-title"
+          style={{
+            position: 'fixed', inset: 0,
+            background: 'rgba(0, 0, 0, 0.45)', backdropFilter: 'blur(4px)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            zIndex: 9999, padding: '1rem',
+          }}
+          onClick={(e) => { if (e.target === e.currentTarget) closeZohoModal(); }}
+        >
+          <div
+            style={{
+              background: 'var(--panel-bg, #ffffff)',
+              borderRadius: '16px',
+              maxWidth: '500px', width: '100%',
+              boxShadow: '0 16px 40px rgba(0,0,0,0.2)',
+              border: '1px solid var(--border-color)',
+              overflow: 'hidden',
+            }}
+          >
+            {/* Header */}
+            <div style={{
+              padding: '1.2rem 1.5rem',
+              borderBottom: '1px solid var(--border-color)',
+              background: 'var(--bg-color)',
+              display: 'flex', justifyContent: 'space-between', alignItems: 'center'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                <div style={{
+                  width: '36px', height: '36px', borderRadius: '10px',
+                  background: 'rgba(79, 70, 229, 0.12)', color: '#4f46e5',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center'
+                }}>
+                  <ExternalLink size={18} />
+                </div>
+                <div>
+                  <h3 id="zoho-modal-title" style={{ margin: 0, fontSize: '1rem', fontWeight: 700 }}>
+                    Zoho Attachment Link
+                  </h3>
+                  <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginTop: '0.1rem' }}>
+                    {zohoModal.row.studentName} — <strong>{zohoModal.row.branchName}</strong>
+                  </div>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={closeZohoModal}
+                style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--text-muted)' }}
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Body */}
+            <div style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1.2rem' }}>
+              <div>
+                <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-secondary)', display: 'block', marginBottom: '0.4rem' }}>
+                  Zoho Profile / CRM / Record URL
+                </label>
+                <input
+                  type="url"
+                  value={zohoLinkInput}
+                  onChange={(e) => setZohoLinkInput(e.target.value)}
+                  placeholder="https://crm.zoho.com/... or https://creatorapp.zoho.com/..."
+                  autoFocus
+                  style={{
+                    width: '100%',
+                    padding: '0.6rem 0.8rem',
+                    borderRadius: '8px',
+                    border: '1.5px solid var(--border-color)',
+                    fontSize: '0.85rem',
+                    background: 'var(--bg-color)',
+                    color: 'var(--text-main)',
+                    outline: 'none',
+                    boxSizing: 'border-box',
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      handleSaveZohoLink();
+                    }
+                  }}
+                />
+                <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '0.35rem', display: 'block' }}>
+                  Paste the full Zoho CRM, Creator, or Desk URL for this student. When attached, clicking the student name will directly open their Zoho profile in a new tab.
+                </span>
+              </div>
+
+              {zohoModal.currentLink && (
+                <div style={{
+                  padding: '0.75rem 1rem',
+                  borderRadius: '10px',
+                  background: 'rgba(79, 70, 229, 0.08)',
+                  border: '1px solid rgba(79, 70, 229, 0.2)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between'
+                }}>
+                  <div style={{ fontSize: '0.78rem', color: '#4338ca', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginRight: '0.5rem' }}>
+                    <strong>Attached:</strong> {zohoModal.currentLink}
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexShrink: 0 }}>
+                    <a
+                      href={zohoModal.currentLink.startsWith('http') ? zohoModal.currentLink : `https://${zohoModal.currentLink}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={{
+                        display: 'inline-flex', alignItems: 'center', gap: '0.3rem',
+                        fontSize: '0.75rem', fontWeight: 600,
+                        color: '#4f46e5', textDecoration: 'none'
+                      }}
+                    >
+                      Test <ExternalLink size={12} />
+                    </a>
+                    <button
+                      type="button"
+                      onClick={() => setZohoLinkInput('')}
+                      style={{
+                        background: 'transparent', border: 'none',
+                        color: 'var(--danger, #ef4444)', fontSize: '0.75rem',
+                        fontWeight: 600, cursor: 'pointer', padding: 0
+                      }}
+                    >
+                      Clear
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div style={{
+              padding: '1rem 1.5rem',
+              borderTop: '1px solid var(--border-color)',
+              background: 'var(--bg-color)',
+              display: 'flex', justifyContent: 'flex-end', gap: '0.6rem', alignItems: 'center'
+            }}>
+              <button
+                type="button"
+                onClick={closeZohoModal}
+                disabled={zohoSaving}
+                className="btn"
+                style={{ background: 'transparent', border: '1px solid var(--border-color)', borderRadius: '8px', fontSize: '0.82rem' }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveZohoLink}
+                disabled={zohoSaving}
+                className="btn"
+                style={{
+                  background: '#4f46e5',
+                  color: '#ffffff',
+                  border: 'none',
+                  borderRadius: '8px',
+                  padding: '0.45rem 1.1rem',
+                  fontSize: '0.82rem',
+                  fontWeight: 600,
+                  cursor: zohoSaving ? 'not-allowed' : 'pointer',
+                  opacity: zohoSaving ? 0.6 : 1,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '0.35rem',
+                }}
+              >
+                <Save size={14} />
+                {zohoSaving ? 'Saving...' : 'Save Zoho Link'}
+              </button>
             </div>
           </div>
         </div>

@@ -4,18 +4,22 @@ import { buildListQuery, withLimit } from '@/lib/listQuery';
 import { matchesConfirmationPhrase } from '@/lib/wipeConfirmation';
 import { NextResponse } from 'next/server';
 
-const mapRow = (row) => ({
-  id: row.id,
-  name: row.name,
-  level: row.level,
-  branchName: row.branch_name,
-  parentName: row.parent_name,
-  contact: row.contact,
-  status: row.status,
-  remarks: row.remarks,
-  createdAt: row.created_at,
-  updatedAt: row.updated_at
-});
+const mapRow = (row) => {
+  const zohoMatch = (row.remarks || '').match(/\[Zoho(?:Link|URL)?:\s*([^\]]+)\]/i);
+  return {
+    id: row.id,
+    name: row.name,
+    level: row.level,
+    branchName: row.branch_name,
+    parentName: row.parent_name,
+    contact: row.contact,
+    status: row.status,
+    remarks: row.remarks,
+    zohoLink: row.zoho_link || (zohoMatch ? zohoMatch[1].trim() : null),
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+};
 
 /**
  * GET: Fetch internal students.
@@ -47,10 +51,18 @@ export async function GET(req) {
 export async function POST(req) {
   try {
     const body = await req.json();
-    const { name, level, branchName, parentName, contact, status, remarks } = body;
+    const { name, level, branchName, parentName, contact, status, remarks, zohoLink } = body;
 
     if (!name || !level || !branchName) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
+    }
+
+    let finalRemarks = remarks || '';
+    if (zohoLink !== undefined) {
+      finalRemarks = finalRemarks.replace(/\[Zoho(?:Link|URL)?:\s*[^\]]+\]/gi, '').trim();
+      if (zohoLink && String(zohoLink).trim()) {
+        finalRemarks = `[Zoho: ${String(zohoLink).trim()}] ${finalRemarks}`.trim();
+      }
     }
 
     const sql = `
@@ -58,7 +70,7 @@ export async function POST(req) {
       VALUES ($1, $2, $3, $4, $5, $6, $7)
       RETURNING *
     `;
-    const params = [name, level, branchName, parentName || null, contact || '', status || 'Active', remarks || null];
+    const params = [name, level, branchName, parentName || null, contact || '', status || 'Active', finalRemarks || null];
     const res = await query(sql, params);
 
     return NextResponse.json(mapRow(res.rows[0]));
@@ -73,10 +85,18 @@ export async function POST(req) {
 export async function PUT(req) {
   try {
     const body = await req.json();
-    const { id, name, level, branchName, parentName, contact, status, remarks } = body;
+    const { id, name, level, branchName, parentName, contact, status, remarks, zohoLink } = body;
 
     if (!id) {
       return NextResponse.json({ error: 'Missing student ID' }, { status: 400 });
+    }
+
+    let finalRemarks = remarks || '';
+    if (zohoLink !== undefined) {
+      finalRemarks = finalRemarks.replace(/\[Zoho(?:Link|URL)?:\s*[^\]]+\]/gi, '').trim();
+      if (zohoLink && String(zohoLink).trim()) {
+        finalRemarks = `[Zoho: ${String(zohoLink).trim()}] ${finalRemarks}`.trim();
+      }
     }
 
     const sql = `
@@ -85,7 +105,7 @@ export async function PUT(req) {
       WHERE id = $8
       RETURNING *
     `;
-    const params = [name, level, branchName, parentName || null, contact || '', status || 'Active', remarks || null, id];
+    const params = [name, level, branchName, parentName || null, contact || '', status || 'Active', finalRemarks || null, id];
     const res = await query(sql, params);
 
     if (res.rowCount === 0) {

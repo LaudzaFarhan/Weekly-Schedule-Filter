@@ -42,8 +42,11 @@ vi.mock('@/services/internalInstructorService', () => ({
   subscribeToInternalInstructors,
 }));
 
+const updateInternalStudent = vi.hoisted(() => vi.fn(async () => ({})));
+
 vi.mock('@/services/internalStudentService', () => ({
   subscribeToInternalStudents,
+  updateInternalStudent,
 }));
 
 vi.mock('@/services/newLiveProgressService', () => ({
@@ -260,6 +263,101 @@ describe('LiveProgressTable - Unassigned Students & Unregistered Instructors', (
 
     expect(screen.getByRole('heading', { name: /Lesson Arrangement/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Save Lesson Arrangement/i })).toBeInTheDocument();
+  });
+
+  it('renders student name with clickable Zoho link and opens in new tab when zohoLink is present', () => {
+    subscribeToInternalStudents.mockImplementation((cb) => {
+      cb([
+        {
+          id: 's-zoho',
+          name: 'Azlan Djohar',
+          level: 'Kinder Core',
+          branchName: 'Puri Indah',
+          status: 'Active',
+          remarks: '[Zoho: https://crm.zoho.com/crm/org123/tab/Leads/987654321]',
+        },
+      ]);
+      return () => {};
+    });
+    subscribeToInternalClasses.mockImplementation((cb) => {
+      cb([
+        {
+          id: 'c-zoho',
+          teacher: 'Ziyah',
+          student: 'Azlan Djohar',
+          day: 'Monday',
+          time: '3:00 PM - 4:30 PM',
+          branchName: 'Puri Indah',
+          program: 'K1',
+          classType: 'Regular',
+        },
+      ]);
+      return () => {};
+    });
+
+    render(<LiveProgressTable category="Kinder" />);
+
+    const zohoAnchor = screen.getByRole('link', { name: /Azlan Djohar/i });
+    expect(zohoAnchor).toBeInTheDocument();
+    expect(zohoAnchor).toHaveAttribute('href', 'https://crm.zoho.com/crm/org123/tab/Leads/987654321');
+    expect(zohoAnchor).toHaveAttribute('target', '_blank');
+  });
+
+  it('opens Attach Zoho Link modal, enters URL, and saves to student record', async () => {
+    subscribeToInternalStudents.mockImplementation((cb) => {
+      cb([
+        {
+          id: 's-osvaldo',
+          name: 'Osvaldo Louvin Widjaya',
+          level: 'Kinder Core',
+          branchName: 'Puri Indah',
+          status: 'Active',
+          remarks: '',
+        },
+      ]);
+      return () => {};
+    });
+    subscribeToInternalClasses.mockImplementation((cb) => {
+      cb([
+        {
+          id: 'c-osvaldo',
+          teacher: 'Ziyah',
+          student: 'Osvaldo Louvin Widjaya',
+          day: 'Tuesday',
+          time: '3:00 PM - 4:30 PM',
+          branchName: 'Puri Indah',
+          program: 'K1',
+          classType: 'Regular',
+        },
+      ]);
+      return () => {};
+    });
+
+    render(<LiveProgressTable category="Kinder" />);
+
+    // Click student name or attach button
+    const studentBtn = screen.getByText('Osvaldo Louvin Widjaya');
+    fireEvent.click(studentBtn);
+
+    // Modal appears
+    expect(screen.getByRole('heading', { name: /Zoho Attachment Link/i })).toBeInTheDocument();
+    const input = screen.getByPlaceholderText(/https:\/\/crm\.zoho\.com/i);
+    expect(input).toBeInTheDocument();
+
+    // Type Zoho URL
+    fireEvent.change(input, { target: { value: 'https://crm.zoho.com/crm/org123/tab/Contacts/555666' } });
+
+    // Click Save Zoho Link
+    const saveBtn = screen.getByRole('button', { name: /Save Zoho Link/i });
+    fireEvent.click(saveBtn);
+
+    expect(updateInternalStudent).toHaveBeenCalledWith(
+      's-osvaldo',
+      expect.objectContaining({
+        zohoLink: 'https://crm.zoho.com/crm/org123/tab/Contacts/555666',
+        remarks: expect.stringContaining('https://crm.zoho.com/crm/org123/tab/Contacts/555666'),
+      })
+    );
   });
 });
 

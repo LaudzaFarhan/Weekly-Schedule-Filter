@@ -48,7 +48,7 @@ function normaliseDayName(dayStr) {
 import { formatNormalizedTimeSlot } from '../utils/timeUtils';
 import { getCanonicalBranchName } from '../utils/constants';
 import { filterStudents } from '../lib/studentFilter';
-import { Plus, Pencil, Trash2, FileText, Search, X, MapPin, User, UserCheck, GraduationCap, Phone, CheckCircle, HelpCircle, AlertTriangle, Upload, Clock, Sparkles } from 'lucide-react';
+import { Plus, Pencil, Trash2, FileText, Search, X, MapPin, User, UserCheck, GraduationCap, Phone, CheckCircle, HelpCircle, AlertTriangle, Upload, Clock, Sparkles, ExternalLink } from 'lucide-react';
 
 const STUDENTS_PAGE_SIZE = 5;
 
@@ -259,7 +259,8 @@ export default function NewStudentsPage({ onNavigate } = {}) {
       contact: '',
       status: 'Active',
       subscriptionStatus: '3 Months',
-      remarks: ''
+      remarks: '',
+      zohoLink: '',
     });
     setFormErrors({});
     setShowModal(true);
@@ -273,6 +274,7 @@ export default function NewStudentsPage({ onNavigate } = {}) {
       hist = appendStudentBranchHistory(st.id, st.branchName);
     }
     setBranchHistory(hist);
+    const zohoMatch = (st.remarks || '').match(/\[Zoho(?:Link|URL)?:\s*([^\]]+)\]/i);
     setForm({
       name: st.name || '',
       // A legacy "Coder Advance 2" folds onto "Coder Advance" so the select has
@@ -284,7 +286,8 @@ export default function NewStudentsPage({ onNavigate } = {}) {
       contact: st.contact || '',
       status: st.status || 'Active',
       subscriptionStatus: getStudentSubscriptionStatus(st),
-      remarks: st.remarks || ''
+      remarks: st.remarks || '',
+      zohoLink: st.zohoLink || (zohoMatch ? zohoMatch[1].trim() : ''),
     });
     setFormErrors({});
     setShowModal(true);
@@ -306,13 +309,20 @@ export default function NewStudentsPage({ onNavigate } = {}) {
 
     try {
       const subStatus = form.subscriptionStatus || getStudentSubscriptionStatus(form);
-      const cleanRemarks = (form.remarks || '').replace(/\[Subscription:[^\]]+\]\s*/g, '').trim();
-      const updatedRemarks = `${cleanRemarks ? `${cleanRemarks} ` : ''}[Subscription: ${subStatus}]`.trim();
+      let cleanRemarks = (form.remarks || '')
+        .replace(/\[Subscription:[^\]]+\]\s*/gi, '')
+        .replace(/\[Zoho(?:Link|URL)?:\s*[^\]]+\]\s*/gi, '')
+        .trim();
+      let updatedRemarks = `${cleanRemarks ? `${cleanRemarks} ` : ''}[Subscription: ${subStatus}]`.trim();
+      if (form.zohoLink && form.zohoLink.trim()) {
+        updatedRemarks = `[Zoho: ${form.zohoLink.trim()}] ${updatedRemarks}`.trim();
+      }
 
       const payload = {
         ...form,
         remarks: updatedRemarks,
         subscriptionStatus: subStatus,
+        zohoLink: form.zohoLink ? form.zohoLink.trim() : '',
       };
 
       if (editingStudent) {
@@ -874,10 +884,37 @@ export default function NewStudentsPage({ onNavigate } = {}) {
                     return (
                       <tr key={st.id}>
                         <td style={{ fontWeight: 600, color: 'var(--text-main)' }}>
-                          <span style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
-                            <User size={14} style={{ color: 'var(--text-muted)' }} />
-                            {st.name}
-                          </span>
+                          {(() => {
+                            const zohoMatch = (st.remarks || '').match(/\[Zoho(?:Link|URL)?:\s*([^\]]+)\]/i);
+                            const zLink = st.zohoLink || (zohoMatch ? zohoMatch[1].trim() : '');
+                            return (
+                              <span style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                                <User size={14} style={{ color: 'var(--text-muted)', flexShrink: 0 }} />
+                                {zLink ? (
+                                  <a
+                                    href={zLink.startsWith('http') ? zLink : `https://${zLink}`}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    title={`Open Zoho profile for ${st.name}`}
+                                    style={{
+                                      color: '#4f46e5',
+                                      textDecoration: 'none',
+                                      display: 'inline-flex',
+                                      alignItems: 'center',
+                                      gap: '0.25rem',
+                                    }}
+                                    onMouseEnter={(e) => { e.currentTarget.style.textDecoration = 'underline'; }}
+                                    onMouseLeave={(e) => { e.currentTarget.style.textDecoration = 'none'; }}
+                                  >
+                                    <span>{st.name}</span>
+                                    <ExternalLink size={12} style={{ color: '#4f46e5', flexShrink: 0 }} />
+                                  </a>
+                                ) : (
+                                  st.name
+                                )}
+                              </span>
+                            );
+                          })()}
                         </td>
                         <td>
                           <span style={{ 
@@ -1211,6 +1248,21 @@ export default function NewStudentsPage({ onNavigate } = {}) {
                     onChange={(e) => setForm({ ...form, remarks: e.target.value })}
                     className="modal-textarea-field"
                   />
+                </div>
+
+                {/* Zoho Attachment Link */}
+                <div>
+                  <label className="modal-form-label">Zoho Attachment Link</label>
+                  <input
+                    type="url"
+                    placeholder="https://crm.zoho.com/... or Zoho profile URL"
+                    value={form.zohoLink || ''}
+                    onChange={(e) => setForm({ ...form, zohoLink: e.target.value })}
+                    className="modal-input-field"
+                  />
+                  <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', display: 'block', marginTop: '0.2rem' }}>
+                    Optional Zoho CRM or Creator profile link. Clicking the student name opens this URL in a new tab.
+                  </span>
                 </div>
               </div>
 
