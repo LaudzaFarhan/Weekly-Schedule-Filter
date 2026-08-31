@@ -95,20 +95,47 @@ export async function GET(req) {
       agg.byDay[slot.day] = (agg.byDay[slot.day] || 0) + minutes;
     }
 
+    let instRows = [];
+    try {
+      const instRes = await query('SELECT id, name, aliases, verified_aliases, employment_type, available_days FROM internal_instructors');
+      instRows = instRes.rows || [];
+    } catch (e) {
+      // ignore if instructors table is unavailable
+    }
+
+    const findInstProfile = (name) => {
+      if (!name) return null;
+      const lower = String(name).trim().toLowerCase();
+      return instRows.find((i) => {
+        if (i.name && i.name.trim().toLowerCase() === lower) return true;
+        const aliases = Array.isArray(i.aliases) ? i.aliases : [];
+        const verified = Array.isArray(i.verified_aliases) ? i.verified_aliases : [];
+        const allAliases = [...aliases, ...verified];
+        return allAliases.some((a) => typeof a === 'string' && a.trim().toLowerCase() === lower);
+      });
+    };
+
     const data = [...byInstructor.values()]
-      .map((a) => ({
-        instructor: a.instructor,
-        branches: [...a.branches].sort(),
-        totalSessions: a.totalSessions,
-        leaveSessions: a.leaveSessions,
-        totalMinutes: a.totalMinutes,
-        totalHours: Math.round((a.totalMinutes / 60) * 100) / 100,
-        studentCount: a.studentCount,
-        hoursByDay: Object.fromEntries(
-          Object.entries(a.byDay).map(([d, m]) => [d, Math.round((m / 60) * 100) / 100])
-        ),
-        sessions: a.sessions.sort((x, y) => String(x.day).localeCompare(String(y.day)))
-      }))
+      .map((a) => {
+        const profile = findInstProfile(a.instructor);
+        const employmentType = profile?.employment_type || 'Full-Time';
+        const availableDays = profile?.available_days || [];
+        return {
+          instructor: a.instructor,
+          employmentType,
+          availableDays,
+          branches: [...a.branches].sort(),
+          totalSessions: a.totalSessions,
+          leaveSessions: a.leaveSessions,
+          totalMinutes: a.totalMinutes,
+          totalHours: Math.round((a.totalMinutes / 60) * 100) / 100,
+          studentCount: a.studentCount,
+          hoursByDay: Object.fromEntries(
+            Object.entries(a.byDay).map(([d, m]) => [d, Math.round((m / 60) * 100) / 100])
+          ),
+          sessions: a.sessions.sort((x, y) => String(x.day).localeCompare(String(y.day)))
+        };
+      })
       .sort((x, y) => y.totalMinutes - x.totalMinutes);
 
     return NextResponse.json({
