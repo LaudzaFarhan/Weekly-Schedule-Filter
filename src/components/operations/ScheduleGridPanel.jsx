@@ -510,7 +510,7 @@ export default function ScheduleGridPanel({ onNavigate } = {}) {
   }, 'Could not update the student');
 
   return (
-    <div className="panel" style={{ margin: '0 0 1.5rem' }}>
+    <div data-tour="schedule-grid" className="panel" style={{ margin: '0 0 1.5rem' }}>
       <div className="panel-header" style={{ flexWrap: 'wrap', gap: '0.75rem', justifyContent: 'space-between', alignItems: 'center' }}>
         <div>
           <h2 style={{ fontSize: '1.15rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.45rem' }}>
