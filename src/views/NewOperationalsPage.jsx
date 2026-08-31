@@ -9,7 +9,7 @@ import { saveOperational, saveOperationals, deleteOperational } from '../service
 import { useNewOperationals } from '../hooks/useNewOperationals';
 import { useScheduleRules } from '../hooks/useScheduleRules';
 import { CATEGORIES, simulateSlot, CODER_LEVELS } from '../lib/programRules';
-import { cleanSlotList } from '../lib/slotTypes';
+import { cleanSlotList, slotTypeMeta } from '../lib/slotTypes';
 import { groupClasses, levelCovers, instructorsAtBranch, overlaps } from '../lib/instructorAvailability';
 import { DAY_NAMES, getWorkingDaysForBranch, DEFAULT_BRANCH_LIST } from '../utils/constants';
 import { MapPin, Save, Building2, Clock, X, Plus, Trash2, AlertTriangle, Coffee, ShieldCheck, FlaskConical, CheckCircle2, RotateCcw } from 'lucide-react';
