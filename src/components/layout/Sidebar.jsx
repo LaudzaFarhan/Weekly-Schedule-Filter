@@ -46,6 +46,13 @@ const NEW_OPS_PAGES = [
   'progress-kinder', 'progress-junior', 'progress-coder',
 ];
 
+const SCHEDULE_PAGES = [
+  { id: 'schedule', label: 'Main' },
+  { id: 'workload', label: 'Workload' },
+  { id: 'leave', label: 'Leave Management' },
+  { id: 'trial-availability', label: 'Trial Availability' },
+];
+
 const STUDENT_PAGES = [
   { id: 'students', label: 'Student Database' },
   { id: 'student-subscriptions', label: 'Subscription Management' },
@@ -88,6 +95,9 @@ export default function Sidebar({ currentPage, onNavigate, onToggleSearch, opsMo
   const canAccess = (pageId) => canAccessPage(userRole, pageId, rolePermissions, userPermissions, userEmail);
 
   const [pendingCount, setPendingCount] = useState(0);
+
+  const schedulePagesActive = SCHEDULE_PAGES.some((p) => p.id === currentPage) || !NEW_OPS_PAGES.includes(currentPage);
+  const [scheduleOpen, setScheduleOpen] = useState(() => schedulePagesActive);
 
   const liveProgressActive = LIVE_PROGRESS_PAGES.some((p) => p.id === currentPage);
   const [liveProgressOpen, setLiveProgressOpen] = useState(() => liveProgressActive);
@@ -152,18 +162,51 @@ export default function Sidebar({ currentPage, onNavigate, onToggleSearch, opsMo
           </button>
         )}
 
-        {canAccess('schedule') && (
-          <button
-            data-tour="nav-schedule"
-            className={`nav-item ${NEW_OPS_PAGES.includes(currentPage) ? '' : 'active'}`}
-            onClick={() => onNavigate('schedule')}
-            style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-              <Calendar size={20} />
-              Schedule
-            </div>
-          </button>
+        {(canAccess('schedule') || canAccess('workload') || canAccess('leave') || canAccess('trial-availability')) && (
+          <>
+            <button
+              data-tour="nav-schedule"
+              className={`nav-item ${schedulePagesActive ? 'active' : ''}`}
+              onClick={() => { setScheduleOpen(true); onNavigate('schedule'); }}
+              style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                <Calendar size={20} />
+                Schedule
+              </div>
+              <span
+                role="button"
+                tabIndex={0}
+                aria-label={scheduleOpen ? 'Collapse Schedule' : 'Expand Schedule'}
+                aria-expanded={scheduleOpen}
+                onClick={(e) => { e.stopPropagation(); setScheduleOpen((v) => !v); }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault(); e.stopPropagation(); setScheduleOpen((v) => !v);
+                  }
+                }}
+                style={{ display: 'inline-flex', alignItems: 'center', cursor: 'pointer' }}
+              >
+                {scheduleOpen ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+              </span>
+            </button>
+            {scheduleOpen && SCHEDULE_PAGES.filter(sub => canAccess(sub.id)).map((sub) => {
+              const isSubActive = sub.id === 'schedule'
+                ? (currentPage === 'schedule' || !NEW_OPS_PAGES.includes(currentPage))
+                : currentPage === sub.id;
+              return (
+                <button
+                  key={sub.id}
+                  className={`nav-item nav-subitem ${isSubActive ? 'active' : ''}`}
+                  onClick={() => onNavigate(sub.id)}
+                  style={{ display: 'flex', justifyContent: 'flex-start', alignItems: 'center' }}
+                >
+                  <span aria-hidden="true" className="nav-subitem-dash" />
+                  {sub.label}
+                </button>
+              );
+            })}
+          </>
         )}
 
         {canAccess('operationals') && (
@@ -299,48 +342,6 @@ export default function Sidebar({ currentPage, onNavigate, onToggleSearch, opsMo
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
               <Video size={20} />
               Meetings
-            </div>
-          </button>
-        )}
-
-        {canAccess('workload') && (
-          <button
-            data-tour="nav-workload"
-            className={`nav-item ${currentPage === 'workload' ? 'active' : ''}`}
-            onClick={() => onNavigate('workload')}
-            style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-              <BarChart3 size={20} />
-              Workload
-            </div>
-          </button>
-        )}
-
-        {canAccess('leave') && (
-          <button
-            data-tour="nav-leave"
-            className={`nav-item ${currentPage === 'leave' ? 'active' : ''}`}
-            onClick={() => onNavigate('leave')}
-            style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-              <CalendarOff size={20} />
-              Leave Management
-            </div>
-          </button>
-        )}
-
-        {canAccess('trial-availability') && (
-          <button
-            data-tour="nav-availability"
-            className={`nav-item ${currentPage === 'trial-availability' ? 'active' : ''}`}
-            onClick={() => onNavigate('trial-availability')}
-            style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-              <Star size={20} />
-              Trial Availability
             </div>
           </button>
         )}
