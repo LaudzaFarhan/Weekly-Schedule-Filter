@@ -326,4 +326,47 @@ describe('NewSchedulePage - Program and Term Locking', () => {
     expect(screen.getAllByText('(J3 · L2)').length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText('+ Jonathan Benedict Hioe (J3 · L1)')).toBeInTheDocument();
   });
+
+  it('renders Temporary Schedules panel with active replacements and additional sessions', async () => {
+    subscribeToInternalClasses.mockImplementation((cb) => {
+      cb([
+        {
+          id: 'c1',
+          teacher: 'Sherlyn',
+          student: 'Jonathan Benedict Hioe',
+          day: 'Monday',
+          time: '3:00 PM - 5:00 PM',
+          branchName: 'Kelapa Gading',
+          program: 'J3.1',
+          classType: 'Replacement',
+          sessionDates: ['2026-09-10'],
+        },
+        {
+          id: 'c2',
+          teacher: 'Abel',
+          student: 'Marvel Benedict',
+          day: 'Tuesday',
+          time: '1:00 PM - 3:00 PM',
+          branchName: 'Kelapa Gading',
+          program: 'JF1.2',
+          classType: 'Additional Session',
+          sessionDates: ['2026-09-15'],
+        },
+      ]);
+      return () => {};
+    });
+
+    render(<NewSchedulePage />);
+
+    // Verify Temporary Schedules panel header and badges
+    expect(screen.getByRole('heading', { name: /Temporary Schedules/i })).toBeInTheDocument();
+    expect(screen.getByText(/1 Replacement/i)).toBeInTheDocument();
+    expect(screen.getByText(/1 Adds \/ Extra/i)).toBeInTheDocument();
+
+    // Verify student names inside temporary cards
+    expect(screen.getByText('Jonathan Benedict Hioe')).toBeInTheDocument();
+    expect(screen.getByText('Marvel Benedict')).toBeInTheDocument();
+    expect(screen.getByText('2026-09-10')).toBeInTheDocument();
+    expect(screen.getByText('2026-09-15')).toBeInTheDocument();
+  });
 });

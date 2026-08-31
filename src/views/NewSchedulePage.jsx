@@ -26,10 +26,10 @@ import { computeScheduleDiff, formatScheduleActivitySummary, parseActivityChange
 import { useAuth } from '../contexts/AuthContext';
 import { doTimeSlotsOverlap, formatNormalizedTimeSlot } from '../utils/timeUtils';
 import {
-  normalizeStudentName, buildPlacesByStudent, findUnallocatedStudents,
+  normalizeStudentName, buildPlacesByStudent, findUnallocatedStudents, splitStudentCell, isPlaceExpired,
 } from '../lib/studentAllocation';
 import { DAY_NAMES, DEFAULT_BRANCH_LIST, isSameBranch } from '../utils/constants';
-import { Plus, Pencil, Trash2, Search, X, Calendar, CalendarPlus, MapPin, Repeat, User, Users, UserX, BookOpen, Clock, AlertTriangle, History, Trash, CheckCircle2, ChevronDown, Check, Lock } from 'lucide-react';
+import { Plus, Pencil, Trash2, Search, X, Calendar, CalendarPlus, MapPin, Repeat, User, Users, UserX, BookOpen, Clock, AlertTriangle, History, Trash, CheckCircle2, ChevronDown, ChevronUp, Check, Lock, CalendarClock } from 'lucide-react';
 
 
 // Program catalogue. Kinder & Junior programs each have 10 lessons; Coder has
@@ -921,6 +921,200 @@ export default function NewSchedulePage({ onNavigate }) {
       return true;
     });
   }, [scopedStudents, unallocSearch, unallocBranchFilter]);
+
+  // Temporary Schedules filter & search states
+  const [tempSearch, setTempSearch] = useState('');
+  const [tempBranchFilter, setTempBranchFilter] = useState('all');
+  const [tempTypeFilter, setTempTypeFilter] = useState('all');
+  const [tempStatusFilter, setTempStatusFilter] = useState('all');
+  const [showTemporarySchedules, setShowTemporarySchedules] = useState(true);
+
+  /**
+   * All temporary (non-Regular) schedule entries from classes (Replacement, Additional / Adds, Trial).
+   */
+  const temporaryScheduleList = useMemo(() => {
+    const list = [];
+    (classes || []).forEach((c) => {
+      const type = c.classType || 'Regular';
+      if (type === ATTENDANCE.REGULAR) return;
+
+      const studentNames = splitStudentCell(c.student);
+      const dates = Array.isArray(c.sessionDates) ? c.sessionDates : (c.session_dates || []);
+      const expired = isPlaceExpired(c, todayISO);
+
+      if (studentNames.length === 0) {
+        list.push({
+          id: String(c.id),
+          classId: c.id,
+          studentName: '',
+          studentNames: [],
+          studentObj: null,
+          regularClass: null,
+          teacher: c.teacher || '—',
+          day: c.day || '—',
+          time: c.time || '—',
+          branchName: c.branchName || '—',
+          program: c.program || '—',
+          classType: type,
+          sessionDates: dates,
+          remarks: c.remarks || '',
+          isExpired: expired,
+          rawClass: c,
+        });
+      } else {
+        studentNames.forEach((sName, sIdx) => {
+          const norm = normalizeStudentName(sName);
+          const studentObj = students.find((st) => normalizeStudentName(st.name) === norm);
+          const studentPlaces = placesByStudent.get(norm) || [];
+          const regularClass = studentPlaces.find((p) => (p.classType || 'Regular') === ATTENDANCE.REGULAR);
+
+          list.push({
+            id: studentNames.length > 1 ? `${c.id}__${sIdx}` : String(c.id),
+            classId: c.id,
+            studentName: sName,
+            studentNames,
+            studentObj: studentObj || null,
+            regularClass: regularClass || null,
+            teacher: c.teacher || '—',
+            day: c.day || '—',
+            time: c.time || '—',
+            branchName: c.branchName || '—',
+            program: c.program || '—',
+            classType: type,
+            sessionDates: dates,
+            remarks: c.remarks || '',
+            isExpired: expired,
+            rawClass: c,
+          });
+        });
+      }
+    });
+
+    return list.sort((a, b) => {
+      const aDate = (a.sessionDates && a.sessionDates[0]) || '';
+      const bDate = (b.sessionDates && b.sessionDates[0]) || '';
+      if (aDate && bDate) return aDate.localeCompare(bDate);
+      if (aDate) return -1;
+      if (bDate) return 1;
+      return String(a.day || '').localeCompare(String(b.day || ''));
+    });
+  }, [classes, students, placesByStudent, todayISO]);
+
+  const tempCounts = useMemo(() => {
+    let replacements = 0;
+    let adds = 0;
+    let trials = 0;
+    let active = 0;
+    let expired = 0;
+
+    temporaryScheduleList.forEach((item) => {
+      if (item.classType === ATTENDANCE.REPLACEMENT) replacements++;
+      else if (item.classType === ATTENDANCE.ADDITIONAL || item.classType === 'Additional Session' || item.classType === 'Adds') adds++;
+      else if (item.classType === ATTENDANCE.TRIAL) trials++;
+
+      if (item.isExpired) expired++;
+      else active++;
+    });
+
+    return {
+      total: temporaryScheduleList.length,
+      replacements,
+      adds,
+      trials,
+      active,
+      expired,
+    };
+  }, [temporaryScheduleList]);
+
+  const filteredTempList = useMemo(() => {
+    return temporaryScheduleList.filter((item) => {
+      if (tempBranchFilter !== 'all' && !isSameBranch(item.branchName, tempBranchFilter)) {
+        return false;
+      }
+      if (tempTypeFilter !== 'all') {
+        if (tempTypeFilter === ATTENDANCE.ADDITIONAL) {
+          if (item.classType !== ATTENDANCE.ADDITIONAL && item.classType !== 'Additional Session' && item.classType !== 'Adds') {
+            return false;
+          }
+        } else if (item.classType !== tempTypeFilter) {
+          return false;
+        }
+      }
+      if (tempStatusFilter === 'active' && item.isExpired) return false;
+      if (tempStatusFilter === 'expired' && !item.isExpired) return false;
+
+      if (tempSearch) {
+        const q = tempSearch.trim().toLowerCase();
+        const matchStudent = (item.studentName || '').toLowerCase().includes(q);
+        const matchTeacher = (item.teacher || '').toLowerCase().includes(q);
+        const matchProgram = (item.program || '').toLowerCase().includes(q);
+        const matchBranch = (item.branchName || '').toLowerCase().includes(q);
+        const matchDay = (item.day || '').toLowerCase().includes(q);
+        if (!matchStudent && !matchTeacher && !matchProgram && !matchBranch && !matchDay) {
+          return false;
+        }
+      }
+      return true;
+    });
+  }, [temporaryScheduleList, tempBranchFilter, tempTypeFilter, tempStatusFilter, tempSearch]);
+
+  const handleDeleteTemporarySchedule = async (item) => {
+    if (!item) return;
+    const c = item.rawClass;
+    const sName = item.studentName;
+    const confirmMsg = sName
+      ? `Remove temporary schedule (${item.classType}) for ${sName}?`
+      : `Delete this temporary schedule (${item.classType})?`;
+
+    if (!window.confirm(confirmMsg)) return;
+
+    try {
+      if (item.studentNames && item.studentNames.length > 1 && sName) {
+        const remaining = item.studentNames.filter((n) => normalizeStudentName(n) !== normalizeStudentName(sName));
+        await updateInternalClass(c.id, {
+          day: c.day,
+          time: c.time,
+          student: remaining.join(', '),
+          branchName: c.branchName,
+          classType: c.classType,
+          teacher: c.teacher,
+          program: c.program,
+          sessionDates: c.sessionDates || [],
+          remarks: c.remarks || '',
+        });
+      } else {
+        await deleteInternalClass(c.id);
+      }
+
+      await logActivity({
+        action: 'delete',
+        summary: `Deleted ${item.classType} temporary schedule for ${sName || 'class'} (${c.day} ${c.time} · ${c.teacher} @ ${c.branchName})`,
+        source: 'schedule',
+        userEmail: user?.email || null,
+        details: {
+          student: sName,
+          classType: item.classType,
+          teacher: c.teacher,
+          day: c.day,
+          time: c.time,
+          branchName: c.branchName,
+        },
+      });
+
+      showToast({
+        title: 'Temporary Schedule Removed',
+        message: `${item.classType} for ${sName || 'class'} was removed successfully.`,
+        variant: 'success',
+      });
+    } catch (err) {
+      console.error(err);
+      showToast({
+        title: 'Failed to delete schedule',
+        message: err.message || 'An error occurred while deleting.',
+        variant: 'error',
+      });
+    }
+  };
 
   const openAddModal = () => {
     setEditingClass(null);
@@ -2198,6 +2392,372 @@ export default function NewSchedulePage({ onNavigate }) {
         )}
       </div>
 
+      {/* Temporary Schedules Panel — directly below Unallocated & Recommended Days */}
+      <div data-tour="temporary-schedules" className="panel" style={{ margin: '0 0 1.5rem' }}>
+        <div className="panel-header" style={{ flexWrap: 'wrap', gap: '0.75rem', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap' }}>
+            <h2 style={{ fontSize: '1rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.4rem', margin: 0 }}>
+              <CalendarClock size={17} style={{ color: 'var(--primary-blue, #4f46e5)' }} /> Temporary Schedules
+              <span style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--primary-blue, #4f46e5)', background: 'var(--primary-blue-light, rgba(79,70,229,0.1))', padding: '0.1rem 0.5rem', borderRadius: '99px' }}>
+                {filteredTempList.length}
+              </span>
+            </h2>
+
+            {/* Summary Pills */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
+              <span
+                onClick={() => setTempTypeFilter(tempTypeFilter === ATTENDANCE.REPLACEMENT ? 'all' : ATTENDANCE.REPLACEMENT)}
+                style={{
+                  cursor: 'pointer',
+                  fontSize: '0.7rem', fontWeight: 600, padding: '0.15rem 0.5rem', borderRadius: '20px',
+                  background: 'rgba(124,58,237,0.1)', color: '#7c3aed',
+                  border: `1px solid ${tempTypeFilter === ATTENDANCE.REPLACEMENT ? '#7c3aed' : 'rgba(124,58,237,0.25)'}`,
+                  display: 'inline-flex', alignItems: 'center', gap: '0.25rem',
+                }}
+                title="Filter by Replacements"
+              >
+                <Repeat size={11} /> {tempCounts.replacements} Replacement{tempCounts.replacements === 1 ? '' : 's'}
+              </span>
+
+              <span
+                onClick={() => setTempTypeFilter(tempTypeFilter === ATTENDANCE.ADDITIONAL ? 'all' : ATTENDANCE.ADDITIONAL)}
+                style={{
+                  cursor: 'pointer',
+                  fontSize: '0.7rem', fontWeight: 600, padding: '0.15rem 0.5rem', borderRadius: '20px',
+                  background: 'rgba(8,145,178,0.1)', color: '#0891b2',
+                  border: `1px solid ${tempTypeFilter === ATTENDANCE.ADDITIONAL ? '#0891b2' : 'rgba(8,145,178,0.25)'}`,
+                  display: 'inline-flex', alignItems: 'center', gap: '0.25rem',
+                }}
+                title="Filter by Additional Sessions"
+              >
+                <CalendarPlus size={11} /> {tempCounts.adds} Adds / Extra
+              </span>
+
+              {tempCounts.trials > 0 && (
+                <span
+                  onClick={() => setTempTypeFilter(tempTypeFilter === ATTENDANCE.TRIAL ? 'all' : ATTENDANCE.TRIAL)}
+                  style={{
+                    cursor: 'pointer',
+                    fontSize: '0.7rem', fontWeight: 600, padding: '0.15rem 0.5rem', borderRadius: '20px',
+                    background: 'rgba(249,115,22,0.1)', color: '#ea580c',
+                    border: `1px solid ${tempTypeFilter === ATTENDANCE.TRIAL ? '#ea580c' : 'rgba(249,115,22,0.25)'}`,
+                    display: 'inline-flex', alignItems: 'center', gap: '0.25rem',
+                  }}
+                  title="Filter by Trials"
+                >
+                  <BookOpen size={11} /> {tempCounts.trials} Trial{tempCounts.trials === 1 ? '' : 's'}
+                </span>
+              )}
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <button
+              type="button"
+              onClick={() => setShowTemporarySchedules(!showTemporarySchedules)}
+              className="btn btn-sm"
+              style={{ fontSize: '0.75rem', display: 'inline-flex', alignItems: 'center', gap: '0.3rem', background: 'transparent', border: '1px solid var(--border-color)', borderRadius: '8px' }}
+            >
+              {showTemporarySchedules ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+              {showTemporarySchedules ? 'Collapse' : 'Expand'}
+            </button>
+          </div>
+        </div>
+
+        {showTemporarySchedules && (
+          <>
+            {/* Filter controls toolbar */}
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: '0.6rem',
+              padding: '0.65rem 1rem', borderBottom: '1px solid var(--border-color)',
+              background: 'var(--bg-color)', flexWrap: 'wrap',
+            }}>
+              {/* Search */}
+              <div style={{ position: 'relative', flex: '1 1 200px', minWidth: '180px' }}>
+                <Search size={13} style={{ position: 'absolute', left: '0.6rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', pointerEvents: 'none' }} />
+                <input
+                  type="search"
+                  value={tempSearch}
+                  onChange={(e) => setTempSearch(e.target.value)}
+                  placeholder="Search student, instructor, program..."
+                  className="modal-input-field field-compact"
+                  style={{ width: '100%', paddingLeft: '1.8rem', fontSize: '0.78rem' }}
+                />
+                {tempSearch && (
+                  <button
+                    type="button"
+                    onClick={() => setTempSearch('')}
+                    style={{ position: 'absolute', right: '0.4rem', top: '50%', transform: 'translateY(-50%)', background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--text-muted)' }}
+                  >
+                    <X size={12} />
+                  </button>
+                )}
+              </div>
+
+              {/* Branch Filter */}
+              <select
+                value={tempBranchFilter}
+                onChange={(e) => setTempBranchFilter(e.target.value)}
+                className="modal-select-field field-compact"
+                style={{ width: '135px', fontSize: '0.78rem' }}
+              >
+                <option value="all">All Branches</option>
+                {branchList.map((b) => (
+                  <option key={b} value={b}>{b}</option>
+                ))}
+              </select>
+
+              {/* Type Filter */}
+              <select
+                value={tempTypeFilter}
+                onChange={(e) => setTempTypeFilter(e.target.value)}
+                className="modal-select-field field-compact"
+                style={{ width: '145px', fontSize: '0.78rem' }}
+              >
+                <option value="all">All Class Types</option>
+                <option value={ATTENDANCE.REPLACEMENT}>Replacement</option>
+                <option value={ATTENDANCE.ADDITIONAL}>Additional Session</option>
+                <option value={ATTENDANCE.TRIAL}>Trial Class</option>
+              </select>
+
+              {/* Status Filter */}
+              <select
+                value={tempStatusFilter}
+                onChange={(e) => setTempStatusFilter(e.target.value)}
+                className="modal-select-field field-compact"
+                style={{ width: '130px', fontSize: '0.78rem' }}
+              >
+                <option value="all">All Status</option>
+                <option value="active">Active / Upcoming</option>
+                <option value="expired">Past / Expired</option>
+              </select>
+
+              {(tempSearch || tempBranchFilter !== 'all' || tempTypeFilter !== 'all' || tempStatusFilter !== 'all') && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setTempSearch('');
+                    setTempBranchFilter('all');
+                    setTempTypeFilter('all');
+                    setTempStatusFilter('all');
+                  }}
+                  style={{
+                    background: 'transparent', border: 'none', color: 'var(--danger)',
+                    cursor: 'pointer', fontSize: '0.75rem', fontWeight: 600,
+                    display: 'inline-flex', alignItems: 'center', gap: '0.2rem',
+                  }}
+                >
+                  <X size={12} /> Clear Filters
+                </button>
+              )}
+            </div>
+
+            {/* Content Area */}
+            <div style={{ padding: '0.75rem 1rem' }}>
+              {filteredTempList.length === 0 ? (
+                <div style={{
+                  padding: '2rem 1.5rem', textAlign: 'center', color: 'var(--text-muted)',
+                  border: '1px dashed var(--border-color)', borderRadius: '10px',
+                  display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.4rem',
+                }}>
+                  <CalendarClock size={28} style={{ opacity: 0.4 }} />
+                  <div style={{ fontWeight: 600, fontSize: '0.85rem' }}>
+                    {temporaryScheduleList.length === 0
+                      ? 'No temporary schedules active'
+                      : 'No temporary schedule matches your filters'}
+                  </div>
+                  <div style={{ fontSize: '0.75rem', maxWidth: '420px' }}>
+                    {temporaryScheduleList.length === 0
+                      ? 'When you arrange a Replacement, Additional Session, or Trial class for a student, it will appear here.'
+                      : 'Try adjusting your search query, branch filter, or type filter.'}
+                  </div>
+                </div>
+              ) : (
+                <div style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fill, minmax(360px, 1fr))',
+                  gap: '0.75rem',
+                  maxHeight: '380px',
+                  overflowY: 'auto',
+                }}>
+                  {filteredTempList.map((item) => {
+                    const isReplacement = item.classType === ATTENDANCE.REPLACEMENT;
+                    const isAdditional = item.classType === ATTENDANCE.ADDITIONAL || item.classType === 'Additional Session' || item.classType === 'Adds';
+                    const isTrial = item.classType === ATTENDANCE.TRIAL;
+
+                    const typeMeta = isReplacement
+                      ? { label: 'Replacement', color: '#7c3aed', bg: 'rgba(124,58,237,0.08)', border: 'rgba(124,58,237,0.25)', Icon: Repeat }
+                      : isAdditional
+                      ? { label: 'Additional Session', color: '#0891b2', bg: 'rgba(8,145,178,0.08)', border: 'rgba(8,145,178,0.25)', Icon: CalendarPlus }
+                      : isTrial
+                      ? { label: 'Trial Class', color: '#ea580c', bg: 'rgba(249,115,22,0.08)', border: 'rgba(249,115,22,0.25)', Icon: BookOpen }
+                      : { label: item.classType, color: 'var(--primary-blue, #4f46e5)', bg: 'rgba(79,70,229,0.08)', border: 'rgba(79,70,229,0.25)', Icon: Calendar };
+
+                    return (
+                      <div
+                        key={item.id}
+                        className="new-ops-anim"
+                        style={{
+                          display: 'flex', flexDirection: 'column', gap: '0.5rem',
+                          padding: '0.8rem 0.9rem', borderRadius: '10px',
+                          border: `1px solid ${item.isExpired ? 'var(--border-color)' : typeMeta.border}`,
+                          background: item.isExpired ? 'var(--bg-color)' : typeMeta.bg,
+                          opacity: item.isExpired ? 0.7 : 1,
+                          boxShadow: '0 1px 3px rgba(0,0,0,0.03)',
+                        }}
+                      >
+                        {/* Header: Student Name + Type Badge */}
+                        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '0.5rem' }}>
+                          <div style={{ minWidth: 0, flex: 1 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                              <User size={13} style={{ color: 'var(--text-muted)', flexShrink: 0 }} />
+                              <span style={{ fontSize: '0.88rem', fontWeight: 700, color: 'var(--text-main)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                {item.studentName || 'Unassigned / Open Slot'}
+                              </span>
+                            </div>
+                            <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.1rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                              {[item.studentObj?.level, item.branchName].filter(Boolean).join(' · ') || item.branchName}
+                            </div>
+                          </div>
+
+                          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '0.2rem' }}>
+                            <span style={{
+                              fontSize: '0.68rem', fontWeight: 700,
+                              color: typeMeta.color, background: 'var(--panel-bg)',
+                              border: `1px solid ${typeMeta.border}`,
+                              padding: '0.12rem 0.45rem', borderRadius: '6px',
+                              display: 'inline-flex', alignItems: 'center', gap: '0.25rem',
+                            }}>
+                              <typeMeta.Icon size={11} /> {typeMeta.label}
+                            </span>
+                            {item.isExpired && (
+                              <span style={{ fontSize: '0.62rem', fontWeight: 600, color: 'var(--text-muted)' }}>
+                                Past / Expired
+                              </span>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Temporary Slot Details */}
+                        <div style={{
+                          display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.4rem',
+                          background: 'var(--panel-bg)', padding: '0.55rem 0.7rem', borderRadius: '8px',
+                          border: '1px solid var(--border-color)', fontSize: '0.75rem',
+                        }}>
+                          <div>
+                            <div style={{ fontSize: '0.66rem', color: 'var(--text-muted)', fontWeight: 600 }}>SCHEDULE & SLOT</div>
+                            <div style={{ fontWeight: 600, color: 'var(--text-main)', display: 'flex', alignItems: 'center', gap: '0.25rem', marginTop: '0.1rem' }}>
+                              <Calendar size={12} style={{ color: 'var(--primary-blue, #4f46e5)' }} />
+                              <span>{item.day}</span>
+                            </div>
+                            <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>
+                              {item.time}
+                            </div>
+                          </div>
+
+                          <div>
+                            <div style={{ fontSize: '0.66rem', color: 'var(--text-muted)', fontWeight: 600 }}>INSTRUCTOR & PROG</div>
+                            <div style={{ fontWeight: 600, color: 'var(--text-main)', marginTop: '0.1rem' }}>
+                              {item.teacher}
+                            </div>
+                            <div style={{ fontSize: '0.7rem', color: 'var(--primary-blue, #4f46e5)', fontWeight: 600 }}>
+                              {item.program}
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Session Dates Chips */}
+                        {item.sessionDates && item.sessionDates.length > 0 ? (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', flexWrap: 'wrap' }}>
+                            <span style={{ fontSize: '0.68rem', color: 'var(--text-muted)', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '0.2rem' }}>
+                              <Clock size={11} /> Dates:
+                            </span>
+                            {item.sessionDates.map((dt) => {
+                              const isPast = String(dt) < todayISO;
+                              return (
+                                <span
+                                  key={dt}
+                                  style={{
+                                    fontSize: '0.68rem', fontWeight: 600,
+                                    padding: '0.1rem 0.4rem', borderRadius: '4px',
+                                    background: isPast ? 'var(--bg-color)' : 'rgba(16,185,129,0.12)',
+                                    color: isPast ? 'var(--text-muted)' : '#047857',
+                                    border: `1px solid ${isPast ? 'var(--border-color)' : 'rgba(16,185,129,0.3)'}`,
+                                    textDecoration: isPast ? 'line-through' : 'none',
+                                  }}
+                                >
+                                  {dt}
+                                </span>
+                              );
+                            })}
+                          </div>
+                        ) : (
+                          <div style={{ fontSize: '0.68rem', color: '#b45309', fontStyle: 'italic' }}>
+                            ⚠️ No specific date set — applies to all {item.day}s until updated.
+                          </div>
+                        )}
+
+                        {/* Regular Class Reference (if student has one) */}
+                        {item.regularClass && (
+                          <div style={{
+                            fontSize: '0.68rem', color: 'var(--text-secondary)',
+                            background: 'rgba(0,0,0,0.02)', padding: '0.25rem 0.45rem', borderRadius: '5px',
+                            borderLeft: '2px solid var(--primary-blue, #4f46e5)',
+                            display: 'flex', alignItems: 'center', gap: '0.3rem',
+                          }}>
+                            <span>🏠 <strong>Normal Schedule:</strong> {item.regularClass.day} {item.regularClass.time} · {item.regularClass.teacher} ({item.regularClass.branchName})</span>
+                          </div>
+                        )}
+
+                        {/* Card Actions Footer */}
+                        <div style={{
+                          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                          paddingTop: '0.35rem', borderTop: '1px solid rgba(0,0,0,0.06)',
+                        }}>
+                          <span style={{ fontSize: '0.68rem', color: 'var(--text-muted)', display: 'inline-flex', alignItems: 'center', gap: '0.2rem' }}>
+                            <MapPin size={10} /> {item.branchName}
+                          </span>
+
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                            <button
+                              type="button"
+                              onClick={() => openEditModal(item.rawClass)}
+                              className="btn btn-sm"
+                              style={{
+                                fontSize: '0.72rem', padding: '0.2rem 0.5rem',
+                                background: 'var(--panel-bg)', border: '1px solid var(--border-color)',
+                                borderRadius: '6px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '0.25rem',
+                              }}
+                              title="Edit this temporary schedule"
+                            >
+                              <Pencil size={12} /> Edit
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteTemporarySchedule(item)}
+                              className="btn btn-sm"
+                              style={{
+                                fontSize: '0.72rem', padding: '0.2rem 0.45rem',
+                                background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.25)',
+                                color: 'var(--danger, #ef4444)', borderRadius: '6px', cursor: 'pointer',
+                                display: 'inline-flex', alignItems: 'center', gap: '0.2rem',
+                              }}
+                              title="Remove temporary schedule"
+                            >
+                              <Trash2 size={12} />
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </>
+        )}
+      </div>
 
       {/* Schedule Activity — its own full-width row. The entries are short,
           so they tile horizontally rather than forming a narrow column that
