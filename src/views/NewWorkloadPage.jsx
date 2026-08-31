@@ -15,6 +15,7 @@ import {
   classifyDaily,
   formatHoursMinutes,
   formatMinutesToClock,
+  normalizeDayName,
   DEFAULT_THRESHOLDS,
 } from '../utils/workloadUtils';
 import { getInstructorDisplayName, isInstructorMatch } from '../utils/instructorUtils';
@@ -35,7 +36,8 @@ export default function NewWorkloadPage() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(null);
   const [branchFilter, setBranchFilter] = useState('all');
-  const [detail, setDetail] = useState(null); // { teacher, day, dayData }
+  const [employmentFilter, setEmploymentFilter] = useState('all');
+  const [detail, setDetail] = useState(null); // { teacher, day, dayData, isPartTime, isOutsidePartTime, availableDays }
 
   // Branch open days come from PostgreSQL, not the Sheets config.
   const { openDaysFor } = useNewOperationals();
@@ -75,17 +77,62 @@ export default function NewWorkloadPage() {
 
   const branchList = [...new Set((branches || []).map((b) => b.name))].filter(Boolean);
 
-  // Working days per instructor, taken from the branch rules in PostgreSQL for
-  // whichever branch(es) they teach at. With no rules configured we treat every
-  // day as workable rather than showing an instructor as unavailable all week.
+  const getInstructorProfile = (teacher) => {
+    return instructors.find((i) => isInstructorMatch(teacher, i));
+  };
+
+  const isInstructorPartTime = (instOrTeacher) => {
+    const inst = typeof instOrTeacher === 'object' && instOrTeacher !== null
+      ? instOrTeacher
+      : getInstructorProfile(instOrTeacher);
+    const empType = inst?.employmentType || inst?.employment_type;
+    return empType === 'Part-Time' || inst?.status === 'parttime';
+  };
+
+  const getInstructorAvailableDays = (instOrTeacher) => {
+    const inst = typeof instOrTeacher === 'object' && instOrTeacher !== null
+      ? instOrTeacher
+      : getInstructorProfile(instOrTeacher);
+    const raw = Array.isArray(inst?.availableDays)
+      ? inst.availableDays
+      : (Array.isArray(inst?.available_days) ? inst.available_days : (Array.isArray(inst?.workingDays) ? inst.workingDays : []));
+    return raw.map((d) => normalizeDayName(d) || d).filter(Boolean);
+  };
+
+  // Working days per instructor. For Part-Time instructors, their declared available
+  // days are used. For Full-Time instructors, days come from branch operating rules.
   const workingDaysFor = (teacher) => {
-    const inst = instructors.find((i) => isInstructorMatch(teacher, i));
+    const inst = getInstructorProfile(teacher);
+    const isPT = isInstructorPartTime(inst);
+    if (isPT) {
+      const avDays = getInstructorAvailableDays(inst);
+      if (avDays.length > 0) {
+        return new Set(avDays);
+      }
+    }
     const brs = inst?.branches || [];
     const days = new Set();
     const sources = brs.length ? brs : branchList;
     sources.forEach((bn) => openDaysFor(bn).forEach((d) => days.add(d)));
     if (days.size === 0) DAY_NAMES.forEach((d) => days.add(d));
     return days;
+  };
+
+  // Adaptive thresholds for Part-Time instructors based on their working days
+  const getInstructorThresholds = (teacher) => {
+    const inst = getInstructorProfile(teacher);
+    const isPT = isInstructorPartTime(inst);
+    if (isPT) {
+      const avDays = getInstructorAvailableDays(inst);
+      const numDays = Math.max(1, avDays.length || 2);
+      return {
+        dailyAmber: thresholds.dailyAmber,
+        dailyRed: thresholds.dailyRed,
+        weeklyAmber: Math.min(thresholds.weeklyAmber, numDays * thresholds.dailyAmber),
+        weeklyRed: Math.min(thresholds.weeklyRed, numDays * thresholds.dailyRed),
+      };
+    }
+    return thresholds;
   };
 
   // Build the report from New Operations classes only. Instructors with no
@@ -110,9 +157,16 @@ export default function NewWorkloadPage() {
     const filteredBase = base.filter((r) => {
       const profile = instructors.find((i) => isInstructorMatch(r.teacher, i));
       if (!profile) return false;
-      if (branchFilter === 'all') return true;
-      const brs = Array.isArray(profile.branches) ? profile.branches : [profile.location].filter(Boolean);
-      return brs.includes('All Branches') || brs.includes(branchFilter) || profile.location === branchFilter;
+      if (branchFilter !== 'all') {
+        const brs = Array.isArray(profile.branches) ? profile.branches : [profile.location].filter(Boolean);
+        if (!brs.includes('All Branches') && !brs.includes(branchFilter) && profile.location !== branchFilter) return false;
+      }
+      if (employmentFilter !== 'all') {
+        const isPT = isInstructorPartTime(profile);
+        const empType = isPT ? 'Part-Time' : 'Full-Time';
+        if (empType !== employmentFilter) return false;
+      }
+      return true;
     });
 
     const existing = new Set(filteredBase.map((r) => r.teacher));
@@ -122,15 +176,43 @@ export default function NewWorkloadPage() {
       if (!displayName) return;
       const brs = Array.isArray(i.branches) ? i.branches : [i.location].filter(Boolean);
       if (branchFilter !== 'all' && !brs.includes('All Branches') && !brs.includes(branchFilter) && i.location !== branchFilter) return;
+      const isPT = isInstructorPartTime(i);
+      const empType = isPT ? 'Part-Time' : 'Full-Time';
+      if (employmentFilter !== 'all' && empType !== employmentFilter) return;
       if (!existing.has(displayName) && !existing.has(i.name)) {
         extras.push(buildIdleWorkloadRow(displayName));
         existing.add(displayName);
       }
     });
     return filteredBase.concat(extras);
-  }, [classes, instructors, branchFilter, studentBranchMap]);
+  }, [classes, instructors, branchFilter, employmentFilter, studentBranchMap]);
 
-  const summary = useMemo(() => summarizeWorkload(report, thresholds), [report, thresholds]);
+  const summary = useMemo(() => {
+    const baseSummary = summarizeWorkload(report, thresholds);
+    let overloadedCount = 0;
+    let ftCount = 0;
+    let ptCount = 0;
+
+    report.forEach((r) => {
+      const inst = getInstructorProfile(r.teacher);
+      const isPT = isInstructorPartTime(inst);
+      if (isPT) ptCount++;
+      else ftCount++;
+
+      const t = getInstructorThresholds(r.teacher);
+      if (r.weekly.hours > t.weeklyRed) {
+        overloadedCount++;
+      }
+    });
+
+    return {
+      ...baseSummary,
+      overloadedCount,
+      ftCount,
+      ptCount,
+    };
+  }, [report, thresholds, instructors]);
+
   const sorted = useMemo(
     () => [...report].sort((a, b) => b.weekly.hours - a.weekly.hours),
     [report]
@@ -151,9 +233,27 @@ export default function NewWorkloadPage() {
   };
 
   const kpis = [
-    { label: 'Instructors', value: report.length, icon: Users, color: '#4f46e5' },
-    { label: 'Total hours / week', value: formatHoursMinutes(summary.totalHours || 0), icon: Clock, color: '#0891b2' },
-    { label: 'Overloaded', value: summary.overloadedCount || 0, icon: AlertOctagon, color: '#dc2626' },
+    {
+      label: 'Instructors',
+      value: report.length,
+      subtext: `${summary.ftCount || 0} Full-Time · ${summary.ptCount || 0} Part-Time`,
+      icon: Users,
+      color: '#4f46e5',
+    },
+    {
+      label: 'Total hours / week',
+      value: formatHoursMinutes(summary.totalHours || 0),
+      subtext: `Avg ${formatHoursMinutes(summary.avgHours || 0)} / instructor`,
+      icon: Clock,
+      color: '#0891b2',
+    },
+    {
+      label: 'Overloaded',
+      value: summary.overloadedCount || 0,
+      subtext: summary.overloadedCount > 0 ? 'Exceeding capacity limit' : 'All within capacity limits',
+      icon: AlertOctagon,
+      color: summary.overloadedCount > 0 ? '#dc2626' : '#059669',
+    },
   ];
 
   return (
@@ -168,15 +268,27 @@ export default function NewWorkloadPage() {
               Hours per instructor from the New Operations schedule.
             </p>
           </div>
-          <select
-            data-tour="workload-branch-filter"
-            value={branchFilter}
-            onChange={(e) => setBranchFilter(e.target.value)}
-            style={{ padding: '0.5rem 1rem', borderRadius: '6px', border: '1px solid var(--border-color)', background: 'white', fontSize: '0.85rem', cursor: 'pointer' }}
-          >
-            <option value="all">All Branches</option>
-            {branchList.map((n) => <option key={n} value={n}>{n}</option>)}
-          </select>
+          <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
+            <select
+              data-tour="workload-employment-filter"
+              value={employmentFilter}
+              onChange={(e) => setEmploymentFilter(e.target.value)}
+              style={{ padding: '0.5rem 0.85rem', borderRadius: '6px', border: '1px solid var(--border-color)', background: 'white', fontSize: '0.85rem', cursor: 'pointer' }}
+            >
+              <option value="all">All Employment Types</option>
+              <option value="Full-Time">Full-Time Only</option>
+              <option value="Part-Time">Part-Time Only</option>
+            </select>
+            <select
+              data-tour="workload-branch-filter"
+              value={branchFilter}
+              onChange={(e) => setBranchFilter(e.target.value)}
+              style={{ padding: '0.5rem 1rem', borderRadius: '6px', border: '1px solid var(--border-color)', background: 'white', fontSize: '0.85rem', cursor: 'pointer' }}
+            >
+              <option value="all">All Branches</option>
+              {branchList.map((n) => <option key={n} value={n}>{n}</option>)}
+            </select>
+          </div>
         </div>
 
         <div style={{ padding: '1.25rem 1.5rem', display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
@@ -194,13 +306,14 @@ export default function NewWorkloadPage() {
           ) : (
             <>
               {/* KPIs */}
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '0.85rem' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0.85rem' }}>
                 {kpis.map((k) => (
                   <div key={k.label} style={{ background: 'var(--bg-color)', border: '1px solid var(--border-color)', borderRadius: '10px', padding: '0.9rem 1rem', display: 'flex', alignItems: 'center', gap: '0.85rem' }}>
                     <k.icon size={22} style={{ color: k.color }} />
                     <div>
                       <div style={{ fontSize: '1.4rem', fontWeight: 700, color: k.color, lineHeight: 1 }}>{k.value}</div>
                       <div style={{ fontSize: '0.76rem', color: 'var(--text-secondary)', marginTop: '0.25rem' }}>{k.label}</div>
+                      {k.subtext && <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', marginTop: '0.15rem' }}>{k.subtext}</div>}
                     </div>
                   </div>
                 ))}
@@ -211,11 +324,11 @@ export default function NewWorkloadPage() {
                 <h3 style={{ fontSize: '1rem', fontWeight: 600, margin: '0 0 0.15rem' }}>Daily Workload Heatmap</h3>
                 <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Hours per day, per instructor. Red cells exceed {thresholds.dailyRed}h.</span>
                 {sorted.length === 0 ? (
-                  <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginTop: '1rem' }}>No instructors or classes yet.</p>
+                  <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginTop: '1rem' }}>No instructors or classes match the filter.</p>
                 ) : (
                   <div style={{ overflowX: 'auto', marginTop: '0.75rem' }}>
-                    <div style={{ minWidth: `${160 + DAY_NAMES.length * 64}px` }}>
-                      <div style={{ display: 'grid', gridTemplateColumns: `160px repeat(${DAY_NAMES.length}, 1fr)`, gap: '4px', marginBottom: '4px' }}>
+                    <div style={{ minWidth: `${170 + DAY_NAMES.length * 64}px` }}>
+                      <div style={{ display: 'grid', gridTemplateColumns: `170px repeat(${DAY_NAMES.length}, 1fr)`, gap: '4px', marginBottom: '4px' }}>
                         <div />
                         {DAY_NAMES.map((d) => (
                           <div key={d} style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textAlign: 'center', textTransform: 'uppercase' }}>{d.slice(0, 3)}</div>
@@ -223,31 +336,102 @@ export default function NewWorkloadPage() {
                       </div>
                       {sorted.slice(0, 30).map((r) => {
                         const wd = workingDaysFor(r.teacher);
+                        const inst = getInstructorProfile(r.teacher);
+                        const isPartTime = isInstructorPartTime(inst);
+                        const avDays = isPartTime ? getInstructorAvailableDays(inst) : [];
+                        const ptDaysFormatted = avDays.map((d) => d.slice(0, 3)).join(', ');
+
                         return (
-                          <div key={r.teacher} style={{ display: 'grid', gridTemplateColumns: `160px repeat(${DAY_NAMES.length}, 1fr)`, gap: '4px', marginBottom: '4px', alignItems: 'center' }}>
-                            <div style={{ fontSize: '0.78rem', fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', paddingRight: '0.5rem' }} title={r.teacher}>{r.teacher}</div>
+                          <div key={r.teacher} style={{ display: 'grid', gridTemplateColumns: `170px repeat(${DAY_NAMES.length}, 1fr)`, gap: '4px', marginBottom: '4px', alignItems: 'center' }}>
+                            <div
+                              style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', overflow: 'hidden', paddingRight: '0.5rem' }}
+                              title={`${r.teacher} (${isPartTime ? `Part-Time: ${ptDaysFormatted || 'No days configured'}` : 'Full-Time'})`}
+                            >
+                              <span style={{ fontSize: '0.78rem', fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.teacher}</span>
+                              {isPartTime ? (
+                                <span
+                                  style={{
+                                    fontSize: '0.6rem',
+                                    fontWeight: 700,
+                                    padding: '0.08rem 0.35rem',
+                                    borderRadius: '4px',
+                                    background: 'rgba(245, 158, 11, 0.15)',
+                                    color: '#b45309',
+                                    border: '1px solid rgba(245, 158, 11, 0.3)',
+                                    flexShrink: 0,
+                                  }}
+                                  title={`Part-Time (${ptDaysFormatted || 'No days set'})`}
+                                >
+                                  PT
+                                </span>
+                              ) : (
+                                <span
+                                  style={{
+                                    fontSize: '0.6rem',
+                                    fontWeight: 600,
+                                    padding: '0.08rem 0.35rem',
+                                    borderRadius: '4px',
+                                    background: 'var(--bg-color)',
+                                    color: 'var(--text-muted)',
+                                    border: '1px solid var(--border-color)',
+                                    flexShrink: 0,
+                                  }}
+                                  title="Full-Time"
+                                >
+                                  FT
+                                </span>
+                              )}
+                            </div>
                             {DAY_NAMES.map((d) => {
                               const dd = r.byDay[d];
                               const hrs = dd.hours;
                               const hasData = hrs > 0;
                               const isWorking = wd.has(d);
+                              const isOutsidePartTime = isPartTime && !isWorking && hasData;
+
                               return (
                                 <button
                                   key={d}
                                   type="button"
                                   disabled={!hasData}
-                                  onClick={hasData ? () => setDetail({ teacher: r.teacher, day: d, dayData: dd }) : undefined}
-                                  title={hasData ? `${r.teacher} · ${d}: ${formatHoursMinutes(hrs)} (${dd.sessions} sessions) — click for details` : `${r.teacher} · ${d}: ${isWorking ? 'Free' : 'Holiday'}`}
+                                  onClick={hasData ? () => setDetail({
+                                    teacher: r.teacher,
+                                    day: d,
+                                    dayData: dd,
+                                    isPartTime,
+                                    isOutsidePartTime,
+                                    availableDays: avDays,
+                                  }) : undefined}
+                                  title={hasData
+                                    ? `${r.teacher} · ${d}: ${formatHoursMinutes(hrs)} (${dd.sessions} sessions)${isOutsidePartTime ? ' [⚠️ Off-day assignment]' : ''} — click for details`
+                                    : `${r.teacher} · ${d}: ${isWorking ? 'Free' : (isPartTime ? 'Off (Part-Time)' : 'Holiday')}`}
                                   style={{
-                                    height: 28, borderRadius: 4, border: 'none', padding: 0,
+                                    height: 28, borderRadius: 4,
+                                    border: isOutsidePartTime ? '1.5px solid #f59e0b' : 'none',
+                                    padding: 0,
                                     background: hasData ? cellColor(hrs) : (isWorking ? 'var(--bg-color)' : 'repeating-linear-gradient(45deg, var(--bg-color), var(--bg-color) 4px, var(--border-color) 4px, var(--border-color) 8px)'),
                                     color: hrs > thresholds.dailyAmber ? 'white' : (hrs > 0 ? 'white' : (isWorking ? 'var(--text-muted)' : '#9ca3af')),
                                     fontSize: hasData ? '0.7rem' : '0.6rem', fontWeight: 600,
                                     cursor: hasData ? 'pointer' : 'default',
                                     opacity: isWorking || hasData ? 1 : 0.65,
+                                    position: 'relative',
                                   }}
                                 >
-                                  {hrs > 0 ? formatHoursMinutes(hrs) : (isWorking ? 'FREE' : 'HOLIDAY')}
+                                  {hrs > 0 ? formatHoursMinutes(hrs) : (isWorking ? 'FREE' : (isPartTime ? 'OFF' : 'HOLIDAY'))}
+                                  {isOutsidePartTime && (
+                                    <span
+                                      style={{
+                                        position: 'absolute',
+                                        top: -2,
+                                        right: -2,
+                                        width: 6,
+                                        height: 6,
+                                        borderRadius: '50%',
+                                        background: '#f59e0b',
+                                        border: '1px solid white',
+                                      }}
+                                    />
+                                  )}
                                 </button>
                               );
                             })}
@@ -268,6 +452,7 @@ export default function NewWorkloadPage() {
                   <thead>
                     <tr>
                       <th>Instructor</th>
+                      <th>Employment</th>
                       <th style={{ textAlign: 'right' }}>Hours / week</th>
                       <th style={{ textAlign: 'center' }}>Sessions</th>
                       <th style={{ textAlign: 'center' }}>Students</th>
@@ -277,11 +462,47 @@ export default function NewWorkloadPage() {
                   </thead>
                   <tbody>
                     {sorted.map((r) => {
-                      const cls = classifyWeekly(r.weekly.hours, thresholds);
+                      const inst = getInstructorProfile(r.teacher);
+                      const isPartTime = isInstructorPartTime(inst);
+                      const avDays = isPartTime ? getInstructorAvailableDays(inst) : [];
+                      const ptDaysFormatted = avDays.map((d) => d.slice(0, 3)).join(', ');
+
+                      const t = getInstructorThresholds(r.teacher);
+                      const cls = classifyWeekly(r.weekly.hours, t);
                       const st = STATUS[cls] || STATUS.idle;
                       return (
                         <tr key={r.teacher}>
                           <td style={{ fontWeight: 600 }}>{r.teacher}</td>
+                          <td>
+                            {isPartTime ? (
+                              <span style={{
+                                fontSize: '0.72rem',
+                                padding: '0.15rem 0.5rem',
+                                borderRadius: '6px',
+                                background: 'rgba(245, 158, 11, 0.12)',
+                                color: '#b45309',
+                                fontWeight: 600,
+                                border: '1px solid rgba(245, 158, 11, 0.25)',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '0.3rem',
+                              }}>
+                                Part-Time {ptDaysFormatted ? `(${ptDaysFormatted})` : ''}
+                              </span>
+                            ) : (
+                              <span style={{
+                                fontSize: '0.72rem',
+                                padding: '0.15rem 0.5rem',
+                                borderRadius: '6px',
+                                background: 'var(--bg-color)',
+                                color: 'var(--text-secondary)',
+                                fontWeight: 500,
+                                border: '1px solid var(--border-color)',
+                              }}>
+                                Full-Time
+                              </span>
+                            )}
+                          </td>
                           <td style={{ textAlign: 'right' }}>{formatHoursMinutes(r.weekly.hours)}</td>
                           <td style={{ textAlign: 'center' }}>{r.weekly.sessions}</td>
                           <td style={{ textAlign: 'center' }}>{r.weekly.students}</td>
@@ -307,17 +528,33 @@ export default function NewWorkloadPage() {
           style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.55)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1.5rem' }}
         >
           <div onClick={(e) => e.stopPropagation()} style={{ background: 'var(--panel-bg, white)', borderRadius: '12px', maxWidth: '640px', width: '100%', maxHeight: '85vh', overflow: 'auto', border: '1px solid var(--border-color)' }}>
-            <div style={{ padding: '1.1rem 1.5rem', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div style={{ padding: '1.1rem 1.5rem', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
               <div>
-                <h3 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 700 }}>{detail.teacher} <span style={{ color: 'var(--text-muted)', fontWeight: 500 }}>· {detail.day}</span></h3>
-                <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginTop: '0.25rem' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+                  <h3 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 700 }}>{detail.teacher} <span style={{ color: 'var(--text-muted)', fontWeight: 500 }}>· {detail.day}</span></h3>
+                  {detail.isPartTime ? (
+                    <span style={{ fontSize: '0.68rem', fontWeight: 700, padding: '0.12rem 0.45rem', borderRadius: '4px', background: '#fef3c7', color: '#92400e', border: '1px solid #f59e0b' }}>
+                      Part-Time ({detail.availableDays?.map((d) => d.slice(0, 3)).join(', ') || 'No days set'})
+                    </span>
+                  ) : (
+                    <span style={{ fontSize: '0.68rem', fontWeight: 600, padding: '0.12rem 0.45rem', borderRadius: '4px', background: 'var(--bg-color)', color: 'var(--text-muted)', border: '1px solid var(--border-color)' }}>
+                      Full-Time
+                    </span>
+                  )}
+                </div>
+                {detail.isOutsidePartTime && (
+                  <div style={{ fontSize: '0.74rem', color: '#b45309', background: '#fef3c7', padding: '0.25rem 0.55rem', borderRadius: '6px', marginTop: '0.4rem', border: '1px dashed #f59e0b', fontWeight: 500 }}>
+                    ⚠️ Scheduled on an off-day (outside instructor&apos;s Part-Time available days)
+                  </div>
+                )}
+                <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginTop: '0.3rem' }}>
                   <strong>{formatHoursMinutes(detail.dayData.hours)}</strong> teaching · {detail.dayData.sessions} session{detail.dayData.sessions === 1 ? '' : 's'} · {detail.dayData.students} student{detail.dayData.students === 1 ? '' : 's'}
                   {detail.dayData.busiestStartMin !== null && (
                     <> · {formatMinutesToClock(detail.dayData.busiestStartMin)} – {formatMinutesToClock(detail.dayData.busiestEndMin)}</>
                   )}
                 </div>
               </div>
-              <button onClick={() => setDetail(null)} style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'flex' }}><X size={18} /></button>
+              <button onClick={() => setDetail(null)} style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'flex', padding: '0.2rem' }}><X size={18} /></button>
             </div>
             <div style={{ padding: '1rem 1.5rem', display: 'flex', flexDirection: 'column', gap: '0.7rem' }}>
               {(detail.dayData.sessionList || []).map((s, i) => (
@@ -378,3 +615,4 @@ export default function NewWorkloadPage() {
     </section>
   );
 }
+
