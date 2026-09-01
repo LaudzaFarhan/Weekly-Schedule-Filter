@@ -38,6 +38,14 @@ const mapRow = (row) => {
   const puStatusMatch = noteStr.match(/\[ProgressUpdateStatus:\s*([^\]]+)\]/i);
   const puDateMatch = noteStr.match(/\[ProgressUpdateDate:\s*([^\]]+)\]/i);
   const puNoteMatch = noteStr.match(/\[ProgressUpdateNote:\s*([^\]]+)\]/i);
+  const puHistoryMatch = noteStr.match(/\[ProgressUpdateHistory:\s*(\[.*?\]|\{.*?\})\]/s);
+  let parsedHistory = [];
+  if (puHistoryMatch) {
+    try {
+      parsedHistory = JSON.parse(puHistoryMatch[1]);
+    } catch (e) {}
+  }
+  if (!Array.isArray(parsedHistory)) parsedHistory = [];
 
   return {
     id: row.id,
@@ -54,6 +62,7 @@ const mapRow = (row) => {
     progressUpdateStatus: row.progress_update_status || (puStatusMatch ? puStatusMatch[1].trim() : null),
     progressUpdateDate: row.progress_update_date || (puDateMatch ? puDateMatch[1].trim() : null),
     progressUpdateNote: row.progress_update_note || (puNoteMatch ? puNoteMatch[1].trim() : null),
+    progressUpdateHistory: Array.isArray(row.progress_update_history) ? row.progress_update_history : parsedHistory,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -222,6 +231,9 @@ export async function PUT(req) {
     }
     if (body.progressUpdateNote !== undefined) {
       noteVal = setNoteTag(noteVal, 'ProgressUpdateNote', body.progressUpdateNote || '');
+    }
+    if (body.progressUpdateHistory !== undefined) {
+      noteVal = setNoteTag(noteVal, 'ProgressUpdateHistory', JSON.stringify(body.progressUpdateHistory || []));
     }
 
     let res;

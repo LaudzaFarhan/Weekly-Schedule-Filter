@@ -674,6 +674,7 @@ export default function LiveProgressTable({ category }) {
           progressUpdateStatus: stored?.progressUpdateStatus || null,
           progressUpdateDate: stored?.progressUpdateDate || null,
           progressUpdateNote: stored?.progressUpdateNote || null,
+          progressUpdateHistory: stored?.progressUpdateHistory || [],
           zohoLink,
         };
 
@@ -753,6 +754,7 @@ export default function LiveProgressTable({ category }) {
         progressUpdateStatus: stored?.progressUpdateStatus || null,
         progressUpdateDate: stored?.progressUpdateDate || null,
         progressUpdateNote: stored?.progressUpdateNote || null,
+        progressUpdateHistory: stored?.progressUpdateHistory || [],
         zohoLink,
       };
 
@@ -2923,6 +2925,16 @@ export default function LiveProgressTable({ category }) {
           onClose={() => setProgressUpdateModalRow(null)}
           row={progressUpdateModalRow}
           category={category}
+          allStudentRows={rows.filter(
+            (r) =>
+              String(r.studentName || '')
+                .trim()
+                .toLowerCase() ===
+              String(progressUpdateModalRow.studentName || '')
+                .trim()
+                .toLowerCase()
+          )}
+          user={user}
           onSave={async (updates) => {
             await persist(progressUpdateModalRow, () => updates);
             showToast({
