@@ -80,7 +80,17 @@ function normaliseAttendance(value, category) {
     if (date && !ISO_DATE.test(date)) {
       return { error: `attendance.${key}.date is "${date}" — expected "YYYY-MM-DD"` };
     }
-    out[n] = { date: date || null, note: entry.note == null ? '' : String(entry.note) };
+    out[n] = {
+      date: date || null,
+      note: entry.note == null ? '' : String(entry.note),
+      recordedBy: entry.recordedBy ? String(entry.recordedBy).trim() : (entry.user ? String(entry.user).trim() : null),
+      recordedByName: entry.recordedByName ? String(entry.recordedByName).trim() : null,
+      recordedAt: entry.recordedAt ? String(entry.recordedAt).trim() : null,
+      updatedBy: entry.updatedBy ? String(entry.updatedBy).trim() : null,
+      updatedAt: entry.updatedAt ? String(entry.updatedAt).trim() : null,
+      teacher: entry.teacher ? String(entry.teacher).trim() : null,
+      arrangedTeacher: entry.arrangedTeacher ? String(entry.arrangedTeacher).trim() : null,
+    };
   }
   return { attendance: out };
 }

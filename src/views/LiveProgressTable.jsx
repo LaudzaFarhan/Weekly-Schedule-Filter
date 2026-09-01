@@ -34,8 +34,14 @@ import { parseTimeSlot } from '../utils/timeUtils';
 import {
   Search, X, User, MapPin, Clock, Calendar, GraduationCap, Check, Video,
   StickyNote, AlertTriangle, TrendingUp, BookOpen, Edit3, Save, UserCheck, ChevronDown, CheckCircle2,
-  ExternalLink,
+  ExternalLink, Eye,
 } from 'lucide-react';
+import AttendanceDetailHistoryModal from '../components/operations/AttendanceDetailHistoryModal';
+import {
+  getProgressUpdateStatus,
+  PROGRESS_UPDATE_STATUSES,
+  PROGRESS_UPDATE_BADGES,
+} from '../utils/progressUpdateUtils';
 
 /**
  * Rows per page. Five meant 88 pages for one category's 440 students, so the
@@ -178,6 +184,9 @@ export default function LiveProgressTable({ category }) {
   const [zohoModal, setZohoModal] = useState(null); // { row, currentLink }
   const [zohoLinkInput, setZohoLinkInput] = useState('');
   const [zohoSaving, setZohoSaving] = useState(false);
+
+  // Attendance detail & history modal state
+  const [detailModalRow, setDetailModalRow] = useState(null);
 
   const getInstructorsForBranch = (branchName) => {
     const bClean = String(branchName || '').trim();
@@ -762,12 +771,13 @@ export default function LiveProgressTable({ category }) {
     return result;
   }, [classes, studentRegistry, category, progressByKey, instructorProfiles, studentInfoMap]);
 
-  /** Summary count for Active, Long Break, Inactive, and Unassigned students */
+  /** Summary count for Active, Long Break, Inactive, Unassigned, and Need Update students */
   const statusStats = useMemo(() => {
     let active = 0;
     let longBreak = 0;
     let inactive = 0;
     let unassigned = 0;
+    let needUpdate = 0;
     let total = 0;
 
     for (const r of rows) {
@@ -784,10 +794,18 @@ export default function LiveProgressTable({ category }) {
       } else {
         active++;
       }
+
+      const pStatus = getProgressUpdateStatus(r, r);
+      const isNu = pStatus === PROGRESS_UPDATE_STATUSES.NEED_UPDATE || pStatus === 'Need update progress';
+      const attCount = Object.keys(r.attendance || {}).length;
+      const thresh = category === 'Coder' ? 9 : 7;
+      if (isNu || attCount >= thresh) {
+        needUpdate++;
+      }
     }
 
-    return { active, longBreak, inactive, unassigned, total };
-  }, [rows, filterBranch]);
+    return { active, longBreak, inactive, unassigned, needUpdate, total };
+  }, [rows, filterBranch, category]);
 
   const instructorList = useMemo(() => {
     const set = new Set();
@@ -869,7 +887,13 @@ export default function LiveProgressTable({ category }) {
       if (filterStatus !== 'all') {
         const rSt = String(r.status || 'Active').toLowerCase();
         const fSt = filterStatus.toLowerCase();
-        if (fSt === 'unassigned') {
+        if (fSt === 'need update') {
+          const pStatus = getProgressUpdateStatus(r, r);
+          const isNu = pStatus === PROGRESS_UPDATE_STATUSES.NEED_UPDATE || pStatus === 'Need update progress';
+          const attCount = Object.keys(r.attendance || {}).length;
+          const thresh = category === 'Coder' ? 9 : 7;
+          if (!isNu && attCount < thresh) return false;
+        } else if (fSt === 'unassigned') {
           if (!r.isUnassigned) return false;
         } else if (fSt === 'active') {
           if (rSt.includes('inactive') || rSt.includes('break')) return false;
@@ -887,7 +911,7 @@ export default function LiveProgressTable({ category }) {
       }
       return true;
     });
-  }, [rows, search, filterBranch, filterLevel, filterDay, filterInstructor, effectiveTime, filterContinuation, filterStatus, filterAllocation]);
+  }, [rows, search, filterBranch, filterLevel, filterDay, filterInstructor, effectiveTime, filterContinuation, filterStatus, filterAllocation, category]);
 
   /**
    * Default order: instructor first, so one instructor's students sit together.
@@ -1044,8 +1068,25 @@ export default function LiveProgressTable({ category }) {
     // holding the dialog open until the round trip finishes just feels slow.
     closeAttendance();
     const nextAttendance = { ...row.attendance };
-    if (clear) delete nextAttendance[lesson];
-    else nextAttendance[lesson] = { date: draftDate || null, note: draftNote };
+    if (clear) {
+      delete nextAttendance[lesson];
+    } else {
+      const userIdentifier = user?.email || (user?.name ? `${user.name} (${user.email || ''})`.trim() : 'Unknown User');
+      const effectiveTeacher = row.arrangedTeacher || (row.instructor && row.instructor !== 'Unassigned' && row.instructor !== '—' ? row.instructor : null);
+      const prevEntry = row.attendance?.[lesson] || {};
+
+      nextAttendance[lesson] = {
+        date: draftDate || null,
+        note: draftNote,
+        recordedBy: userIdentifier,
+        recordedByName: user?.name || null,
+        recordedAt: prevEntry.recordedAt || new Date().toISOString(),
+        updatedBy: userIdentifier,
+        updatedAt: new Date().toISOString(),
+        teacher: effectiveTeacher,
+        arrangedTeacher: (row.arrangedLesson && Number(row.arrangedLesson) === lesson) ? (row.arrangedTeacher || null) : null,
+      };
+    }
 
     await persist(row, () => ({ attendance: nextAttendance }));
 
@@ -1340,6 +1381,23 @@ export default function LiveProgressTable({ category }) {
               </span>
             </div>
 
+            {/* Need Update Students Counter Badge */}
+            <div
+              onClick={() => { setFilterStatus(filterStatus === 'Need Update' ? 'all' : 'Need Update'); setPage(1); }}
+              title="Click to filter students that need progress update"
+              style={{
+                display: 'inline-flex', alignItems: 'center', gap: '0.35rem',
+                padding: '0.3rem 0.65rem', borderRadius: '20px', cursor: 'pointer',
+                background: filterStatus === 'Need Update' ? 'rgba(245,158,11,0.25)' : 'rgba(245,158,11,0.12)',
+                border: filterStatus === 'Need Update' ? '1.5px solid #f59e0b' : '1px solid rgba(245,158,11,0.3)',
+                color: '#b45309', fontSize: '0.75rem', fontWeight: 600,
+                transition: 'all 0.15s ease',
+              }}
+            >
+              <Clock size={11} strokeWidth={2.5} style={{ color: '#d97706' }} />
+              <span>Need Update: <strong>{statusStats.needUpdate}</strong></span>
+            </div>
+
             <span aria-hidden="true" style={{ color: 'var(--border-color)', margin: '0 0.15rem' }}>·</span>
             <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
               <strong style={{ color: 'var(--text-main)' }}>{sorted.length}</strong> total · <strong style={{ color: 'var(--text-main)' }}>{attended}</strong> lessons
@@ -1392,6 +1450,7 @@ export default function LiveProgressTable({ category }) {
             <label htmlFor="status-filter-select" style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '0.3rem', display: 'block' }}>Status</label>
             <select id="status-filter-select" aria-label="Status" value={filterStatus} onChange={(e) => { setFilterStatus(e.target.value); setPage(1); }} style={{ width: '100%' }}>
               <option value="all">All Statuses</option>
+              <option value="Need Update">Need Update ({statusStats.needUpdate})</option>
               <option value="Active">Active ({statusStats.active})</option>
               <option value="Long Break">Long Break ({statusStats.longBreak})</option>
               <option value="Inactive">Inactive ({statusStats.inactive})</option>
@@ -1477,6 +1536,7 @@ export default function LiveProgressTable({ category }) {
                   <th style={{ minWidth: '170px' }}>Student Name</th>
                   <th style={{ minWidth: '240px' }}>Lesson Arrangement</th>
                   <th style={{ minWidth: category === 'Coder' ? '300px' : '250px' }}>{category === 'Coder' ? 'Attendance (Meetings)' : `Attendance 1–${maxLessons}`}</th>
+                  <th style={{ minWidth: '130px', width: '130px' }}>Need Update</th>
                   <th style={{ minWidth: '180px' }}>Video Sent</th>
                   <th style={{ width: '160px' }}>Continuation</th>
                 </tr>
@@ -1484,7 +1544,7 @@ export default function LiveProgressTable({ category }) {
               <tbody>
                 {rows.length === 0 ? (
                   <tr>
-                    <td colSpan="9" style={{ textAlign: 'center', padding: '3rem 1.5rem', color: 'var(--text-muted)' }}>
+                    <td colSpan="10" style={{ textAlign: 'center', padding: '3rem 1.5rem', color: 'var(--text-muted)' }}>
                       <AlertTriangle size={32} style={{ color: 'var(--warning)', marginBottom: '0.5rem' }} />
                       <div style={{ fontWeight: 600 }}>No {category} students scheduled</div>
                       <div style={{ fontSize: '0.8rem', marginTop: '0.2rem' }}>
@@ -1494,7 +1554,7 @@ export default function LiveProgressTable({ category }) {
                   </tr>
                 ) : paged.length === 0 ? (
                   <tr>
-                    <td colSpan="9" style={{ textAlign: 'center', padding: '2.5rem 1.5rem', color: 'var(--text-muted)' }}>
+                    <td colSpan="10" style={{ textAlign: 'center', padding: '2.5rem 1.5rem', color: 'var(--text-muted)' }}>
                       <div style={{ fontWeight: 600 }}>No student matches your filters.</div>
                     </td>
                   </tr>
@@ -1772,6 +1832,25 @@ export default function LiveProgressTable({ category }) {
                                       </button>
                                     );
                                   })}
+                                  {/* View Detail Attendance & History Button */}
+                                  <button
+                                    type="button"
+                                    onClick={() => setDetailModalRow(r)}
+                                    title={`View detailed attendance history & teacher tracking for ${r.studentName}`}
+                                    aria-label={`View detailed attendance history for ${r.studentName}`}
+                                    style={{
+                                      position: 'relative',
+                                      width: '22px', height: '22px', borderRadius: '5px',
+                                      display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                                      cursor: 'pointer', fontSize: '0.6rem', fontWeight: 700,
+                                      border: '1px solid var(--border-color)',
+                                      background: 'var(--bg-color)',
+                                      color: 'var(--text-secondary)',
+                                      transition: 'all 0.15s ease',
+                                    }}
+                                  >
+                                    <Eye size={12} />
+                                  </button>
                                 </div>
                                 {category === 'Coder' && (
                                   <div style={{ fontSize: '0.66rem', color: 'var(--text-muted)', marginTop: '0.25rem', fontWeight: 600 }}>
@@ -1779,6 +1858,70 @@ export default function LiveProgressTable({ category }) {
                                   </div>
                                 )}
                               </div>
+                            );
+                          })()}
+                        </td>
+
+                        {/* Need Update Notification Column */}
+                        <td>
+                          {(() => {
+                            const progressStatus = getProgressUpdateStatus(r, r);
+                            const isNeedUpdate = progressStatus === PROGRESS_UPDATE_STATUSES.NEED_UPDATE || progressStatus === 'Need update progress';
+                            const attendedCount = Object.keys(r.attendance || {}).length;
+                            const threshold = category === 'Coder' ? 9 : 7;
+
+                            if (isNeedUpdate || attendedCount >= threshold) {
+                              return (
+                                <span
+                                  style={{
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '0.35rem',
+                                    padding: '0.22rem 0.55rem',
+                                    borderRadius: '6px',
+                                    fontSize: '0.74rem',
+                                    fontWeight: 700,
+                                    background: '#fef3c7',
+                                    color: '#b45309',
+                                    border: '1px solid #f59e0b',
+                                    boxShadow: '0 1px 3px rgba(245, 158, 11, 0.15)',
+                                    whiteSpace: 'nowrap',
+                                  }}
+                                  title={`Student has attended ${attendedCount} lessons (Threshold: ${threshold}). Progress update required.`}
+                                >
+                                  <Clock size={11} strokeWidth={2.5} style={{ flexShrink: 0 }} />
+                                  Need Update
+                                </span>
+                              );
+                            }
+
+                            if (progressStatus && progressStatus !== 'auto') {
+                              const badge = PROGRESS_UPDATE_BADGES[progressStatus];
+                              return (
+                                <span
+                                  style={{
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '0.3rem',
+                                    padding: '0.2rem 0.5rem',
+                                    borderRadius: '6px',
+                                    fontSize: '0.72rem',
+                                    fontWeight: 600,
+                                    background: badge?.bg || '#f1f5f9',
+                                    color: badge?.color || 'var(--text-secondary)',
+                                    border: `1px solid ${badge?.borderColor || 'var(--border-color)'}`,
+                                    whiteSpace: 'nowrap',
+                                  }}
+                                >
+                                  {badge?.shortLabel || progressStatus}
+                                </span>
+                              );
+                            }
+
+                            return (
+                              <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 500, paddingLeft: '0.25rem' }}>
+                                {attendedCount > 0 ? `${attendedCount}/${threshold}` : '—'}
+                              </span>
                             );
                           })()}
                         </td>
@@ -2597,6 +2740,21 @@ export default function LiveProgressTable({ category }) {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Attendance Detail & History Modal */}
+      {detailModalRow && (
+        <AttendanceDetailHistoryModal
+          isOpen={Boolean(detailModalRow)}
+          onClose={() => setDetailModalRow(null)}
+          row={detailModalRow}
+          category={category}
+          maxLessons={maxLessons}
+          onOpenAttendanceEditor={(targetRow, lessonNum) => {
+            setDetailModalRow(null);
+            openAttendance(targetRow, lessonNum);
+          }}
+        />
       )}
     </section>
   );
