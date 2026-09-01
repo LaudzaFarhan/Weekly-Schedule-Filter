@@ -22,7 +22,7 @@ import { DAY_NAMES } from '../utils/constants';
 import { slotTypeMeta } from '../lib/slotTypes';
 import { CATEGORIES } from '../lib/programRules';
 import {
-  Star, X, Clock, SlidersHorizontal, Users, TriangleAlert, CalendarClock,
+  Star, X, Clock, SlidersHorizontal, Users, TriangleAlert, CalendarClock, Building2,
 } from 'lucide-react';
 
 /** Slot kinds that block the time rather than taking a student. */
@@ -104,7 +104,7 @@ function summariseSlots(days) {
     || a.type.localeCompare(b.type));
 }
 
-export default function NewTrialAvailabilityPage() {
+export default function NewTrialAvailabilityPage({ onNavigate }) {
   const { branches } = useSchedule();
   const { rules: scheduleRules } = useScheduleRules();
 
@@ -222,11 +222,34 @@ export default function NewTrialAvailabilityPage() {
               <Star size={20} /> Trial Availability Overview
             </h2>
             <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', margin: '0.2rem 0 0' }}>
-              Windows each branch opens for trials, checked against the live schedule and Live Progress.
+              Windows each branch opens for trials, checked against live Branch Operationals, schedule bookings, and Live Progress.
             </p>
           </div>
 
-          <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
+            {onNavigate && (
+              <button
+                type="button"
+                onClick={() => onNavigate('operationals')}
+                className="btn"
+                title="Configure branch operating hours and slot plans in Operationals"
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.35rem',
+                  padding: '0.45rem 0.8rem',
+                  borderRadius: '6px',
+                  border: '1px solid var(--border-color)',
+                  background: 'transparent',
+                  color: 'var(--text-main)',
+                  fontSize: '0.8rem',
+                  cursor: 'pointer',
+                  fontWeight: 500,
+                }}
+              >
+                <Building2 size={14} style={{ color: 'var(--primary-blue, #4f46e5)' }} /> Operationals
+              </button>
+            )}
             <select
               aria-label="Branch"
               value={branchFilter}
@@ -338,8 +361,48 @@ export default function NewTrialAvailabilityPage() {
                       <tr><td colSpan={visibleDays.length + 1} style={{ padding: '2rem', color: 'var(--text-muted)', textAlign: 'center' }}>Loading availability…</td></tr>
                     ) : matrix.length === 0 ? (
                       <tr>
-                        <td colSpan={visibleDays.length + 1} style={{ padding: '2rem', color: 'var(--text-muted)', textAlign: 'center' }}>
-                          No windows for these filters. Open a branch above to add a slot rule.
+                        <td colSpan={visibleDays.length + 1} style={{ padding: '2.5rem 1rem', color: 'var(--text-secondary)', textAlign: 'center' }}>
+                          {branchFilter !== 'all' && dayFilter !== 'all' && !ruleFor(branchFilter, dayFilter)?.isOpen ? (
+                            <div style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'center', gap: '0.45rem' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontWeight: 600, color: 'var(--text-main)' }}>
+                                <Building2 size={18} style={{ color: '#d97706' }} />
+                                {branchFilter} is closed on {dayFilter}
+                              </div>
+                              <p style={{ margin: 0, fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+                                Based on the Branch Operational Settings configured in Operationals.
+                              </p>
+                              <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.4rem' }}>
+                                <button
+                                  type="button"
+                                  onClick={() => setDayFilter('all')}
+                                  style={{ ...selectStyle, padding: '0.35rem 0.75rem', fontSize: '0.75rem' }}
+                                >
+                                  View All Days for {branchFilter}
+                                </button>
+                                {onNavigate && (
+                                  <button
+                                    type="button"
+                                    onClick={() => onNavigate('operationals')}
+                                    style={{
+                                      ...selectStyle,
+                                      padding: '0.35rem 0.75rem',
+                                      fontSize: '0.75rem',
+                                      background: 'rgba(79,70,229,0.1)',
+                                      color: 'var(--primary-blue, #4f46e5)',
+                                      border: '1px solid var(--primary-blue, #4f46e5)',
+                                      fontWeight: 600,
+                                    }}
+                                  >
+                                    Edit in Operationals
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          ) : (
+                            <div>
+                              No windows for these filters. Open a branch above or visit Operationals to configure slot rules.
+                            </div>
+                          )}
                         </td>
                       </tr>
                     ) : (

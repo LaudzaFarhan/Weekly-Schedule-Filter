@@ -12,7 +12,7 @@ import { CATEGORIES, simulateSlot, CODER_LEVELS } from '../lib/programRules';
 import { cleanSlotList, slotTypeMeta } from '../lib/slotTypes';
 import { groupClasses, levelCovers, instructorsAtBranch, overlaps } from '../lib/instructorAvailability';
 import { DAY_NAMES, getWorkingDaysForBranch, DEFAULT_BRANCH_LIST } from '../utils/constants';
-import { MapPin, Save, Building2, Clock, X, Plus, Trash2, AlertTriangle, Coffee, ShieldCheck, FlaskConical, CheckCircle2, RotateCcw } from 'lucide-react';
+import { MapPin, Save, Building2, Clock, X, Plus, Trash2, AlertTriangle, Coffee, ShieldCheck, FlaskConical, CheckCircle2, RotateCcw, Star } from 'lucide-react';
 
 /** Resolve saved per-day operating hours for a branch: { Monday: {start,end}, ... } */
 export function resolveBranchHours(branch) {
@@ -156,7 +156,7 @@ export function resolveBranchWorkingDays(branch) {
   return getWorkingDaysForBranch(name);
 }
 
-export default function NewOperationalsPage() {
+export default function NewOperationalsPage({ onNavigate }) {
   // `branches` supplies the branch names/ids only. All operational values —
   // open days, hours and class slots — come from PostgreSQL, because New
   // Operations does not use the Google Sheets config that Old Operations reads.
@@ -571,10 +571,33 @@ export default function NewOperationalsPage() {
               <Building2 size={20} /> Operationals
             </h2>
             <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', margin: '0.2rem 0 0' }}>
-              Set which branches are open on each day, and use the clock icon to set that day&apos;s operating hours. Exact class slots are managed in the Class Operation table below. Stored in PostgreSQL and served by <code>/api/new/operationals</code>.
+              Set which branches are open on each day, operating hours, and class slot plans. These settings directly drive trial slot availability on the Trial Availability page.
             </p>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+            {onNavigate && (
+              <button
+                type="button"
+                onClick={() => onNavigate('trial-availability')}
+                className="btn"
+                title="View Trial Availability Matrix based on these operational rules"
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.4rem',
+                  borderRadius: '10px',
+                  padding: '0.5rem 1rem',
+                  fontSize: '0.85rem',
+                  background: 'rgba(217, 119, 6, 0.08)',
+                  color: '#d97706',
+                  border: '1px solid rgba(217, 119, 6, 0.3)',
+                  cursor: 'pointer',
+                  fontWeight: 600,
+                }}
+              >
+                <Star size={15} /> Trial Availability
+              </button>
+            )}
             {branches.length <= 1 && (
               <button
                 type="button"
