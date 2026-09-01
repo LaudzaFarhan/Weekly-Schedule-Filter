@@ -8,7 +8,7 @@ import {
 } from '../../services/newNotificationService';
 import {
   RefreshCw, Plus, Trash2, Bell, EyeOff, ChevronLeft, ChevronRight, Search, PanelLeft,
-  AlertTriangle, AlertCircle, Info, X, CheckCheck, History, HelpCircle, Compass,
+  AlertTriangle, AlertCircle, Info, X, CheckCheck, History, HelpCircle, Compass, Bug,
 } from 'lucide-react';
 import { useTour } from '../tour/TourProvider';
 import AnimationTutorialModal from '../tour/AnimationTutorialModal';
@@ -395,7 +395,7 @@ export default function Header({ onToggleSearch, opsMode = 'old', onToggleSideba
 
                     {alerts.map((item, i) => {
                       const meta = SEVERITY[item.severity] || SEVERITY.info;
-                      const { Icon } = meta;
+                      const IconComponent = item.kind === 'qa_bug' ? Bug : meta.Icon;
                       return (
                         <div
                           key={item.id}
@@ -410,10 +410,11 @@ export default function Header({ onToggleSearch, opsMode = 'old', onToggleSideba
                         >
                           <span aria-hidden="true" style={{
                             flexShrink: 0, width: '26px', height: '26px', borderRadius: '8px',
-                            background: meta.bg, color: meta.color,
+                            background: item.kind === 'qa_bug' ? 'rgba(239, 68, 68, 0.15)' : meta.bg,
+                            color: item.kind === 'qa_bug' ? '#ef4444' : meta.color,
                             display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
                           }}>
-                            <Icon size={14} />
+                            <IconComponent size={14} />
                           </span>
 
                           <button

@@ -289,3 +289,42 @@ export function compressImage(fileOrDataUrl, maxWidth = 1600, maxHeight = 1200, 
     }
   });
 }
+
+/**
+ * Subscribe to open bug notifications via periodic polling.
+ *
+ * @param {Function} callback Called with { totalBugs, openBugs, criticalCount, allIssues }
+ * @param {Function} [onError] Optional error handler
+ * @param {number} [intervalMs=15000] Polling interval in ms
+ * @returns {Function} Unsubscribe function
+ */
+export function subscribeToQaBugs(callback, onError, intervalMs = 15000) {
+  let active = true;
+
+  const poll = async () => {
+    try {
+      const issues = await getIssues();
+      const openBugs = Array.isArray(issues) ? issues.filter(
+        (i) => (i.category === 'Bug' || i.status === 'Open') && ['Open', 'In Progress', 'Ready for QA'].includes(i.status)
+      ) : [];
+      if (active && callback) {
+        callback({
+          totalBugs: openBugs.length,
+          openBugs,
+          criticalCount: openBugs.filter((b) => b.priority === 'Critical').length,
+          allIssues: issues,
+        });
+      }
+    } catch (err) {
+      if (active && onError) onError(err);
+    }
+  };
+
+  poll();
+  const timer = setInterval(poll, intervalMs);
+  return () => {
+    active = false;
+    clearInterval(timer);
+  };
+}
+

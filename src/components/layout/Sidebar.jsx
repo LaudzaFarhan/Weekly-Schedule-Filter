@@ -10,6 +10,7 @@ import {
   Sliders, ArrowUp, ArrowDown, RotateCcw, Check, GripVertical
 } from 'lucide-react';
 import { listenToMyTasks } from '@/services/taskService';
+import { subscribeToQaBugs } from '@/services/qaTrackerService';
 import { resolveUserRole, canAccessPage, isAdmin } from '@/utils/roles';
 
 /**
@@ -410,7 +411,7 @@ const NAV_ITEM_DEFINITIONS = {
     label: 'QA Tracker',
     icon: Bug,
     checkAccess: (canAccess) => canAccess('qa-tracker'),
-    render: ({ currentPage, onNavigate }) => (
+    render: ({ currentPage, onNavigate, openBugCount = 0 }) => (
       <button
         className={`nav-item ${currentPage === 'qa-tracker' ? 'active' : ''}`}
         onClick={() => onNavigate('qa-tracker')}
@@ -420,6 +421,23 @@ const NAV_ITEM_DEFINITIONS = {
           <Bug size={20} />
           QA Tracker
         </div>
+        {openBugCount > 0 && (
+          <span
+            style={{
+              background: '#ef4444',
+              color: '#ffffff',
+              fontSize: '0.66rem',
+              fontWeight: 700,
+              padding: '0.1rem 0.45rem',
+              borderRadius: '999px',
+              lineHeight: 1.2,
+              boxShadow: '0 0 8px rgba(239, 68, 68, 0.4)',
+            }}
+            title={`${openBugCount} unresolved bug${openBugCount === 1 ? '' : 's'} / QA issue${openBugCount === 1 ? '' : 's'}`}
+          >
+            {openBugCount}
+          </span>
+        )}
       </button>
     ),
   },
@@ -445,6 +463,17 @@ export default function Sidebar({ currentPage, onNavigate, onToggleSearch, opsMo
   const canAccess = (pageId) => canAccessPage(userRole, pageId, rolePermissions, userPermissions, userEmail);
 
   const [pendingCount, setPendingCount] = useState(0);
+  const [openBugCount, setOpenBugCount] = useState(0);
+
+  useEffect(() => {
+    const unsub = subscribeToQaBugs(
+      ({ totalBugs }) => {
+        setOpenBugCount(totalBugs);
+      },
+      () => {}
+    );
+    return () => unsub();
+  }, []);
 
   const schedulePagesActive = SCHEDULE_PAGES.some((p) => p.id === currentPage) || !NEW_OPS_PAGES.includes(currentPage);
   const [scheduleOpen, setScheduleOpen] = useState(() => schedulePagesActive);
@@ -788,6 +817,7 @@ export default function Sidebar({ currentPage, onNavigate, onToggleSearch, opsMo
                     liveProgressActive,
                     liveProgressOpen,
                     setLiveProgressOpen,
+                    openBugCount,
                   })}
                 </div>
               );

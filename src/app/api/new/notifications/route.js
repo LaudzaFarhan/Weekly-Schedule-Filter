@@ -168,6 +168,33 @@ export async function GET() {
       });
     }
 
+    // 7. Active / Unresolved QA Bugs and Issues
+    try {
+      const qaBugs = await query(
+        `SELECT id, topic, description, category, priority, status, module, reporter_name 
+         FROM internal_qa_issues 
+         WHERE status IN ('Open', 'In Progress', 'Ready for QA')`
+      );
+      const bugs = (qaBugs?.rows || []).filter(
+        (i) => i.category === 'Bug' || i.status === 'Open'
+      );
+      if (bugs.length > 0) {
+        const hasCritical = bugs.some((b) => b.priority === 'Critical' || b.priority === 'High');
+        add({
+          id: 'qa-bugs-unresolved',
+          kind: 'qa_bug',
+          severity: hasCritical ? 'danger' : 'warning',
+          title: `${bugs.length} active bug / QA issue${bugs.length === 1 ? '' : 's'} reported`,
+          detail: bugs.slice(0, 3).map((b) => `#${b.id} ${b.topic} (${b.module || 'General'})`).join(' · ')
+            + (bugs.length > 3 ? `, +${bugs.length - 3} more` : ''),
+          count: bugs.length,
+          page: 'qa-tracker',
+        });
+      }
+    } catch (e) {
+      // Table might not exist yet or empty
+    }
+
     const weight = { danger: 0, warning: 1, info: 2 };
     items.sort((a, b) => weight[a.severity] - weight[b.severity]);
 

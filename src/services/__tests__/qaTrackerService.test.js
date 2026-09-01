@@ -8,6 +8,7 @@ import {
   getComments,
   addComment,
   captureEnvironmentInfo,
+  subscribeToQaBugs,
   ISSUE_STATUSES,
   ISSUE_TYPES,
   ISSUE_PRIORITIES,
@@ -159,5 +160,32 @@ describe('qaTrackerService API client', () => {
     });
 
     await expect(getIssues()).rejects.toThrow('Database connection failed');
+  });
+
+  it('subscribes to open bugs and calls callback with counts', async () => {
+    const mockIssues = [
+      { id: 1, topic: 'Bug 1', category: 'Bug', status: 'Open', priority: 'Critical' },
+      { id: 2, topic: 'Feature 1', category: 'Feature Request', status: 'In Progress', priority: 'Low' },
+      { id: 3, topic: 'Bug 2', category: 'Bug', status: 'Resolved', priority: 'Medium' },
+    ];
+    fetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => mockIssues,
+    });
+
+    const callback = vi.fn();
+    const unsub = subscribeToQaBugs(callback, null, 10000);
+
+    // Wait a tick for async poll to complete
+    await new Promise((r) => setTimeout(r, 10));
+
+    expect(callback).toHaveBeenCalledWith(
+      expect.objectContaining({
+        totalBugs: 1,
+        criticalCount: 1,
+      })
+    );
+
+    unsub();
   });
 });

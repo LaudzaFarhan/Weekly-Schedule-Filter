@@ -1,9 +1,10 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { ScheduleProvider } from '@/contexts/ScheduleContext';
-import { ToastProvider } from '@/components/ui/Toast';
+import { ToastProvider, useToast } from '@/components/ui/Toast';
+import { subscribeToQaBugs } from '@/services/qaTrackerService';
 import LoginOverlay from '@/components/auth/LoginOverlay';
 import TourProvider, { useTour } from '@/components/tour/TourProvider';
 import Sidebar from '@/components/layout/Sidebar';
@@ -70,6 +71,45 @@ function SunsetBannerSlot({ notice, onDismiss, sidebarCollapsed, onExpandSidebar
   return (
     <OpsSunsetBanner notice={notice} onDismiss={onDismiss} onShowMe={showMeNewOps} />
   );
+}
+
+function QaBugNotificationListener({ onNavigate }) {
+  const { showToast } = useToast();
+  const knownBugsRef = useRef(null);
+
+  useEffect(() => {
+    const unsub = subscribeToQaBugs(
+      ({ openBugs }) => {
+        const currentIds = new Set(openBugs.map((b) => b.id));
+        if (knownBugsRef.current === null) {
+          knownBugsRef.current = currentIds;
+          return;
+        }
+
+        const newBugs = openBugs.filter((b) => !knownBugsRef.current.has(b.id));
+        if (newBugs.length > 0) {
+          newBugs.forEach((bug) => {
+            const isHigh = bug.priority === 'Critical' || bug.priority === 'High';
+            showToast({
+              title: `🐞 ${isHigh ? 'Urgent ' : ''}Bug Reported (#${bug.id})`,
+              message: `${bug.topic} · [${bug.module || 'General'}] reported by ${bug.reporterName || 'User'}`,
+              variant: bug.priority === 'Critical' ? 'error' : (bug.priority === 'High' ? 'warning' : 'info'),
+              duration: 8000,
+              onClick: () => {
+                if (onNavigate) onNavigate('qa-tracker');
+              },
+            });
+          });
+        }
+
+        knownBugsRef.current = currentIds;
+      },
+      () => {}
+    );
+    return () => unsub();
+  }, [showToast, onNavigate]);
+
+  return null;
 }
 
 export default function AppShell() {
@@ -200,6 +240,7 @@ export default function AppShell() {
 
   return (
     <ToastProvider>
+      <QaBugNotificationListener onNavigate={handleNavigate} />
       <ScheduleProvider>
         <TourProvider
           page={currentPage}
