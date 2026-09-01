@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import React from 'react';
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { render, screen, fireEvent, act } from '@testing-library/react';
 import ScheduleGridPanel from '../ScheduleGridPanel';
 
 vi.mock('../../../contexts/ScheduleContext', () => ({
@@ -67,6 +67,11 @@ vi.mock('../../../services/newActivityService', () => ({
 describe('ScheduleGridPanel Fullscreen Mode', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it('renders fullscreen toggle button and expands on click', () => {
@@ -79,14 +84,25 @@ describe('ScheduleGridPanel Fullscreen Mode', () => {
     expect(fullscreenBtn).toBeInTheDocument();
 
     // Click to enter fullscreen
-    fireEvent.click(fullscreenBtn);
+    act(() => {
+      fireEvent.click(fullscreenBtn);
+    });
     expect(panel).toHaveClass('schedule-grid-fullscreen');
     expect(screen.getByText(/Focus Mode/i)).toBeInTheDocument();
 
-    // Click Exit Fullscreen
+    // Click Exit Fullscreen -> triggers closing transition
     const exitBtn = screen.getByRole('button', { name: /exit fullscreen/i });
-    fireEvent.click(exitBtn);
+    act(() => {
+      fireEvent.click(exitBtn);
+    });
+    expect(panel).toHaveClass('is-closing');
+
+    // Wait for exit timer to complete
+    act(() => {
+      vi.advanceTimersByTime(250);
+    });
     expect(panel).not.toHaveClass('schedule-grid-fullscreen');
+    expect(panel).not.toHaveClass('is-closing');
   });
 
   it('exits fullscreen when Esc key is pressed', () => {
@@ -94,11 +110,21 @@ describe('ScheduleGridPanel Fullscreen Mode', () => {
     const panel = container.querySelector('.panel');
 
     const fullscreenBtn = screen.getAllByRole('button', { name: /fullscreen/i })[0];
-    fireEvent.click(fullscreenBtn);
+    act(() => {
+      fireEvent.click(fullscreenBtn);
+    });
     expect(panel).toHaveClass('schedule-grid-fullscreen');
 
-    // Press Escape
-    fireEvent.keyDown(window, { key: 'Escape', code: 'Escape' });
+    // Press Escape -> triggers closing transition
+    act(() => {
+      fireEvent.keyDown(window, { key: 'Escape', code: 'Escape' });
+    });
+    expect(panel).toHaveClass('is-closing');
+
+    // Advance timer to complete exit transition
+    act(() => {
+      vi.advanceTimersByTime(250);
+    });
     expect(panel).not.toHaveClass('schedule-grid-fullscreen');
   });
 });

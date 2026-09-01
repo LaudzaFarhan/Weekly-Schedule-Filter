@@ -44,26 +44,57 @@ export default function ScheduleGridPanel({ onNavigate } = {}) {
   const [liveProgress, setLiveProgress] = useState([]);
   const [saving, setSaving] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [isClosingFullscreen, setIsClosingFullscreen] = useState(false);
+  const exitTimerRef = useRef(null);
   const panelRef = useRef(null);
 
+  const FULLSCREEN_EXIT_MS = 200;
+
+  const exitFullscreen = useCallback(() => {
+    if (!isFullscreen || isClosingFullscreen) return;
+    setIsClosingFullscreen(true);
+    if (exitTimerRef.current) clearTimeout(exitTimerRef.current);
+    exitTimerRef.current = setTimeout(() => {
+      setIsFullscreen(false);
+      setIsClosingFullscreen(false);
+    }, FULLSCREEN_EXIT_MS);
+  }, [isFullscreen, isClosingFullscreen]);
+
+  const enterFullscreen = useCallback(() => {
+    if (exitTimerRef.current) clearTimeout(exitTimerRef.current);
+    setIsClosingFullscreen(false);
+    setIsFullscreen(true);
+  }, []);
+
   const toggleFullscreen = useCallback(() => {
-    setIsFullscreen((prev) => !prev);
+    if (isFullscreen) {
+      exitFullscreen();
+    } else {
+      enterFullscreen();
+    }
+  }, [isFullscreen, exitFullscreen, enterFullscreen]);
+
+  // Clean up exit timer
+  useEffect(() => {
+    return () => {
+      if (exitTimerRef.current) clearTimeout(exitTimerRef.current);
+    };
   }, []);
 
   // Listen to Escape key to exit fullscreen
   useEffect(() => {
     const handleKeyDown = (e) => {
-      if (e.key === 'Escape' && isFullscreen) {
-        setIsFullscreen(false);
+      if (e.key === 'Escape' && isFullscreen && !isClosingFullscreen) {
+        exitFullscreen();
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isFullscreen]);
+  }, [isFullscreen, isClosingFullscreen, exitFullscreen]);
 
   // Lock body scroll when in fullscreen overlay mode
   useEffect(() => {
-    if (isFullscreen) {
+    if (isFullscreen || isClosingFullscreen) {
       document.body.style.overflow = 'hidden';
     } else {
       document.body.style.overflow = '';
@@ -71,7 +102,7 @@ export default function ScheduleGridPanel({ onNavigate } = {}) {
     return () => {
       document.body.style.overflow = '';
     };
-  }, [isFullscreen]);
+  }, [isFullscreen, isClosingFullscreen]);
 
   useEffect(() => {
     const unsub = subscribeToInternalInstructors((data) => setInstructors(data || []));
@@ -538,18 +569,20 @@ export default function ScheduleGridPanel({ onNavigate } = {}) {
     });
   }, 'Could not update the student');
 
+  const fullscreenActive = isFullscreen || isClosingFullscreen;
+
   return (
     <div
       ref={panelRef}
       data-tour="schedule-grid"
-      className={`panel ${isFullscreen ? 'schedule-grid-fullscreen' : ''}`}
-      style={{ margin: isFullscreen ? 0 : '0 0 1.5rem' }}
+      className={`panel ${fullscreenActive ? 'schedule-grid-fullscreen' : ''}${isClosingFullscreen ? ' is-closing' : ''}`}
+      style={{ margin: fullscreenActive ? 0 : '0 0 1.5rem' }}
     >
       <div className="panel-header" style={{ flexWrap: 'wrap', gap: '0.75rem', justifyContent: 'space-between', alignItems: 'center' }}>
         <div>
-          <h2 style={{ fontSize: isFullscreen ? '1.25rem' : '1.15rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.45rem' }}>
+          <h2 style={{ fontSize: fullscreenActive ? '1.25rem' : '1.15rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.45rem' }}>
             <LayoutGrid size={19} /> Schedule Grid
-            {isFullscreen && (
+            {fullscreenActive && (
               <span style={{
                 fontSize: '0.72rem',
                 fontWeight: 600,
@@ -577,8 +610,8 @@ export default function ScheduleGridPanel({ onNavigate } = {}) {
           <button
             type="button"
             onClick={toggleFullscreen}
-            className={`btn ${isFullscreen ? 'btn-primary' : ''}`}
-            title={isFullscreen ? 'Exit Fullscreen Focus (Esc)' : 'Maximize Schedule Grid to Fullscreen'}
+            className={`btn ${fullscreenActive ? 'btn-primary' : ''}`}
+            title={fullscreenActive ? 'Exit Fullscreen Focus (Esc)' : 'Maximize Schedule Grid to Fullscreen'}
             style={{
               fontSize: '0.8rem',
               padding: '0.45rem 0.9rem',
@@ -586,17 +619,17 @@ export default function ScheduleGridPanel({ onNavigate } = {}) {
               alignItems: 'center',
               gap: '0.4rem',
               borderRadius: '8px',
-              background: isFullscreen ? undefined : 'var(--panel-bg, transparent)',
-              border: isFullscreen ? undefined : '1px solid var(--border-color)',
-              color: isFullscreen ? undefined : 'var(--text-main)',
+              background: fullscreenActive ? undefined : 'var(--panel-bg, transparent)',
+              border: fullscreenActive ? undefined : '1px solid var(--border-color)',
+              color: fullscreenActive ? undefined : 'var(--text-main)',
               cursor: 'pointer',
               fontWeight: 600,
               transition: 'all 0.15s ease',
             }}
           >
-            {isFullscreen ? <Minimize2 size={15} /> : <Maximize2 size={15} />}
-            {isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}
-            {isFullscreen && (
+            {fullscreenActive ? <Minimize2 size={15} /> : <Maximize2 size={15} />}
+            {fullscreenActive ? 'Exit Fullscreen' : 'Fullscreen'}
+            {fullscreenActive && (
               <kbd style={{
                 fontSize: '0.65rem',
                 background: 'rgba(255,255,255,0.25)',
@@ -620,7 +653,7 @@ export default function ScheduleGridPanel({ onNavigate } = {}) {
       </div>
 
       <ScheduleGrid
-        isFullscreen={isFullscreen}
+        isFullscreen={fullscreenActive}
         onToggleFullscreen={toggleFullscreen}
         branches={branches}
         instructors={instructors}
