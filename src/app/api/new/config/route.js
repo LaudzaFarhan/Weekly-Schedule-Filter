@@ -43,6 +43,8 @@ const SETTINGS = {
   userPermissions: { default: {}, describe: 'Custom permission overrides per individual user email.' },
   /** Custom sidebar item order (array of item IDs). */
   sidebarOrder: { default: [], describe: 'Ordered array of sidebar nav item IDs.' },
+  /** Custom sidebar sub-item order map ({ [parentId]: [subItemIds] }). */
+  sidebarSubOrder: { default: {}, describe: 'Ordered map of sub-item IDs per parent menu ID.' },
   /** Global on/off switches for pages, independent of role. */
   featureToggles: { default: {}, describe: 'Map of page id to boolean.' },
   /** Free-text operational notes shown on the dashboard. */
@@ -115,6 +117,13 @@ function validate(key, value) {
   if (key === 'sidebarOrder') {
     if (!Array.isArray(value) || value.some((id) => typeof id !== 'string')) {
       return 'sidebarOrder must be an array of nav item IDs.';
+    }
+    return null;
+  }
+
+  if (key === 'sidebarSubOrder') {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+      return 'sidebarSubOrder must be an object.';
     }
     return null;
   }

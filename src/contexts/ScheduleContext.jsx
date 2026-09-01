@@ -159,6 +159,13 @@ export const DEFAULT_SIDEBAR_ORDER = [
   'qa-tracker',
 ];
 
+export const DEFAULT_SIDEBAR_SUB_ORDER = {
+  schedule: ['schedule', 'workload', 'leave', 'trial-availability'],
+  students: ['students', 'student-subscriptions'],
+  'report-cards': ['report-cards', 'report-cards-list', 'report-cards-rubric'],
+  'live-progress': ['progress-kinder', 'progress-junior', 'progress-coder'],
+};
+
 /* ─── provider ───────────────────────────────────────────────────── */
 
 export function ScheduleProvider({ children }) {
@@ -213,6 +220,7 @@ export function ScheduleProvider({ children }) {
   const [rolePermissions, setRolePermissions] = useState(() => loadLocal('rolePermissions', DEFAULT_ROLE_PERMISSIONS));
   const [userPermissions, setUserPermissions] = useState(() => loadLocal('userPermissions', {}));
   const [sidebarOrder, setSidebarOrder] = useState(() => loadLocal('sidebarOrder', DEFAULT_SIDEBAR_ORDER));
+  const [sidebarSubOrder, setSidebarSubOrder] = useState(() => loadLocal('sidebarSubOrder', DEFAULT_SIDEBAR_SUB_ORDER));
 
   // Instructor Profiles
   const [instructorProfiles, setInstructorProfiles] = useState([]);
@@ -649,6 +657,16 @@ export function ScheduleProvider({ children }) {
     }).then((res) => res.json()).catch(() => null);
   }, []);
 
+  const updateSidebarSubOrder = useCallback(async (newSubOrder) => {
+    setSidebarSubOrder(newSubOrder);
+    try { localStorage.setItem('sidebarSubOrder', JSON.stringify(newSubOrder)); } catch {}
+    return fetch('/api/new/config', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key: 'sidebarSubOrder', value: newSubOrder }),
+    }).then((res) => res.json()).catch(() => null);
+  }, []);
+
   // Synchronize sidebar order from backend store on load
   useEffect(() => {
     fetch('/api/new/config?key=sidebarOrder')
@@ -657,6 +675,19 @@ export function ScheduleProvider({ children }) {
         if (data && Array.isArray(data.value) && data.value.length > 0) {
           setSidebarOrder(data.value);
           try { localStorage.setItem('sidebarOrder', JSON.stringify(data.value)); } catch {}
+        }
+      })
+      .catch(() => {});
+
+    fetch('/api/new/config?key=sidebarSubOrder')
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (data && data.value && typeof data.value === 'object' && !Array.isArray(data.value)) {
+          setSidebarSubOrder((prev) => ({
+            ...prev,
+            ...data.value,
+          }));
+          try { localStorage.setItem('sidebarSubOrder', JSON.stringify(data.value)); } catch {}
         }
       })
       .catch(() => {});
@@ -929,6 +960,7 @@ export function ScheduleProvider({ children }) {
     rolePermissions, updateRolePermissions,
     userPermissions, updateUserPermissions,
     sidebarOrder, updateSidebarOrder,
+    sidebarSubOrder, updateSidebarSubOrder,
     instructorProfiles, refreshProfiles,
   };
 
