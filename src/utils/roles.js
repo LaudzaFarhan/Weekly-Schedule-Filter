@@ -154,6 +154,14 @@ export const APP_MODULES = [
     description: 'OpenAPI documentation, API keys, webhook integrations, and schema explorer.',
     pages: ['api'],
   },
+  {
+    id: 'qa-tracker',
+    label: 'QA & Bug Tracker',
+    icon: 'Bug',
+    category: 'System',
+    description: 'Track bugs, log issues, annotate screenshots, and manage testing workflow.',
+    pages: ['qa-tracker'],
+  },
 ];
 
 /**
@@ -180,6 +188,7 @@ export const DEFAULT_ROLE_PERMISSIONS = {
     activity: { view: true, read: true, write: true, admin: true },
     users: { view: true, read: true, write: true, admin: true },
     api: { view: true, read: true, write: true, admin: true },
+    'qa-tracker': { view: true, read: true, write: true, admin: true },
   },
   Supervisor: {
     dashboard: { view: true, read: true, write: true, admin: false },
@@ -197,6 +206,7 @@ export const DEFAULT_ROLE_PERMISSIONS = {
     activity: { view: true, read: true, write: false, admin: false },
     users: { view: true, read: true, write: false, admin: false },
     api: { view: true, read: true, write: false, admin: false },
+    'qa-tracker': { view: true, read: true, write: true, admin: false },
   },
   SPA: {
     dashboard: { view: true, read: true, write: false, admin: false },
@@ -214,6 +224,7 @@ export const DEFAULT_ROLE_PERMISSIONS = {
     activity: { view: true, read: true, write: false, admin: false },
     users: { view: false, read: false, write: false, admin: false },
     api: { view: false, read: false, write: false, admin: false },
+    'qa-tracker': { view: true, read: true, write: true, admin: false },
   },
   EC: {
     dashboard: { view: true, read: true, write: false, admin: false },
@@ -231,6 +242,7 @@ export const DEFAULT_ROLE_PERMISSIONS = {
     activity: { view: false, read: false, write: false, admin: false },
     users: { view: false, read: false, write: false, admin: false },
     api: { view: false, read: false, write: false, admin: false },
+    'qa-tracker': { view: true, read: true, write: true, admin: false },
   },
   Instructor: {
     dashboard: { view: true, read: true, write: false, admin: false },
@@ -248,6 +260,7 @@ export const DEFAULT_ROLE_PERMISSIONS = {
     activity: { view: false, read: false, write: false, admin: false },
     users: { view: false, read: false, write: false, admin: false },
     api: { view: false, read: false, write: false, admin: false },
+    'qa-tracker': { view: true, read: true, write: true, admin: false },
   },
 };
 

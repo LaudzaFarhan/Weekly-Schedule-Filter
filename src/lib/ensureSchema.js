@@ -538,6 +538,45 @@ const DEFINITIONS = {
       table: 'internal_meetings',
     },
   ],
+
+  internal_qa_issues: [
+    `CREATE TABLE IF NOT EXISTS internal_qa_issues (
+        id SERIAL PRIMARY KEY,
+        title VARCHAR(255) NOT NULL,
+        description TEXT NOT NULL,
+        type VARCHAR(50) DEFAULT 'Bug' NOT NULL,
+        status VARCHAR(50) DEFAULT 'Open' NOT NULL,
+        priority VARCHAR(50) DEFAULT 'Medium' NOT NULL,
+        module VARCHAR(100) DEFAULT 'General' NOT NULL,
+        reporter_email VARCHAR(255),
+        reporter_name VARCHAR(255),
+        assignee_email VARCHAR(255),
+        assignee_name VARCHAR(255),
+        environment JSONB DEFAULT '{}'::jsonb NOT NULL,
+        attachments JSONB DEFAULT '[]'::jsonb NOT NULL,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    )`,
+    `CREATE INDEX IF NOT EXISTS internal_qa_issues_status_idx ON internal_qa_issues (status, created_at DESC)`,
+    `CREATE INDEX IF NOT EXISTS internal_qa_issues_module_idx ON internal_qa_issues (module)`,
+    {
+      trigger: 'update_internal_qa_issues_changetimestamp',
+      table: 'internal_qa_issues',
+    },
+  ],
+
+  internal_qa_comments: [
+    `CREATE TABLE IF NOT EXISTS internal_qa_comments (
+        id SERIAL PRIMARY KEY,
+        issue_id INTEGER NOT NULL,
+        user_email VARCHAR(255),
+        user_name VARCHAR(255),
+        comment TEXT NOT NULL,
+        attachments JSONB DEFAULT '[]'::jsonb NOT NULL,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    )`,
+    `CREATE INDEX IF NOT EXISTS internal_qa_comments_issue_idx ON internal_qa_comments (issue_id, created_at ASC)`,
+  ],
 };
 
 // table name -> Promise, so concurrent requests share one bootstrap.

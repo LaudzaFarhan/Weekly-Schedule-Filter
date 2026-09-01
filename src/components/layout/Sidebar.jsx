@@ -6,7 +6,7 @@ import { useSchedule, DEFAULT_SIDEBAR_ORDER } from '@/contexts/ScheduleContext';
 import {
   Home, AlertTriangle, Calendar, Activity, Star, Video,
   Search, FileText, PenLine, Terminal, Settings, LogOut, User, BarChart3, ClipboardList, Users, Building2, PanelLeftClose, CalendarOff,
-  TrendingUp, ChevronDown, ChevronRight, ShieldCheck,
+  TrendingUp, ChevronDown, ChevronRight, ShieldCheck, Bug,
   Sliders, ArrowUp, ArrowDown, RotateCcw, Check, GripVertical
 } from 'lucide-react';
 import { listenToMyTasks } from '@/services/taskService';
@@ -34,6 +34,7 @@ const navItems = [
   { id: 'crm', icon: Users, label: 'CRM Leads', roleKey: 'crm', globalKey: 'crm' },
   { id: 'profiles', icon: User, label: 'Instructor Profiles', roleKey: 'profiles', globalKey: 'profiles' },
   { id: 'api-docs', icon: Terminal, label: 'API Documentation', roleKey: 'api_docs', globalKey: 'api_docs' },
+  { id: 'qa-tracker', icon: Bug, label: 'QA & Bug Tracker', roleKey: 'qa-tracker', globalKey: 'qa_tracker' },
   { id: 'admin', icon: Settings, label: 'Admin Settings', roleKey: 'admin', globalKey: 'admin' },
 ];
 
@@ -43,7 +44,7 @@ const navItems = [
  */
 const NEW_OPS_PAGES = [
   'home', 'dashboard', 'operationals', 'students', 'student-subscriptions', 'report-cards', 'report-cards-list', 'report-cards-rubric', 'instructors',
-  'crm', 'workload', 'leave', 'trial-availability', 'activity', 'users', 'api',
+  'crm', 'workload', 'leave', 'trial-availability', 'activity', 'users', 'api', 'qa-tracker',
   'progress-kinder', 'progress-junior', 'progress-coder',
 ];
 
@@ -400,6 +401,24 @@ const NAV_ITEM_DEFINITIONS = {
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
           <Terminal size={20} />
           API
+        </div>
+      </button>
+    ),
+  },
+  'qa-tracker': {
+    id: 'qa-tracker',
+    label: 'QA Tracker',
+    icon: Bug,
+    checkAccess: (canAccess) => canAccess('qa-tracker'),
+    render: ({ currentPage, onNavigate }) => (
+      <button
+        className={`nav-item ${currentPage === 'qa-tracker' ? 'active' : ''}`}
+        onClick={() => onNavigate('qa-tracker')}
+        style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+          <Bug size={20} />
+          QA Tracker
         </div>
       </button>
     ),
