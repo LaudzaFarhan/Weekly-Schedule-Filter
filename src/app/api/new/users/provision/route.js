@@ -45,13 +45,21 @@ async function loadPlan() {
   await Promise.all([ensureTable('internal_users'), ensureTable('internal_instructors')]);
 
   const [instructors, accounts] = await Promise.all([
-    query("SELECT id, name, level, status FROM internal_instructors WHERE status = 'Active' ORDER BY name ASC"),
-    query('SELECT instructor_id, username FROM internal_users'),
+    query("SELECT id, name, level, status, contact, remarks, branches FROM internal_instructors WHERE status = 'Active' ORDER BY name ASC"),
+    query('SELECT instructor_id, username, email FROM internal_users'),
   ]);
 
   const plan = planInstructorAccounts(
-    instructors.rows.map((row) => ({ id: row.id, name: row.name, status: row.status })),
-    accounts.rows.map((row) => ({ instructorId: row.instructor_id, username: row.username }))
+    instructors.rows.map((row) => ({
+      id: row.id,
+      name: row.name,
+      status: row.status,
+      contact: row.contact,
+      remarks: row.remarks,
+      branches: row.branches,
+      level: row.level,
+    })),
+    accounts.rows.map((row) => ({ instructorId: row.instructor_id, username: row.username, email: row.email }))
   );
 
   return { plan, instructorCount: instructors.rowCount, accountCount: accounts.rowCount };
@@ -83,6 +91,9 @@ export async function POST(req) {
     const identity = await identify(req);
     if (!canAdminAccounts(identity)) return forbidden();
 
+    const body = await req.json().catch(() => null);
+    const verifyImmediately = Boolean(body?.verifyImmediately);
+
     const { plan } = await loadPlan();
 
     if (plan.create.length === 0) {
@@ -108,6 +119,8 @@ export async function POST(req) {
       throw error;
     }
 
+    const verifiedBy = identity.username || identity.email || 'Admin';
+
     // One transaction for the whole batch: a partial run would leave some
     // instructors with a login and no record of which, and the button would have
     // to be pressed again to find out.
@@ -115,21 +128,28 @@ export async function POST(req) {
       const res = await client.query(
         `INSERT INTO internal_users
            (username, email, role, password_encrypted, must_change_password, status,
-            fullname, instructor_id)
-         SELECT username, email, 'Instructor', pwd, TRUE, 'Active', fullname, instructor_id
-           FROM UNNEST($1::varchar[], $2::varchar[], $3::text[], $4::varchar[], $5::int[])
-             AS t(username, email, pwd, fullname, instructor_id)
+            fullname, phone_number, location, instructor_id, is_verified, verified_at, verified_by)
+         SELECT username, email, 'Instructor', pwd, TRUE, 'Active',
+                fullname, phone, loc, instructor_id, is_ver, ver_at, ver_by
+           FROM UNNEST(
+             $1::varchar[], $2::varchar[], $3::text[], $4::varchar[],
+             $5::varchar[], $6::varchar[], $7::int[], $8::boolean[],
+             $9::timestamptz[], $10::varchar[]
+           ) AS t(username, email, pwd, fullname, phone, loc, instructor_id, is_ver, ver_at, ver_by)
          ON CONFLICT DO NOTHING
-         RETURNING id, username, email, role, fullname, instructor_id, must_change_password`,
+         RETURNING id, username, email, role, fullname, phone_number, location, instructor_id,
+                   is_verified, verified_at, verified_by, must_change_password`,
         [
           plan.create.map((entry) => entry.username),
-          // A local-domain email, because `email` is NOT NULL and UNIQUE and these
-          // accounts have no real mailbox. Derived from the username so it is
-          // stable and unique for the same reasons the username is.
-          plan.create.map((entry) => `${entry.username}@instructor.local`),
+          plan.create.map((entry) => entry.email || `${entry.username}@instructor.local`),
           encrypted,
           plan.create.map((entry) => entry.name),
+          plan.create.map((entry) => entry.contact || null),
+          plan.create.map((entry) => entry.location || null),
           plan.create.map((entry) => entry.instructorId),
+          plan.create.map(() => verifyImmediately),
+          plan.create.map(() => (verifyImmediately ? new Date().toISOString() : null)),
+          plan.create.map(() => (verifyImmediately ? verifiedBy : null)),
         ]
       );
       return res.rows;
@@ -138,7 +158,7 @@ export async function POST(req) {
     await auditAccountAction(
       identity,
       'provision',
-      `Created ${created.length} instructor account${created.length === 1 ? '' : 's'} from the instructor registry`
+      `Created ${created.length} instructor account${created.length === 1 ? '' : 's'} from the instructor registry (${verifyImmediately ? 'verified' : 'pending verification'})`
     );
 
     return NextResponse.json(
@@ -149,14 +169,21 @@ export async function POST(req) {
           email: row.email,
           role: row.role,
           fullname: row.fullname,
+          phoneNumber: row.phone_number,
+          location: row.location,
           instructorId: row.instructor_id,
+          isVerified: row.is_verified,
+          verifiedAt: row.verified_at,
+          verifiedBy: row.verified_by,
           mustChangePassword: row.must_change_password,
         })),
         skipped: plan.skipped,
         // Returned once, here, so the Admin can pass it on. It is also the stored
         // password, readable later through /api/new/users/password.
         password: INSTRUCTOR_DEFAULT_PASSWORD,
-        message: `Created ${created.length} account${created.length === 1 ? '' : 's'}. Everyone starts with the password "${INSTRUCTOR_DEFAULT_PASSWORD}" and is asked to change it.`,
+        message: `Created ${created.length} account${created.length === 1 ? '' : 's'}. ${
+          verifyImmediately ? 'Accounts are verified and ready for sign-in.' : 'Accounts are created as Pending Verification for Admin approval.'
+        }`,
       },
       { status: 201 }
     );

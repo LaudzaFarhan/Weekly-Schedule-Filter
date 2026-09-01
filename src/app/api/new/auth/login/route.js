@@ -117,6 +117,18 @@ export async function POST(req) {
       );
     }
 
+    // Unverified accounts (except Admins) must be approved and verified by an Administrator
+    if (row.role !== 'Admin' && row.is_verified === false) {
+      return NextResponse.json(
+        {
+          error: 'Account Pending Verification',
+          message: 'Your account is pending verification by an Administrator. Please contact an Admin to verify and activate your login.',
+          isPendingVerification: true,
+        },
+        { status: 403 }
+      );
+    }
+
     let stored;
     try {
       stored = decryptPassword(row.password_encrypted);

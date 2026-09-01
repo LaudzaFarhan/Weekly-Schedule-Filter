@@ -82,6 +82,16 @@ export function uniqueUsername(base, taken) {
 }
 
 /**
+ * Extract an email address from instructor remarks or contact notes.
+ * E.g. "Email: muhajir.thelab@gmail.com" → "muhajir.thelab@gmail.com".
+ */
+export function extractEmailFromRemarks(remarks) {
+  if (typeof remarks !== 'string') return '';
+  const match = remarks.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/);
+  return match ? match[0].toLowerCase() : '';
+}
+
+/**
  * Which instructors still need an account.
  *
  * Matched on instructor id, not on name or username. Names get corrected and
@@ -93,9 +103,9 @@ export function uniqueUsername(base, taken) {
  * quietly, so whoever pressed the button finds out why they got fewer accounts
  * than instructors.
  *
- * @param {Array<{id: number, name: string, status?: string}>} instructors
- * @param {Array<{instructorId: number|null, username: string}>} accounts
- * @returns {{ create: Array<{instructorId: number, name: string, username: string}>,
+ * @param {Array<{id: number, name: string, status?: string, contact?: string, remarks?: string, branches?: Array<string>|string, level?: string}>} instructors
+ * @param {Array<{instructorId: number|null, username: string, email?: string}>} accounts
+ * @returns {{ create: Array<{instructorId: number, name: string, username: string, email: string, contact: string, location: string, branches: Array<string>}>,
  *             skipped: Array<{instructorId: number, name: string, reason: string}> }}
  */
 export function planInstructorAccounts(instructors, accounts) {
@@ -107,6 +117,7 @@ export function planInstructorAccounts(instructors, accounts) {
   // Seeded with every existing username, including those belonging to staff, so
   // a new instructor cannot collide with an account this run did not create.
   const taken = new Set((accounts || []).map((account) => account.username).filter(Boolean));
+  const takenEmails = new Set((accounts || []).map((account) => (account.email ? account.email.toLowerCase() : '')).filter(Boolean));
 
   const create = [];
   const skipped = [];
@@ -138,7 +149,37 @@ export function planInstructorAccounts(instructors, accounts) {
     // Added as this plan is built, so two instructors in the same batch who fold
     // to the same username get different numbers instead of both taking the base.
     taken.add(username);
-    create.push({ instructorId: instructor.id, name: instructor.name, username });
+
+    const entry = {
+      instructorId: instructor.id,
+      name: instructor.name,
+      username,
+    };
+
+    // Prefer detected real email from remarks if present
+    const detectedEmail = extractEmailFromRemarks(instructor.remarks);
+    if (detectedEmail && !takenEmails.has(detectedEmail)) {
+      entry.email = detectedEmail;
+      takenEmails.add(detectedEmail);
+    }
+
+    if (instructor.contact) {
+      entry.contact = instructor.contact;
+    }
+
+    const primaryBranch = Array.isArray(instructor.branches)
+      ? (instructor.branches[0] || '')
+      : (typeof instructor.branches === 'string' ? instructor.branches : '');
+    if (primaryBranch) {
+      entry.location = primaryBranch;
+      entry.branches = Array.isArray(instructor.branches) ? instructor.branches : [primaryBranch];
+    }
+
+    if (instructor.level) {
+      entry.level = instructor.level;
+    }
+
+    create.push(entry);
   }
 
   return { create, skipped };

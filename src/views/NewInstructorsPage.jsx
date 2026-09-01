@@ -32,7 +32,7 @@ const isAliasVerified = (alias, verifiedList = []) => {
   return verifiedList.some((v) => String(v).toLowerCase().trim() === target);
 };
 
-export default function NewInstructorsPage() {
+export default function NewInstructorsPage({ onNavigate }) {
   const { enabledBranches, branches, users, overallClasses, uniqueTeachers } = useSchedule();
   const { user } = useAuth();
   const { showToast } = useToast();
@@ -605,6 +605,28 @@ export default function NewInstructorsPage() {
             >
               <Upload size={16} /> Bulk Import
             </button>
+            {onNavigate && (
+              <button
+                onClick={() => onNavigate('users')}
+                className="btn"
+                title="Manage and verify instructor login accounts in User Management"
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.4rem',
+                  borderRadius: '10px',
+                  padding: '0.5rem 1.2rem',
+                  fontSize: '0.85rem',
+                  background: 'rgba(79, 70, 229, 0.08)',
+                  color: 'var(--primary-blue, #4f46e5)',
+                  border: '1px solid rgba(79, 70, 229, 0.25)',
+                  cursor: 'pointer',
+                  fontWeight: 600,
+                }}
+              >
+                <ShieldAlert size={16} /> User Accounts & Verification
+              </button>
+            )}
             <button 
               data-tour="add-instructor-btn"
               onClick={openAddModal} 

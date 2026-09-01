@@ -56,6 +56,10 @@ const mapRow = (row) => ({
   trainingProgress: row.training_progress || {},
   /** Set when this account was generated from the instructor registry. */
   instructorId: row.instructor_id ?? null,
+  /** Whether the account has been approved and verified by an Administrator. */
+  isVerified: row.is_verified === true || row.role === 'Admin',
+  verifiedAt: row.verified_at,
+  verifiedBy: row.verified_by,
   /** Whether a password is set at all — not the password itself. */
   hasPassword: Boolean(row.password_encrypted),
   mustChangePassword: row.must_change_password,
@@ -187,13 +191,16 @@ export async function POST(req) {
       // The first account is an Admin whatever was asked for. A bootstrap that
       // produced an Instructor would leave the system with no way in.
       const role = bootstrapping ? 'Admin' : requestedRole;
+      const isVerified = role === 'Admin' || Boolean(body?.isVerified);
+      const verifiedBy = isVerified ? (identity.username || identity.email || 'Admin') : null;
+      const verifiedAt = isVerified ? new Date().toISOString() : null;
 
       const inserted = await client.query(
         `INSERT INTO internal_users
            (username, email, role, password_encrypted, must_change_password, status,
             fullname, nickname, specialization, phone_number, location, training_progress,
-            firebase_uid, instructor_id)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, COALESCE($12, '{}'::jsonb), $13, $14)
+            firebase_uid, instructor_id, is_verified, verified_at, verified_by)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, COALESCE($12, '{}'::jsonb), $13, $14, $15, $16, $17)
          RETURNING *`,
         [
           username, email, role, encrypted, mustChange, status,
@@ -202,6 +209,9 @@ export async function POST(req) {
           body?.trainingProgress ? JSON.stringify(body.trainingProgress) : null,
           nullable(body?.firebaseUid),
           Number.isInteger(body?.instructorId) ? body.instructorId : null,
+          isVerified,
+          verifiedAt,
+          verifiedBy,
         ]
       );
       return { row: inserted.rows[0], bootstrapped: bootstrapping };
@@ -265,16 +275,20 @@ export async function PUT(req) {
     if (identity.kind === 'session' && identity.userId === id) {
       const losingAdmin = body?.role !== undefined && trimmed(body.role) !== 'Admin';
       const suspendingSelf = body?.status !== undefined && trimmed(body.status) !== 'Active';
-      if (losingAdmin || suspendingSelf) {
+      const unverifyingSelf = body?.isVerified === false;
+      if (losingAdmin || suspendingSelf || unverifyingSelf) {
         return NextResponse.json(
           {
             error: 'That would lock you out',
-            message: 'You cannot remove your own Admin role or suspend your own account. Ask another Admin.',
+            message: 'You cannot remove your own Admin role, unverify, or suspend your own account. Ask another Admin.',
           },
           { status: 409 }
         );
       }
     }
+
+    const nextVerified = body?.isVerified !== undefined ? Boolean(body.isVerified) : null;
+    const verifiedBy = identity.username || identity.email || 'Admin';
 
     // COALESCE so an omitted field keeps its stored value: this is a partial
     // update, and a client that only sends `status` must not blank the profile.
@@ -290,7 +304,21 @@ export async function PUT(req) {
          phone_number = COALESCE($9, phone_number),
          location = COALESCE($10, location),
          training_progress = COALESCE($11, training_progress),
-         must_change_password = COALESCE($12, must_change_password)
+         must_change_password = COALESCE($12, must_change_password),
+         is_verified = CASE
+           WHEN $13::boolean IS NOT NULL THEN $13::boolean
+           ELSE is_verified
+         END,
+         verified_at = CASE
+           WHEN $13::boolean = TRUE THEN COALESCE(verified_at, NOW())
+           WHEN $13::boolean = FALSE THEN NULL
+           ELSE verified_at
+         END,
+         verified_by = CASE
+           WHEN $13::boolean = TRUE THEN COALESCE(verified_by, $14::varchar)
+           WHEN $13::boolean = FALSE THEN NULL
+           ELSE verified_by
+         END
        WHERE id = $1
        RETURNING *`,
       [
@@ -306,6 +334,8 @@ export async function PUT(req) {
         body?.location === undefined ? null : nullable(body.location),
         body?.trainingProgress === undefined ? null : JSON.stringify(body.trainingProgress),
         body?.mustChangePassword === undefined ? null : Boolean(body.mustChangePassword),
+        nextVerified,
+        verifiedBy,
       ]
     );
 
@@ -315,14 +345,19 @@ export async function PUT(req) {
 
     const row = res.rows[0];
 
-    // A suspended account keeps its sessions until they expire otherwise, which
-    // would leave it working for up to eight hours after being disabled.
-    if (row.status !== 'Active') {
+    // A suspended or unverified account loses its active sessions immediately
+    if (row.status !== 'Active' || row.is_verified === false) {
       await ensureTable('internal_sessions');
       await query('DELETE FROM internal_sessions WHERE user_id = $1', [id]);
     }
 
-    await auditAccountAction(identity, 'update', `Updated account: ${row.username}`);
+    await auditAccountAction(
+      identity,
+      'update',
+      nextVerified !== null
+        ? `${nextVerified ? 'Verified' : 'Unverified'} account: ${row.username}`
+        : `Updated account: ${row.username}`
+    );
     return NextResponse.json({ user: mapRow(row) });
   } catch (error) {
     const conflict = conflictResponse(error);

@@ -291,6 +291,20 @@ const DEFINITIONS = {
     `CREATE UNIQUE INDEX IF NOT EXISTS internal_users_instructor_key
         ON internal_users (instructor_id)`,
 
+    /**
+     * Account verification fields.
+     *
+     * Enables admin verification workflow so that new instructor/staff accounts
+     * must be verified by an Administrator before they can sign in.
+     */
+    `ALTER TABLE internal_users
+        ADD COLUMN IF NOT EXISTS is_verified BOOLEAN NOT NULL DEFAULT FALSE,
+        ADD COLUMN IF NOT EXISTS verified_at TIMESTAMP WITH TIME ZONE,
+        ADD COLUMN IF NOT EXISTS verified_by VARCHAR(150)`,
+
+    /** Automatically verify existing Admin accounts so they are never locked out. */
+    `UPDATE internal_users SET is_verified = TRUE WHERE role = 'Admin' AND (is_verified IS FALSE OR is_verified IS NULL)`,
+
     { trigger: 'update_internal_users_changetimestamp', table: 'internal_users' },
   ],
 

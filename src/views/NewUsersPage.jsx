@@ -107,6 +107,7 @@ export default function NewUsersPage() {
 
   const [search, setSearch] = useState('');
   const [roleFilter, setRoleFilter] = useState('all');
+  const [verificationFilter, setVerificationFilter] = useState('all'); // 'all' | 'verified' | 'pending'
 
   /** id -> revealed password. Cleared on reload so nothing lingers on screen. */
   const [revealed, setRevealed] = useState({});
@@ -120,6 +121,7 @@ export default function NewUsersPage() {
 
   const [provisionPreview, setProvisionPreview] = useState(null);
   const [provisioning, setProvisioning] = useState(false);
+  const [provisionVerifyImmediately, setProvisionVerifyImmediately] = useState(false);
 
   /**
    * The signed-in account's own id.
@@ -323,21 +325,82 @@ export default function NewUsersPage() {
     const term = search.trim().toLowerCase();
     return users.filter((user) => {
       if (roleFilter !== 'all' && user.role !== roleFilter) return false;
+      if (verificationFilter === 'verified' && !user.isVerified && user.role !== 'Admin') return false;
+      if (verificationFilter === 'pending' && (user.isVerified || user.role === 'Admin')) return false;
       if (!term) return true;
-      return [user.username, user.email, user.fullname, user.nickname]
+      return [user.username, user.email, user.fullname, user.nickname, user.phoneNumber, user.location]
         .filter(Boolean)
         .some((field) => field.toLowerCase().includes(term));
     });
-  }, [users, search, roleFilter]);
+  }, [users, search, roleFilter, verificationFilter]);
 
   const counts = useMemo(() => {
-    const out = { total: users.length, instructors: 0, suspended: 0 };
+    const out = { total: users.length, instructors: 0, suspended: 0, verified: 0, pending: 0 };
     for (const user of users) {
       if (user.role === 'Instructor') out.instructors += 1;
       if (user.status !== 'Active') out.suspended += 1;
+      if (user.isVerified || user.role === 'Admin') out.verified += 1;
+      else out.pending += 1;
     }
     return out;
   }, [users]);
+
+  const toggleVerification = async (user) => {
+    setBusyId(user.id);
+    try {
+      const nextVerified = !user.isVerified;
+      const res = await fetch('/api/new/users', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: user.id, isVerified: nextVerified }),
+      });
+      if (!res.ok) throw await errorFrom(res);
+      showToast({
+        variant: 'success',
+        title: nextVerified ? `${user.username} verified & approved` : `${user.username} unverified`,
+        message: nextVerified
+          ? 'This account has been verified and can now log in.'
+          : 'This account is unverified and blocked from logging in until approved.',
+      });
+      await load();
+    } catch (err) {
+      reportError(err, 'Could not update verification status');
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const verifyAllPending = async () => {
+    const pendingList = users.filter((u) => !u.isVerified && u.role !== 'Admin');
+    if (pendingList.length === 0) return;
+    const ok = window.confirm(
+      `Verify and approve all ${pendingList.length} pending account(s)?\n\n`
+      + 'They will immediately be allowed to sign into the system.'
+    );
+    if (!ok) return;
+
+    setLoading(true);
+    try {
+      const res = await fetch('/api/new/users/verify', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ allPending: true, isVerified: true }),
+      });
+      if (!res.ok) throw await errorFrom(res);
+      const body = await res.json();
+      showToast({
+        variant: 'success',
+        title: 'Accounts verified',
+        message: body.message || `Successfully verified ${body.verifiedCount} account(s).`,
+        duration: 8000,
+      });
+      await load();
+    } catch (err) {
+      reportError(err, 'Could not verify pending accounts');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const toggleReveal = async (user) => {
     if (revealed[user.id]) {
@@ -521,7 +584,11 @@ export default function NewUsersPage() {
   const runProvision = async () => {
     setProvisioning(true);
     try {
-      const res = await fetch('/api/new/users/provision', { method: 'POST' });
+      const res = await fetch('/api/new/users/provision', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ verifyImmediately: provisionVerifyImmediately }),
+      });
       if (!res.ok) throw await errorFrom(res);
       const body = await res.json();
       showToast({
@@ -662,12 +729,37 @@ export default function NewUsersPage() {
                 <p style={{ margin: '0.15rem 0 0', fontSize: '0.78rem', color: 'var(--text-muted)' }}>
                   {counts.total} account{counts.total === 1 ? '' : 's'}
                   {' · '}{counts.instructors} instructor{counts.instructors === 1 ? '' : 's'}
+                  {' · '}<span style={{ color: '#059669', fontWeight: 600 }}>{counts.verified} verified</span>
+                  {counts.pending > 0 && (
+                    <>
+                      {' · '}
+                      <span style={{ color: '#d97706', fontWeight: 600 }}>
+                        {counts.pending} pending verification
+                      </span>
+                    </>
+                  )}
                   {counts.suspended > 0 && ` · ${counts.suspended} suspended`}
                   {' · internal authentication database'}
                 </p>
               </div>
 
-              <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
+                {counts.pending > 0 && (
+                  <button
+                    type="button"
+                    className="btn btn-sm"
+                    onClick={verifyAllPending}
+                    disabled={loading}
+                    title="Verify and approve all pending instructor accounts at once"
+                    style={{
+                      display: 'inline-flex', alignItems: 'center', gap: '0.35rem',
+                      background: 'rgba(5,150,105,0.12)', color: '#059669',
+                      border: '1px solid rgba(5,150,105,0.3)', fontWeight: 600,
+                    }}
+                  >
+                    <CheckCircle2 size={14} /> Verify all pending ({counts.pending})
+                  </button>
+                )}
                 <button
                   type="button"
                   className="btn btn-sm"
@@ -822,22 +914,54 @@ export default function NewUsersPage() {
                   Accounts for instructors
                 </h3>
                 <p style={{ margin: '0 0 0.75rem', fontSize: '0.78rem', color: 'var(--text-muted)' }}>
-                  Usernames come from each instructor&apos;s name. Nothing has been created yet.
+                  Usernames and contact info are derived from the instructor directory.
                 </p>
                 {provisionPreview.willCreate.length === 0 ? (
                   <p style={{ margin: 0, fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
                     Every active instructor already has an account. Nothing to do.
                   </p>
                 ) : (
-                  <div style={{ display: 'grid', gap: '0.4rem', marginBottom: '0.75rem' }}>
-                    <ul style={{ margin: 0, paddingLeft: '1.1rem', fontSize: '0.82rem' }}>
-                      {provisionPreview.willCreate.map((entry) => (
-                        <li key={entry.instructorId}>
-                          <strong>{entry.username}</strong>
-                          <span style={{ color: 'var(--text-muted)' }}> — {entry.name}</span>
-                        </li>
-                      ))}
-                    </ul>
+                  <div style={{ display: 'grid', gap: '0.6rem', marginBottom: '0.9rem' }}>
+                    <div style={{
+                      maxHeight: '220px', overflowY: 'auto', border: '1px solid var(--border-color)',
+                      borderRadius: '8px', padding: '0.5rem 0.75rem', background: 'var(--panel-bg)',
+                    }}>
+                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.78rem' }}>
+                        <thead>
+                          <tr style={{ borderBottom: '1px solid var(--border-color)', color: 'var(--text-muted)', textAlign: 'left' }}>
+                            <th style={{ padding: '0.35rem 0.5rem' }}>Username</th>
+                            <th style={{ padding: '0.35rem 0.5rem' }}>Instructor Name</th>
+                            <th style={{ padding: '0.35rem 0.5rem' }}>Email</th>
+                            <th style={{ padding: '0.35rem 0.5rem' }}>Branch</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {provisionPreview.willCreate.map((entry) => (
+                            <tr key={entry.instructorId} style={{ borderBottom: '1px solid rgba(0,0,0,0.05)' }}>
+                              <td style={{ padding: '0.35rem 0.5rem', fontWeight: 600 }}>{entry.username}</td>
+                              <td style={{ padding: '0.35rem 0.5rem' }}>{entry.name}</td>
+                              <td style={{ padding: '0.35rem 0.5rem', color: 'var(--text-secondary)' }}>
+                                {entry.email}
+                              </td>
+                              <td style={{ padding: '0.35rem 0.5rem', color: 'var(--text-muted)' }}>
+                                {entry.location || '—'}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+
+                    <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.45rem', fontSize: '0.8rem', cursor: 'pointer' }}>
+                      <input
+                        type="checkbox"
+                        checked={provisionVerifyImmediately}
+                        onChange={(e) => setProvisionVerifyImmediately(e.target.checked)}
+                      />
+                      <span>
+                        <strong>Verify accounts immediately</strong> (otherwise accounts are created as <em>Pending Verification</em> for admin review)
+                      </span>
+                    </label>
                   </div>
                 )}
                 <div style={{ display: 'flex', gap: '0.5rem' }}>
@@ -888,6 +1012,17 @@ export default function NewUsersPage() {
                   </option>
                 ))}
               </select>
+              <select
+                className="modal-select-field field-compact"
+                style={{ minWidth: '175px' }}
+                value={verificationFilter}
+                onChange={(e) => setVerificationFilter(e.target.value)}
+                aria-label="Filter by verification"
+              >
+                <option value="all">All Verification ({users.length})</option>
+                <option value="verified">Verified ({counts.verified})</option>
+                <option value="pending">Pending Approval ({counts.pending})</option>
+              </select>
             </div>
 
             {/* User Table */}
@@ -904,7 +1039,7 @@ export default function NewUsersPage() {
                 <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                   <thead>
                     <tr>
-                      {['Username', 'Name', 'Role', 'Password', 'Status', 'Permissions', 'Actions'].map((heading, i) => (
+                      {['Username', 'Name', 'Role', 'Password', 'Status', 'Verification', 'Permissions', 'Actions'].map((heading, i) => (
                         <th
                           key={heading || `actions-${i}`}
                           scope="col"
@@ -926,6 +1061,7 @@ export default function NewUsersPage() {
                       const busy = busyId === user.id;
                       const shown = revealed[user.id];
                       const isMe = myId != null && user.id === myId;
+                      const isVerifiedAccount = user.isVerified || user.role === 'Admin';
                       return (
                         <tr key={user.id} style={{ opacity: user.status === 'Active' ? 1 : 0.55 }}>
                           <td style={{ padding: '0.55rem 0.75rem', borderBottom: '1px solid var(--border-color)', fontSize: '0.82rem', fontWeight: 600 }}>
@@ -1005,6 +1141,69 @@ export default function NewUsersPage() {
                               {user.status === 'Active' ? <Check size={11} /> : <X size={11} />}
                               {user.status}
                             </button>
+                          </td>
+                          <td style={{ padding: '0.55rem 0.75rem', borderBottom: '1px solid var(--border-color)', whiteSpace: 'nowrap' }}>
+                            {isVerifiedAccount ? (
+                              <div style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem' }}>
+                                <span
+                                  style={{
+                                    display: 'inline-flex', alignItems: 'center', gap: '0.25rem',
+                                    borderRadius: '99px', padding: '0.18rem 0.55rem',
+                                    fontSize: '0.7rem', fontWeight: 700,
+                                    color: '#047857', background: 'rgba(5,150,105,0.12)',
+                                    border: '1px solid rgba(5,150,105,0.25)',
+                                  }}
+                                  title={user.verifiedBy ? `Verified by ${user.verifiedBy}${user.verifiedAt ? ` on ${new Date(user.verifiedAt).toLocaleDateString()}` : ''}` : 'Verified Administrator'}
+                                >
+                                  <CheckCircle2 size={11} /> Verified
+                                </span>
+                                {user.role !== 'Admin' && !isMe && (
+                                  <button
+                                    type="button"
+                                    onClick={() => toggleVerification(user)}
+                                    disabled={busy}
+                                    title="Unverify this account (user cannot sign in until re-verified)"
+                                    style={{
+                                      background: 'none', border: 'none', cursor: 'pointer',
+                                      fontSize: '0.68rem', color: 'var(--text-muted)', textDecoration: 'underline',
+                                      padding: '0 0.2rem',
+                                    }}
+                                  >
+                                    Unverify
+                                  </button>
+                                )}
+                              </div>
+                            ) : (
+                              <div style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }}>
+                                <span
+                                  style={{
+                                    display: 'inline-flex', alignItems: 'center', gap: '0.25rem',
+                                    borderRadius: '99px', padding: '0.18rem 0.5rem',
+                                    fontSize: '0.7rem', fontWeight: 700,
+                                    color: '#b45309', background: 'rgba(245,158,11,0.14)',
+                                    border: '1px solid rgba(245,158,11,0.3)',
+                                  }}
+                                  title="Account is pending verification by an Administrator"
+                                >
+                                  <AlertTriangle size={11} /> Pending
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => toggleVerification(user)}
+                                  disabled={busy}
+                                  className="btn btn-sm"
+                                  style={{
+                                    fontSize: '0.68rem', padding: '0.18rem 0.45rem', height: 'auto',
+                                    display: 'inline-flex', alignItems: 'center', gap: '0.25rem',
+                                    borderRadius: '6px', background: '#059669', color: '#fff',
+                                    borderColor: '#047857', fontWeight: 600,
+                                  }}
+                                  title="Verify and approve this account so user can log in"
+                                >
+                                  <ShieldCheck size={11} /> Verify
+                                </button>
+                              </div>
+                            )}
                           </td>
                           <td style={{ padding: '0.55rem 0.75rem', borderBottom: '1px solid var(--border-color)' }}>
                             <button
