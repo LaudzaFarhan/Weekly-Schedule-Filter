@@ -8,11 +8,13 @@ import {
 } from '../../services/newNotificationService';
 import {
   RefreshCw, Plus, Trash2, Bell, EyeOff, ChevronLeft, ChevronRight, Search, PanelLeft,
-  AlertTriangle, AlertCircle, Info, X, CheckCheck, History, HelpCircle, Compass, Bug,
+  AlertTriangle, AlertCircle, Info, X, CheckCheck, History, HelpCircle, Compass, Bug, Users,
 } from 'lucide-react';
 import { useTour } from '../tour/TourProvider';
 import AnimationTutorialModal from '../tour/AnimationTutorialModal';
 import FeatureTutorialSidebar from '../tour/FeatureTutorialSidebar';
+import TeamPresenceDropdown from './TeamPresenceDropdown';
+import { subscribeToPresence, startPresenceTracker, getPresenceUsers } from '../../services/presenceService';
 import { APP_VERSION } from '../../config/version';
 
 /**
@@ -166,6 +168,40 @@ export default function Header({ onToggleSearch, opsMode = 'old', onToggleSideba
 
   const alerts = useMemo(() => visibleItems(feed, dismissed), [feed, dismissed]);
   const alertCount = alerts.length;
+
+  // Live Team Presence (Online, Away, Offline)
+  const [presenceData, setPresenceData] = useState(null);
+  const [showPresence, setShowPresence] = useState(false);
+  const [presenceLoading, setPresenceLoading] = useState(false);
+  const presenceRef = useRef(null);
+
+  // Initialize presence heartbeat for current session
+  useEffect(() => {
+    if (!user) return undefined;
+    const cleanup = startPresenceTracker(user, () => (opsMode === 'new' ? 'new' : 'old'));
+    return cleanup;
+  }, [user, opsMode]);
+
+  // Subscribe to live team presence feed
+  useEffect(() => {
+    const unsub = subscribeToPresence(
+      (data) => setPresenceData(data),
+      () => {}
+    );
+    return () => unsub();
+  }, []);
+
+  // Click outside to close team presence popover
+  useEffect(() => {
+    if (!showPresence) return undefined;
+    const onPointerDown = (e) => {
+      if (!presenceRef.current?.contains(e.target)) {
+        setShowPresence(false);
+      }
+    };
+    document.addEventListener('pointerdown', onPointerDown, true);
+    return () => document.removeEventListener('pointerdown', onPointerDown, true);
+  }, [showPresence]);
 
   const [branchPage, setBranchPage] = useState(0);
   const branchesPerPage = 3;
@@ -475,6 +511,60 @@ export default function Header({ onToggleSearch, opsMode = 'old', onToggleSideba
               )}
             </div>
           )}
+          {/* Team Presence Topbar Indicator */}
+          <div ref={presenceRef} style={{ position: 'relative' }}>
+            <button
+              type="button"
+              onClick={() => setShowPresence((v) => !v)}
+              title={`Team Presence · ${presenceData?.counts?.online ?? 0} online, ${presenceData?.counts?.away ?? 0} away, ${presenceData?.counts?.offline ?? 0} offline`}
+              aria-label="Team Presence (who is online, away, or offline)"
+              aria-expanded={showPresence}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.45rem',
+                padding: '0.35rem 0.65rem',
+                borderRadius: '10px',
+                cursor: 'pointer',
+                border: showPresence ? '1px solid #10b981' : '1px solid rgba(16, 185, 129, 0.3)',
+                background: showPresence ? 'rgba(16, 185, 129, 0.18)' : 'rgba(16, 185, 129, 0.08)',
+                color: '#059669',
+                fontSize: '0.76rem',
+                fontWeight: 600,
+                transition: 'all 0.15s ease',
+              }}
+            >
+              <span
+                style={{
+                  width: '8px',
+                  height: '8px',
+                  borderRadius: '50%',
+                  background: (presenceData?.counts?.online ?? 0) > 0 ? '#10b981' : '#94a3b8',
+                  boxShadow: (presenceData?.counts?.online ?? 0) > 0 ? '0 0 8px rgba(16, 185, 129, 0.8)' : 'none',
+                  display: 'inline-block',
+                }}
+              />
+              <span>{presenceData?.counts?.online ?? 0} Online</span>
+            </button>
+
+            {showPresence && (
+              <TeamPresenceDropdown
+                presenceData={presenceData}
+                currentUser={user}
+                onClose={() => setShowPresence(false)}
+                onRefresh={async () => {
+                  setPresenceLoading(true);
+                  try {
+                    const data = await getPresenceUsers();
+                    setPresenceData(data);
+                  } catch {}
+                  setPresenceLoading(false);
+                }}
+                loading={presenceLoading}
+              />
+            )}
+          </div>
+
           {/* Runs the tour for whichever page is showing. Nudged while the
               current screen has one nobody on this browser has taken. */}
           <button

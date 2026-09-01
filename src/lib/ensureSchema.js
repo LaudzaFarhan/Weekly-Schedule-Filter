@@ -320,6 +320,26 @@ const DEFINITIONS = {
     `CREATE INDEX IF NOT EXISTS internal_sessions_expiry_idx ON internal_sessions (expires_at)`,
   ],
 
+  internal_user_presence: [
+    `CREATE TABLE IF NOT EXISTS internal_user_presence (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER,
+        username VARCHAR(150) NOT NULL,
+        email VARCHAR(255) NOT NULL,
+        fullname VARCHAR(255),
+        role VARCHAR(50) DEFAULT 'Instructor',
+        status VARCHAR(50) DEFAULT 'online',
+        custom_status TEXT,
+        current_page VARCHAR(100),
+        last_seen_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT internal_user_presence_email_key UNIQUE (email)
+    )`,
+    `CREATE INDEX IF NOT EXISTS internal_user_presence_last_seen_idx ON internal_user_presence (last_seen_at DESC)`,
+    { trigger: 'update_internal_user_presence_changetimestamp', table: 'internal_user_presence' },
+  ],
+
   internal_student_evaluations: [
     `CREATE TABLE IF NOT EXISTS internal_student_evaluations (
         id SERIAL PRIMARY KEY,
