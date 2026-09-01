@@ -5,7 +5,7 @@ import {
   Users, Filter, Trash2, X, CalendarDays, CalendarPlus, AlertTriangle, Clock,
   GripVertical, ChevronUp, ChevronDown, ChevronLeft, ChevronRight,
   Plus, Pencil, Building2, UserPlus, Repeat, FileText, UserX, Sparkles, Send, Calendar, Eye, User,
-  GripHorizontal, RotateCcw,
+  GripHorizontal, RotateCcw, Maximize2, Minimize2,
 } from 'lucide-react';
 import {
   getProgressUpdateStatus,
@@ -178,6 +178,8 @@ export default function ScheduleGrid({
   /** Opens a student's report card by NAME; absent when navigation is unavailable. */
   onOpenStudentReport,
   onUpdateStudent,
+  isFullscreen = false,
+  onToggleFullscreen,
 }) {
   const liveProgressMap = useMemo(() => {
     const map = new Map();
@@ -1056,11 +1058,20 @@ export default function ScheduleGrid({
   const isHour = (mins) => mins % 60 === 0;
 
   return (
-    <div>
+    <div
+      className={`schedule-grid-wrapper ${isFullscreen ? 'is-fullscreen' : ''}`}
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        flex: isFullscreen ? '1 1 0%' : 'initial',
+        minHeight: 0,
+      }}
+    >
       {/* Filters */}
       <div style={{
         display: 'flex', flexDirection: 'column', gap: '0.75rem',
         padding: '0.9rem 1.5rem', borderBottom: '1px solid var(--border-color)',
+        flexShrink: 0,
       }}>
         {/* Row 1: Day Filter */}
         <div style={{ display: 'flex', gap: '0.9rem', flexWrap: 'wrap', alignItems: 'center', width: '100%' }}>
@@ -1167,6 +1178,32 @@ export default function ScheduleGrid({
                 </optgroup>
               </select>
             </label>
+            {onToggleFullscreen && (
+              <button
+                type="button"
+                onClick={onToggleFullscreen}
+                className="btn"
+                title={isFullscreen ? 'Exit Fullscreen Focus (Esc)' : 'Expand to Fullscreen Focus Grid'}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '0.35rem',
+                  padding: '0.35rem 0.75rem',
+                  fontSize: '0.75rem',
+                  fontWeight: 600,
+                  borderRadius: '8px',
+                  border: '1px solid',
+                  borderColor: isFullscreen ? 'var(--primary-blue, #4f46e5)' : 'var(--border-color)',
+                  background: isFullscreen ? 'rgba(79, 70, 229, 0.1)' : 'transparent',
+                  color: isFullscreen ? 'var(--primary-blue, #4f46e5)' : 'var(--text-secondary)',
+                  cursor: 'pointer',
+                  transition: 'all 0.15s ease',
+                }}
+              >
+                {isFullscreen ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
+                {isFullscreen ? 'Exit Focus' : 'Fullscreen'}
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -1336,7 +1373,14 @@ export default function ScheduleGrid({
           <div
             ref={scrollerRef}
             onScroll={syncScrollNav}
-            style={{ overflow: 'auto', maxHeight: 'calc(88vh - 120px)', minHeight: '450px' }}
+            className="schedule-grid-scroller"
+            style={{
+              overflow: 'auto',
+              maxHeight: isFullscreen ? 'calc(100vh - 170px)' : 'calc(88vh - 120px)',
+              height: isFullscreen ? 'calc(100vh - 170px)' : undefined,
+              flex: isFullscreen ? '1 1 0%' : undefined,
+              minHeight: isFullscreen ? 0 : '450px',
+            }}
           >
             <table style={{ borderCollapse: 'separate', borderSpacing: 0, width: 'max-content', minWidth: '100%' }}>
               <thead style={{ position: 'sticky', top: 0, zIndex: 20 }}>

@@ -1,7 +1,7 @@
 'use client';
 
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { LayoutGrid, Video } from 'lucide-react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { LayoutGrid, Video, Maximize2, Minimize2, Sparkles } from 'lucide-react';
 import { useSchedule } from '../../contexts/ScheduleContext';
 import { useToast } from '../ui/Toast';
 import { useAuth } from '../../contexts/AuthContext';
@@ -43,6 +43,35 @@ export default function ScheduleGridPanel({ onNavigate } = {}) {
   const [leaves, setLeaves] = useState([]);
   const [liveProgress, setLiveProgress] = useState([]);
   const [saving, setSaving] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const panelRef = useRef(null);
+
+  const toggleFullscreen = useCallback(() => {
+    setIsFullscreen((prev) => !prev);
+  }, []);
+
+  // Listen to Escape key to exit fullscreen
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape' && isFullscreen) {
+        setIsFullscreen(false);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isFullscreen]);
+
+  // Lock body scroll when in fullscreen overlay mode
+  useEffect(() => {
+    if (isFullscreen) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = '';
+    }
+    return () => {
+      document.body.style.overflow = '';
+    };
+  }, [isFullscreen]);
 
   useEffect(() => {
     const unsub = subscribeToInternalInstructors((data) => setInstructors(data || []));
@@ -510,11 +539,33 @@ export default function ScheduleGridPanel({ onNavigate } = {}) {
   }, 'Could not update the student');
 
   return (
-    <div data-tour="schedule-grid" className="panel" style={{ margin: '0 0 1.5rem' }}>
+    <div
+      ref={panelRef}
+      data-tour="schedule-grid"
+      className={`panel ${isFullscreen ? 'schedule-grid-fullscreen' : ''}`}
+      style={{ margin: isFullscreen ? 0 : '0 0 1.5rem' }}
+    >
       <div className="panel-header" style={{ flexWrap: 'wrap', gap: '0.75rem', justifyContent: 'space-between', alignItems: 'center' }}>
         <div>
-          <h2 style={{ fontSize: '1.15rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.45rem' }}>
+          <h2 style={{ fontSize: isFullscreen ? '1.25rem' : '1.15rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.45rem' }}>
             <LayoutGrid size={19} /> Schedule Grid
+            {isFullscreen && (
+              <span style={{
+                fontSize: '0.72rem',
+                fontWeight: 600,
+                padding: '0.2rem 0.55rem',
+                borderRadius: '99px',
+                background: 'rgba(79,70,229,0.1)',
+                color: 'var(--primary-blue, #4f46e5)',
+                border: '1px solid rgba(79,70,229,0.25)',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '0.25rem',
+                marginLeft: '0.35rem',
+              }}>
+                <Sparkles size={12} /> Focus Mode
+              </span>
+            )}
           </h2>
           <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', margin: '0.2rem 0 0' }}>
             Plan from who is actually free. Columns are instructors, rows are 30 minutes. Click a cell to open a class,
@@ -522,18 +573,55 @@ export default function ScheduleGridPanel({ onNavigate } = {}) {
             Drag a card to move it, drag its bottom edge to change length.
           </p>
         </div>
-        {onNavigate && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
           <button
-            onClick={() => onNavigate('meetings')}
-            className="btn btn-primary"
-            style={{ fontSize: '0.8rem', padding: '0.45rem 0.9rem', display: 'inline-flex', alignItems: 'center', gap: '0.4rem', borderRadius: '8px' }}
+            type="button"
+            onClick={toggleFullscreen}
+            className={`btn ${isFullscreen ? 'btn-primary' : ''}`}
+            title={isFullscreen ? 'Exit Fullscreen Focus (Esc)' : 'Maximize Schedule Grid to Fullscreen'}
+            style={{
+              fontSize: '0.8rem',
+              padding: '0.45rem 0.9rem',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '0.4rem',
+              borderRadius: '8px',
+              background: isFullscreen ? undefined : 'var(--panel-bg, transparent)',
+              border: isFullscreen ? undefined : '1px solid var(--border-color)',
+              color: isFullscreen ? undefined : 'var(--text-main)',
+              cursor: 'pointer',
+              fontWeight: 600,
+              transition: 'all 0.15s ease',
+            }}
           >
-            <Video size={15} /> Schedule Meeting
+            {isFullscreen ? <Minimize2 size={15} /> : <Maximize2 size={15} />}
+            {isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}
+            {isFullscreen && (
+              <kbd style={{
+                fontSize: '0.65rem',
+                background: 'rgba(255,255,255,0.25)',
+                padding: '1px 5px',
+                borderRadius: '4px',
+                fontFamily: 'inherit',
+                marginLeft: '2px',
+              }}>Esc</kbd>
+            )}
           </button>
-        )}
+          {onNavigate && (
+            <button
+              onClick={() => onNavigate('meetings')}
+              className="btn btn-primary"
+              style={{ fontSize: '0.8rem', padding: '0.45rem 0.9rem', display: 'inline-flex', alignItems: 'center', gap: '0.4rem', borderRadius: '8px' }}
+            >
+              <Video size={15} /> Schedule Meeting
+            </button>
+          )}
+        </div>
       </div>
 
       <ScheduleGrid
+        isFullscreen={isFullscreen}
+        onToggleFullscreen={toggleFullscreen}
         branches={branches}
         instructors={instructors}
         classGroups={classGroups}
