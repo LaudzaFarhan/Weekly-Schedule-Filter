@@ -35,6 +35,9 @@ const mapRow = (row) => {
   const tMatch = noteStr.match(/\[ArrangedTeacher:\s*([^\]]+)\]/i);
   const lMatch = noteStr.match(/\[ArrangedLesson:\s*([^\]]+)\]/i);
   const mMatch = noteStr.match(/\[MainTeacher:\s*([^\]]+)\]/i);
+  const puStatusMatch = noteStr.match(/\[ProgressUpdateStatus:\s*([^\]]+)\]/i);
+  const puDateMatch = noteStr.match(/\[ProgressUpdateDate:\s*([^\]]+)\]/i);
+  const puNoteMatch = noteStr.match(/\[ProgressUpdateNote:\s*([^\]]+)\]/i);
 
   return {
     id: row.id,
@@ -48,6 +51,9 @@ const mapRow = (row) => {
     arrangedLesson: row.arranged_lesson || (lMatch ? lMatch[1].trim() : null),
     arrangedTeacher: row.arranged_teacher || (tMatch ? tMatch[1].trim() : null),
     mainTeacher: row.main_teacher || (mMatch ? mMatch[1].trim() : null),
+    progressUpdateStatus: row.progress_update_status || (puStatusMatch ? puStatusMatch[1].trim() : null),
+    progressUpdateDate: row.progress_update_date || (puDateMatch ? puDateMatch[1].trim() : null),
+    progressUpdateNote: row.progress_update_note || (puNoteMatch ? puNoteMatch[1].trim() : null),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -207,6 +213,15 @@ export async function PUT(req) {
     }
     if (body.mainTeacher !== undefined) {
       noteVal = setNoteTag(noteVal, 'MainTeacher', body.mainTeacher || '');
+    }
+    if (body.progressUpdateStatus !== undefined) {
+      noteVal = setNoteTag(noteVal, 'ProgressUpdateStatus', body.progressUpdateStatus || '');
+    }
+    if (body.progressUpdateDate !== undefined) {
+      noteVal = setNoteTag(noteVal, 'ProgressUpdateDate', body.progressUpdateDate || '');
+    }
+    if (body.progressUpdateNote !== undefined) {
+      noteVal = setNoteTag(noteVal, 'ProgressUpdateNote', body.progressUpdateNote || '');
     }
 
     let res;

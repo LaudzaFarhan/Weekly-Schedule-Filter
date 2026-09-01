@@ -521,7 +521,54 @@ describe('LiveProgressTable - Unassigned Students & Unregistered Instructors', (
     // Teacher tracking for arranged lesson 3 (pending Sherlyn)
     expect(screen.getByText(/Not Filled by Sherlyn/i)).toBeInTheDocument();
   });
+
+  it('opens ProgressUpdateModal when clicking the Need Update status badge and updates status', async () => {
+    subscribeToLiveProgress.mockImplementation((cb) => {
+      cb([
+        {
+          studentName: 'Arya Arkananta',
+          programCode: 'K1',
+          category: 'Kinder',
+          attendance: { 1: {}, 2: {}, 3: {}, 4: {}, 5: {}, 6: {}, 7: {} },
+        },
+      ]);
+      return () => {};
+    });
+
+    render(<LiveProgressTable category="Kinder" />);
+
+    // Click the Need Update badge for Arya
+    const needUpdateBtn = screen.getByRole('button', { name: /Progress update status: Need Update for Arya Arkananta/i });
+    expect(needUpdateBtn).toBeInTheDocument();
+    fireEvent.click(needUpdateBtn);
+
+    // Progress Update Modal should be open
+    expect(screen.getByRole('dialog', { name: /Arya Arkananta/i })).toBeInTheDocument();
+    expect(screen.getByText('Progress Update Workflow Status')).toBeInTheDocument();
+
+    // Select "Update Scheduled"
+    const scheduledOption = screen.getByText('Update Scheduled');
+    fireEvent.click(scheduledOption);
+
+    // Enter scheduled date
+    const dateInput = screen.getByPlaceholderText(/Friday, 4\.30 PM/i);
+    expect(dateInput).toBeInTheDocument();
+    fireEvent.change(dateInput, { target: { value: 'Friday, 4:30 PM' } });
+
+    // Save workflow status
+    const saveWorkflowBtn = screen.getByRole('button', { name: /Save Workflow Status/i });
+    fireEvent.click(saveWorkflowBtn);
+
+    expect(saveLiveProgress).toHaveBeenCalledWith(
+      expect.objectContaining({
+        studentName: 'Arya Arkananta',
+        progressUpdateStatus: 'Update Scheduled',
+        progressUpdateDate: 'Friday, 4:30 PM',
+      })
+    );
+  });
 });
+
 
 
 

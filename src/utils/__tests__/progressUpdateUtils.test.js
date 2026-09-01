@@ -68,6 +68,20 @@ describe('progressUpdateUtils', () => {
       };
       expect(getProgressUpdateStatus(studentScheduled)).toBe('Update Scheduled');
 
+      const studentRescheduled = {
+        student: 'Kevin',
+        program: 'K1.3',
+        progressUpdateStatus: 'Update Reschedule',
+      };
+      expect(getProgressUpdateStatus(studentRescheduled)).toBe('Update Reschedule');
+
+      const studentUpdateDone = {
+        student: 'Laura',
+        program: 'K1.7',
+        progressUpdateStatus: 'Update Done',
+      };
+      expect(getProgressUpdateStatus(studentUpdateDone)).toBe('Update Done');
+
       const studentDone = {
         student: 'Jack',
         program: 'K1.7',
