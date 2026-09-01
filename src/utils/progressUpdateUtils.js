@@ -5,6 +5,8 @@ export const PROGRESS_UPDATE_STATUSES = {
   NEED_UPDATE: 'Need update progress',
   UPDATE_OFFER: 'Update Offer',
   UPDATE_SCHEDULED: 'Update Scheduled',
+  UPDATE_RESCHEDULE: 'Update Reschedule',
+  UPDATE_DONE: 'Update Done',
   COMPLETED: 'Completed',
 };
 
@@ -12,6 +14,7 @@ export const PROGRESS_UPDATE_BADGES = {
   'Need update progress': {
     label: 'Need update progress',
     shortLabel: 'Need Update',
+    description: 'Attendance reached 7 lessons. Progress update notification.',
     bg: '#fef3c7',
     color: '#b45309',
     borderColor: '#f59e0b',
@@ -19,6 +22,7 @@ export const PROGRESS_UPDATE_BADGES = {
   'Update Offer': {
     label: 'Update Offer',
     shortLabel: 'Update Offer',
+    description: 'SPA already contact parent to choose schedule.',
     bg: '#eff6ff',
     color: '#1d4ed8',
     borderColor: '#3b82f6',
@@ -26,9 +30,35 @@ export const PROGRESS_UPDATE_BADGES = {
   'Update Scheduled': {
     label: 'Update Scheduled',
     shortLabel: 'Scheduled',
+    description: 'Parent agreed schedule offer. Instructor informed.',
     bg: '#f3e8ff',
     color: '#6d28d9',
     borderColor: '#8b5cf6',
+  },
+  'Update Reschedule': {
+    label: 'Update Reschedule',
+    shortLabel: 'Reschedule',
+    description: 'Parent cannot attend scheduled time. Needs rescheduling.',
+    bg: '#fff1f2',
+    color: '#be123c',
+    borderColor: '#f43f5e',
+  },
+  'Update Done': {
+    label: 'Update Done',
+    shortLabel: 'Update Done',
+    description: 'Instructor updated progress. SPA to send invoice to parent.',
+    bg: '#ecfdf5',
+    color: '#047857',
+    borderColor: '#10b981',
+    nextAction: 'Send invoice to parent',
+  },
+  'Completed': {
+    label: 'Completed',
+    shortLabel: 'Completed',
+    description: 'Progress update process completed.',
+    bg: '#f1f5f9',
+    color: '#475569',
+    borderColor: '#cbd5e1',
   },
 };
 

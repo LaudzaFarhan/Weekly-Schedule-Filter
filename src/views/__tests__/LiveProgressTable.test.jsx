@@ -390,22 +390,186 @@ describe('LiveProgressTable - Unassigned Students & Unregistered Instructors', (
     expect(screen.getByText('Liam Theodore')).toBeInTheDocument();
   });
 
-  it('toggles unallocated filter when clicking the Unallocated header badge', () => {
+  it('displays Need Update column and badge when attendance reaches 7 lessons', () => {
+    // Student 1 (Arya) has attendance on 7 lessons
+    subscribeToLiveProgress.mockImplementation((cb) => {
+      cb([
+        {
+          studentName: 'Arya Arkananta',
+          programCode: 'K1',
+          category: 'Kinder',
+          attendance: {
+            1: { date: '2026-08-01', note: 'Lesson 1' },
+            2: { date: '2026-08-08', note: 'Lesson 2' },
+            3: { date: '2026-08-15', note: 'Lesson 3' },
+            4: { date: '2026-08-22', note: 'Lesson 4' },
+            5: { date: '2026-08-29', note: 'Lesson 5' },
+            6: { date: '2026-09-05', note: 'Lesson 6' },
+            7: { date: '2026-09-12', note: 'Lesson 7' },
+          },
+        },
+      ]);
+      return () => {};
+    });
+
     render(<LiveProgressTable category="Kinder" />);
 
-    const unallocatedBadge = screen.getByTitle('Click to filter Unassigned students');
-    expect(unallocatedBadge).toBeInTheDocument();
+    // Table header should contain "Need Update"
+    expect(screen.getByRole('columnheader', { name: /Need Update/i })).toBeInTheDocument();
 
-    // Click to filter to only unallocated
-    fireEvent.click(unallocatedBadge);
-    expect(screen.getByText('Liam Theodore')).toBeInTheDocument();
-    expect(screen.queryByText('Arya Arkananta')).not.toBeInTheDocument();
+    // The badge "Need Update" should appear for Arya
+    const needUpdateBadges = screen.getAllByText('Need Update');
+    expect(needUpdateBadges.length).toBeGreaterThan(0);
+  });
 
-    // Click again to return to Show All
-    fireEvent.click(unallocatedBadge);
-    expect(screen.getByText('Liam Theodore')).toBeInTheDocument();
+  it('filters students when clicking Need Update header badge', () => {
+    subscribeToLiveProgress.mockImplementation((cb) => {
+      cb([
+        {
+          studentName: 'Arya Arkananta',
+          programCode: 'K1',
+          category: 'Kinder',
+          attendance: { 1: {}, 2: {}, 3: {}, 4: {}, 5: {}, 6: {}, 7: {} },
+        },
+        {
+          studentName: 'Marvel Benedict',
+          programCode: 'KF2',
+          category: 'Kinder',
+          attendance: { 1: {}, 2: {} },
+        },
+      ]);
+      return () => {};
+    });
+
+    render(<LiveProgressTable category="Kinder" />);
+
+    // Both Arya and Marvel initially visible
     expect(screen.getByText('Arya Arkananta')).toBeInTheDocument();
+    expect(screen.getByText('Marvel Benedict')).toBeInTheDocument();
+
+    // Click "Need Update" filter badge in header
+    const needUpdateBadge = screen.getByTitle('Click to filter students that need progress update');
+    expect(needUpdateBadge).toBeInTheDocument();
+    fireEvent.click(needUpdateBadge);
+
+    // Only Arya (7 lessons) should be visible, Marvel (2 lessons) hidden
+    expect(screen.getByText('Arya Arkananta')).toBeInTheDocument();
+    expect(screen.queryByText('Marvel Benedict')).not.toBeInTheDocument();
+  });
+
+  it('records user account audit info when saving attendance', async () => {
+    render(<LiveProgressTable category="Kinder" />);
+
+    // Click meeting 1 button for Arya Arkananta
+    const meeting1Btn = screen.getByRole('button', { name: /Meeting 1 for Arya Arkananta/i });
+    fireEvent.click(meeting1Btn);
+
+    // Save attendance modal opens
+    const saveBtn = screen.getByRole('button', { name: /^Save$/i });
+    fireEvent.click(saveBtn);
+
+    expect(saveLiveProgress).toHaveBeenCalledWith(
+      expect.objectContaining({
+        studentName: 'Arya Arkananta',
+        attendance: expect.objectContaining({
+          1: expect.objectContaining({
+            recordedBy: 'admin@thelab.id',
+          }),
+        }),
+      })
+    );
+  });
+
+  it('opens AttendanceDetailHistoryModal when clicking the View Detail Attendance button', () => {
+    subscribeToLiveProgress.mockImplementation((cb) => {
+      cb([
+        {
+          studentName: 'Arya Arkananta',
+          programCode: 'K1',
+          category: 'Kinder',
+          arrangedLesson: '3',
+          arrangedTeacher: 'Sherlyn',
+          attendance: {
+            1: { date: '2026-08-01', note: 'Shapes', recordedBy: 'ziyah@thelab.id', teacher: 'Ziyah' },
+            2: { date: '2026-08-08', note: 'Counting', recordedBy: 'admin@thelab.id' },
+          },
+        },
+      ]);
+      return () => {};
+    });
+
+    render(<LiveProgressTable category="Kinder" />);
+
+    // Find the View Detail Attendance button for Arya
+    const viewDetailBtn = screen.getByRole('button', { name: /View detailed attendance history for Arya Arkananta/i });
+    expect(viewDetailBtn).toBeInTheDocument();
+
+    // Click to open modal
+    fireEvent.click(viewDetailBtn);
+
+    // Check modal contents
+    expect(screen.getByRole('dialog', { name: /Arya Arkananta/i })).toBeInTheDocument();
+    expect(screen.getByText('Attendance Progress')).toBeInTheDocument();
+    expect(screen.getByText('Teacher Tracking Status')).toBeInTheDocument();
+
+    // Teacher tracking for lesson 1 (Ziyah)
+    expect(screen.getByText(/Filled by Assigned Teacher \(Ziyah\)/i)).toBeInTheDocument();
+
+    // Teacher tracking for lesson 2 (admin)
+    expect(screen.getByText(/Filled by admin@thelab\.id/i)).toBeInTheDocument();
+
+    // Teacher tracking for arranged lesson 3 (pending Sherlyn)
+    expect(screen.getByText(/Not Filled by Sherlyn/i)).toBeInTheDocument();
+  });
+
+  it('opens ProgressUpdateModal when clicking the Need Update status badge and updates status', async () => {
+    subscribeToLiveProgress.mockImplementation((cb) => {
+      cb([
+        {
+          studentName: 'Arya Arkananta',
+          programCode: 'K1',
+          category: 'Kinder',
+          attendance: { 1: {}, 2: {}, 3: {}, 4: {}, 5: {}, 6: {}, 7: {} },
+        },
+      ]);
+      return () => {};
+    });
+
+    render(<LiveProgressTable category="Kinder" />);
+
+    // Click the Need Update badge for Arya
+    const needUpdateBtn = screen.getByRole('button', { name: /Progress update status: Need Update for Arya Arkananta/i });
+    expect(needUpdateBtn).toBeInTheDocument();
+    fireEvent.click(needUpdateBtn);
+
+    // Progress Update Modal should be open
+    expect(screen.getByRole('dialog', { name: /Arya Arkananta/i })).toBeInTheDocument();
+    expect(screen.getByText('Progress Update Workflow Status')).toBeInTheDocument();
+
+    // Select "Update Scheduled"
+    const scheduledOption = screen.getByText('Update Scheduled');
+    fireEvent.click(scheduledOption);
+
+    // Enter scheduled date
+    const dateInput = screen.getByPlaceholderText(/Friday, 4\.30 PM/i);
+    expect(dateInput).toBeInTheDocument();
+    fireEvent.change(dateInput, { target: { value: 'Friday, 4:30 PM' } });
+
+    // Save workflow status
+    const saveWorkflowBtn = screen.getByRole('button', { name: /Save Workflow Status/i });
+    fireEvent.click(saveWorkflowBtn);
+
+    expect(saveLiveProgress).toHaveBeenCalledWith(
+      expect.objectContaining({
+        studentName: 'Arya Arkananta',
+        progressUpdateStatus: 'Update Scheduled',
+        progressUpdateDate: 'Friday, 4:30 PM',
+      })
+    );
   });
 });
+
+
+
 
 

@@ -34,8 +34,15 @@ import { parseTimeSlot } from '../utils/timeUtils';
 import {
   Search, X, User, MapPin, Clock, Calendar, GraduationCap, Check, Video,
   StickyNote, AlertTriangle, TrendingUp, BookOpen, Edit3, Save, UserCheck, ChevronDown, CheckCircle2,
-  ExternalLink,
+  ExternalLink, Eye, Send, RotateCcw, FileText,
 } from 'lucide-react';
+import AttendanceDetailHistoryModal from '../components/operations/AttendanceDetailHistoryModal';
+import ProgressUpdateModal from '../components/operations/ProgressUpdateModal';
+import {
+  getProgressUpdateStatus,
+  PROGRESS_UPDATE_STATUSES,
+  PROGRESS_UPDATE_BADGES,
+} from '../utils/progressUpdateUtils';
 
 /**
  * Rows per page. Five meant 88 pages for one category's 440 students, so the
@@ -178,6 +185,12 @@ export default function LiveProgressTable({ category }) {
   const [zohoModal, setZohoModal] = useState(null); // { row, currentLink }
   const [zohoLinkInput, setZohoLinkInput] = useState('');
   const [zohoSaving, setZohoSaving] = useState(false);
+
+  // Attendance detail & history modal state
+  const [detailModalRow, setDetailModalRow] = useState(null);
+
+  // Progress update workflow lifecycle modal state
+  const [progressUpdateModalRow, setProgressUpdateModalRow] = useState(null);
 
   const getInstructorsForBranch = (branchName) => {
     const bClean = String(branchName || '').trim();
@@ -658,6 +671,10 @@ export default function LiveProgressTable({ category }) {
           arrangedLesson: stored?.arrangedLesson || null,
           arrangedTeacher: stored?.arrangedTeacher ? resolveCanonicalTeacherName(stored.arrangedTeacher, instructorProfiles) : null,
           mainTeacher: storedMain || null,
+          progressUpdateStatus: stored?.progressUpdateStatus || null,
+          progressUpdateDate: stored?.progressUpdateDate || null,
+          progressUpdateNote: stored?.progressUpdateNote || null,
+          progressUpdateHistory: stored?.progressUpdateHistory || [],
           zohoLink,
         };
 
@@ -734,6 +751,10 @@ export default function LiveProgressTable({ category }) {
         arrangedLesson: stored?.arrangedLesson || null,
         arrangedTeacher: stored?.arrangedTeacher ? resolveCanonicalTeacherName(stored.arrangedTeacher, instructorProfiles) : null,
         mainTeacher: stored?.mainTeacher || null,
+        progressUpdateStatus: stored?.progressUpdateStatus || null,
+        progressUpdateDate: stored?.progressUpdateDate || null,
+        progressUpdateNote: stored?.progressUpdateNote || null,
+        progressUpdateHistory: stored?.progressUpdateHistory || [],
         zohoLink,
       };
 
@@ -762,12 +783,17 @@ export default function LiveProgressTable({ category }) {
     return result;
   }, [classes, studentRegistry, category, progressByKey, instructorProfiles, studentInfoMap]);
 
-  /** Summary count for Active, Long Break, Inactive, and Unassigned students */
+  /** Summary count for Active, Long Break, Inactive, Unassigned, and Need Update students */
   const statusStats = useMemo(() => {
     let active = 0;
     let longBreak = 0;
     let inactive = 0;
     let unassigned = 0;
+    let needUpdate = 0;
+    let updateOffer = 0;
+    let updateScheduled = 0;
+    let updateReschedule = 0;
+    let updateDone = 0;
     let total = 0;
 
     for (const r of rows) {
@@ -784,10 +810,37 @@ export default function LiveProgressTable({ category }) {
       } else {
         active++;
       }
+
+      const pStatus = getProgressUpdateStatus(r, r);
+      const attCount = Object.keys(r.attendance || {}).length;
+      const thresh = category === 'Coder' ? 9 : 7;
+
+      if (pStatus === 'Update Offer') {
+        updateOffer++;
+      } else if (pStatus === 'Update Scheduled') {
+        updateScheduled++;
+      } else if (pStatus === 'Update Reschedule') {
+        updateReschedule++;
+      } else if (pStatus === 'Update Done') {
+        updateDone++;
+      } else if (pStatus === PROGRESS_UPDATE_STATUSES.NEED_UPDATE || pStatus === 'Need update progress' || attCount >= thresh) {
+        needUpdate++;
+      }
     }
 
-    return { active, longBreak, inactive, unassigned, total };
-  }, [rows, filterBranch]);
+    return {
+      active,
+      longBreak,
+      inactive,
+      unassigned,
+      needUpdate,
+      updateOffer,
+      updateScheduled,
+      updateReschedule,
+      updateDone,
+      total,
+    };
+  }, [rows, filterBranch, category]);
 
   const instructorList = useMemo(() => {
     const set = new Set();
@@ -869,7 +922,22 @@ export default function LiveProgressTable({ category }) {
       if (filterStatus !== 'all') {
         const rSt = String(r.status || 'Active').toLowerCase();
         const fSt = filterStatus.toLowerCase();
-        if (fSt === 'unassigned') {
+        const pStatus = getProgressUpdateStatus(r, r);
+        const attCount = Object.keys(r.attendance || {}).length;
+        const thresh = category === 'Coder' ? 9 : 7;
+
+        if (fSt === 'need update') {
+          const isNu = pStatus === PROGRESS_UPDATE_STATUSES.NEED_UPDATE || pStatus === 'Need update progress' || (!pStatus && attCount >= thresh);
+          if (!isNu) return false;
+        } else if (fSt === 'update offer') {
+          if (pStatus !== 'Update Offer') return false;
+        } else if (fSt === 'update scheduled') {
+          if (pStatus !== 'Update Scheduled') return false;
+        } else if (fSt === 'update reschedule') {
+          if (pStatus !== 'Update Reschedule') return false;
+        } else if (fSt === 'update done') {
+          if (pStatus !== 'Update Done') return false;
+        } else if (fSt === 'unassigned') {
           if (!r.isUnassigned) return false;
         } else if (fSt === 'active') {
           if (rSt.includes('inactive') || rSt.includes('break')) return false;
@@ -887,7 +955,7 @@ export default function LiveProgressTable({ category }) {
       }
       return true;
     });
-  }, [rows, search, filterBranch, filterLevel, filterDay, filterInstructor, effectiveTime, filterContinuation, filterStatus, filterAllocation]);
+  }, [rows, search, filterBranch, filterLevel, filterDay, filterInstructor, effectiveTime, filterContinuation, filterStatus, filterAllocation, category]);
 
   /**
    * Default order: instructor first, so one instructor's students sit together.
@@ -1044,8 +1112,25 @@ export default function LiveProgressTable({ category }) {
     // holding the dialog open until the round trip finishes just feels slow.
     closeAttendance();
     const nextAttendance = { ...row.attendance };
-    if (clear) delete nextAttendance[lesson];
-    else nextAttendance[lesson] = { date: draftDate || null, note: draftNote };
+    if (clear) {
+      delete nextAttendance[lesson];
+    } else {
+      const userIdentifier = user?.email || (user?.name ? `${user.name} (${user.email || ''})`.trim() : 'Unknown User');
+      const effectiveTeacher = row.arrangedTeacher || (row.instructor && row.instructor !== 'Unassigned' && row.instructor !== '—' ? row.instructor : null);
+      const prevEntry = row.attendance?.[lesson] || {};
+
+      nextAttendance[lesson] = {
+        date: draftDate || null,
+        note: draftNote,
+        recordedBy: userIdentifier,
+        recordedByName: user?.name || null,
+        recordedAt: prevEntry.recordedAt || new Date().toISOString(),
+        updatedBy: userIdentifier,
+        updatedAt: new Date().toISOString(),
+        teacher: effectiveTeacher,
+        arrangedTeacher: (row.arrangedLesson && Number(row.arrangedLesson) === lesson) ? (row.arrangedTeacher || null) : null,
+      };
+    }
 
     await persist(row, () => ({ attendance: nextAttendance }));
 
@@ -1340,6 +1425,99 @@ export default function LiveProgressTable({ category }) {
               </span>
             </div>
 
+            {/* Need Update Students Counter Badge */}
+            <div
+              onClick={() => { setFilterStatus(filterStatus === 'Need Update' ? 'all' : 'Need Update'); setPage(1); }}
+              title="Click to filter students that need progress update"
+              style={{
+                display: 'inline-flex', alignItems: 'center', gap: '0.35rem',
+                padding: '0.3rem 0.65rem', borderRadius: '20px', cursor: 'pointer',
+                background: filterStatus === 'Need Update' ? 'rgba(245,158,11,0.25)' : 'rgba(245,158,11,0.12)',
+                border: filterStatus === 'Need Update' ? '1.5px solid #f59e0b' : '1px solid rgba(245,158,11,0.3)',
+                color: '#b45309', fontSize: '0.75rem', fontWeight: 600,
+                transition: 'all 0.15s ease',
+              }}
+            >
+              <Clock size={11} strokeWidth={2.5} style={{ color: '#d97706' }} />
+              <span>Need Update: <strong>{statusStats.needUpdate}</strong></span>
+            </div>
+
+            {/* Offer Sent Counter Badge */}
+            {statusStats.updateOffer > 0 && (
+              <div
+                onClick={() => { setFilterStatus(filterStatus === 'Update Offer' ? 'all' : 'Update Offer'); setPage(1); }}
+                title="Click to filter students with update offer sent"
+                style={{
+                  display: 'inline-flex', alignItems: 'center', gap: '0.35rem',
+                  padding: '0.3rem 0.65rem', borderRadius: '20px', cursor: 'pointer',
+                  background: filterStatus === 'Update Offer' ? 'rgba(59,130,246,0.25)' : 'rgba(59,130,246,0.12)',
+                  border: filterStatus === 'Update Offer' ? '1.5px solid #3b82f6' : '1px solid rgba(59,130,246,0.3)',
+                  color: '#1d4ed8', fontSize: '0.75rem', fontWeight: 600,
+                  transition: 'all 0.15s ease',
+                }}
+              >
+                <Send size={11} strokeWidth={2.5} style={{ color: '#2563eb' }} />
+                <span>Offer Sent: <strong>{statusStats.updateOffer}</strong></span>
+              </div>
+            )}
+
+            {/* Update Scheduled Counter Badge */}
+            {statusStats.updateScheduled > 0 && (
+              <div
+                onClick={() => { setFilterStatus(filterStatus === 'Update Scheduled' ? 'all' : 'Update Scheduled'); setPage(1); }}
+                title="Click to filter students with scheduled progress update"
+                style={{
+                  display: 'inline-flex', alignItems: 'center', gap: '0.35rem',
+                  padding: '0.3rem 0.65rem', borderRadius: '20px', cursor: 'pointer',
+                  background: filterStatus === 'Update Scheduled' ? 'rgba(139,92,246,0.25)' : 'rgba(139,92,246,0.12)',
+                  border: filterStatus === 'Update Scheduled' ? '1.5px solid #8b5cf6' : '1px solid rgba(139,92,246,0.3)',
+                  color: '#6d28d9', fontSize: '0.75rem', fontWeight: 600,
+                  transition: 'all 0.15s ease',
+                }}
+              >
+                <Calendar size={11} strokeWidth={2.5} style={{ color: '#7c3aed' }} />
+                <span>Scheduled: <strong>{statusStats.updateScheduled}</strong></span>
+              </div>
+            )}
+
+            {/* Update Reschedule Counter Badge */}
+            {statusStats.updateReschedule > 0 && (
+              <div
+                onClick={() => { setFilterStatus(filterStatus === 'Update Reschedule' ? 'all' : 'Update Reschedule'); setPage(1); }}
+                title="Click to filter students needing rescheduling"
+                style={{
+                  display: 'inline-flex', alignItems: 'center', gap: '0.35rem',
+                  padding: '0.3rem 0.65rem', borderRadius: '20px', cursor: 'pointer',
+                  background: filterStatus === 'Update Reschedule' ? 'rgba(244,63,94,0.25)' : 'rgba(244,63,94,0.12)',
+                  border: filterStatus === 'Update Reschedule' ? '1.5px solid #f43f5e' : '1px solid rgba(244,63,94,0.3)',
+                  color: '#be123c', fontSize: '0.75rem', fontWeight: 600,
+                  transition: 'all 0.15s ease',
+                }}
+              >
+                <RotateCcw size={11} strokeWidth={2.5} style={{ color: '#e11d48' }} />
+                <span>Reschedule: <strong>{statusStats.updateReschedule}</strong></span>
+              </div>
+            )}
+
+            {/* Update Done Counter Badge */}
+            {statusStats.updateDone > 0 && (
+              <div
+                onClick={() => { setFilterStatus(filterStatus === 'Update Done' ? 'all' : 'Update Done'); setPage(1); }}
+                title="Click to filter students with completed progress update (SPA Send Invoice)"
+                style={{
+                  display: 'inline-flex', alignItems: 'center', gap: '0.35rem',
+                  padding: '0.3rem 0.65rem', borderRadius: '20px', cursor: 'pointer',
+                  background: filterStatus === 'Update Done' ? 'rgba(16,185,129,0.25)' : 'rgba(16,185,129,0.12)',
+                  border: filterStatus === 'Update Done' ? '1.5px solid #10b981' : '1px solid rgba(16,185,129,0.3)',
+                  color: '#047857', fontSize: '0.75rem', fontWeight: 600,
+                  transition: 'all 0.15s ease',
+                }}
+              >
+                <CheckCircle2 size={11} strokeWidth={2.5} style={{ color: '#059669' }} />
+                <span>Done · Invoice: <strong>{statusStats.updateDone}</strong></span>
+              </div>
+            )}
+
             <span aria-hidden="true" style={{ color: 'var(--border-color)', margin: '0 0.15rem' }}>·</span>
             <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
               <strong style={{ color: 'var(--text-main)' }}>{sorted.length}</strong> total · <strong style={{ color: 'var(--text-main)' }}>{attended}</strong> lessons
@@ -1388,10 +1566,15 @@ export default function LiveProgressTable({ category }) {
             </select>
           </div>
 
-          <div className="input-group" style={{ margin: 0, width: '150px' }}>
+          <div className="input-group" style={{ margin: 0, width: '165px' }}>
             <label htmlFor="status-filter-select" style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '0.3rem', display: 'block' }}>Status</label>
             <select id="status-filter-select" aria-label="Status" value={filterStatus} onChange={(e) => { setFilterStatus(e.target.value); setPage(1); }} style={{ width: '100%' }}>
               <option value="all">All Statuses</option>
+              <option value="Need Update">Need Update ({statusStats.needUpdate})</option>
+              {statusStats.updateOffer > 0 && <option value="Update Offer">Update Offer ({statusStats.updateOffer})</option>}
+              {statusStats.updateScheduled > 0 && <option value="Update Scheduled">Update Scheduled ({statusStats.updateScheduled})</option>}
+              {statusStats.updateReschedule > 0 && <option value="Update Reschedule">Update Reschedule ({statusStats.updateReschedule})</option>}
+              {statusStats.updateDone > 0 && <option value="Update Done">Update Done ({statusStats.updateDone})</option>}
               <option value="Active">Active ({statusStats.active})</option>
               <option value="Long Break">Long Break ({statusStats.longBreak})</option>
               <option value="Inactive">Inactive ({statusStats.inactive})</option>
@@ -1477,6 +1660,7 @@ export default function LiveProgressTable({ category }) {
                   <th style={{ minWidth: '170px' }}>Student Name</th>
                   <th style={{ minWidth: '240px' }}>Lesson Arrangement</th>
                   <th style={{ minWidth: category === 'Coder' ? '300px' : '250px' }}>{category === 'Coder' ? 'Attendance (Meetings)' : `Attendance 1–${maxLessons}`}</th>
+                  <th style={{ minWidth: '130px', width: '130px' }}>Need Update</th>
                   <th style={{ minWidth: '180px' }}>Video Sent</th>
                   <th style={{ width: '160px' }}>Continuation</th>
                 </tr>
@@ -1484,7 +1668,7 @@ export default function LiveProgressTable({ category }) {
               <tbody>
                 {rows.length === 0 ? (
                   <tr>
-                    <td colSpan="9" style={{ textAlign: 'center', padding: '3rem 1.5rem', color: 'var(--text-muted)' }}>
+                    <td colSpan="10" style={{ textAlign: 'center', padding: '3rem 1.5rem', color: 'var(--text-muted)' }}>
                       <AlertTriangle size={32} style={{ color: 'var(--warning)', marginBottom: '0.5rem' }} />
                       <div style={{ fontWeight: 600 }}>No {category} students scheduled</div>
                       <div style={{ fontSize: '0.8rem', marginTop: '0.2rem' }}>
@@ -1494,7 +1678,7 @@ export default function LiveProgressTable({ category }) {
                   </tr>
                 ) : paged.length === 0 ? (
                   <tr>
-                    <td colSpan="9" style={{ textAlign: 'center', padding: '2.5rem 1.5rem', color: 'var(--text-muted)' }}>
+                    <td colSpan="10" style={{ textAlign: 'center', padding: '2.5rem 1.5rem', color: 'var(--text-muted)' }}>
                       <div style={{ fontWeight: 600 }}>No student matches your filters.</div>
                     </td>
                   </tr>
@@ -1772,6 +1956,25 @@ export default function LiveProgressTable({ category }) {
                                       </button>
                                     );
                                   })}
+                                  {/* View Detail Attendance & History Button */}
+                                  <button
+                                    type="button"
+                                    onClick={() => setDetailModalRow(r)}
+                                    title={`View detailed attendance history & teacher tracking for ${r.studentName}`}
+                                    aria-label={`View detailed attendance history for ${r.studentName}`}
+                                    style={{
+                                      position: 'relative',
+                                      width: '22px', height: '22px', borderRadius: '5px',
+                                      display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                                      cursor: 'pointer', fontSize: '0.6rem', fontWeight: 700,
+                                      border: '1px solid var(--border-color)',
+                                      background: 'var(--bg-color)',
+                                      color: 'var(--text-secondary)',
+                                      transition: 'all 0.15s ease',
+                                    }}
+                                  >
+                                    <Eye size={12} />
+                                  </button>
                                 </div>
                                 {category === 'Coder' && (
                                   <div style={{ fontSize: '0.66rem', color: 'var(--text-muted)', marginTop: '0.25rem', fontWeight: 600 }}>
@@ -1779,6 +1982,107 @@ export default function LiveProgressTable({ category }) {
                                   </div>
                                 )}
                               </div>
+                            );
+                          })()}
+                        </td>
+
+                        {/* Need Update Notification & Lifecycle Column */}
+                        <td>
+                          {(() => {
+                            const progressStatus = getProgressUpdateStatus(r, r);
+                            const attendedCount = Object.keys(r.attendance || {}).length;
+                            const threshold = category === 'Coder' ? 9 : 7;
+                            const isOverThreshold = attendedCount >= threshold;
+                            const effectiveStatus = progressStatus || (isOverThreshold ? PROGRESS_UPDATE_STATUSES.NEED_UPDATE : null);
+
+                            if (effectiveStatus) {
+                              const badge = PROGRESS_UPDATE_BADGES[effectiveStatus] || PROGRESS_UPDATE_BADGES['Need update progress'];
+                              const Icon = effectiveStatus === 'Update Offer' ? Send
+                                : effectiveStatus === 'Update Scheduled' ? Calendar
+                                : effectiveStatus === 'Update Reschedule' ? RotateCcw
+                                : effectiveStatus === 'Update Done' ? CheckCircle2
+                                : Clock;
+
+                              return (
+                                <button
+                                  type="button"
+                                  onClick={() => setProgressUpdateModalRow(r)}
+                                  title={`Click to update progress tracking for ${r.studentName} (${r.program})\nAttended: ${attendedCount}/${threshold} lessons\nCurrent Status: ${effectiveStatus}${r.progressUpdateDate ? `\nSchedule: ${r.progressUpdateDate}` : ''}`}
+                                  aria-label={`Progress update status: ${badge?.shortLabel || effectiveStatus} for ${r.studentName}`}
+                                  style={{
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '0.35rem',
+                                    padding: '0.22rem 0.55rem',
+                                    borderRadius: '6px',
+                                    fontSize: '0.73rem',
+                                    fontWeight: 700,
+                                    background: badge?.bg || '#fef3c7',
+                                    color: badge?.color || '#b45309',
+                                    border: `1px solid ${badge?.borderColor || '#f59e0b'}`,
+                                    boxShadow: '0 1px 3px rgba(0, 0, 0, 0.06)',
+                                    cursor: 'pointer',
+                                    whiteSpace: 'nowrap',
+                                    transition: 'all 0.15s ease',
+                                  }}
+                                  onMouseEnter={(e) => {
+                                    e.currentTarget.style.transform = 'translateY(-1px)';
+                                    e.currentTarget.style.boxShadow = '0 2px 6px rgba(0, 0, 0, 0.12)';
+                                  }}
+                                  onMouseLeave={(e) => {
+                                    e.currentTarget.style.transform = 'none';
+                                    e.currentTarget.style.boxShadow = '0 1px 3px rgba(0, 0, 0, 0.06)';
+                                  }}
+                                >
+                                  <Icon size={11} strokeWidth={2.5} style={{ flexShrink: 0 }} />
+                                  <span>{badge?.shortLabel || effectiveStatus}</span>
+                                  {effectiveStatus === 'Update Scheduled' && r.progressUpdateDate && (
+                                    <span style={{ fontSize: '0.66rem', opacity: 0.85, fontWeight: 600 }}>
+                                      · {r.progressUpdateDate}
+                                    </span>
+                                  )}
+                                  {effectiveStatus === 'Update Done' && (
+                                    <span style={{ fontSize: '0.66rem', opacity: 0.9, fontWeight: 700, background: 'rgba(16,185,129,0.2)', padding: '0.05rem 0.25rem', borderRadius: '3px' }}>
+                                      Invoice
+                                    </span>
+                                  )}
+                                </button>
+                              );
+                            }
+
+                            const remaining = Math.max(0, threshold - attendedCount);
+                            const label = attendedCount > 0 && remaining > 0
+                              ? `${remaining} more meeting${remaining === 1 ? '' : 's'} to go to update progress`
+                              : '—';
+
+                            return (
+                              <button
+                                type="button"
+                                onClick={() => setProgressUpdateModalRow(r)}
+                                title={`Attended ${attendedCount}/${threshold} lessons for ${r.program} (${remaining} more meeting${remaining === 1 ? '' : 's'} to go to update progress). Click to manually open progress update workflow.`}
+                                style={{
+                                  fontSize: '0.72rem',
+                                  color: attendedCount > 0 ? 'var(--text-secondary, #64748b)' : 'var(--text-muted, #94a3b8)',
+                                  fontWeight: attendedCount > 0 ? 500 : 400,
+                                  background: 'transparent',
+                                  border: '1px dashed transparent',
+                                  borderRadius: '4px',
+                                  padding: '0.15rem 0.35rem',
+                                  cursor: 'pointer',
+                                  whiteSpace: 'nowrap',
+                                  transition: 'all 0.15s ease',
+                                }}
+                                onMouseEnter={(e) => {
+                                  e.currentTarget.style.borderColor = 'var(--border-color)';
+                                  e.currentTarget.style.color = 'var(--text-main)';
+                                }}
+                                onMouseLeave={(e) => {
+                                  e.currentTarget.style.borderColor = 'transparent';
+                                  e.currentTarget.style.color = attendedCount > 0 ? 'var(--text-secondary, #64748b)' : 'var(--text-muted, #94a3b8)';
+                                }}
+                              >
+                                {label}
+                              </button>
                             );
                           })()}
                         </td>
@@ -2597,6 +2901,49 @@ export default function LiveProgressTable({ category }) {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Attendance Detail & History Modal */}
+      {detailModalRow && (
+        <AttendanceDetailHistoryModal
+          isOpen={Boolean(detailModalRow)}
+          onClose={() => setDetailModalRow(null)}
+          row={detailModalRow}
+          category={category}
+          maxLessons={maxLessons}
+          onOpenAttendanceEditor={(targetRow, lessonNum) => {
+            setDetailModalRow(null);
+            openAttendance(targetRow, lessonNum);
+          }}
+        />
+      )}
+
+      {/* Progress Update Workflow Lifecycle Modal */}
+      {progressUpdateModalRow && (
+        <ProgressUpdateModal
+          isOpen={Boolean(progressUpdateModalRow)}
+          onClose={() => setProgressUpdateModalRow(null)}
+          row={progressUpdateModalRow}
+          category={category}
+          allStudentRows={rows.filter(
+            (r) =>
+              String(r.studentName || '')
+                .trim()
+                .toLowerCase() ===
+              String(progressUpdateModalRow.studentName || '')
+                .trim()
+                .toLowerCase()
+          )}
+          user={user}
+          onSave={async (updates) => {
+            await persist(progressUpdateModalRow, () => updates);
+            showToast({
+              title: 'Progress Workflow Updated',
+              message: `Progress status for ${progressUpdateModalRow.studentName} updated to "${updates.progressUpdateStatus}".`,
+              variant: 'success',
+            });
+          }}
+        />
       )}
     </section>
   );
