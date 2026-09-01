@@ -30,6 +30,7 @@ import NewJuniorProgressPage from '@/views/NewJuniorProgressPage';
 import NewCoderProgressPage from '@/views/NewCoderProgressPage';
 import NewMeetingsPage from '@/views/NewMeetingsPage';
 import NewStudentSubscriptionsPage from '@/views/NewStudentSubscriptionsPage';
+import NewQaTrackerPage from '@/views/NewQaTrackerPage';
 import VercelMigrationNotice from '@/components/layout/VercelMigrationNotice';
 
 /** Derive page from URL pathname for New Operations */
@@ -180,6 +181,8 @@ export default function AppShell() {
     PageComponent = NewUsersPage;
   } else if (currentPage === 'api') {
     PageComponent = NewApiDocsPage;
+  } else if (currentPage === 'qa-tracker') {
+    PageComponent = NewQaTrackerPage;
   } else {
     PageComponent = NewSchedulePage;
   }

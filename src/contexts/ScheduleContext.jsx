@@ -156,6 +156,7 @@ export const DEFAULT_SIDEBAR_ORDER = [
   'live-progress',
   'users',
   'api',
+  'qa-tracker',
 ];
 
 /* ─── provider ───────────────────────────────────────────────────── */

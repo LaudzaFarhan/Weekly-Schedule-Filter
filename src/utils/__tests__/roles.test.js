@@ -60,8 +60,9 @@ describe('isAdmin', () => {
 });
 
 describe('RBAC System Modules and Permissions', () => {
-  it('defines 15 core system modules', () => {
-    expect(APP_MODULES.length).toBe(15);
+  it('defines 16 core system modules', () => {
+    expect(APP_MODULES.length).toBe(16);
+    expect(APP_MODULES.some(m => m.id === 'qa-tracker')).toBe(true);
     expect(SYSTEM_ROLES).toEqual(['Admin', 'Supervisor', 'SPA', 'EC', 'Instructor']);
   });
 
