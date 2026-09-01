@@ -1,6 +1,7 @@
 import { query } from '@/lib/db';
 import { buildListQuery, withLimit } from '@/lib/listQuery';
 import { NextResponse } from 'next/server';
+import { autoSyncInstructorAccounts } from '@/lib/syncInstructorAccounts';
 
 const mapRow = (row) => ({
   id: row.id,
@@ -110,6 +111,8 @@ export async function POST(req) {
       }
     }
  
+    await autoSyncInstructorAccounts().catch(() => {});
+
     return NextResponse.json(mapRow(res.rows[0]));
   } catch (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });

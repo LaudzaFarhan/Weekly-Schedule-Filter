@@ -1,5 +1,6 @@
 import { query, withTransaction } from '@/lib/db';
 import { NextResponse } from 'next/server';
+import { autoSyncInstructorAccounts } from '@/lib/syncInstructorAccounts';
 
 /**
  * POST /api/new/instructors/bulk
@@ -62,6 +63,8 @@ export async function POST(req) {
       }
       return results;
     });
+
+    await autoSyncInstructorAccounts().catch(() => {});
 
     return NextResponse.json({
       success: true,

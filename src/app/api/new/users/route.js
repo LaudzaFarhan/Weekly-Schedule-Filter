@@ -31,6 +31,7 @@ import {
   CredentialKeyError, describeCredentialKey, encryptPassword, isCredentialKeyConfigured,
 } from '@/lib/employeeCredentials';
 import { defaultPasswordFor } from '@/lib/employeeAccounts';
+import { autoSyncInstructorAccounts } from '@/lib/syncInstructorAccounts';
 
 /** Account statuses. Anything other than Active is refused at login. */
 const STATUSES = ['Active', 'Suspended'];
@@ -98,6 +99,11 @@ export async function GET(req) {
     if (!canAdminAccounts(identity)) return forbidden();
 
     await ensureTable('internal_users');
+
+    // Automatically sync instructor accounts so all instructors appear in user management
+    await autoSyncInstructorAccounts().catch((err) => {
+      console.warn('[GET /api/new/users] autoSync notice:', err.message);
+    });
 
     const { searchParams } = new URL(req.url);
     const { clause, params, limit } = buildListQuery(searchParams, {
