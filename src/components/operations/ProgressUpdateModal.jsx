@@ -8,6 +8,58 @@ import {
 } from 'lucide-react';
 import { PROGRESS_UPDATE_STATUSES, PROGRESS_UPDATE_BADGES } from '../../utils/progressUpdateUtils';
 
+const TIME_SLOT_OPTIONS = [
+  '09:00 AM',
+  '09:30 AM',
+  '10:00 AM',
+  '10:30 AM',
+  '11:00 AM',
+  '11:30 AM',
+  '12:00 PM',
+  '12:30 PM',
+  '01:00 PM',
+  '01:30 PM',
+  '02:00 PM',
+  '02:30 PM',
+  '03:00 PM',
+  '03:30 PM',
+  '04:00 PM',
+  '04:30 PM',
+  '05:00 PM',
+  '05:30 PM',
+  '06:00 PM',
+  '06:30 PM',
+  '07:00 PM',
+];
+
+const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+function formatCombinedSchedule(dateStr, timeStr) {
+  if (!dateStr && !timeStr) return '';
+  if (!dateStr) return timeStr;
+
+  try {
+    const parts = dateStr.split('-');
+    if (parts.length === 3) {
+      const year = parseInt(parts[0], 10);
+      const month = parseInt(parts[1], 10) - 1;
+      const day = parseInt(parts[2], 10);
+      const d = new Date(year, month, day);
+      if (!isNaN(d.getTime())) {
+        const weekday = DAY_NAMES[d.getDay()] || 'Day';
+        const monthStr = MONTH_NAMES[month] || '';
+        if (timeStr) {
+          return `${weekday}, ${day} ${monthStr} ${year} · ${timeStr}`;
+        }
+        return `${weekday}, ${day} ${monthStr} ${year}`;
+      }
+    }
+  } catch (e) {}
+
+  return `${dateStr}${timeStr ? ` · ${timeStr}` : ''}`;
+}
+
 /**
  * ProgressUpdateModal
  * 
@@ -15,7 +67,7 @@ import { PROGRESS_UPDATE_STATUSES, PROGRESS_UPDATE_BADGES } from '../../utils/pr
  * - Left Panel: Progress Update & Reschedule History per term/program,
  *   tracking how many times rescheduled, completed updates, and historical timeline.
  * - Right Panel: Workflow Status Selector (Need Update, Offer, Scheduled, Reschedule, Done),
- *   scheduled slot input, and communication notes.
+ *   Option Calendar Date Picker, Time Slot Dropdown, and communication notes.
  */
 export default function ProgressUpdateModal({
   isOpen,
@@ -27,7 +79,10 @@ export default function ProgressUpdateModal({
   onSave,
 }) {
   const [selectedStatus, setSelectedStatus] = useState(PROGRESS_UPDATE_STATUSES.NEED_UPDATE);
-  const [scheduledDate, setScheduledDate] = useState('');
+  const [calendarDate, setCalendarDate] = useState('');
+  const [timeSlot, setTimeSlot] = useState('04:30 PM');
+  const [isCustomTime, setIsCustomTime] = useState(false);
+  const [customTime, setCustomTime] = useState('');
   const [updateNote, setUpdateNote] = useState('');
   const [selectedHistoryProgram, setSelectedHistoryProgram] = useState('current');
   const [saving, setSaving] = useState(false);
@@ -36,9 +91,47 @@ export default function ProgressUpdateModal({
     if (row) {
       const currentStatus = row.progressUpdateStatus || PROGRESS_UPDATE_STATUSES.NEED_UPDATE;
       setSelectedStatus(currentStatus);
-      setScheduledDate(row.progressUpdateDate || '');
       setUpdateNote(row.progressUpdateNote || '');
       setSelectedHistoryProgram('current');
+
+      const rawDate = row.progressUpdateDate || '';
+      if (rawDate) {
+        // Extract date YYYY-MM-DD if present
+        const dateMatch = rawDate.match(/(\d{4}-\d{2}-\d{2})/);
+        if (dateMatch) {
+          setCalendarDate(dateMatch[1]);
+        } else {
+          // If free text, set today as calendar default
+          const today = new Date().toISOString().split('T')[0];
+          setCalendarDate(today);
+        }
+
+        // Extract time
+        const timeMatch = rawDate.match(/(\d{1,2}:\d{2}\s*(?:AM|PM|am|pm)?)/i);
+        if (timeMatch) {
+          const foundTime = timeMatch[1].toUpperCase();
+          const matchSlot = TIME_SLOT_OPTIONS.find(
+            (slot) => slot.replace(/\s+/g, '').toUpperCase() === foundTime.replace(/\s+/g, '').toUpperCase()
+          );
+          if (matchSlot) {
+            setTimeSlot(matchSlot);
+            setIsCustomTime(false);
+          } else {
+            setTimeSlot('__custom__');
+            setIsCustomTime(true);
+            setCustomTime(foundTime);
+          }
+        } else {
+          setTimeSlot('04:30 PM');
+          setIsCustomTime(false);
+        }
+      } else {
+        const today = new Date().toISOString().split('T')[0];
+        setCalendarDate(today);
+        setTimeSlot('04:30 PM');
+        setIsCustomTime(false);
+        setCustomTime('');
+      }
     }
   }, [row]);
 
@@ -85,17 +178,22 @@ export default function ProgressUpdateModal({
     (r) => r.rowKey !== row.rowKey && r.program && r.program !== row.program
   );
 
+  const effectiveTime = isCustomTime ? customTime.trim() : timeSlot;
+  const finalScheduledSlot = formatCombinedSchedule(calendarDate, effectiveTime);
+
   const handleFormSubmit = async (e) => {
     e.preventDefault();
     setSaving(true);
     try {
       const userIdentifier = user?.email || user?.name || 'SPA Staff';
+      const isDateRequired = selectedStatus === PROGRESS_UPDATE_STATUSES.UPDATE_SCHEDULED || selectedStatus === PROGRESS_UPDATE_STATUSES.UPDATE_RESCHEDULE;
+
       const newHistoryEntry = {
         id: `${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
         timestamp: new Date().toISOString(),
         status: selectedStatus,
         previousStatus: row.progressUpdateStatus || PROGRESS_UPDATE_STATUSES.NEED_UPDATE,
-        scheduledDate: (selectedStatus === PROGRESS_UPDATE_STATUSES.UPDATE_SCHEDULED || selectedStatus === PROGRESS_UPDATE_STATUSES.UPDATE_RESCHEDULE) ? scheduledDate : null,
+        scheduledDate: isDateRequired ? finalScheduledSlot : null,
         note: updateNote.trim() || null,
         user: userIdentifier,
         program: row.program,
@@ -106,7 +204,7 @@ export default function ProgressUpdateModal({
 
       await onSave({
         progressUpdateStatus: selectedStatus,
-        progressUpdateDate: (selectedStatus === PROGRESS_UPDATE_STATUSES.UPDATE_SCHEDULED || selectedStatus === PROGRESS_UPDATE_STATUSES.UPDATE_RESCHEDULE) ? scheduledDate : (selectedStatus === PROGRESS_UPDATE_STATUSES.UPDATE_DONE ? scheduledDate || null : null),
+        progressUpdateDate: isDateRequired ? finalScheduledSlot : (selectedStatus === PROGRESS_UPDATE_STATUSES.UPDATE_DONE ? finalScheduledSlot || null : null),
         progressUpdateNote: updateNote.trim() || null,
         progressUpdateHistory: updatedHistory,
       });
@@ -143,7 +241,6 @@ export default function ProgressUpdateModal({
       theme: { bg: 'rgba(139,92,246,0.08)', border: '#8b5cf6', color: '#6d28d9', activeBg: '#f3e8ff' },
       description: 'Parent agreed on schedule. Instructor informed of the date and time.',
       requiresDate: true,
-      datePlaceholder: 'e.g. Friday, 4.30 PM or 2026-09-04 16:30',
     },
     {
       id: PROGRESS_UPDATE_STATUSES.UPDATE_RESCHEDULE,
@@ -153,7 +250,6 @@ export default function ProgressUpdateModal({
       theme: { bg: 'rgba(244,63,94,0.08)', border: '#f43f5e', color: '#be123c', activeBg: '#fff1f2' },
       description: 'Parent could not attend scheduled time. SPA to reschedule.',
       requiresDate: true,
-      datePlaceholder: 'e.g. Rescheduled to Tuesday 5:00 PM',
     },
     {
       id: PROGRESS_UPDATE_STATUSES.UPDATE_DONE,
@@ -370,7 +466,6 @@ export default function ProgressUpdateModal({
                     const badge = PROGRESS_UPDATE_BADGES[item.status] || PROGRESS_UPDATE_BADGES['Need update progress'];
                     const isReschedule = item.status === PROGRESS_UPDATE_STATUSES.UPDATE_RESCHEDULE;
                     const isDone = item.status === PROGRESS_UPDATE_STATUSES.UPDATE_DONE;
-                    const isScheduled = item.status === PROGRESS_UPDATE_STATUSES.UPDATE_SCHEDULED;
 
                     return (
                       <div
@@ -547,30 +642,147 @@ export default function ProgressUpdateModal({
               </div>
             </div>
 
-            {/* Conditional Scheduled Date & Time Input */}
+            {/* Option Calendar Date & Time Slot Dropdown */}
             {(selectedStatus === PROGRESS_UPDATE_STATUSES.UPDATE_SCHEDULED || selectedStatus === PROGRESS_UPDATE_STATUSES.UPDATE_RESCHEDULE) && (
-              <div>
-                <label style={{ fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-main, #1e293b)', display: 'block', marginBottom: '0.3rem' }}>
-                  <Calendar size={13} style={{ display: 'inline', marginRight: '4px' }} />
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.45rem' }}>
+                <label style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-main, #1e293b)', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                  <Calendar size={14} style={{ color: 'var(--primary-blue, #4f46e5)' }} />
                   {selectedStatus === PROGRESS_UPDATE_STATUSES.UPDATE_RESCHEDULE ? 'Rescheduled Date & Time Slot' : 'Scheduled Date & Time Slot'}
                 </label>
-                <input
-                  type="text"
-                  value={scheduledDate}
-                  onChange={(e) => setScheduledDate(e.target.value)}
-                  placeholder="e.g. Friday, 4.30 PM or 4 Sep 2026 @ 16:30"
-                  style={{
-                    width: '100%',
-                    padding: '0.5rem 0.75rem',
-                    borderRadius: '8px',
-                    border: '1.5px solid var(--border-color, #e2e8f0)',
-                    fontSize: '0.82rem',
-                    background: 'var(--bg-color, #f8fafc)',
-                    color: 'var(--text-main, #1e293b)',
-                    outline: 'none',
-                    boxSizing: 'border-box',
-                  }}
-                />
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: '0.6rem' }}>
+                  {/* Option Calendar Date Picker */}
+                  <div>
+                    <label
+                      htmlFor="progress-update-calendar-date"
+                      style={{ fontSize: '0.7rem', fontWeight: 600, color: 'var(--text-secondary, #64748b)', display: 'block', marginBottom: '0.25rem' }}
+                    >
+                      Select Date
+                    </label>
+                    <input
+                      id="progress-update-calendar-date"
+                      aria-label="Select Date"
+                      type="date"
+                      value={calendarDate}
+                      onChange={(e) => setCalendarDate(e.target.value)}
+                      style={{
+                        width: '100%',
+                        padding: '0.52rem 0.65rem',
+                        borderRadius: '8px',
+                        border: '1.5px solid var(--border-color, #e2e8f0)',
+                        fontSize: '0.82rem',
+                        background: 'var(--bg-color, #f8fafc)',
+                        color: 'var(--text-main, #1e293b)',
+                        outline: 'none',
+                        boxSizing: 'border-box',
+                      }}
+                    />
+                  </div>
+
+                  {/* Time Slot Dropdown */}
+                  <div>
+                    <label
+                      htmlFor="progress-update-time-slot"
+                      style={{ fontSize: '0.7rem', fontWeight: 600, color: 'var(--text-secondary, #64748b)', display: 'block', marginBottom: '0.25rem' }}
+                    >
+                      Select Time Slot
+                    </label>
+                    {!isCustomTime ? (
+                      <select
+                        id="progress-update-time-slot"
+                        aria-label="Select Time Slot"
+                        value={timeSlot}
+                        onChange={(e) => {
+                          if (e.target.value === '__custom__') {
+                            setIsCustomTime(true);
+                            setCustomTime('');
+                          } else {
+                            setTimeSlot(e.target.value);
+                          }
+                        }}
+                        style={{
+                          width: '100%',
+                          padding: '0.52rem 0.65rem',
+                          borderRadius: '8px',
+                          border: '1.5px solid var(--border-color, #e2e8f0)',
+                          fontSize: '0.82rem',
+                          background: 'var(--bg-color, #f8fafc)',
+                          color: 'var(--text-main, #1e293b)',
+                          outline: 'none',
+                          boxSizing: 'border-box',
+                        }}
+                      >
+                        {TIME_SLOT_OPTIONS.map((slot) => (
+                          <option key={slot} value={slot}>
+                            {slot}
+                          </option>
+                        ))}
+                        <option value="__custom__">✏️ Custom Time...</option>
+                      </select>
+                    ) : (
+                      <div style={{ display: 'flex', gap: '0.3rem' }}>
+                        <input
+                          id="progress-update-time-slot"
+                          aria-label="Select Time Slot"
+                          type="text"
+                          value={customTime}
+                          onChange={(e) => setCustomTime(e.target.value)}
+                          placeholder="e.g. 4.15 PM"
+                          style={{
+                            flex: 1,
+                            padding: '0.52rem 0.65rem',
+                            borderRadius: '8px',
+                            border: '1.5px solid var(--border-color, #e2e8f0)',
+                            fontSize: '0.82rem',
+                            background: 'var(--bg-color, #f8fafc)',
+                            color: 'var(--text-main, #1e293b)',
+                            outline: 'none',
+                            boxSizing: 'border-box',
+                          }}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setIsCustomTime(false);
+                            setTimeSlot('04:30 PM');
+                          }}
+                          style={{
+                            padding: '0.35rem 0.55rem',
+                            fontSize: '0.72rem',
+                            borderRadius: '6px',
+                            border: '1px solid var(--border-color, #cbd5e1)',
+                            background: 'var(--panel-bg, #ffffff)',
+                            cursor: 'pointer',
+                          }}
+                        >
+                          List
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Formatted Preview Badge */}
+                {finalScheduledSlot && (
+                  <div
+                    style={{
+                      marginTop: '0.2rem',
+                      padding: '0.4rem 0.65rem',
+                      borderRadius: '6px',
+                      background: 'rgba(139,92,246,0.08)',
+                      border: '1px solid rgba(139,92,246,0.25)',
+                      color: '#6d28d9',
+                      fontSize: '0.74rem',
+                      fontWeight: 600,
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.4rem',
+                    }}
+                  >
+                    <Clock size={12} />
+                    <span>Scheduled for: <strong>{finalScheduledSlot}</strong></span>
+                  </div>
+                )}
               </div>
             )}
 

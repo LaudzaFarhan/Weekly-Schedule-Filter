@@ -550,10 +550,14 @@ describe('LiveProgressTable - Unassigned Students & Unregistered Instructors', (
     const scheduledOption = screen.getByText('Update Scheduled');
     fireEvent.click(scheduledOption);
 
-    // Enter scheduled date
-    const dateInput = screen.getByPlaceholderText(/Friday, 4\.30 PM/i);
+    // Select date and time slot
+    const dateInput = screen.getByLabelText(/Select Date/i);
     expect(dateInput).toBeInTheDocument();
-    fireEvent.change(dateInput, { target: { value: 'Friday, 4:30 PM' } });
+    fireEvent.change(dateInput, { target: { value: '2026-09-04' } });
+
+    const timeSelect = screen.getByLabelText(/Select Time Slot/i);
+    expect(timeSelect).toBeInTheDocument();
+    fireEvent.change(timeSelect, { target: { value: '04:30 PM' } });
 
     // Save workflow status
     const saveWorkflowBtn = screen.getByRole('button', { name: /Save Workflow Status/i });
@@ -563,7 +567,7 @@ describe('LiveProgressTable - Unassigned Students & Unregistered Instructors', (
       expect.objectContaining({
         studentName: 'Arya Arkananta',
         progressUpdateStatus: 'Update Scheduled',
-        progressUpdateDate: 'Friday, 4:30 PM',
+        progressUpdateDate: 'Fri, 4 Sep 2026 · 04:30 PM',
       })
     );
   });
