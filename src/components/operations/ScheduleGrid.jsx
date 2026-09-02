@@ -1312,7 +1312,16 @@ export default function ScheduleGrid({
       )}
 
       {/* Grid */}
-      <div className="panel-body" style={{ padding: 0 }}>
+      <div
+        className="panel-body"
+        style={{
+          padding: 0,
+          display: isFullscreen ? 'flex' : undefined,
+          flexDirection: isFullscreen ? 'column' : undefined,
+          flex: isFullscreen ? '1 1 0%' : undefined,
+          minHeight: 0,
+        }}
+      >
         {columns.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '2.5rem 1.5rem', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
             {branch
@@ -1324,8 +1333,22 @@ export default function ScheduleGrid({
             {branch ? `${branch.name} has no open days yet. Enable days above.` : 'Select a branch.'}
           </div>
         ) : (
-          <div style={{ display: 'flex', gap: '1rem', alignItems: 'flex-start' }}>
-            <div style={{ flex: 1, minWidth: 0, position: 'relative' }}>
+          <div style={{
+            display: 'flex',
+            gap: '1rem',
+            flex: isFullscreen ? '1 1 0%' : undefined,
+            minHeight: 0,
+            height: isFullscreen ? '100%' : undefined,
+          }}>
+            <div style={{
+              flex: 1,
+              minWidth: 0,
+              position: 'relative',
+              display: isFullscreen ? 'flex' : undefined,
+              flexDirection: isFullscreen ? 'column' : undefined,
+              minHeight: 0,
+              height: isFullscreen ? '100%' : undefined,
+            }}>
           {/* Edge fades sit above the table but must not eat clicks meant for
               the cells underneath, hence pointer-events: none. */}
           {scrollNav.left && (
@@ -1379,8 +1402,8 @@ export default function ScheduleGrid({
             className="schedule-grid-scroller"
             style={{
               overflow: 'auto',
-              maxHeight: isFullscreen ? 'calc(100vh - 170px)' : 'calc(88vh - 120px)',
-              height: isFullscreen ? 'calc(100vh - 170px)' : undefined,
+              maxHeight: isFullscreen ? '100%' : 'calc(88vh - 120px)',
+              height: isFullscreen ? '100%' : undefined,
               flex: isFullscreen ? '1 1 0%' : undefined,
               minHeight: isFullscreen ? 0 : '450px',
             }}
@@ -1938,6 +1961,7 @@ export default function ScheduleGrid({
           display: 'flex', gap: '1rem', flexWrap: 'wrap', alignItems: 'center',
           padding: '0.7rem 1.5rem', borderTop: '1px solid var(--border-color)',
           fontSize: '0.72rem', color: 'var(--text-muted)',
+          flexShrink: 0,
         }}>
           {CATEGORIES.map((c) => {
             const meta = slotTypeMeta(slotKeyForCategory(c));

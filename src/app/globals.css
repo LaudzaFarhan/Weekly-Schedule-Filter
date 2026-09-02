@@ -202,7 +202,7 @@ td.schedule-grid-sticky-col {
 }
 
 .schedule-grid-fullscreen .panel-header {
-  padding: 0.75rem 1.5rem !important;
+  padding: 0.65rem 1.25rem !important;
   background: var(--panel-bg, #ffffff) !important;
   border-bottom: 1px solid var(--border-color) !important;
   flex-shrink: 0 !important;
@@ -227,9 +227,11 @@ td.schedule-grid-sticky-col {
 }
 
 .schedule-grid-fullscreen .schedule-grid-scroller {
-  max-height: none !important;
-  height: calc(100vh - 170px) !important;
+  max-height: 100% !important;
+  height: 100% !important;
   flex: 1 1 0% !important;
+  min-height: 0 !important;
+  overflow: auto !important;
 }
 
 /* ── Notification bell + dropdown ─────────────────────── */
