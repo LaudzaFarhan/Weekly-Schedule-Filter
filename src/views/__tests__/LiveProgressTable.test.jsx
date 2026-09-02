@@ -571,7 +571,75 @@ describe('LiveProgressTable - Unassigned Students & Unregistered Instructors', (
       })
     );
   });
+
+  it('opens NextTermContinuationModal on Update Done status and resets attendance on confirm continue', async () => {
+    subscribeToLiveProgress.mockImplementation((cb) => {
+      cb([
+        {
+          studentName: 'Arya Arkananta',
+          programCode: 'K1',
+          category: 'Kinder',
+          progressUpdateStatus: 'Update Done',
+          attendance: { 1: { date: '2026-08-01' }, 2: { date: '2026-08-08' }, 3: {}, 4: {}, 5: {}, 6: {}, 7: {}, 8: {}, 9: {}, 10: {} },
+        },
+      ]);
+      return () => {};
+    });
+
+    render(<LiveProgressTable category="Kinder" />);
+
+    // Click on Update Done / Confirm Next Term badge
+    const updateDoneBtn = screen.getByRole('button', { name: /Progress update status: Update Done for Arya Arkananta/i });
+    expect(updateDoneBtn).toBeInTheDocument();
+    fireEvent.click(updateDoneBtn);
+
+    // Next Term Continuation Modal should be open
+    expect(screen.getByText('Next Term Continuation Confirmation')).toBeInTheDocument();
+    expect(screen.getByText('Confirm Continue')).toBeInTheDocument();
+
+    // Submit confirmation
+    const confirmBtn = screen.getByRole('button', { name: /Confirm Continue & Reset Attendance/i });
+    fireEvent.click(confirmBtn);
+
+    expect(saveLiveProgress).toHaveBeenCalledWith(
+      expect.objectContaining({
+        studentName: 'Arya Arkananta',
+        attendance: {},
+        continuation: 'Continue',
+        progressUpdateStatus: 'Completed',
+        termHistory: expect.arrayContaining([
+          expect.objectContaining({
+            attendedCount: 10,
+          }),
+        ]),
+      })
+    );
+  });
+
+  it('opens NextTermContinuationModal on Wait Payment status and allows setting next term continuation', async () => {
+    subscribeToLiveProgress.mockImplementation((cb) => {
+      cb([
+        {
+          studentName: 'Arya Arkananta',
+          programCode: 'K1',
+          category: 'Kinder',
+          progressUpdateStatus: 'Wait Payment',
+          attendance: { 1: {}, 2: {}, 3: {}, 4: {}, 5: {}, 6: {}, 7: {}, 8: {}, 9: {}, 10: {} },
+        },
+      ]);
+      return () => {};
+    });
+
+    render(<LiveProgressTable category="Kinder" />);
+
+    const waitPaymentBtn = screen.getByRole('button', { name: /Progress update status: Wait Payment for Arya Arkananta/i });
+    expect(waitPaymentBtn).toBeInTheDocument();
+    fireEvent.click(waitPaymentBtn);
+
+    expect(screen.getByText('Next Term Continuation Confirmation')).toBeInTheDocument();
+  });
 });
+
 
 
 

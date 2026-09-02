@@ -43,6 +43,11 @@ export default function AttendanceDetailHistoryModal({
   onOpenAttendanceEditor,
 }) {
   const [filterTab, setFilterTab] = useState('all'); // 'all' | 'attended' | 'missing' | 'arranged'
+  const [selectedTermKey, setSelectedTermKey] = useState('current');
+
+  useEffect(() => {
+    if (row) setSelectedTermKey('current');
+  }, [row]);
 
   useEffect(() => {
     const handleKeyDown = (e) => {
@@ -56,8 +61,23 @@ export default function AttendanceDetailHistoryModal({
 
   if (!isOpen || !row) return null;
 
-  const attendance = row.attendance || {};
-  const studentTarget = row.targetMeetings || maxLessons;
+  const termHistory = useMemo(() => {
+    if (Array.isArray(row.termHistory) && row.termHistory.length > 0) {
+      return row.termHistory;
+    }
+    return [];
+  }, [row.termHistory]);
+
+  const activeArchivedTerm = useMemo(() => {
+    if (selectedTermKey === 'current') return null;
+    return termHistory.find((t) => t.id === selectedTermKey || t.termName === selectedTermKey) || null;
+  }, [selectedTermKey, termHistory]);
+
+  const attendance = activeArchivedTerm ? (activeArchivedTerm.attendance || {}) : (row.attendance || {});
+  const activeProgram = activeArchivedTerm ? (activeArchivedTerm.program || row.program) : (row.program || row.programCode);
+  const studentTarget = activeArchivedTerm ? (activeArchivedTerm.totalMeetings || maxLessons) : (row.targetMeetings || maxLessons);
+  const isViewingArchived = Boolean(activeArchivedTerm);
+
   const maxAttendedKey = Math.max(
     ...Object.keys(attendance).map(Number).filter((n) => !isNaN(n) && n > 0),
     0
@@ -273,6 +293,94 @@ export default function AttendanceDetailHistoryModal({
             <X size={20} />
           </button>
         </div>
+
+        {/* Term History Switcher Bar */}
+        {termHistory.length > 0 && (
+          <div
+            style={{
+              padding: '0.6rem 1.5rem',
+              background: 'rgba(79, 70, 229, 0.04)',
+              borderBottom: '1px solid var(--border-color, #e2e8f0)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.5rem',
+              flexWrap: 'wrap',
+            }}
+          >
+            <span style={{ fontSize: '0.74rem', fontWeight: 700, color: 'var(--text-secondary, #64748b)', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+              <Shield size={12} /> Terms:
+            </span>
+
+            <button
+              type="button"
+              onClick={() => setSelectedTermKey('current')}
+              style={{
+                padding: '0.22rem 0.65rem',
+                borderRadius: '6px',
+                fontSize: '0.74rem',
+                fontWeight: 700,
+                cursor: 'pointer',
+                border: selectedTermKey === 'current' ? '1.5px solid #4f46e5' : '1px solid var(--border-color, #cbd5e1)',
+                background: selectedTermKey === 'current' ? '#4f46e5' : '#ffffff',
+                color: selectedTermKey === 'current' ? '#ffffff' : 'var(--text-main, #334155)',
+                boxShadow: selectedTermKey === 'current' ? '0 1px 3px rgba(79, 70, 229, 0.3)' : 'none',
+                transition: 'all 0.15s ease',
+              }}
+            >
+              Current Active Term ({row.program})
+            </button>
+
+            {termHistory.map((t, idx) => {
+              const key = t.id || t.termName || `term_${idx}`;
+              const isSelected = selectedTermKey === key;
+              return (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => setSelectedTermKey(key)}
+                  style={{
+                    padding: '0.22rem 0.65rem',
+                    borderRadius: '6px',
+                    fontSize: '0.74rem',
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    border: isSelected ? '1.5px solid #4f46e5' : '1px solid var(--border-color, #cbd5e1)',
+                    background: isSelected ? '#4f46e5' : '#ffffff',
+                    color: isSelected ? '#ffffff' : 'var(--text-main, #334155)',
+                    boxShadow: isSelected ? '0 1px 3px rgba(79, 70, 229, 0.3)' : 'none',
+                    transition: 'all 0.15s ease',
+                  }}
+                >
+                  {t.termName || `Term ${idx + 1}`} ({t.program || 'Program'} · {t.attendedCount}/{t.totalMeetings || 10})
+                </button>
+              );
+            })}
+          </div>
+        )}
+
+        {/* Archived Term Banner Notice */}
+        {isViewingArchived && activeArchivedTerm && (
+          <div
+            style={{
+              padding: '0.45rem 1.5rem',
+              background: '#ecfdf5',
+              borderBottom: '1px solid #10b981',
+              color: '#065f46',
+              fontSize: '0.76rem',
+              fontWeight: 600,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+            }}
+          >
+            <span>
+              📋 Viewing Archived History for <strong>{activeArchivedTerm.termName || 'Archived Term'}</strong> ({activeProgram}) · Completed: {activeArchivedTerm.completedDate || 'N/A'}
+            </span>
+            <span style={{ fontSize: '0.7rem', padding: '0.1rem 0.4rem', background: '#d1fae5', borderRadius: '4px', border: '1px solid #10b981' }}>
+              {activeArchivedTerm.paymentType || 'Paid Upfront'}
+            </span>
+          </div>
+        )}
 
         {/* Attendance KPI Banner */}
         <div

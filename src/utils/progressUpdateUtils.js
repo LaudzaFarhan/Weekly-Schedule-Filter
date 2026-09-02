@@ -7,6 +7,7 @@ export const PROGRESS_UPDATE_STATUSES = {
   UPDATE_SCHEDULED: 'Update Scheduled',
   UPDATE_RESCHEDULE: 'Update Reschedule',
   UPDATE_DONE: 'Update Done',
+  WAIT_PAYMENT: 'Wait Payment',
   COMPLETED: 'Completed',
 };
 
@@ -50,7 +51,16 @@ export const PROGRESS_UPDATE_BADGES = {
     bg: '#ecfdf5',
     color: '#047857',
     borderColor: '#10b981',
-    nextAction: 'Send invoice to parent',
+    nextAction: 'Send invoice / Confirm continuation',
+  },
+  'Wait Payment': {
+    label: 'Wait Payment',
+    shortLabel: 'Wait Payment',
+    description: 'SPA waiting for parent to pay next term subscription.',
+    bg: '#fff7ed',
+    color: '#c2410c',
+    borderColor: '#f97316',
+    nextAction: 'Confirm continuation once payment received',
   },
   'Completed': {
     label: 'Completed',
@@ -117,4 +127,68 @@ export function getProgressUpdateStatus(studentOrMember, liveProgressRecord = nu
   }
 
   return null;
+}
+
+/**
+ * Suggest next program code (e.g. K1.10 -> K1.11, or K1 -> K2).
+ */
+export function suggestNextProgramCode(currentCode) {
+  if (!currentCode || typeof currentCode !== 'string') return '';
+  const trimmed = currentCode.trim();
+
+  // Pattern like "K1.10" or "KF1.8" -> increment lesson or level
+  const dotMatch = trimmed.match(/^([A-Za-z0-9]+)\.(\d+)$/);
+  if (dotMatch) {
+    const prefix = dotMatch[1];
+    const num = parseInt(dotMatch[2], 10);
+    return `${prefix}.${num + 1}`;
+  }
+
+  // Pattern ending in number like "Scratch 2" -> "Scratch 3"
+  const endNumMatch = trimmed.match(/^(.*?)(\d+)$/);
+  if (endNumMatch) {
+    const prefix = endNumMatch[1];
+    const num = parseInt(endNumMatch[2], 10);
+    return `${prefix}${num + 1}`;
+  }
+
+  return trimmed;
+}
+
+/**
+ * Construct an archived term history record snapshot.
+ */
+export function buildTermHistoryEntry({
+  termName = '',
+  termNumber = 1,
+  program = '',
+  category = 'Kinder',
+  startDate = null,
+  completedDate = null,
+  attendedCount = 0,
+  totalMeetings = 10,
+  attendance = {},
+  paymentType = 'Upfront Paid',
+  spaNote = '',
+  confirmedBy = 'SPA Staff',
+}) {
+  const now = new Date();
+  const todayISO = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+
+  return {
+    id: `term_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+    termName: termName || `Term ${termNumber}`,
+    termNumber: Number(termNumber) || 1,
+    program: String(program || '').trim(),
+    category: category || 'Kinder',
+    startDate: startDate || null,
+    completedDate: completedDate || todayISO,
+    attendedCount: Number(attendedCount) || 0,
+    totalMeetings: Number(totalMeetings) || 10,
+    attendance: attendance ? JSON.parse(JSON.stringify(attendance)) : {},
+    paymentType: paymentType || 'Upfront Paid',
+    spaNote: String(spaNote || '').trim(),
+    confirmedBy: String(confirmedBy || 'SPA Staff').trim(),
+    confirmedAt: now.toISOString(),
+  };
 }

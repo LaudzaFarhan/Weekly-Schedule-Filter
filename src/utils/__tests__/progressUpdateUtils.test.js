@@ -3,6 +3,8 @@ import {
   getProgressUpdateStatus,
   PROGRESS_UPDATE_STATUSES,
   PROGRESS_UPDATE_BADGES,
+  suggestNextProgramCode,
+  buildTermHistoryEntry,
 } from '../progressUpdateUtils';
 
 describe('progressUpdateUtils', () => {
@@ -10,9 +12,12 @@ describe('progressUpdateUtils', () => {
     expect(PROGRESS_UPDATE_STATUSES.NEED_UPDATE).toBe('Need update progress');
     expect(PROGRESS_UPDATE_STATUSES.UPDATE_OFFER).toBe('Update Offer');
     expect(PROGRESS_UPDATE_STATUSES.UPDATE_SCHEDULED).toBe('Update Scheduled');
+    expect(PROGRESS_UPDATE_STATUSES.WAIT_PAYMENT).toBe('Wait Payment');
     expect(PROGRESS_UPDATE_BADGES['Need update progress']).toBeDefined();
     expect(PROGRESS_UPDATE_BADGES['Update Offer']).toBeDefined();
     expect(PROGRESS_UPDATE_BADGES['Update Scheduled']).toBeDefined();
+    expect(PROGRESS_UPDATE_BADGES['Wait Payment']).toBeDefined();
+    expect(PROGRESS_UPDATE_BADGES['Wait Payment'].shortLabel).toBe('Wait Payment');
   });
 
   describe('getProgressUpdateStatus', () => {
@@ -53,7 +58,7 @@ describe('progressUpdateUtils', () => {
       expect(getProgressUpdateStatus(student, liveProgress7)).toBe(PROGRESS_UPDATE_STATUSES.NEED_UPDATE);
     });
 
-    it('respects explicit manual status overrides', () => {
+    it('respects explicit manual status overrides including Wait Payment', () => {
       const student = {
         student: 'Hank',
         program: 'K1.2',
@@ -67,6 +72,13 @@ describe('progressUpdateUtils', () => {
         progressUpdateStatus: 'Update Scheduled',
       };
       expect(getProgressUpdateStatus(studentScheduled)).toBe('Update Scheduled');
+
+      const studentWaitPayment = {
+        student: 'Mandy',
+        program: 'K1.10',
+        progressUpdateStatus: 'Wait Payment',
+      };
+      expect(getProgressUpdateStatus(studentWaitPayment)).toBe('Wait Payment');
 
       const studentRescheduled = {
         student: 'Kevin',
@@ -88,6 +100,54 @@ describe('progressUpdateUtils', () => {
         progressUpdateStatus: 'Completed',
       };
       expect(getProgressUpdateStatus(studentDone)).toBeNull();
+    });
+  });
+
+  describe('suggestNextProgramCode', () => {
+    it('increments dotted program codes', () => {
+      expect(suggestNextProgramCode('K1.10')).toBe('K1.11');
+      expect(suggestNextProgramCode('KF1.8')).toBe('KF1.9');
+      expect(suggestNextProgramCode('J2.4')).toBe('J2.5');
+    });
+
+    it('increments trailing numbered programs', () => {
+      expect(suggestNextProgramCode('Scratch 2')).toBe('Scratch 3');
+      expect(suggestNextProgramCode('Roblox 1')).toBe('Roblox 2');
+    });
+
+    it('returns untouched for unnumbered program strings', () => {
+      expect(suggestNextProgramCode('Coder Basic')).toBe('Coder Basic');
+      expect(suggestNextProgramCode('')).toBe('');
+    });
+  });
+
+  describe('buildTermHistoryEntry', () => {
+    it('creates an archived term snapshot object', () => {
+      const attendance = { 1: { date: '2026-08-01' }, 2: { date: '2026-08-08' } };
+      const entry = buildTermHistoryEntry({
+        termName: 'Term 1',
+        termNumber: 1,
+        program: 'K1.10',
+        category: 'Kinder',
+        startDate: '2026-08-01',
+        completedDate: '2026-09-02',
+        attendedCount: 2,
+        totalMeetings: 10,
+        attendance,
+        paymentType: 'Upfront Paid',
+        spaNote: 'Paid advance for 2 terms',
+        confirmedBy: 'Admin User',
+      });
+
+      expect(entry.id).toMatch(/^term_/);
+      expect(entry.termName).toBe('Term 1');
+      expect(entry.termNumber).toBe(1);
+      expect(entry.program).toBe('K1.10');
+      expect(entry.attendedCount).toBe(2);
+      expect(entry.paymentType).toBe('Upfront Paid');
+      expect(entry.spaNote).toBe('Paid advance for 2 terms');
+      expect(entry.confirmedBy).toBe('Admin User');
+      expect(entry.attendance).toEqual(attendance);
     });
   });
 });

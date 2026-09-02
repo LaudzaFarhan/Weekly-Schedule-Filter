@@ -11,7 +11,8 @@ const ready = async () => {
       ALTER TABLE internal_live_progress
       ADD COLUMN IF NOT EXISTS arranged_lesson VARCHAR(50),
       ADD COLUMN IF NOT EXISTS arranged_teacher VARCHAR(255),
-      ADD COLUMN IF NOT EXISTS main_teacher VARCHAR(255)
+      ADD COLUMN IF NOT EXISTS main_teacher VARCHAR(255),
+      ADD COLUMN IF NOT EXISTS term_history JSONB DEFAULT '[]'::jsonb
     `);
   } catch (err) {
     // Ignore schema update error if database user lacks DDL table ownership
@@ -39,6 +40,8 @@ const mapRow = (row) => {
   const puDateMatch = noteStr.match(/\[ProgressUpdateDate:\s*([^\]]+)\]/i);
   const puNoteMatch = noteStr.match(/\[ProgressUpdateNote:\s*([^\]]+)\]/i);
   const puHistoryMatch = noteStr.match(/\[ProgressUpdateHistory:\s*(\[.*?\]|\{.*?\})\]/s);
+  const termHistoryMatch = noteStr.match(/\[TermHistory:\s*(\[.*?\]|\{.*?\})\]/s);
+
   let parsedHistory = [];
   if (puHistoryMatch) {
     try {
@@ -46,6 +49,14 @@ const mapRow = (row) => {
     } catch (e) {}
   }
   if (!Array.isArray(parsedHistory)) parsedHistory = [];
+
+  let parsedTermHistory = [];
+  if (termHistoryMatch) {
+    try {
+      parsedTermHistory = JSON.parse(termHistoryMatch[1]);
+    } catch (e) {}
+  }
+  if (!Array.isArray(parsedTermHistory)) parsedTermHistory = [];
 
   return {
     id: row.id,
@@ -63,6 +74,7 @@ const mapRow = (row) => {
     progressUpdateDate: row.progress_update_date || (puDateMatch ? puDateMatch[1].trim() : null),
     progressUpdateNote: row.progress_update_note || (puNoteMatch ? puNoteMatch[1].trim() : null),
     progressUpdateHistory: Array.isArray(row.progress_update_history) ? row.progress_update_history : parsedHistory,
+    termHistory: Array.isArray(row.term_history) ? row.term_history : parsedTermHistory,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -235,13 +247,16 @@ export async function PUT(req) {
     if (body.progressUpdateHistory !== undefined) {
       noteVal = setNoteTag(noteVal, 'ProgressUpdateHistory', JSON.stringify(body.progressUpdateHistory || []));
     }
+    if (body.termHistory !== undefined) {
+      noteVal = setNoteTag(noteVal, 'TermHistory', JSON.stringify(body.termHistory || []));
+    }
 
     let res;
     try {
       res = await query(
         `INSERT INTO internal_live_progress
-           (student_name, program_code, category, attendance, videos, continuation, continuation_note, arranged_lesson, arranged_teacher, main_teacher)
-         VALUES ($1, $2, $3, $4::jsonb, $5::jsonb, $6, $7, $8, $9, $10)
+           (student_name, program_code, category, attendance, videos, continuation, continuation_note, arranged_lesson, arranged_teacher, main_teacher, term_history)
+         VALUES ($1, $2, $3, $4::jsonb, $5::jsonb, $6, $7, $8, $9, $10, $11::jsonb)
          ON CONFLICT (student_name, program_code) DO UPDATE SET
            category = EXCLUDED.category,
            attendance = EXCLUDED.attendance,
@@ -250,7 +265,8 @@ export async function PUT(req) {
            continuation_note = EXCLUDED.continuation_note,
            arranged_lesson = EXCLUDED.arranged_lesson,
            arranged_teacher = EXCLUDED.arranged_teacher,
-           main_teacher = COALESCE(internal_live_progress.main_teacher, EXCLUDED.main_teacher)
+           main_teacher = COALESCE(internal_live_progress.main_teacher, EXCLUDED.main_teacher),
+           term_history = EXCLUDED.term_history
          RETURNING *`,
         [
           studentName,
@@ -263,10 +279,11 @@ export async function PUT(req) {
           body.arrangedLesson || null,
           body.arrangedTeacher || null,
           body.mainTeacher || null,
+          JSON.stringify(body.termHistory || []),
         ]
       );
     } catch (dbErr) {
-      // Fallback if arranged_lesson or arranged_teacher column does not exist on DB
+      // Fallback if newer columns do not exist on DB
       res = await query(
         `INSERT INTO internal_live_progress
            (student_name, program_code, category, attendance, videos, continuation, continuation_note)

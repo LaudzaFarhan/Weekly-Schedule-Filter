@@ -38,6 +38,7 @@ import {
 } from 'lucide-react';
 import AttendanceDetailHistoryModal from '../components/operations/AttendanceDetailHistoryModal';
 import ProgressUpdateModal from '../components/operations/ProgressUpdateModal';
+import NextTermContinuationModal from '../components/operations/NextTermContinuationModal';
 import {
   getProgressUpdateStatus,
   PROGRESS_UPDATE_STATUSES,
@@ -191,6 +192,9 @@ export default function LiveProgressTable({ category }) {
 
   // Progress update workflow lifecycle modal state
   const [progressUpdateModalRow, setProgressUpdateModalRow] = useState(null);
+
+  // Next term continuation confirmation modal state
+  const [continuationModalRow, setContinuationModalRow] = useState(null);
 
   const getInstructorsForBranch = (branchName) => {
     const bClean = String(branchName || '').trim();
@@ -675,6 +679,7 @@ export default function LiveProgressTable({ category }) {
           progressUpdateDate: stored?.progressUpdateDate || null,
           progressUpdateNote: stored?.progressUpdateNote || null,
           progressUpdateHistory: stored?.progressUpdateHistory || [],
+          termHistory: stored?.termHistory || stored?.term_history || [],
           zohoLink,
         };
 
@@ -755,6 +760,7 @@ export default function LiveProgressTable({ category }) {
         progressUpdateDate: stored?.progressUpdateDate || null,
         progressUpdateNote: stored?.progressUpdateNote || null,
         progressUpdateHistory: stored?.progressUpdateHistory || [],
+        termHistory: stored?.termHistory || stored?.term_history || [],
         zohoLink,
       };
 
@@ -794,6 +800,7 @@ export default function LiveProgressTable({ category }) {
     let updateScheduled = 0;
     let updateReschedule = 0;
     let updateDone = 0;
+    let waitPayment = 0;
     let total = 0;
 
     for (const r of rows) {
@@ -823,6 +830,8 @@ export default function LiveProgressTable({ category }) {
         updateReschedule++;
       } else if (pStatus === 'Update Done') {
         updateDone++;
+      } else if (pStatus === 'Wait Payment' || pStatus === PROGRESS_UPDATE_STATUSES.WAIT_PAYMENT) {
+        waitPayment++;
       } else if (pStatus === PROGRESS_UPDATE_STATUSES.NEED_UPDATE || pStatus === 'Need update progress' || attCount >= thresh) {
         needUpdate++;
       }
@@ -838,6 +847,7 @@ export default function LiveProgressTable({ category }) {
       updateScheduled,
       updateReschedule,
       updateDone,
+      waitPayment,
       total,
     };
   }, [rows, filterBranch, category]);
@@ -1997,17 +2007,19 @@ export default function LiveProgressTable({ category }) {
 
                             if (effectiveStatus) {
                               const badge = PROGRESS_UPDATE_BADGES[effectiveStatus] || PROGRESS_UPDATE_BADGES['Need update progress'];
+                              const isContinuationAction = effectiveStatus === 'Update Done' || effectiveStatus === 'Wait Payment' || effectiveStatus === PROGRESS_UPDATE_STATUSES.WAIT_PAYMENT;
                               const Icon = effectiveStatus === 'Update Offer' ? Send
                                 : effectiveStatus === 'Update Scheduled' ? Calendar
                                 : effectiveStatus === 'Update Reschedule' ? RotateCcw
                                 : effectiveStatus === 'Update Done' ? CheckCircle2
+                                : effectiveStatus === 'Wait Payment' ? Clock
                                 : Clock;
 
                               return (
                                 <button
                                   type="button"
-                                  onClick={() => setProgressUpdateModalRow(r)}
-                                  title={`Click to update progress tracking for ${r.studentName} (${r.program})\nAttended: ${attendedCount}/${threshold} lessons\nCurrent Status: ${effectiveStatus}${r.progressUpdateDate ? `\nSchedule: ${r.progressUpdateDate}` : ''}`}
+                                  onClick={() => isContinuationAction ? setContinuationModalRow(r) : setProgressUpdateModalRow(r)}
+                                  title={`Click to ${isContinuationAction ? 'confirm next term continuation / payment' : 'update progress tracking'} for ${r.studentName} (${r.program})\nAttended: ${attendedCount}/${threshold} lessons\nCurrent Status: ${effectiveStatus}${r.progressUpdateDate ? `\nSchedule: ${r.progressUpdateDate}` : ''}`}
                                   aria-label={`Progress update status: ${badge?.shortLabel || effectiveStatus} for ${r.studentName}`}
                                   style={{
                                     display: 'inline-flex',
@@ -2043,7 +2055,7 @@ export default function LiveProgressTable({ category }) {
                                   )}
                                   {effectiveStatus === 'Update Done' && (
                                     <span style={{ fontSize: '0.66rem', opacity: 0.9, fontWeight: 700, background: 'rgba(16,185,129,0.2)', padding: '0.05rem 0.25rem', borderRadius: '3px' }}>
-                                      Invoice
+                                      Confirm Next Term
                                     </span>
                                   )}
                                 </button>
@@ -2941,6 +2953,56 @@ export default function LiveProgressTable({ category }) {
               title: 'Progress Workflow Updated',
               message: `Progress status for ${progressUpdateModalRow.studentName} updated to "${updates.progressUpdateStatus}".`,
               variant: 'success',
+            });
+          }}
+        />
+      )}
+      {/* Next Term Continuation Confirmation Modal */}
+      {continuationModalRow && (
+        <NextTermContinuationModal
+          isOpen={Boolean(continuationModalRow)}
+          onClose={() => setContinuationModalRow(null)}
+          row={continuationModalRow}
+          category={category}
+          user={user}
+          onConfirmContinuation={async ({ row: targetRow, nextProgramCode, nextTermStartDate, termHistory, resetAttendance, continuation, progressUpdateStatus, spaNote }) => {
+            await persist(targetRow, (prev) => ({
+              attendance: resetAttendance ? {} : prev.attendance,
+              program: nextProgramCode || prev.program,
+              levelCode: nextProgramCode ? (parseProgram(nextProgramCode).code || nextProgramCode) : prev.levelCode,
+              continuation: continuation || 'Continue',
+              progressUpdateStatus: progressUpdateStatus || 'Completed',
+              progressUpdateNote: spaNote || null,
+              termHistory,
+            }));
+            showToast({
+              title: 'Continuation Confirmed & Attendance Reset',
+              message: `${targetRow.studentName} continuation confirmed for ${nextProgramCode || targetRow.program} starting ${nextTermStartDate}. Previous term archived to history.`,
+              variant: 'success',
+            });
+          }}
+          onSetWaitPayment={async ({ row: targetRow, progressUpdateStatus, progressUpdateNote, continuation }) => {
+            await persist(targetRow, () => ({
+              progressUpdateStatus,
+              progressUpdateNote,
+              continuation: continuation || 'Continue',
+            }));
+            showToast({
+              title: 'Wait Payment Status Set',
+              message: `Marked ${targetRow.studentName} as Waiting for Payment.`,
+              variant: 'info',
+            });
+          }}
+          onSetNotContinue={async ({ row: targetRow, continuation, progressUpdateStatus, progressUpdateNote }) => {
+            await persist(targetRow, () => ({
+              continuation,
+              progressUpdateStatus,
+              progressUpdateNote,
+            }));
+            showToast({
+              title: 'Status Updated',
+              message: `${targetRow.studentName} marked as ${continuation}.`,
+              variant: 'info',
             });
           }}
         />
