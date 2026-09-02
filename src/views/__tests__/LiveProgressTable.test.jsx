@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import React from 'react';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, within } from '@testing-library/react';
+import { render, screen, fireEvent, within, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 const subscribeToInternalClasses = vi.hoisted(() => vi.fn());
@@ -619,19 +619,22 @@ describe('LiveProgressTable - Unassigned Students & Unregistered Instructors', (
     const confirmBtn = screen.getByRole('button', { name: /Confirm Continue & Reset Attendance/i });
     fireEvent.click(confirmBtn);
 
-    expect(saveLiveProgress).toHaveBeenCalledWith(
-      expect.objectContaining({
-        studentName: 'Arya Arkananta',
-        attendance: {},
-        continuation: 'Continue',
-        progressUpdateStatus: 'Completed',
-        termHistory: expect.arrayContaining([
-          expect.objectContaining({
-            attendedCount: 10,
-          }),
-        ]),
-      })
-    );
+    await waitFor(() => {
+      expect(saveLiveProgress).toHaveBeenCalledWith(
+        expect.objectContaining({
+          studentName: 'Arya Arkananta',
+          programCode: 'K2',
+          attendance: {},
+          continuation: 'Continue',
+          progressUpdateStatus: 'Completed',
+          termHistory: expect.arrayContaining([
+            expect.objectContaining({
+              attendedCount: 10,
+            }),
+          ]),
+        })
+      );
+    });
   });
 
   it('opens NextTermContinuationModal on Wait Payment status and allows setting next term continuation', async () => {

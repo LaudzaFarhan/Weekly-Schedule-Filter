@@ -3164,16 +3164,91 @@ export default function LiveProgressTable({ category }) {
           user={user}
           onConfirmContinuation={async ({ row: targetRow, nextProgramCode, nextCategory, nextTermStartDate, termHistory, resetAttendance, continuation, progressUpdateStatus, spaNote, graduationStatus, graduationNote }) => {
             const effectiveNextCat = nextCategory || parseProgram(nextProgramCode).category || targetRow.category || category;
-            await persist(targetRow, (prev) => ({
-              attendance: resetAttendance ? {} : prev.attendance,
-              program: nextProgramCode || prev.program,
-              levelCode: nextProgramCode ? (parseProgram(nextProgramCode).code || nextProgramCode) : prev.levelCode,
+            const parsedNext = parseProgram(nextProgramCode);
+            const effectiveNextLevelCode = parsedNext.code || nextProgramCode;
+            const normStudent = targetRow.studentName.trim().toLowerCase();
+
+            // 1. Update the student's assigned class in internal_classes (Schedule Grid)
+            for (const c of classes) {
+              const sList = String(c.student || '')
+                .split(',')
+                .map((s) => s.trim().toLowerCase());
+              if (sList.includes(normStudent)) {
+                await updateInternalClass(c.id, {
+                  day: c.day,
+                  time: c.time,
+                  student: c.student,
+                  branchName: c.branchName,
+                  classType: c.classType || 'Regular',
+                  teacher: c.teacher,
+                  program: nextProgramCode,
+                });
+              }
+            }
+
+            // 2. Update the student's level in studentRegistry (internal_students)
+            const regStudent = (studentRegistry || []).find((s) => String(s.name || '').trim().toLowerCase() === normStudent);
+            if (regStudent) {
+              await updateInternalStudent(regStudent.id, {
+                ...regStudent,
+                level: nextProgramCode,
+              });
+            }
+
+            // 3. Save new term live progress record (with reset attendance and archived term history)
+            const newRecord = {
+              studentName: targetRow.studentName,
+              programCode: effectiveNextLevelCode,
               category: effectiveNextCat,
+              attendance: resetAttendance ? {} : (targetRow.attendance || {}),
+              videos: {},
               continuation: continuation || 'Continue',
+              continuationNote: spaNote || null,
               progressUpdateStatus: progressUpdateStatus || 'Completed',
               progressUpdateNote: spaNote || null,
               termHistory,
+              mainTeacher: targetRow.mainTeacher || (targetRow.instructor !== 'Unassigned' && targetRow.instructor !== '—' ? targetRow.instructor : null),
+              mainDay: targetRow.mainDay || (targetRow.day !== '—' ? targetRow.day : null),
+              mainTime: targetRow.mainTime || (targetRow.time !== '—' ? targetRow.time : null),
+            };
+
+            // Update local states optimistically
+            setProgress((prev) => [
+              ...prev.filter((p) => keyOf(p.studentName, p.programCode) !== keyOf(targetRow.studentName, targetRow.levelCode) && keyOf(p.studentName, p.programCode) !== keyOf(targetRow.studentName, effectiveNextLevelCode)),
+              newRecord,
+            ]);
+
+            setClasses((prev) => prev.map((c) => {
+              const sList = String(c.student || '').split(',').map((s) => s.trim().toLowerCase());
+              if (sList.includes(normStudent)) {
+                return { ...c, program: nextProgramCode };
+              }
+              return c;
             }));
+
+            setStudentRegistry((prev) => prev.map((s) => {
+              if (String(s.name || '').trim().toLowerCase() === normStudent) {
+                return { ...s, level: nextProgramCode };
+              }
+              return s;
+            }));
+
+            await saveLiveProgress(newRecord);
+
+            await logActivity({
+              action: 'edit',
+              summary: `${targetRow.studentName} continued to ${nextProgramCode} (${effectiveNextCat}) — Attendance reset & previous term archived to history`,
+              source: 'progress',
+              userEmail: user?.email || null,
+              details: {
+                student: targetRow.studentName,
+                previousProgram: targetRow.program || targetRow.levelCode,
+                nextProgram: nextProgramCode,
+                category: effectiveNextCat,
+                startDate: nextTermStartDate,
+                status: graduationStatus,
+              },
+            });
 
             const isGrad = graduationStatus === 'Graduated';
             const isSkip = graduationStatus === 'Skipped';
