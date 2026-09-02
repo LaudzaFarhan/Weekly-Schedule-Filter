@@ -4,12 +4,14 @@ import React, { useState, useEffect, useMemo } from 'react';
 import {
   X, CheckCircle2, Clock, Calendar, AlertCircle, Sparkles,
   ArrowRight, ShieldCheck, History, BookOpen, User, DollarSign,
-  RotateCcw, PauseCircle, Check, Info, FileText
+  RotateCcw, PauseCircle, Check, Info, FileText, GraduationCap
 } from 'lucide-react';
 import {
   PROGRESS_UPDATE_STATUSES,
   suggestNextProgramCode,
   buildTermHistoryEntry,
+  isModuleGraduationLevel,
+  getModuleGraduationInfo,
 } from '../../utils/progressUpdateUtils';
 import { CONTINUATION_OPTIONS, levelsForCategory } from '../../lib/programRules';
 
@@ -24,6 +26,8 @@ export default function NextTermContinuationModal({
   onSetNotContinue,
 }) {
   const [selectedMode, setSelectedMode] = useState('confirm_continue'); // 'confirm_continue' | 'wait_payment' | 'not_continue'
+  const [progressionType, setProgressionType] = useState('regular'); // 'regular' | 'graduate' | 'skip'
+  const [targetCategory, setTargetCategory] = useState('Kinder');
   const [nextTermStartDate, setNextTermStartDate] = useState('');
   const [nextProgramCode, setNextProgramCode] = useState('');
   const [termName, setTermName] = useState('');
@@ -41,8 +45,8 @@ export default function NextTermContinuationModal({
 
   const effectiveCategory = category || row?.category || 'Kinder';
   const availableLevels = useMemo(() => {
-    return levelsForCategory(effectiveCategory) || [];
-  }, [effectiveCategory]);
+    return levelsForCategory(targetCategory) || [];
+  }, [targetCategory]);
 
   const programOptions = useMemo(() => {
     const list = [...availableLevels];
@@ -61,8 +65,20 @@ export default function NextTermContinuationModal({
       const defaultDate = `${nextWeek.getFullYear()}-${String(nextWeek.getMonth() + 1).padStart(2, '0')}-${String(nextWeek.getDate()).padStart(2, '0')}`;
       
       setNextTermStartDate(defaultDate);
-      const suggested = suggestNextProgramCode(row.program || row.programCode || '', effectiveCategory);
-      setNextProgramCode(suggested || availableLevels[0] || 'K1');
+
+      const isGrad = isModuleGraduationLevel(row.program || row.programCode || '', effectiveCategory);
+      if (isGrad) {
+        setProgressionType('graduate');
+        const gradInfo = getModuleGraduationInfo(row.program || row.programCode || '', effectiveCategory);
+        setTargetCategory(gradInfo.nextCategory);
+        setNextProgramCode(gradInfo.defaultProgram || (gradInfo.nextCategory === 'Junior' ? 'J1' : 'Coder Basic'));
+      } else {
+        setProgressionType('regular');
+        setTargetCategory(effectiveCategory);
+        const suggested = suggestNextProgramCode(row.program || row.programCode || '', effectiveCategory);
+        setNextProgramCode(suggested || availableLevels[0] || 'K1');
+      }
+
       setTermName(`Term ${termHistory.length + 1}`);
       setPaymentType(row.progressUpdateStatus === PROGRESS_UPDATE_STATUSES.WAIT_PAYMENT ? 'Paid After Wait' : 'Upfront Paid');
       setSpaNote(row.progressUpdateNote || '');
@@ -73,7 +89,7 @@ export default function NextTermContinuationModal({
         setSelectedMode('confirm_continue');
       }
     }
-  }, [row, termHistory.length, effectiveCategory, availableLevels]);
+  }, [row, termHistory.length, effectiveCategory]);
 
   useEffect(() => {
     const handleKeyDown = (e) => {
@@ -98,12 +114,21 @@ export default function NextTermContinuationModal({
       const userIdentifier = user?.fullname || user?.email || user?.name || 'SPA Staff';
 
       if (selectedMode === 'confirm_continue') {
+        const isGraduated = progressionType === 'graduate';
+        const isSkipped = progressionType === 'skip';
+        const gradStatus = isGraduated ? 'Graduated' : isSkipped ? 'Skipped' : 'Regular';
+        const gradNote = isGraduated
+          ? `Graduated from ${effectiveCategory} (${currentProgram}) to ${targetCategory} (${nextProgramCode})`
+          : isSkipped
+          ? `Skipped module from ${currentProgram} to ${targetCategory} (${nextProgramCode})`
+          : '';
+
         // Build archived term entry for current term
         const archivedEntry = buildTermHistoryEntry({
           termName: termName || `Term ${termHistory.length + 1}`,
           termNumber: termHistory.length + 1,
           program: currentProgram,
-          category: category || row.category,
+          category: effectiveCategory,
           startDate: null,
           completedDate: new Date().toISOString().split('T')[0],
           attendedCount,
@@ -112,6 +137,10 @@ export default function NextTermContinuationModal({
           paymentType,
           spaNote: spaNote.trim(),
           confirmedBy: userIdentifier,
+          graduationStatus: gradStatus,
+          graduationNote: gradNote,
+          nextCategory: targetCategory,
+          nextProgram: nextProgramCode,
         });
 
         const updatedHistory = [archivedEntry, ...termHistory];
@@ -119,12 +148,15 @@ export default function NextTermContinuationModal({
         await onConfirmContinuation?.({
           row,
           nextProgramCode: nextProgramCode.trim() || currentProgram,
+          nextCategory: targetCategory,
           nextTermStartDate,
           termHistory: updatedHistory,
           resetAttendance: true,
           continuation: 'Continue',
           progressUpdateStatus: 'Completed',
           spaNote: spaNote.trim(),
+          graduationStatus: gradStatus,
+          graduationNote: gradNote,
         });
       } else if (selectedMode === 'wait_payment') {
         await onSetWaitPayment?.({
@@ -138,12 +170,12 @@ export default function NextTermContinuationModal({
           row,
           continuation: 'Not Continue',
           progressUpdateStatus: 'Completed',
-          progressUpdateNote: spaNote.trim() || 'Student not continuing next term',
+          progressUpdateNote: spaNote.trim() || 'Student taking a break or not continuing',
         });
       }
       onClose();
     } catch (err) {
-      console.error('Failed to submit next term confirmation:', err);
+      console.error('Error confirming continuation:', err);
     } finally {
       setSubmitting(false);
     }
@@ -433,6 +465,176 @@ export default function NextTermContinuationModal({
                   border: '1px solid rgba(79, 70, 229, 0.15)',
                 }}
               >
+                {/* Progression & Graduation Action Trigger */}
+                <div>
+                  <label style={{ fontSize: '0.8rem', fontWeight: 700, display: 'block', marginBottom: '0.4rem', color: 'var(--text-main, #1e293b)' }}>
+                    Module Progression & Graduation Action
+                  </label>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '0.5rem' }}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setProgressionType('regular');
+                        setTargetCategory(effectiveCategory);
+                        const sug = suggestNextProgramCode(row.program || row.programCode || '', effectiveCategory);
+                        setNextProgramCode(sug || 'K1');
+                      }}
+                      style={{
+                        padding: '0.5rem 0.6rem',
+                        borderRadius: '8px',
+                        fontSize: '0.74rem',
+                        fontWeight: 700,
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: '0.35rem',
+                        border: progressionType === 'regular' ? '1.5px solid #4f46e5' : '1px solid var(--border-color, #e2e8f0)',
+                        background: progressionType === 'regular' ? 'rgba(79, 70, 229, 0.08)' : 'transparent',
+                        color: progressionType === 'regular' ? '#4f46e5' : 'var(--text-main, #334155)',
+                        transition: 'all 0.15s ease',
+                      }}
+                    >
+                      <ArrowRight size={13} /> Regular Next Term
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setProgressionType('graduate');
+                        const gradCat = effectiveCategory === 'Kinder' ? 'Junior' : effectiveCategory === 'Junior' ? 'Coder' : 'Coder';
+                        setTargetCategory(gradCat);
+                        setNextProgramCode(gradCat === 'Junior' ? 'J1' : 'Coder Basic');
+                      }}
+                      style={{
+                        padding: '0.5rem 0.6rem',
+                        borderRadius: '8px',
+                        fontSize: '0.74rem',
+                        fontWeight: 700,
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: '0.35rem',
+                        border: progressionType === 'graduate' ? '1.5px solid #059669' : '1px solid var(--border-color, #e2e8f0)',
+                        background: progressionType === 'graduate' ? 'rgba(5, 150, 105, 0.08)' : 'transparent',
+                        color: progressionType === 'graduate' ? '#059669' : 'var(--text-main, #334155)',
+                        transition: 'all 0.15s ease',
+                      }}
+                    >
+                      <GraduationCap size={14} /> 🎓 Graduate Module
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setProgressionType('skip');
+                      }}
+                      style={{
+                        padding: '0.5rem 0.6rem',
+                        borderRadius: '8px',
+                        fontSize: '0.74rem',
+                        fontWeight: 700,
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: '0.35rem',
+                        border: progressionType === 'skip' ? '1.5px solid #d97706' : '1px solid var(--border-color, #e2e8f0)',
+                        background: progressionType === 'skip' ? 'rgba(217, 119, 6, 0.08)' : 'transparent',
+                        color: progressionType === 'skip' ? '#d97706' : 'var(--text-main, #334155)',
+                        transition: 'all 0.15s ease',
+                      }}
+                    >
+                      <Sparkles size={13} /> ⏭️ Skip Module / Level
+                    </button>
+                  </div>
+                </div>
+
+                {/* Graduation Milestone Notice */}
+                {progressionType === 'graduate' && (
+                  <div
+                    style={{
+                      padding: '0.65rem 0.9rem',
+                      borderRadius: '8px',
+                      background: 'rgba(5, 150, 105, 0.08)',
+                      border: '1px solid #10b981',
+                      color: '#065f46',
+                      fontSize: '0.78rem',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '0.2rem',
+                    }}
+                  >
+                    <div style={{ fontWeight: 700, display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                      <GraduationCap size={15} /> 🎓 Milestone Graduation: {effectiveCategory} → {targetCategory} Program
+                    </div>
+                    <div style={{ fontSize: '0.73rem', opacity: 0.9 }}>
+                      {effectiveCategory === 'Kinder'
+                        ? 'Student completed Kinder (K4 / T4). Select Junior Core (J1–J4) or Junior Foundation (JF1–JF2).'
+                        : effectiveCategory === 'Junior'
+                        ? 'Student completed Junior (J4 / T4). Select Coder Program (Coder Basic).'
+                        : 'Student completed current module stage.'}
+                    </div>
+                  </div>
+                )}
+
+                {/* Skip Module Notice */}
+                {progressionType === 'skip' && (
+                  <div
+                    style={{
+                      padding: '0.65rem 0.9rem',
+                      borderRadius: '8px',
+                      background: 'rgba(217, 119, 6, 0.08)',
+                      border: '1px solid #f59e0b',
+                      color: '#92400e',
+                      fontSize: '0.78rem',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.4rem',
+                    }}
+                  >
+                    <Sparkles size={15} />
+                    <span>Fast-track / Skip Mode: Student will skip directly to <strong>{targetCategory} ({nextProgramCode})</strong>.</span>
+                  </div>
+                )}
+
+                {/* Target Category Switcher (when Graduating or Skipping) */}
+                {(progressionType === 'graduate' || progressionType === 'skip') && (
+                  <div>
+                    <label style={{ fontSize: '0.8rem', fontWeight: 700, display: 'block', marginBottom: '0.35rem' }}>
+                      Target Main Category
+                    </label>
+                    <div style={{ display: 'flex', gap: '0.4rem' }}>
+                      {['Kinder', 'Junior', 'Coder'].map((cat) => (
+                        <button
+                          key={cat}
+                          type="button"
+                          onClick={() => {
+                            setTargetCategory(cat);
+                            const lvls = levelsForCategory(cat) || [];
+                            setNextProgramCode(lvls[0] || 'K1');
+                          }}
+                          style={{
+                            flex: 1,
+                            padding: '0.35rem 0.6rem',
+                            borderRadius: '6px',
+                            fontSize: '0.76rem',
+                            fontWeight: 700,
+                            cursor: 'pointer',
+                            border: targetCategory === cat ? '1.5px solid #4f46e5' : '1px solid var(--border-color, #cbd5e1)',
+                            background: targetCategory === cat ? '#4f46e5' : '#ffffff',
+                            color: targetCategory === cat ? '#ffffff' : 'var(--text-main, #334155)',
+                            transition: 'all 0.15s ease',
+                          }}
+                        >
+                          {cat}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1rem' }}>
                   {/* Next Term Start Date */}
                   <div>
@@ -460,11 +662,41 @@ export default function NextTermContinuationModal({
                       className="modal-select-field"
                       style={{ width: '100%', padding: '0.5rem 0.75rem', borderRadius: '8px' }}
                     >
-                      {programOptions.map((lvl) => (
-                        <option key={lvl} value={lvl}>
-                          {lvl}
-                        </option>
-                      ))}
+                      {targetCategory === 'Junior' ? (
+                        <>
+                          <optgroup label="Junior Core (Terms 1–4)">
+                            <option value="J1">J1 (Junior Core Term 1)</option>
+                            <option value="J2">J2 (Junior Core Term 2)</option>
+                            <option value="J3">J3 (Junior Core Term 3)</option>
+                            <option value="J4">J4 (Junior Core Term 4)</option>
+                          </optgroup>
+                          <optgroup label="Junior Foundation">
+                            <option value="JF1">JF1 (Junior Foundation Term 1)</option>
+                            <option value="JF2">JF2 (Junior Foundation Term 2)</option>
+                          </optgroup>
+                        </>
+                      ) : targetCategory === 'Kinder' ? (
+                        <>
+                          <optgroup label="Kinder Core (Terms 1–4)">
+                            <option value="K1">K1 (Kinder Core Term 1)</option>
+                            <option value="K2">K2 (Kinder Core Term 2)</option>
+                            <option value="K3">K3 (Kinder Core Term 3)</option>
+                            <option value="K4">K4 (Kinder Core Term 4)</option>
+                          </optgroup>
+                          <optgroup label="Kinder Foundation">
+                            <option value="KF1">KF1 (Kinder Foundation Term 1)</option>
+                            <option value="KF2">KF2 (Kinder Foundation Term 2)</option>
+                          </optgroup>
+                        </>
+                      ) : (
+                        <>
+                          <optgroup label="Coder Tracks">
+                            <option value="Coder Basic">Coder Basic</option>
+                            <option value="Coder Intermediate">Coder Intermediate</option>
+                            <option value="Coder Advance">Coder Advance</option>
+                          </optgroup>
+                        </>
+                      )}
                     </select>
                   </div>
 

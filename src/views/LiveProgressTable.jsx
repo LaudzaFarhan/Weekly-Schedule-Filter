@@ -2965,19 +2965,31 @@ export default function LiveProgressTable({ category }) {
           row={continuationModalRow}
           category={category}
           user={user}
-          onConfirmContinuation={async ({ row: targetRow, nextProgramCode, nextTermStartDate, termHistory, resetAttendance, continuation, progressUpdateStatus, spaNote }) => {
+          onConfirmContinuation={async ({ row: targetRow, nextProgramCode, nextCategory, nextTermStartDate, termHistory, resetAttendance, continuation, progressUpdateStatus, spaNote, graduationStatus, graduationNote }) => {
+            const effectiveNextCat = nextCategory || parseProgram(nextProgramCode).category || targetRow.category || category;
             await persist(targetRow, (prev) => ({
               attendance: resetAttendance ? {} : prev.attendance,
               program: nextProgramCode || prev.program,
               levelCode: nextProgramCode ? (parseProgram(nextProgramCode).code || nextProgramCode) : prev.levelCode,
+              category: effectiveNextCat,
               continuation: continuation || 'Continue',
               progressUpdateStatus: progressUpdateStatus || 'Completed',
               progressUpdateNote: spaNote || null,
               termHistory,
             }));
+
+            const isGrad = graduationStatus === 'Graduated';
+            const isSkip = graduationStatus === 'Skipped';
+            const title = isGrad ? '🎓 Module Graduation Confirmed!' : isSkip ? '⏭️ Module Skip Confirmed' : 'Continuation Confirmed & Attendance Reset';
+            const message = isGrad
+              ? `${targetRow.studentName} graduated to ${nextProgramCode} (${effectiveNextCat}) starting ${nextTermStartDate}. Previous term archived to history.`
+              : isSkip
+              ? `${targetRow.studentName} fast-tracked/skipped to ${nextProgramCode} (${effectiveNextCat}) starting ${nextTermStartDate}.`
+              : `${targetRow.studentName} continuation confirmed for ${nextProgramCode || targetRow.program} starting ${nextTermStartDate}. Previous term archived to history.`;
+
             showToast({
-              title: 'Continuation Confirmed & Attendance Reset',
-              message: `${targetRow.studentName} continuation confirmed for ${nextProgramCode || targetRow.program} starting ${nextTermStartDate}. Previous term archived to history.`,
+              title,
+              message,
               variant: 'success',
             });
           }}

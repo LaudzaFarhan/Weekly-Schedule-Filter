@@ -117,8 +117,13 @@ describe('progressUpdateUtils', () => {
       expect(suggestNextProgramCode('Coder Intermediate', 'Coder')).toBe('Coder Advance');
     });
 
-    it('returns base code for last level or empty string', () => {
-      expect(suggestNextProgramCode('K4', 'Kinder')).toBe('K4');
+    it('graduates to next category after K4 and J4', () => {
+      expect(suggestNextProgramCode('K4', 'Kinder')).toBe('J1');
+      expect(suggestNextProgramCode('J4', 'Junior')).toBe('Coder Basic');
+    });
+
+    it('returns base code for final curriculum level or empty string', () => {
+      expect(suggestNextProgramCode('Coder Advance', 'Coder')).toBe('Coder Advance');
       expect(suggestNextProgramCode('')).toBe('');
     });
   });

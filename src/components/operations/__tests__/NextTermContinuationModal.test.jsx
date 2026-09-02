@@ -118,4 +118,66 @@ describe('NextTermContinuationModal', () => {
       })
     );
   });
+
+  it('detects graduation after Kinder T4 (K4) and graduates to Junior program', () => {
+    const onConfirmContinuation = vi.fn();
+    const k4Row = {
+      ...mockRow,
+      program: 'K4.10',
+      programCode: 'K4.10',
+    };
+
+    render(
+      <NextTermContinuationModal
+        isOpen={true}
+        onClose={vi.fn()}
+        row={k4Row}
+        category="Kinder"
+        onConfirmContinuation={onConfirmContinuation}
+      />
+    );
+
+    // Should display graduation milestone notice
+    expect(screen.getByText(/Milestone Graduation: Kinder → Junior Program/i)).toBeInTheDocument();
+    expect(screen.getByText(/Student completed Kinder \(K4 \/ T4\)/i)).toBeInTheDocument();
+
+    const submitBtn = screen.getByRole('button', { name: /Confirm Continue & Reset Attendance/i });
+    fireEvent.click(submitBtn);
+
+    expect(onConfirmContinuation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        nextCategory: 'Junior',
+        nextProgramCode: 'J1',
+        graduationStatus: 'Graduated',
+      })
+    );
+  });
+
+  it('allows skipping module / level directly to another category or level', () => {
+    const onConfirmContinuation = vi.fn();
+
+    render(
+      <NextTermContinuationModal
+        isOpen={true}
+        onClose={vi.fn()}
+        row={mockRow}
+        category="Kinder"
+        onConfirmContinuation={onConfirmContinuation}
+      />
+    );
+
+    const skipBtn = screen.getByRole('button', { name: /Skip Module \/ Level/i });
+    fireEvent.click(skipBtn);
+
+    expect(screen.getByText(/Fast-track \/ Skip Mode/i)).toBeInTheDocument();
+
+    const submitBtn = screen.getByRole('button', { name: /Confirm Continue & Reset Attendance/i });
+    fireEvent.click(submitBtn);
+
+    expect(onConfirmContinuation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        graduationStatus: 'Skipped',
+      })
+    );
+  });
 });

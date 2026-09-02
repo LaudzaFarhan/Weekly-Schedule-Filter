@@ -362,21 +362,35 @@ export default function AttendanceDetailHistoryModal({
         {isViewingArchived && activeArchivedTerm && (
           <div
             style={{
-              padding: '0.45rem 1.5rem',
-              background: '#ecfdf5',
-              borderBottom: '1px solid #10b981',
-              color: '#065f46',
+              padding: '0.55rem 1.5rem',
+              background: activeArchivedTerm.graduationStatus === 'Graduated' ? '#f0fdf4' : activeArchivedTerm.graduationStatus === 'Skipped' ? '#fffbeb' : '#ecfdf5',
+              borderBottom: `1px solid ${activeArchivedTerm.graduationStatus === 'Graduated' ? '#16a34a' : activeArchivedTerm.graduationStatus === 'Skipped' ? '#f59e0b' : '#10b981'}`,
+              color: activeArchivedTerm.graduationStatus === 'Graduated' ? '#166534' : activeArchivedTerm.graduationStatus === 'Skipped' ? '#92400e' : '#065f46',
               fontSize: '0.76rem',
               fontWeight: 600,
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'space-between',
+              flexWrap: 'wrap',
+              gap: '0.5rem',
             }}
           >
-            <span>
-              📋 Viewing Archived History for <strong>{activeArchivedTerm.termName || 'Archived Term'}</strong> ({activeProgram}) · Completed: {activeArchivedTerm.completedDate || 'N/A'}
-            </span>
-            <span style={{ fontSize: '0.7rem', padding: '0.1rem 0.4rem', background: '#d1fae5', borderRadius: '4px', border: '1px solid #10b981' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
+              <span>
+                📋 Viewing History for <strong>{activeArchivedTerm.termName || 'Archived Term'}</strong> ({activeProgram}) · Completed: {activeArchivedTerm.completedDate || 'N/A'}
+              </span>
+              {activeArchivedTerm.graduationStatus === 'Graduated' && (
+                <span style={{ fontSize: '0.68rem', padding: '0.1rem 0.45rem', background: '#dcfce7', color: '#15803d', borderRadius: '4px', border: '1px solid #16a34a', fontWeight: 700 }}>
+                  🎓 Graduated to {activeArchivedTerm.nextCategory || 'Junior'} ({activeArchivedTerm.nextProgram || ''})
+                </span>
+              )}
+              {activeArchivedTerm.graduationStatus === 'Skipped' && (
+                <span style={{ fontSize: '0.68rem', padding: '0.1rem 0.45rem', background: '#fef3c7', color: '#b45309', borderRadius: '4px', border: '1px solid #f59e0b', fontWeight: 700 }}>
+                  ⏭️ Skipped to {activeArchivedTerm.nextProgram || ''}
+                </span>
+              )}
+            </div>
+            <span style={{ fontSize: '0.7rem', padding: '0.1rem 0.4rem', background: 'rgba(255,255,255,0.7)', borderRadius: '4px', border: '1px solid currentColor' }}>
               {activeArchivedTerm.paymentType || 'Paid Upfront'}
             </span>
           </div>
