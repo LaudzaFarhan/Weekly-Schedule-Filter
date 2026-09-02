@@ -303,13 +303,18 @@ export default function ScheduleGrid({
         if (o != null && (open == null || o < open)) open = o;
         if (c != null && (close == null || c > close)) close = c;
       }
-      return open != null && close != null ? { start: fromMinutes(open), end: fromMinutes(close) } : null;
+      return open != null && close != null ? { start: fromMinutes(open), end: fromMinutes(Math.max(close, 19 * 60 + 30)) } : null;
     }
-    return branch ? (draftHours[branch.id]?.[day] || null) : null;
+    const raw = branch ? (draftHours[branch.id]?.[day] || null) : null;
+    if (!raw) return null;
+    return {
+      start: raw.start,
+      end: fromMinutes(Math.max(toMinutes(raw.end) ?? 0, 19 * 60 + 30)),
+    };
   }, [allBranches, selectable, branch, draftHours, day]);
 
   const openMin = toMinutes(hours?.start) ?? 9 * 60;
-  const closeMin = toMinutes(hours?.end) ?? 18 * 60;
+  const closeMin = Math.max(toMinutes(hours?.end) ?? 0, 19 * 60 + 30);
 
   const daySlots = useMemo(() => {
     if (allBranches) {
@@ -354,10 +359,11 @@ export default function ScheduleGrid({
 
   const rowStarts = useMemo(() => {
     const set = new Set();
-    for (let t = openMin; t < closeMin; t += STEP) set.add(t);
+    const effectiveCloseMin = Math.max(closeMin, 19 * 60 + 30);
+    for (let t = openMin; t <= effectiveCloseMin; t += STEP) set.add(t);
     for (const s of daySlots) {
       const m = toMinutes(s.start);
-      if (m != null && m >= openMin - STEP && m < closeMin + STEP) set.add(m);
+      if (m != null && m >= openMin - STEP && m < effectiveCloseMin + STEP) set.add(m);
     }
     for (const g of classGroups) {
       if (g.day !== day || g.startMin == null) continue;
