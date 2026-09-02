@@ -335,11 +335,12 @@ export default function LiveProgressTable({ category }) {
     setArrangedDate(row.arrangedDate || row.replacementDate || todayISO);
   };
 
-  const reassignStudentInSchedule = async ({ studentName, targetTeacher, day, time, branchName, classType, program, isMoveTemporary, arrangedDate }) => {
+  const reassignStudentInSchedule = async ({ studentName, mainTeacher, targetTeacher, day, time, branchName, classType, program, isMoveTemporary, arrangedDate }) => {
     if (!studentName || !targetTeacher) return;
 
     const normStudent = studentName.trim().toLowerCase();
     const targetCanonical = resolveCanonicalTeacherName(targetTeacher, instructorProfiles);
+    const mainCanonical = mainTeacher ? resolveCanonicalTeacherName(mainTeacher, instructorProfiles) : null;
 
     // 1. Find all class rows containing this student
     const studentClasses = classes.filter((c) => {
@@ -349,9 +350,15 @@ export default function LiveProgressTable({ category }) {
       return sList.includes(normStudent);
     });
 
-    // 2. Remove student from any class row where teacher is NOT targetTeacher / targetCanonical
+    // 2. If temporary move: DO NOT remove from mainTeacher's class!
+    // But remove from any other previous replacement/temporary classes for OTHER teachers.
+    // If permanent (not isMoveTemporary): remove from all previous teachers' rows.
     for (const c of studentClasses) {
       if (isSameTeacher(c.teacher, targetTeacher) || isSameTeacher(c.teacher, targetCanonical)) {
+        continue;
+      }
+
+      if (isMoveTemporary && mainTeacher && (isSameTeacher(c.teacher, mainTeacher) || (mainCanonical && isSameTeacher(c.teacher, mainCanonical)))) {
         continue;
       }
 
@@ -488,6 +495,7 @@ export default function LiveProgressTable({ category }) {
 
       await reassignStudentInSchedule({
         studentName: arrangingRow.studentName,
+        mainTeacher,
         targetTeacher: arrangedTeacher,
         day: effectiveDay,
         time: effectiveTime,

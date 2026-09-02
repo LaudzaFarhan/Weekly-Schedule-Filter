@@ -463,13 +463,16 @@ export default function ScheduleGridPanel({ onNavigate } = {}) {
           });
         }
 
-        // 3. Clear arrangedTeacher and arrangedLesson in internal_live_progress
+        // 3. Clear arrangedTeacher, arrangedLesson, and temporary move flags in internal_live_progress
         if (lpRecord) {
           await saveLiveProgress({
             studentName: lpRecord.studentName || studentName,
             programCode: lpRecord.programCode || targetProgram,
             arrangedTeacher: null,
             arrangedLesson: null,
+            isMoveTemporary: false,
+            arrangementType: null,
+            arrangedDate: null,
             mainTeacher: mainTargetTeacher,
           });
         }

@@ -1791,42 +1791,37 @@ export default function ScheduleGrid({
                                       const arrangedTeacher = progRecord?.arrangedTeacher || progRecord?.arranged_teacher;
                                       const mainTeacher = progRecord?.mainTeacher || progRecord?.main_teacher || m.mainTeacher;
                                       const isMoveTemp = progRecord?.isMoveTemporary || progRecord?.arrangementType === 'move_same_day' || progRecord?.arrangementType === 'replacement_custom' || m.classType === 'Replacement';
-                                      const isArranged = !!arrangedTeacher && arrangedTeacher.toLowerCase() !== (mainTeacher || '').toLowerCase();
-                                      const arrangedDate = progRecord?.arrangedDate || progRecord?.replacementDate;
+                                      const isMainCard = mainTeacher && isSameTeacher(previewClass.teacher, mainTeacher);
+                                      const isArrangedCard = arrangedTeacher && isSameTeacher(previewClass.teacher, arrangedTeacher);
 
-                                      if (isMoveTemp) {
-                                        const mainInfo = [
-                                          mainTeacher ? `Main: ${resolveCanonicalTeacherName(mainTeacher, instructors) || mainTeacher}` : null,
-                                          progRecord?.mainDay ? progRecord.mainDay : null,
-                                          progRecord?.mainTime ? progRecord.mainTime : null,
-                                        ].filter(Boolean).join(' · ');
-
+                                      if (isMainCard && isMoveTemp && arrangedTeacher && !isSameTeacher(arrangedTeacher, previewClass.teacher)) {
                                         return (
                                           <span
-                                            title={`Temporary move / replacement. ${mainInfo ? `(${mainInfo})` : ''}`}
+                                            title={`Student temporarily moved to ${arrangedTeacher}${progRecord?.arrangedTime ? ` (${progRecord.arrangedTime})` : ''}`}
                                             style={{
-                                              fontSize: '0.63rem', fontWeight: 700, padding: '0.1rem 0.4rem', borderRadius: '5px',
-                                              color: '#6d28d9', background: 'rgba(124, 58, 237, 0.12)', border: '1px solid rgba(124, 58, 237, 0.3)',
+                                              fontSize: '0.63rem', fontWeight: 700, letterSpacing: '0.02em',
+                                              color: '#b45309', background: '#fef3c7', border: '1px solid #f59e0b',
+                                              borderRadius: '5px', padding: '0.1rem 0.35rem',
                                               display: 'inline-flex', alignItems: 'center', gap: '0.2rem', whiteSpace: 'nowrap',
                                             }}
                                           >
-                                            <Clock size={10} /> Move Temporary{arrangedDate ? ` · 📅 ${arrangedDate}` : ''}
+                                            <Sparkles size={9} /> Moved to {arrangedTeacher}
                                           </span>
                                         );
                                       }
 
-                                      if (isArranged && mainTeacher) {
+                                      if (isMoveTemp && (!isMainCard || isArrangedCard)) {
                                         const mainDisplay = resolveCanonicalTeacherName(mainTeacher, instructors) || mainTeacher;
                                         return (
                                           <span
-                                            title={`Temporary arrangement with ${previewClass?.teacher || m.teacher}. Main instructor: ${mainDisplay}`}
+                                            title={`Temporary arrangement with ${cardTeacher}. Main instructor: ${mainDisplay || '—'}`}
                                             style={{
-                                              fontSize: '0.63rem', fontWeight: 700, padding: '0.1rem 0.4rem', borderRadius: '5px',
+                                              fontSize: '0.63rem', fontWeight: 700, padding: '0.1rem 0.45rem', borderRadius: '5px',
                                               color: '#6d28d9', background: 'rgba(124, 58, 237, 0.12)', border: '1px solid rgba(124, 58, 237, 0.3)',
                                               display: 'inline-flex', alignItems: 'center', gap: '0.2rem', whiteSpace: 'nowrap',
                                             }}
                                           >
-                                            Temporary · Main: {mainDisplay}
+                                            <Clock size={10} /> Temporary{mainDisplay ? ` · Main: ${mainDisplay}` : ''}{arrangedDate ? ` · 📅 ${arrangedDate}` : ''}
                                           </span>
                                         );
                                       }
