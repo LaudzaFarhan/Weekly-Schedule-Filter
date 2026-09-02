@@ -16,6 +16,7 @@
 import { parseTimeSlot } from '../utils/timeUtils';
 import { DAY_NAMES, isSameBranch } from '../utils/constants';
 import { isSameTeacher } from '../utils/instructorUtils';
+import { parseStudentLeave, isMemberOnLeaveOnDate } from '../utils/studentLeaveUtils';
 
 /** Stable reason codes so callers can style or filter by cause. */
 export const AVAIL = {
@@ -319,11 +320,26 @@ export function isExpired(member, todayISO) {
  * A Regular attends every week, so always yes. Anyone else attends only on
  * their recorded dates.
  */
-export function attendsInWeek(member, weekStart) {
+export function attendsInWeek(member, weekStart, classDay) {
   if (!member) return false;
-  if (member.isIzin || member.notArranged || (typeof member.remarks === 'string' && member.remarks.toLowerCase().includes('izin'))) {
-    return false;
+
+  const leave = parseStudentLeave(member);
+  if (leave.isIzin) {
+    if (leave.isGeneric || !weekStart) return false;
+    const day = classDay || member.day;
+    const sessionDate = day ? dateForDay(day, weekStart) : null;
+    if (sessionDate) {
+      if (sessionDate >= leave.startDate && sessionDate <= (leave.endDate || leave.startDate)) {
+        return false;
+      }
+    } else {
+      const end = dateForDay('Sunday', weekStart);
+      if (leave.startDate <= end && (leave.endDate || leave.startDate) >= weekStart) {
+        return false;
+      }
+    }
   }
+
   if (member.classType === ATTENDANCE.REGULAR) return true;
   if (!weekStart) return (member.sessionDates || []).length === 0;
   const dates = member.sessionDates || [];
@@ -335,9 +351,19 @@ export function attendsInWeek(member, weekStart) {
 /** Seats taken in a class for a given week: regulars plus that week's guests. */
 export function occupancyForWeek(group, weekStart) {
   const members = group?.members || [];
-  const regular = members.filter((m) => m.classType === ATTENDANCE.REGULAR && attendsInWeek(m, weekStart));
-  const guests = members.filter((m) => m.classType !== ATTENDANCE.REGULAR && attendsInWeek(m, weekStart));
-  const izin = members.filter((m) => m.isIzin || m.notArranged || (typeof m.remarks === 'string' && m.remarks.toLowerCase().includes('izin')));
+  const regular = members.filter((m) => m.classType === ATTENDANCE.REGULAR && attendsInWeek(m, weekStart, group?.day));
+  const guests = members.filter((m) => m.classType !== ATTENDANCE.REGULAR && attendsInWeek(m, weekStart, group?.day));
+  const izin = members.filter((m) => {
+    const leave = parseStudentLeave(m);
+    if (!leave.isIzin) return false;
+    if (leave.isGeneric || !weekStart) return true;
+    const sessionDate = group?.day ? dateForDay(group.day, weekStart) : null;
+    if (sessionDate) {
+      return sessionDate >= leave.startDate && sessionDate <= (leave.endDate || leave.startDate);
+    }
+    const end = dateForDay('Sunday', weekStart);
+    return leave.startDate <= end && (leave.endDate || leave.startDate) >= weekStart;
+  });
   return {
     regular: regular.length,
     guests: guests.length,

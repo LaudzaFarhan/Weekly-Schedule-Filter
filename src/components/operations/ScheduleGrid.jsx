@@ -5,7 +5,7 @@ import {
   Users, Filter, Trash2, X, CalendarDays, CalendarPlus, AlertTriangle, Clock,
   GripVertical, ChevronUp, ChevronDown, ChevronLeft, ChevronRight,
   Plus, Pencil, Building2, UserPlus, Repeat, FileText, UserX, Sparkles, Send, Calendar, Eye, User,
-  GripHorizontal, RotateCcw, Maximize2, Minimize2,
+  GripHorizontal, RotateCcw, Maximize2, Minimize2, UserCheck, CalendarOff,
 } from 'lucide-react';
 import {
   getProgressUpdateStatus,
@@ -24,6 +24,8 @@ import {
 import { maxStudentsFor } from '../../lib/programRules';
 import { DAY_NAMES, isSameBranch, DEFAULT_BRANCH_LIST } from '../../utils/constants';
 import { isSameTeacher, getInstructorDisplayName, resolveCanonicalTeacherName } from '../../utils/instructorUtils';
+import { parseStudentLeave, formatDatePretty, formatDateShort } from '../../utils/studentLeaveUtils';
+import StudentLeaveModal from './StudentLeaveModal';
 
 const CATEGORIES = ['Kinder', 'Junior', 'Coder'];
 
@@ -210,6 +212,7 @@ export default function ScheduleGrid({
   // Roster is held by key, not by value, so it stays in step with the 3s poll
   // and closes itself if the last student is removed.
   const [rosterKey, setRosterKey] = useState(null);
+  const [leaveModal, setLeaveModal] = useState({ isOpen: false, member: null, classInfo: null, defaultDate: '' });
   // Selected class for right side preview panel & custom positioning
   const [previewClass, setPreviewClass] = useState(null);
   const [isClosingPreview, setIsClosingPreview] = useState(false);
@@ -1719,7 +1722,8 @@ export default function ScheduleGrid({
                           </div>
                         ) : (
                           validMembers.map((m) => {
-                            const isIzin = m.isIzin || m.notArranged || (m.remarks || '').toLowerCase().includes('izin');
+                            const leaveInfo = parseStudentLeave(m);
+                            const isIzin = leaveInfo.isIzin;
                             const progRecord = liveProgressMap?.get ? liveProgressMap.get(String(m.student || '').toLowerCase().trim()) : null;
                             const progressStatus = getProgressUpdateStatus(m, progRecord);
                             const badgeInfo = PROGRESS_UPDATE_BADGES[progressStatus];
@@ -1729,7 +1733,8 @@ export default function ScheduleGrid({
                                 key={m.id}
                                 style={{
                                   padding: '0.7rem 0.85rem', borderRadius: '10px',
-                                  border: '1px solid var(--border-color)', background: 'var(--bg-color)',
+                                  border: isIzin ? '1px dashed #f59e0b' : '1px solid var(--border-color)',
+                                  background: isIzin ? 'rgba(254, 243, 199, 0.2)' : 'var(--bg-color)',
                                   display: 'flex', flexDirection: 'column', gap: '0.4rem',
                                 }}
                               >
@@ -1740,10 +1745,18 @@ export default function ScheduleGrid({
                                   </div>
                                   <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', flexWrap: 'wrap' }}>
                                     <span style={{
-                                      fontSize: '0.65rem', fontWeight: 700, padding: '0.1rem 0.45rem', borderRadius: '5px',
+                                      fontSize: '0.65rem', fontWeight: 700, padding: '0.12rem 0.45rem', borderRadius: '5px',
                                       color: isIzin ? '#b45309' : '#047857', background: isIzin ? '#fef3c7' : 'rgba(16,185,129,0.12)',
+                                      border: isIzin ? '1px solid #fde68a' : 'none',
+                                      display: 'inline-flex', alignItems: 'center', gap: '0.2rem',
                                     }}>
-                                      {isIzin ? 'Izin' : m.classType || 'Regular'}
+                                      {isIzin ? (
+                                        <>
+                                          <UserX size={10} /> {leaveInfo.shortText ? `Izin · ${leaveInfo.shortText}` : 'Izin'}
+                                        </>
+                                      ) : (
+                                        m.classType || 'Regular'
+                                      )}
                                     </span>
                                     {(() => {
                                       const arrangedTeacher = progRecord?.arrangedTeacher || progRecord?.arranged_teacher;
@@ -1776,19 +1789,94 @@ export default function ScheduleGrid({
                                   )}
                                 </div>
 
+                                {isIzin && (
+                                  <div style={{
+                                    marginTop: '0.15rem',
+                                    padding: '0.35rem 0.6rem',
+                                    borderRadius: '6px',
+                                    background: 'rgba(254, 243, 199, 0.45)',
+                                    border: '1px solid #fde68a',
+                                    fontSize: '0.72rem',
+                                    color: '#92400e',
+                                    display: 'flex',
+                                    alignItems: 'flex-start',
+                                    gap: '0.35rem',
+                                  }}>
+                                    <CalendarOff size={13} style={{ flexShrink: 0, marginTop: '0.05rem', color: '#d97706' }} />
+                                    <div>
+                                      <div>
+                                        <strong>On Leave:</strong> {leaveInfo.displayText}
+                                      </div>
+                                      {leaveInfo.reason && (
+                                        <div style={{ fontSize: '0.68rem', color: '#b45309', marginTop: '0.1rem' }}>
+                                          Reason: {leaveInfo.reason}
+                                        </div>
+                                      )}
+                                    </div>
+                                  </div>
+                                )}
+
                                 <div style={{ display: 'flex', gap: '0.4rem', marginTop: '0.2rem', alignItems: 'center', flexWrap: 'wrap' }}>
-                                  <button
-                                    type="button"
-                                    disabled={saving}
-                                    onClick={() => onUpdateStudent?.(m, { isIzin: !isIzin, notArranged: !isIzin, remarks: !isIzin ? 'Izin' : '' })}
-                                    style={{
-                                      padding: '0.25rem 0.55rem', borderRadius: '6px', fontSize: '0.72rem', fontWeight: 600, cursor: 'pointer',
-                                      border: '1px solid ' + (isIzin ? '#f59e0b' : 'var(--border-color)'),
-                                      background: isIzin ? '#fef3c7' : 'transparent', color: isIzin ? '#b45309' : 'var(--text-secondary)',
-                                    }}
-                                  >
-                                    {isIzin ? 'Mark Attending' : 'Mark Izin'}
-                                  </button>
+                                  {isIzin ? (
+                                    <>
+                                      <button
+                                        type="button"
+                                        disabled={saving}
+                                        onClick={() => onUpdateStudent?.(m, { isIzin: false, notArranged: false })}
+                                        title="Mark student as attending / clear leave"
+                                        style={{
+                                          padding: '0.25rem 0.55rem', borderRadius: '6px', fontSize: '0.72rem', fontWeight: 600, cursor: 'pointer',
+                                          border: '1px solid #10b981', background: 'rgba(16,185,129,0.08)', color: '#047857',
+                                          display: 'inline-flex', alignItems: 'center', gap: '0.25rem',
+                                        }}
+                                      >
+                                        <UserCheck size={12} /> Mark Attending
+                                      </button>
+                                      <button
+                                        type="button"
+                                        disabled={saving}
+                                        onClick={() => {
+                                          const classSessionDate = dateForDay(previewClass.day, week);
+                                          setLeaveModal({
+                                            isOpen: true,
+                                            member: m,
+                                            classInfo: previewClass,
+                                            defaultDate: classSessionDate || nextDateForDay(previewClass.day),
+                                          });
+                                        }}
+                                        title="Edit leave date or range"
+                                        style={{
+                                          padding: '0.25rem 0.55rem', borderRadius: '6px', fontSize: '0.72rem', fontWeight: 600, cursor: 'pointer',
+                                          border: '1px solid #f59e0b', background: '#fef3c7', color: '#b45309',
+                                          display: 'inline-flex', alignItems: 'center', gap: '0.25rem',
+                                        }}
+                                      >
+                                        <Pencil size={11} /> Edit Leave
+                                      </button>
+                                    </>
+                                  ) : (
+                                    <button
+                                      type="button"
+                                      disabled={saving}
+                                      onClick={() => {
+                                        const classSessionDate = dateForDay(previewClass.day, week);
+                                        setLeaveModal({
+                                          isOpen: true,
+                                          member: m,
+                                          classInfo: previewClass,
+                                          defaultDate: classSessionDate || nextDateForDay(previewClass.day),
+                                        });
+                                      }}
+                                      title="Declare leave for this student"
+                                      style={{
+                                        padding: '0.25rem 0.55rem', borderRadius: '6px', fontSize: '0.72rem', fontWeight: 600, cursor: 'pointer',
+                                        border: '1px solid var(--border-color)', background: 'transparent', color: 'var(--text-secondary)',
+                                        display: 'inline-flex', alignItems: 'center', gap: '0.25rem',
+                                      }}
+                                    >
+                                      <CalendarOff size={11} /> Mark Izin
+                                    </button>
+                                  )}
                                   {(() => {
                                      const arrangedTeacher = progRecord?.arrangedTeacher || progRecord?.arranged_teacher;
                                      const mainTeacher = progRecord?.mainTeacher || progRecord?.main_teacher || m.mainTeacher;
@@ -2153,9 +2241,10 @@ export default function ScheduleGrid({
                         const replacement = m.classType === ATTENDANCE.REPLACEMENT;
                         const additional = m.classType === ATTENDANCE.ADDITIONAL;
                         const trial = m.classType === ATTENDANCE.TRIAL;
-                        const isIzin = !!(m.isIzin || m.notArranged || (typeof m.remarks === 'string' && m.remarks.toLowerCase().includes('izin')));
+                        const leaveInfo = parseStudentLeave(m);
+                        const isIzin = leaveInfo.isIzin;
                         const tint = isIzin ? '#b45309' : replacement ? '#7c3aed' : additional ? '#0891b2' : trial ? '#ea580c' : '#059669';
-                        const thisWeek = attendsInWeek(m, week);
+                        const thisWeek = attendsInWeek(m, week, roster.day);
                         const spent = isExpired(m, todayISO);
 
                         const progRecord = liveProgressMap?.get ? liveProgressMap.get(String(m.student || '').toLowerCase().trim()) : null;
@@ -2188,7 +2277,7 @@ export default function ScheduleGrid({
                                     borderRadius: '5px', padding: '0.1rem 0.35rem',
                                     display: 'inline-flex', alignItems: 'center', gap: '0.2rem',
                                   }}>
-                                    <UserX size={9} /> IZIN (ON LEAVE)
+                                    <UserX size={9} /> {leaveInfo.shortText ? `IZIN (${leaveInfo.shortText})` : 'IZIN (ON LEAVE)'}
                                   </span>
                                 ) : (
                                   <span style={{
@@ -2265,11 +2354,17 @@ export default function ScheduleGrid({
                                 )}
                               </span>
                               <span style={{ display: 'block', fontSize: '0.72rem', color: isIzin ? '#b45309' : 'var(--text-secondary)', marginTop: '0.15rem' }}>
-                                {isIzin ? 'On Leave for this week · Open replacement seat available' : m.classType === ATTENDANCE.REGULAR
-                                  ? 'Every week at this time'
-                                  : m.sessionDates.length
-                                    ? `${m.sessionDates.length} session${m.sessionDates.length === 1 ? '' : 's'}: ${m.sessionDates.join(', ')}`
-                                    : 'No dates recorded yet'}
+                                {isIzin ? (
+                                  <>
+                                    On Leave: <strong>{leaveInfo.displayText}</strong>{leaveInfo.reason ? ` (${leaveInfo.reason})` : ''} · Open replacement seat available
+                                  </>
+                                ) : m.classType === ATTENDANCE.REGULAR ? (
+                                  'Every week at this time'
+                                ) : m.sessionDates.length ? (
+                                  `${m.sessionDates.length} session${m.sessionDates.length === 1 ? '' : 's'}: ${m.sessionDates.join(', ')}`
+                                ) : (
+                                  'No dates recorded yet'
+                                )}
                                 {spent ? ' · past, off the schedule' : (!thisWeek && !isIzin) ? ' · not this week' : ''}
                               </span>
                             </span>
@@ -2298,27 +2393,75 @@ export default function ScheduleGrid({
                                 <option value="Update Scheduled">Update Scheduled</option>
                                 <option value="Completed">Completed / Clear</option>
                               </select>
-                              <button
-                                type="button"
-                                disabled={saving}
-                                onClick={() => onUpdateStudent?.(m, {
-                                  isIzin: !isIzin,
-                                  notArranged: !isIzin,
-                                  remarks: !isIzin ? 'Izin' : '',
-                                })}
-                                title={isIzin ? 'Mark as Present / Attending' : 'Mark as Izin (Not attending this week)'}
-                                className="btn"
-                                style={{
-                                  border: '1px solid',
-                                  borderColor: isIzin ? '#f59e0b' : 'var(--border-color)',
-                                  background: isIzin ? '#fef3c7' : 'transparent',
-                                  color: isIzin ? '#b45309' : 'var(--text-secondary)',
-                                  borderRadius: '8px', padding: '0.3rem 0.55rem', fontSize: '0.72rem', fontWeight: 600,
-                                  cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '0.25rem',
-                                }}
-                              >
-                                <UserX size={12} /> {isIzin ? 'Izin' : 'Izin'}
-                              </button>
+                              {isIzin ? (
+                                <>
+                                  <button
+                                    type="button"
+                                    disabled={saving}
+                                    onClick={() => onUpdateStudent?.(m, { isIzin: false, notArranged: false })}
+                                    title="Mark student as attending / clear leave"
+                                    className="btn"
+                                    style={{
+                                      border: '1px solid #10b981',
+                                      background: 'rgba(16, 185, 129, 0.08)',
+                                      color: '#047857',
+                                      borderRadius: '8px', padding: '0.3rem 0.55rem', fontSize: '0.72rem', fontWeight: 600,
+                                      cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '0.25rem',
+                                    }}
+                                  >
+                                    <UserCheck size={12} /> Present
+                                  </button>
+                                  <button
+                                    type="button"
+                                    disabled={saving}
+                                    onClick={() => {
+                                      const classSessionDate = dateForDay(roster.day, week);
+                                      setLeaveModal({
+                                        isOpen: true,
+                                        member: m,
+                                        classInfo: roster,
+                                        defaultDate: classSessionDate || nextDateForDay(roster.day),
+                                      });
+                                    }}
+                                    title="Edit student leave dates"
+                                    className="btn"
+                                    style={{
+                                      border: '1px solid #f59e0b',
+                                      background: '#fef3c7',
+                                      color: '#b45309',
+                                      borderRadius: '8px', padding: '0.3rem 0.55rem', fontSize: '0.72rem', fontWeight: 600,
+                                      cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '0.25rem',
+                                    }}
+                                  >
+                                    <Pencil size={12} /> Edit Leave
+                                  </button>
+                                </>
+                              ) : (
+                                <button
+                                  type="button"
+                                  disabled={saving}
+                                  onClick={() => {
+                                    const classSessionDate = dateForDay(roster.day, week);
+                                    setLeaveModal({
+                                      isOpen: true,
+                                      member: m,
+                                      classInfo: roster,
+                                      defaultDate: classSessionDate || nextDateForDay(roster.day),
+                                    });
+                                  }}
+                                  title="Mark as Izin (declare leave date/range)"
+                                  className="btn"
+                                  style={{
+                                    border: '1px solid var(--border-color)',
+                                    background: 'transparent',
+                                    color: 'var(--text-secondary)',
+                                    borderRadius: '8px', padding: '0.3rem 0.55rem', fontSize: '0.72rem', fontWeight: 600,
+                                    cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '0.25rem',
+                                  }}
+                                >
+                                  <UserX size={12} /> Izin
+                                </button>
+                              )}
                               <button
                                 type="button"
                                 disabled={saving}
@@ -2706,6 +2849,24 @@ export default function ScheduleGrid({
           </div>
         </div>
       )}
+
+      {/* Student Leave Modal */}
+      <StudentLeaveModal
+        isOpen={leaveModal.isOpen}
+        onClose={() => setLeaveModal({ isOpen: false, member: null, classInfo: null, defaultDate: '' })}
+        member={leaveModal.member}
+        classInfo={leaveModal.classInfo}
+        defaultDate={leaveModal.defaultDate}
+        saving={saving}
+        onSave={async (leaveData) => {
+          await onUpdateStudent?.(leaveModal.member, { leaveData, isIzin: true, notArranged: true });
+          setLeaveModal({ isOpen: false, member: null, classInfo: null, defaultDate: '' });
+        }}
+        onClear={async () => {
+          await onUpdateStudent?.(leaveModal.member, { isIzin: false, notArranged: false });
+          setLeaveModal({ isOpen: false, member: null, classInfo: null, defaultDate: '' });
+        }}
+      />
     </div>
   );
 }
