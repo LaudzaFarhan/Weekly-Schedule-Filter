@@ -12,6 +12,7 @@
 import { parseTimeSlot } from './timeUtils';
 import { DAY_NAMES } from './constants';
 import { resolveCanonicalTeacherName } from './instructorUtils';
+import { parseStudentLeave } from './studentLeaveUtils';
 
 /** Working window in minutes from midnight (10:30 → 18:30). */
 export const WORKING_WINDOW_START_MIN = 10 * 60 + 30;
@@ -273,7 +274,12 @@ function computeForInstructor(rows) {
       // the class effectively didn't run — it must NOT add hours or count as a
       // session. We still keep it as a "leave session" so the UI can explain a
       // FREE TIME cell as izin (vs. genuinely no class).
-      const isStudentIzin = (b) => !!(b.notArranged || b.isIzin || (typeof b.remarks === 'string' && b.remarks.toLowerCase().includes('izin')));
+      const isStudentIzin = (b) => {
+        if (!b) return false;
+        if (b.notArranged || b.isIzin) return true;
+        const leave = parseStudentLeave(b);
+        return leave.isIzin;
+      };
       const allOnLeave = bucket.length > 0 && bucket.every((b) => isStudentIzin(b));
 
       const studentsInSlot = new Set();

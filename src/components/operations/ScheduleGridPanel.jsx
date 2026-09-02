@@ -21,6 +21,7 @@ import { groupClasses } from '../../lib/instructorAvailability';
 import { slotTypeMeta, cleanSlotList } from '../../lib/slotTypes';
 import { DAY_NAMES, isSameBranch } from '../../utils/constants';
 import { isSameTeacher, resolveCanonicalTeacherName } from '../../utils/instructorUtils';
+import { parseStudentLeave, formatStudentLeaveRemark, clearStudentLeaveRemark } from '../../utils/studentLeaveUtils';
 import ScheduleGrid from './ScheduleGrid';
 
 /**
@@ -514,9 +515,20 @@ export default function ScheduleGridPanel({ onNavigate } = {}) {
     const targetRowId = member.rowId || member.id;
     const row = classes.find((c) => c.id === targetRowId);
     if (!row) return;
-    const isIzinPatch = patch.isIzin !== undefined ? patch.isIzin : (patch.notArranged !== undefined ? patch.notArranged : undefined);
-    const newIzinState = isIzinPatch !== undefined ? isIzinPatch : !!(row.notArranged || row.isIzin || (typeof row.remarks === 'string' && row.remarks.toLowerCase().includes('izin')));
-    const remarks = newIzinState ? 'Izin' : (patch.remarks !== undefined ? patch.remarks : (row.remarks === 'Izin' ? '' : row.remarks));
+
+    let finalRemarks = row.remarks || '';
+    if (patch.leaveData) {
+      finalRemarks = formatStudentLeaveRemark(patch.leaveData, row.remarks);
+    } else if (patch.isIzin === false || patch.notArranged === false) {
+      finalRemarks = clearStudentLeaveRemark(row.remarks);
+    } else if (patch.isIzin === true || patch.notArranged === true) {
+      finalRemarks = formatStudentLeaveRemark({ isIzin: true, mode: 'indefinite' }, row.remarks);
+    } else if (patch.remarks !== undefined) {
+      finalRemarks = patch.remarks;
+    }
+
+    const parsedLeave = parseStudentLeave(finalRemarks);
+    const newIzinState = parsedLeave.isIzin;
 
     // Handle explicit progressUpdateStatus update
     if (patch.progressUpdateStatus !== undefined) {
@@ -539,7 +551,7 @@ export default function ScheduleGridPanel({ onNavigate } = {}) {
       teacher: row.teacher,
       branchName: row.branchName,
       classType: patch.classType ?? row.classType,
-      remarks: remarks,
+      remarks: finalRemarks,
       sessionDates: patch.sessionDates ?? row.sessionDates ?? [],
     });
 
@@ -551,20 +563,28 @@ export default function ScheduleGridPanel({ onNavigate } = {}) {
               ...updated,
               notArranged: newIzinState,
               isIzin: newIzinState,
-              remarks: remarks,
+              remarks: finalRemarks,
               progressUpdateStatus: patch.progressUpdateStatus ?? c.progressUpdateStatus,
             }
           : c
       )
     );
 
+    const toastTitle = patch.progressUpdateStatus
+      ? `Updated progress status for ${row.student}`
+      : `${row.student} ${newIzinState ? 'marked on leave (Izin)' : 'marked Present'}`;
+
+    const toastMessage = patch.progressUpdateStatus
+      ? `Status set to "${patch.progressUpdateStatus}".`
+      : newIzinState
+        ? (parsedLeave.displayText && parsedLeave.displayText !== 'All Weeks (Indefinite)'
+            ? `Leave: ${parsedLeave.displayText}. 1 open replacement seat created for affected sessions.`
+            : '1 open replacement seat created for this slot.')
+        : 'Leave cleared. Student attending regularly.';
+
     showToast({
-      title: patch.progressUpdateStatus
-        ? `Updated progress status for ${row.student}`
-        : `${row.student} ${newIzinState ? 'marked Izin (On Leave)' : 'marked Present'}`,
-      message: patch.progressUpdateStatus
-        ? `Status set to "${patch.progressUpdateStatus}".`
-        : newIzinState ? '1 open replacement seat created for this slot.' : 'Status updated.',
+      title: toastTitle,
+      message: toastMessage,
       variant: newIzinState ? 'warning' : 'success',
     });
   }, 'Could not update the student');
