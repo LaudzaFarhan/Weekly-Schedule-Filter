@@ -1789,22 +1789,49 @@ export default function ScheduleGrid({
                                     </span>
                                     {(() => {
                                       const arrangedTeacher = progRecord?.arrangedTeacher || progRecord?.arranged_teacher;
-                                      const mainTeacher = progRecord?.mainTeacher || progRecord?.main_teacher;
+                                      const mainTeacher = progRecord?.mainTeacher || progRecord?.main_teacher || m.mainTeacher;
+                                      const isMoveTemp = progRecord?.isMoveTemporary || progRecord?.arrangementType === 'move_same_day' || progRecord?.arrangementType === 'replacement_custom' || m.classType === 'Replacement';
                                       const isArranged = !!arrangedTeacher && arrangedTeacher.toLowerCase() !== (mainTeacher || '').toLowerCase();
-                                      if (!isArranged || !mainTeacher) return null;
-                                      const mainDisplay = resolveCanonicalTeacherName(mainTeacher, instructors) || mainTeacher;
-                                      return (
-                                        <span
-                                          title={`Temporary arrangement with ${previewClass?.teacher || m.teacher}. Main instructor: ${mainDisplay}`}
-                                          style={{
-                                            fontSize: '0.63rem', fontWeight: 700, padding: '0.1rem 0.4rem', borderRadius: '5px',
-                                            color: '#6d28d9', background: 'rgba(124, 58, 237, 0.12)', border: '1px solid rgba(124, 58, 237, 0.3)',
-                                            display: 'inline-flex', alignItems: 'center', gap: '0.2rem', whiteSpace: 'nowrap',
-                                          }}
-                                        >
-                                          Temporary · Main: {mainDisplay}
-                                        </span>
-                                      );
+                                      const arrangedDate = progRecord?.arrangedDate || progRecord?.replacementDate;
+
+                                      if (isMoveTemp) {
+                                        const mainInfo = [
+                                          mainTeacher ? `Main: ${resolveCanonicalTeacherName(mainTeacher, instructors) || mainTeacher}` : null,
+                                          progRecord?.mainDay ? progRecord.mainDay : null,
+                                          progRecord?.mainTime ? progRecord.mainTime : null,
+                                        ].filter(Boolean).join(' · ');
+
+                                        return (
+                                          <span
+                                            title={`Temporary move / replacement. ${mainInfo ? `(${mainInfo})` : ''}`}
+                                            style={{
+                                              fontSize: '0.63rem', fontWeight: 700, padding: '0.1rem 0.4rem', borderRadius: '5px',
+                                              color: '#6d28d9', background: 'rgba(124, 58, 237, 0.12)', border: '1px solid rgba(124, 58, 237, 0.3)',
+                                              display: 'inline-flex', alignItems: 'center', gap: '0.2rem', whiteSpace: 'nowrap',
+                                            }}
+                                          >
+                                            <Clock size={10} /> Move Temporary{arrangedDate ? ` · 📅 ${arrangedDate}` : ''}
+                                          </span>
+                                        );
+                                      }
+
+                                      if (isArranged && mainTeacher) {
+                                        const mainDisplay = resolveCanonicalTeacherName(mainTeacher, instructors) || mainTeacher;
+                                        return (
+                                          <span
+                                            title={`Temporary arrangement with ${previewClass?.teacher || m.teacher}. Main instructor: ${mainDisplay}`}
+                                            style={{
+                                              fontSize: '0.63rem', fontWeight: 700, padding: '0.1rem 0.4rem', borderRadius: '5px',
+                                              color: '#6d28d9', background: 'rgba(124, 58, 237, 0.12)', border: '1px solid rgba(124, 58, 237, 0.3)',
+                                              display: 'inline-flex', alignItems: 'center', gap: '0.2rem', whiteSpace: 'nowrap',
+                                            }}
+                                          >
+                                            Temporary · Main: {mainDisplay}
+                                          </span>
+                                        );
+                                      }
+
+                                      return null;
                                     })()}
                                   </div>
                                 </div>
@@ -3266,6 +3293,7 @@ function Cell({
           let needUpdateCount = 0;
           let offerCount = 0;
           let scheduledCount = 0;
+          let tempMoveCount = 0;
           if (Array.isArray(cls.members)) {
             for (const m of cls.members) {
               const progRecord = liveProgressMap?.get ? liveProgressMap.get(String(m.student || '').toLowerCase().trim()) : null;
@@ -3273,13 +3301,36 @@ function Cell({
               if (st === 'Need update progress') needUpdateCount += 1;
               else if (st === 'Update Offer') offerCount += 1;
               else if (st === 'Update Scheduled') scheduledCount += 1;
+
+              if (progRecord?.isMoveTemporary || progRecord?.arrangementType === 'move_same_day' || progRecord?.arrangementType === 'replacement_custom' || m.classType === 'Replacement') {
+                tempMoveCount += 1;
+              }
             }
           }
 
-          if (needUpdateCount === 0 && offerCount === 0 && scheduledCount === 0) return null;
+          if (needUpdateCount === 0 && offerCount === 0 && scheduledCount === 0 && tempMoveCount === 0) return null;
 
           return (
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.2rem', marginTop: '0.25rem' }}>
+              {tempMoveCount > 0 && (
+                <span
+                  style={{
+                    fontSize: '0.58rem',
+                    fontWeight: 700,
+                    color: '#6d28d9',
+                    background: '#f5f3ff',
+                    border: '1px solid #8b5cf6',
+                    borderRadius: '4px',
+                    padding: '0.05rem 0.28rem',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '0.15rem',
+                  }}
+                  title={`${tempMoveCount} student(s) on temporary move / replacement`}
+                >
+                  <Clock size={8} /> Move Temp {tempMoveCount > 1 ? `(${tempMoveCount})` : ''}
+                </span>
+              )}
               {needUpdateCount > 0 && (
                 <span
                   style={{

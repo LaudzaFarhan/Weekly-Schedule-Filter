@@ -254,14 +254,32 @@ describe('LiveProgressTable - Unassigned Students & Unregistered Instructors', (
     expect(screen.getByText(/0 \/ 24 meetings \(0%\)/i)).toBeInTheDocument();
   });
 
-  it('opens lesson arrangement modal when clicking lesson arrangement button', () => {
+  it('opens lesson arrangement modal and allows Same Schedule, Move Temporary, and Replacement Schedule', () => {
     render(<LiveProgressTable category="Kinder" />);
 
     const arrangeButtons = screen.getAllByTitle(/Click to arrange lesson/i);
     fireEvent.click(arrangeButtons[0]);
 
-    expect(screen.getByRole('heading', { name: /Lesson Arrangement/i })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Save Lesson Arrangement/i })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: /Lesson Arrangement & Schedule Move/i })).toBeInTheDocument();
+    expect(screen.getByText(/Main Schedule Preserved/i)).toBeInTheDocument();
+
+    // Switch to Move (Same Day)
+    const moveSameDayBtn = screen.getByRole('button', { name: /Move \(Same Day\)/i });
+    fireEvent.click(moveSameDayBtn);
+    expect(screen.getByText(/Move Temporary \(Same Day\)/i)).toBeInTheDocument();
+
+    // Switch to Replacement (Custom)
+    const replacementBtn = screen.getByRole('button', { name: /Replacement Day\/Time/i });
+    fireEvent.click(replacementBtn);
+    expect(screen.getByText(/Move Temporary \(Replacement\)/i)).toBeInTheDocument();
+
+    // Switch back to Same Schedule and save
+    const sameSchedBtn = screen.getByRole('button', { name: /Same Schedule/i });
+    fireEvent.click(sameSchedBtn);
+    expect(screen.getByText(/Main Schedule Preserved/i)).toBeInTheDocument();
+
+    const saveBtn = screen.getByRole('button', { name: /Save Lesson Arrangement/i });
+    fireEvent.click(saveBtn);
   });
 
   it('renders student name with clickable Zoho link and opens in new tab when zohoLink is present', () => {

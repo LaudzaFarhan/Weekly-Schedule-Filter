@@ -34,7 +34,7 @@ import { parseTimeSlot } from '../utils/timeUtils';
 import {
   Search, X, User, MapPin, Clock, Calendar, GraduationCap, Check, Video,
   StickyNote, AlertTriangle, TrendingUp, BookOpen, Edit3, Save, UserCheck, ChevronDown, CheckCircle2,
-  ExternalLink, Eye, Send, RotateCcw, FileText,
+  ExternalLink, Eye, Send, RotateCcw, FileText, Info, Sparkles,
 } from 'lucide-react';
 import AttendanceDetailHistoryModal from '../components/operations/AttendanceDetailHistoryModal';
 import ProgressUpdateModal from '../components/operations/ProgressUpdateModal';
@@ -167,8 +167,10 @@ export default function LiveProgressTable({ category }) {
   const [draftNote, setDraftNote] = useState('');
   const [saving, setSaving] = useState(false);
 
-  // Lesson Arrangement state & handlers
+  // Lesson Arrangement & Temporary Move state & handlers
   const [arrangingRow, setArrangingRow] = useState(null);
+  const [arrangementMode, setArrangementMode] = useState('same_schedule'); // 'same_schedule' | 'move_same_day' | 'replacement_custom'
+  const [arrangedDate, setArrangedDate] = useState('');
   const [arrangedLesson, setArrangedLesson] = useState('1');
   const [arrangedTeacher, setArrangedTeacher] = useState('');
   const [arrangedDay, setArrangedDay] = useState('Monday');
@@ -314,16 +316,26 @@ export default function LiveProgressTable({ category }) {
     setArrangedLesson(row.arrangedLesson || row.lesson || nextUndone);
     const initialTeacher = row.arrangedTeacher || (row.instructor && row.instructor !== 'Unassigned' && row.instructor !== '—' ? row.instructor : (branchInsts[0] || ''));
     setArrangedTeacher(initialTeacher);
-    setArrangedDay(row.arrangedDay || (row.day && row.day !== '—' ? row.day : 'Monday'));
+
+    const mainDay = row.mainDay || (row.day && row.day !== '—' ? row.day : 'Monday');
+    setArrangedDay(row.arrangedDay || mainDay);
 
     const rawTime = row.arrangedTime || (row.time && row.time !== '—' ? row.time : '3:00 PM - 4:30 PM');
     const initStart = extractStartTimeStr(rawTime);
     setStartTimeChoice(initStart);
     setCustomStartTime(initStart);
     setIsCustomStartTime(false);
+
+    // Initial arrangement mode
+    const initialMode = row.arrangementType || (row.isMoveTemporary ? 'move_same_day' : 'same_schedule');
+    setArrangementMode(initialMode);
+
+    // Replacement / session date
+    const todayISO = isoOf(new Date());
+    setArrangedDate(row.arrangedDate || row.replacementDate || todayISO);
   };
 
-  const reassignStudentInSchedule = async ({ studentName, targetTeacher, day, time, branchName, classType, program }) => {
+  const reassignStudentInSchedule = async ({ studentName, targetTeacher, day, time, branchName, classType, program, isMoveTemporary, arrangedDate }) => {
     if (!studentName || !targetTeacher) return;
 
     const normStudent = studentName.trim().toLowerCase();
@@ -384,6 +396,9 @@ export default function LiveProgressTable({ category }) {
       return sameTeacher && sameDay && sameBranch;
     });
 
+    const targetClassType = isMoveTemporary ? 'Replacement' : (classType || 'Regular');
+    const moveRemark = isMoveTemporary && arrangedDate ? `[Move Temporary: ${arrangedDate}]` : null;
+
     if (existingTargetClass) {
       // Append student to target teacher's existing class row
       const existingStudents = String(existingTargetClass.student || '')
@@ -394,14 +409,19 @@ export default function LiveProgressTable({ category }) {
       const alreadyIn = existingStudents.some((s) => s.toLowerCase() === normStudent);
       if (!alreadyIn) {
         existingStudents.push(studentName.trim());
+        let updatedRemarks = existingTargetClass.remarks || '';
+        if (moveRemark && !updatedRemarks.includes(moveRemark)) {
+          updatedRemarks = `${updatedRemarks} ${moveRemark}`.trim();
+        }
         await updateInternalClass(existingTargetClass.id, {
           day: existingTargetClass.day,
           time: existingTargetClass.time,
           student: existingStudents.join(', '),
           branchName: existingTargetClass.branchName,
-          classType: existingTargetClass.classType || 'Regular',
+          classType: existingTargetClass.classType || targetClassType,
           teacher: targetCanonical || existingTargetClass.teacher,
           program: existingTargetClass.program || program,
+          remarks: updatedRemarks || null,
         });
       }
     } else {
@@ -413,7 +433,8 @@ export default function LiveProgressTable({ category }) {
         time: time && time !== '—' ? time : '2:30 PM - 4:00 PM',
         branchName: branchName && branchName !== '—' ? branchName : 'Kelapa Gading',
         program: program || 'K1',
-        classType: classType || 'Regular',
+        classType: targetClassType,
+        remarks: moveRemark,
       });
     }
   };
@@ -425,21 +446,38 @@ export default function LiveProgressTable({ category }) {
       // The main/original teacher — use stored mainTeacher if already saved, else current instructor or original instructor
       const mainTeacher = arrangingRow.mainTeacher || (arrangingRow.instructor !== 'Unassigned' && arrangingRow.instructor !== '—' ? arrangingRow.instructor : (arrangingRow.originalInstructor || 'Unassigned'));
       const mainDay = arrangingRow.mainDay || (arrangingRow.day !== '—' ? arrangingRow.day : arrangedDay);
-      const mainTime = arrangingRow.mainTime || (arrangingRow.time !== '—' ? arrangingRow.time : null);
+      const mainTime = arrangingRow.mainTime || (arrangingRow.time !== '—' ? arrangingRow.time : '3:00 PM - 4:30 PM');
 
-      const activeStart = isCustomStartTime ? customStartTime : startTimeChoice;
       const durationMin = category === 'Kinder' ? 90 : 120;
-      const computedArrangedTime = buildTimeRangeStr(activeStart, durationMin);
+      let effectiveDay = mainDay;
+      let effectiveTime = mainTime;
+      const isMoveTemp = arrangementMode === 'move_same_day' || arrangementMode === 'replacement_custom';
 
-      // 1. Save arrangedLesson, arrangedTeacher, arrangedDay, arrangedTime, mainTeacher, mainDay & mainTime into liveProgress
+      if (arrangementMode === 'same_schedule') {
+        effectiveDay = mainDay;
+        effectiveTime = mainTime;
+      } else if (arrangementMode === 'move_same_day') {
+        effectiveDay = mainDay;
+        const activeStart = isCustomStartTime ? customStartTime : startTimeChoice;
+        effectiveTime = buildTimeRangeStr(activeStart, durationMin);
+      } else if (arrangementMode === 'replacement_custom') {
+        effectiveDay = arrangedDay;
+        const activeStart = isCustomStartTime ? customStartTime : startTimeChoice;
+        effectiveTime = buildTimeRangeStr(activeStart, durationMin);
+      }
+
+      // 1. Save arrangedLesson, arrangedTeacher, arrangedDay, arrangedTime, arrangedDate, isMoveTemporary, arrangementType into liveProgress
       await persist(arrangingRow, () => ({
         arrangedLesson,
         arrangedTeacher,
-        arrangedDay,
-        arrangedTime: computedArrangedTime,
+        arrangedDay: effectiveDay,
+        arrangedTime: effectiveTime,
+        arrangedDate,
+        isMoveTemporary: isMoveTemp,
+        arrangementType: arrangementMode,
         mainTeacher,
         mainDay,
-        mainTime: mainTime || computedArrangedTime,
+        mainTime,
       }));
 
       // 2. Reassign student in Schedule Grid (internal_classes) to arrangedTeacher, arrangedDay, arrangedTime
@@ -449,41 +487,45 @@ export default function LiveProgressTable({ category }) {
       await reassignStudentInSchedule({
         studentName: arrangingRow.studentName,
         targetTeacher: arrangedTeacher,
-        day: arrangedDay,
-        time: computedArrangedTime,
+        day: effectiveDay,
+        time: effectiveTime,
         branchName: arrangingRow.branchName !== '—' ? arrangingRow.branchName : (branchList[0] || 'Kelapa Gading'),
-        classType: arrangingRow.classType || 'Regular',
+        classType: isMoveTemp ? 'Replacement' : (arrangingRow.classType || 'Regular'),
         program: newProgStr,
+        isMoveTemporary: isMoveTemp,
+        arrangedDate,
       });
 
       await logActivity({
         action: 'edit',
-        summary: `Arranged lesson for ${arrangingRow.studentName} — Teacher: ${mainTeacher} → ${arrangedTeacher}, Day: ${mainDay} → ${arrangedDay}, Slot: ${mainTime || '—'} → ${computedArrangedTime} @ ${arrangingRow.branchName !== '—' ? arrangingRow.branchName : (branchList[0] || 'Kelapa Gading')}`,
+        summary: `Arranged lesson for ${arrangingRow.studentName} [${arrangementMode}] — Teacher: ${mainTeacher} → ${arrangedTeacher}, Day: ${mainDay} → ${effectiveDay}, Slot: ${mainTime} → ${effectiveTime} @ ${arrangingRow.branchName !== '—' ? arrangingRow.branchName : (branchList[0] || 'Kelapa Gading')}`,
         source: 'schedule',
         userEmail: user?.email || null,
         details: {
           student: arrangingRow.studentName,
+          mode: arrangementMode,
+          date: arrangedDate,
           branchName: arrangingRow.branchName !== '—' ? arrangingRow.branchName : (branchList[0] || 'Kelapa Gading'),
-          previous: { teacher: mainTeacher, day: mainDay, time: mainTime || '—' },
-          after: { teacher: arrangedTeacher, day: arrangedDay, time: computedArrangedTime },
+          previous: { teacher: mainTeacher, day: mainDay, time: mainTime },
+          after: { teacher: arrangedTeacher, day: effectiveDay, time: effectiveTime },
           changes: [
             { field: 'Teacher', before: mainTeacher, after: arrangedTeacher },
-            { field: 'Day', before: mainDay, after: arrangedDay },
-            { field: 'Slot', before: mainTime || '—', after: computedArrangedTime },
+            { field: 'Day', before: mainDay, after: effectiveDay },
+            { field: 'Slot', before: mainTime, after: effectiveTime },
           ],
         },
       });
 
-      const avail = checkInstructorAvailability(arrangedTeacher, arrangedDay);
+      const avail = checkInstructorAvailability(arrangedTeacher, effectiveDay);
       const termCode = arrangingRow.levelCode || arrangingRow.program;
       const formattedLesson = String(arrangedLesson).startsWith('L') ? arrangedLesson : `L${arrangedLesson}`;
-      let toastMsg = `${termCode} - ${formattedLesson} arranged with ${arrangedTeacher} on ${arrangedDay} (${computedArrangedTime}) for ${arrangingRow.studentName}. (Main teacher: ${mainTeacher}). Schedule Grid updated!`;
+      let toastMsg = `${termCode} - ${formattedLesson} arranged with ${arrangedTeacher} on ${effectiveDay} (${effectiveTime}) for ${arrangingRow.studentName}. (Main: ${mainTeacher} · ${mainDay} ${mainTime}). Schedule Grid updated!`;
       if (!avail.isAvailable) {
-        toastMsg += ` ⚠️ Note: ${arrangedTeacher} is ${avail.employmentType} and not usually scheduled on ${arrangedDay}s.`;
+        toastMsg += ` ⚠️ Note: ${arrangedTeacher} is ${avail.employmentType} and not usually scheduled on ${effectiveDay}s.`;
       }
 
       showToast({
-        title: 'Lesson Arrangement Saved',
+        title: isMoveTemp ? 'Move Temporary Saved' : 'Lesson Arrangement Saved',
         message: toastMsg,
         variant: avail.isAvailable ? 'success' : 'warning',
       });
@@ -2302,9 +2344,9 @@ export default function LiveProgressTable({ category }) {
               {/* Modal Header */}
               <div style={{ padding: '1.1rem 1.4rem', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--bg-color)' }}>
                 <div>
-                  <h3 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 700 }}>Lesson Arrangement</h3>
+                  <h3 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 700 }}>Lesson Arrangement & Schedule Move</h3>
                   <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
-                    {arrangingRow.studentName} · {arrangingRow.branchName} ({arrangingRow.day} {arrangingRow.time})
+                    {arrangingRow.studentName} · {arrangingRow.branchName} (Main: {arrangingRow.day} {arrangingRow.time})
                   </span>
                 </div>
                 <button
@@ -2322,12 +2364,15 @@ export default function LiveProgressTable({ category }) {
                 {/* Main Instructor & Current Enrollment Info Box */}
                 <div style={{ background: 'rgba(79,70,229,0.05)', border: '1px solid rgba(79,70,229,0.18)', padding: '0.75rem 1rem', borderRadius: '10px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <div>
-                    <div style={{ fontSize: '0.72rem', fontWeight: 600, color: '#4f46e5', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Main Instructor</div>
-                    <div style={{ fontSize: '0.92rem', fontWeight: 700, color: 'var(--text-main)', marginTop: '0.15rem', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                    <div style={{ fontSize: '0.72rem', fontWeight: 600, color: '#4f46e5', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Main Schedule & Instructor</div>
+                    <div style={{ fontSize: '0.92rem', fontWeight: 700, color: 'var(--text-main)', marginTop: '0.15rem', display: 'flex', alignItems: 'center', gap: '0.35rem', flexWrap: 'wrap' }}>
                       <User size={14} style={{ color: '#4f46e5' }} />
                       <span>{arrangingRow.instructor}</span>
                       <span style={{ fontSize: '0.68rem', padding: '1px 5px', borderRadius: '4px', background: 'rgba(79,70,229,0.12)', color: '#4f46e5', fontWeight: 600 }}>
                         {mainAvail.employmentType}
+                      </span>
+                      <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', fontWeight: 500 }}>
+                        · {arrangingRow.day} {arrangingRow.time}
                       </span>
                     </div>
                   </div>
@@ -2336,6 +2381,111 @@ export default function LiveProgressTable({ category }) {
                     <div style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-main)' }}>{arrangingRow.program}</div>
                   </div>
                 </div>
+
+                {/* Arrangement Mode Selector */}
+                <div>
+                  <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-secondary)', display: 'block', marginBottom: '0.45rem' }}>
+                    Arrangement Type *
+                  </label>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0.5rem' }}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setArrangementMode('same_schedule');
+                        setArrangedDay(arrangingRow.day !== '—' ? arrangingRow.day : 'Monday');
+                      }}
+                      style={{
+                        display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center',
+                        padding: '0.6rem 0.5rem', borderRadius: '10px', cursor: 'pointer',
+                        border: arrangementMode === 'same_schedule' ? '2px solid #4f46e5' : '1px solid var(--border-color)',
+                        background: arrangementMode === 'same_schedule' ? 'rgba(79,70,229,0.1)' : 'var(--bg-color)',
+                        color: arrangementMode === 'same_schedule' ? '#4f46e5' : 'var(--text-secondary)',
+                        fontWeight: 600, transition: 'all 0.15s ease',
+                      }}
+                    >
+                      <BookOpen size={16} style={{ marginBottom: '0.2rem' }} />
+                      <span style={{ fontSize: '0.78rem' }}>Same Schedule</span>
+                      <span style={{ fontSize: '0.66rem', opacity: 0.8, marginTop: '2px' }}>Lock time slot</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setArrangementMode('move_same_day');
+                        setArrangedDay(arrangingRow.day !== '—' ? arrangingRow.day : 'Monday');
+                      }}
+                      style={{
+                        display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center',
+                        padding: '0.6rem 0.5rem', borderRadius: '10px', cursor: 'pointer',
+                        border: arrangementMode === 'move_same_day' ? '2px solid #d97706' : '1px solid var(--border-color)',
+                        background: arrangementMode === 'move_same_day' ? 'rgba(217,119,6,0.1)' : 'var(--bg-color)',
+                        color: arrangementMode === 'move_same_day' ? '#b45309' : 'var(--text-secondary)',
+                        fontWeight: 600, transition: 'all 0.15s ease',
+                      }}
+                    >
+                      <Clock size={16} style={{ marginBottom: '0.2rem' }} />
+                      <span style={{ fontSize: '0.78rem' }}>Move (Same Day)</span>
+                      <span style={{ fontSize: '0.66rem', opacity: 0.8, marginTop: '2px' }}>Move Temporary</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setArrangementMode('replacement_custom')}
+                      style={{
+                        display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center',
+                        padding: '0.6rem 0.5rem', borderRadius: '10px', cursor: 'pointer',
+                        border: arrangementMode === 'replacement_custom' ? '2px solid #7c3aed' : '1px solid var(--border-color)',
+                        background: arrangementMode === 'replacement_custom' ? 'rgba(124,58,237,0.1)' : 'var(--bg-color)',
+                        color: arrangementMode === 'replacement_custom' ? '#7c3aed' : 'var(--text-secondary)',
+                        fontWeight: 600, transition: 'all 0.15s ease',
+                      }}
+                    >
+                      <Calendar size={16} style={{ marginBottom: '0.2rem' }} />
+                      <span style={{ fontSize: '0.78rem' }}>Replacement Day/Time</span>
+                      <span style={{ fontSize: '0.66rem', opacity: 0.8, marginTop: '2px' }}>Custom Day & Time</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Mode Notice Banner */}
+                {arrangementMode === 'same_schedule' && (
+                  <div style={{
+                    padding: '0.55rem 0.85rem', borderRadius: '8px',
+                    background: 'rgba(79,70,229,0.06)', border: '1px solid rgba(79,70,229,0.2)',
+                    fontSize: '0.76rem', color: '#4338ca', display: 'flex', alignItems: 'center', gap: '0.4rem',
+                  }}>
+                    <Info size={15} style={{ flexShrink: 0 }} />
+                    <span>
+                      <strong>Main Schedule Preserved:</strong> Lesson will take place on regular slot <strong>{arrangingRow.day} {arrangingRow.time}</strong>. Assigning lesson & teacher.
+                    </span>
+                  </div>
+                )}
+
+                {arrangementMode === 'move_same_day' && (
+                  <div style={{
+                    padding: '0.55rem 0.85rem', borderRadius: '8px',
+                    background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.3)',
+                    fontSize: '0.76rem', color: '#b45309', display: 'flex', alignItems: 'center', gap: '0.4rem',
+                  }}>
+                    <AlertTriangle size={15} style={{ flexShrink: 0 }} />
+                    <span>
+                      <strong>Move Temporary (Same Day):</strong> Student will be moved to another time slot on <strong>{arrangingRow.day}</strong>. Schedule Grid will display a <strong>Move Temporary</strong> tag.
+                    </span>
+                  </div>
+                )}
+
+                {arrangementMode === 'replacement_custom' && (
+                  <div style={{
+                    padding: '0.55rem 0.85rem', borderRadius: '8px',
+                    background: 'rgba(124,58,237,0.08)', border: '1px solid rgba(124,58,237,0.25)',
+                    fontSize: '0.76rem', color: '#6d28d9', display: 'flex', alignItems: 'center', gap: '0.4rem',
+                  }}>
+                    <Sparkles size={15} style={{ flexShrink: 0 }} />
+                    <span>
+                      <strong>Move Temporary (Replacement):</strong> Student will be placed on a replacement day & time slot. Schedule Grid will display a <strong>Move Temporary</strong> tag.
+                    </span>
+                  </div>
+                )}
 
                 {/* Target Arranged Lesson (Kinder / Junior) */}
                 {category !== 'Coder' && (
@@ -2370,88 +2520,133 @@ export default function LiveProgressTable({ category }) {
                   </div>
                 )}
 
-                {/* Target Day & Target Time Selection */}
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.85rem' }}>
-                  {/* Target Day */}
-                  <div>
-                    <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-secondary)', display: 'block', marginBottom: '0.35rem' }}>
-                      Target Arranged Day *
-                    </label>
-                    <select
-                      value={arrangedDay}
-                      onChange={(e) => setArrangedDay(e.target.value)}
-                      className="modal-select-field"
-                      style={{ width: '100%', fontSize: '0.85rem', padding: '0.5rem 0.75rem' }}
-                    >
-                      {['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'].map((d) => (
-                        <option key={d} value={d}>
-                          {d} {d.toLowerCase() === (arrangingRow.day || '').toLowerCase() ? '(Main Schedule Day)' : ''}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-
-                  {/* Target Start Schedule */}
-                  <div>
-                    <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-secondary)', display: 'block', marginBottom: '0.35rem' }}>
-                      Target Start Schedule *
-                    </label>
-                    {!isCustomStartTime ? (
-                      <select
-                        value={startTimeChoice}
-                        onChange={(e) => {
-                          if (e.target.value === '__custom__') {
-                            setIsCustomStartTime(true);
-                            setCustomStartTime('');
-                          } else {
-                            setStartTimeChoice(e.target.value);
-                          }
-                        }}
-                        className="modal-select-field"
-                        style={{ width: '100%', fontSize: '0.85rem', padding: '0.5rem 0.75rem' }}
-                      >
-                        {[
-                          '1:00 PM',
-                          '1:30 PM',
-                          '2:00 PM',
-                          '2:30 PM',
-                          '3:00 PM',
-                          '3:30 PM',
-                          '4:00 PM',
-                          '4:30 PM',
-                          '5:00 PM',
-                        ].map((st) => (
-                          <option key={st} value={st}>
-                            {st}
-                          </option>
-                        ))}
-                        <option value="__custom__">✏️ Custom Start Time...</option>
-                      </select>
-                    ) : (
-                      <div style={{ display: 'flex', gap: '0.35rem' }}>
-                        <input
-                          type="text"
-                          value={customStartTime}
-                          placeholder="e.g. 2:00 PM"
-                          onChange={(e) => setCustomStartTime(e.target.value)}
-                          className="modal-input-field"
-                          style={{ flex: 1, fontSize: '0.85rem', padding: '0.5rem 0.75rem' }}
-                        />
-                        <button
-                          type="button"
-                          className="btn btn-sm"
-                          onClick={() => setIsCustomStartTime(false)}
-                          style={{ fontSize: '0.72rem' }}
-                        >
-                          Presets
-                        </button>
-                      </div>
-                    )}
-                  </div>
+                {/* Replacement / Arranged Session Date */}
+                <div>
+                  <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-secondary)', display: 'block', marginBottom: '0.35rem' }}>
+                    Date of Replacement / Arranged Session *
+                  </label>
+                  <input
+                    type="date"
+                    value={arrangedDate}
+                    onChange={(e) => setArrangedDate(e.target.value)}
+                    className="modal-input-field"
+                    style={{ width: '100%', fontSize: '0.85rem', padding: '0.5rem 0.75rem' }}
+                  />
+                  <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '0.25rem', display: 'block' }}>
+                    Specific date when this arranged lesson takes place.
+                  </span>
                 </div>
 
-                {/* Automatically Calculated Class Schedule Range Banner */}
-                {(() => {
+                {/* Target Day & Target Time Selection */}
+                {arrangementMode === 'same_schedule' ? (
+                  <div style={{
+                    padding: '0.75rem 1rem', borderRadius: '10px',
+                    border: '1px solid var(--border-color)', background: 'var(--bg-color)',
+                    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                  }}>
+                    <div>
+                      <div style={{ fontSize: '0.72rem', fontWeight: 600, color: 'var(--text-muted)' }}>Preserved Main Schedule</div>
+                      <div style={{ fontSize: '0.88rem', fontWeight: 700, color: 'var(--text-main)', marginTop: '0.15rem' }}>
+                        📅 {arrangingRow.day} · 🕒 {arrangingRow.time}
+                      </div>
+                    </div>
+                    <span style={{ fontSize: '0.7rem', padding: '0.15rem 0.5rem', borderRadius: '6px', background: 'rgba(79,70,229,0.1)', color: '#4f46e5', fontWeight: 700 }}>
+                      Main Slot
+                    </span>
+                  </div>
+                ) : (
+                  <div style={{ display: 'grid', gridTemplateColumns: arrangementMode === 'move_same_day' ? '1fr 1.5fr' : '1fr 1fr', gap: '0.85rem' }}>
+                    {/* Target Day */}
+                    <div>
+                      <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-secondary)', display: 'block', marginBottom: '0.35rem' }}>
+                        {arrangementMode === 'move_same_day' ? 'Schedule Day (Same Day)' : 'Replacement Day *'}
+                      </label>
+                      {arrangementMode === 'move_same_day' ? (
+                        <input
+                          type="text"
+                          readOnly
+                          value={`${arrangingRow.day} (Same Day)`}
+                          className="modal-input-field"
+                          style={{ width: '100%', fontSize: '0.85rem', padding: '0.5rem 0.75rem', background: 'var(--bg-color)', cursor: 'not-allowed' }}
+                        />
+                      ) : (
+                        <select
+                          value={arrangedDay}
+                          onChange={(e) => setArrangedDay(e.target.value)}
+                          className="modal-select-field"
+                          style={{ width: '100%', fontSize: '0.85rem', padding: '0.5rem 0.75rem' }}
+                        >
+                          {['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'].map((d) => (
+                            <option key={d} value={d}>
+                              {d} {d.toLowerCase() === (arrangingRow.day || '').toLowerCase() ? '(Main Schedule Day)' : ''}
+                            </option>
+                          ))}
+                        </select>
+                      )}
+                    </div>
+
+                    {/* Target Start Schedule */}
+                    <div>
+                      <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-secondary)', display: 'block', marginBottom: '0.35rem' }}>
+                        Target Start Time *
+                      </label>
+                      {!isCustomStartTime ? (
+                        <select
+                          value={startTimeChoice}
+                          onChange={(e) => {
+                            if (e.target.value === '__custom__') {
+                              setIsCustomStartTime(true);
+                              setCustomStartTime('');
+                            } else {
+                              setStartTimeChoice(e.target.value);
+                            }
+                          }}
+                          className="modal-select-field"
+                          style={{ width: '100%', fontSize: '0.85rem', padding: '0.5rem 0.75rem' }}
+                        >
+                          {[
+                            '1:00 PM',
+                            '1:30 PM',
+                            '2:00 PM',
+                            '2:30 PM',
+                            '3:00 PM',
+                            '3:30 PM',
+                            '4:00 PM',
+                            '4:30 PM',
+                            '5:00 PM',
+                          ].map((st) => (
+                            <option key={st} value={st}>
+                              {st}
+                            </option>
+                          ))}
+                          <option value="__custom__">✏️ Custom Start Time...</option>
+                        </select>
+                      ) : (
+                        <div style={{ display: 'flex', gap: '0.35rem' }}>
+                          <input
+                            type="text"
+                            value={customStartTime}
+                            placeholder="e.g. 2:00 PM"
+                            onChange={(e) => setCustomStartTime(e.target.value)}
+                            className="modal-input-field"
+                            style={{ flex: 1, fontSize: '0.85rem', padding: '0.5rem 0.75rem' }}
+                          />
+                          <button
+                            type="button"
+                            className="btn btn-sm"
+                            onClick={() => setIsCustomStartTime(false)}
+                            style={{ fontSize: '0.72rem' }}
+                          >
+                            Presets
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Automatically Calculated Class Schedule Range Banner (when moving time slot) */}
+                {arrangementMode !== 'same_schedule' && (() => {
                   const durationMin = category === 'Kinder' ? 90 : 120;
                   const activeStart = isCustomStartTime ? customStartTime : startTimeChoice;
                   const computedRange = buildTimeRangeStr(activeStart, durationMin);
@@ -2486,7 +2681,8 @@ export default function LiveProgressTable({ category }) {
                   >
                     {!arrangedTeacher && <option value="">Select Instructor...</option>}
                     {getInstructorsForBranch(arrangingRow.branchName).map((inst) => {
-                      const check = checkInstructorAvailability(inst, arrangedDay);
+                      const effDay = arrangementMode === 'replacement_custom' ? arrangedDay : arrangingRow.day;
+                      const check = checkInstructorAvailability(inst, effDay);
                       const isMain = inst.toLowerCase() === String(arrangingRow.instructor || '').toLowerCase();
                       const warningTag = !check.isAvailable ? ' ⚠️' : '';
                       return (
@@ -2499,7 +2695,8 @@ export default function LiveProgressTable({ category }) {
 
                   {/* Employment Type & Availability Banner */}
                   {(() => {
-                    const currentAvail = checkInstructorAvailability(arrangedTeacher, arrangedDay);
+                    const effDay = arrangementMode === 'replacement_custom' ? arrangedDay : arrangingRow.day;
+                    const currentAvail = checkInstructorAvailability(arrangedTeacher, effDay);
                     return (
                       <div style={{
                         marginTop: '0.6rem', padding: '0.6rem 0.85rem', borderRadius: '8px',
@@ -2513,14 +2710,14 @@ export default function LiveProgressTable({ category }) {
                           <>
                             <CheckCircle2 size={15} />
                             <span>
-                              <strong>{arrangedTeacher}</strong> is <strong>{currentAvail.employmentType}</strong> and available on {arrangedDay}s.
+                              <strong>{arrangedTeacher}</strong> is <strong>{currentAvail.employmentType}</strong> and available on {effDay}s.
                             </span>
                           </>
                         ) : (
                           <>
                             <AlertTriangle size={15} />
                             <span>
-                              <strong>Availability Notice:</strong> {arrangedTeacher} is <strong>{currentAvail.employmentType}</strong> and not scheduled on {arrangedDay}s.
+                              <strong>Availability Notice:</strong> {arrangedTeacher} is <strong>{currentAvail.employmentType}</strong> and not scheduled on {effDay}s.
                             </span>
                           </>
                         )}
@@ -2548,7 +2745,7 @@ export default function LiveProgressTable({ category }) {
                   style={{ display: 'flex', alignItems: 'center', gap: '4px' }}
                 >
                   <Save size={15} />
-                  {arrangingSaving ? 'Saving…' : 'Save Lesson Arrangement'}
+                  {arrangingSaving ? 'Saving…' : (arrangementMode === 'same_schedule' ? 'Save Lesson Arrangement' : 'Save Temporary Move')}
                 </button>
               </div>
             </div>
