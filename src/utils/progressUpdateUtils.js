@@ -1,4 +1,4 @@
-import { parseProgram } from '../lib/programRules';
+import { parseProgram, CATEGORY_LEVELS } from '../lib/programRules';
 import { studentProgramCategory } from '../lib/studentFilter';
 
 export const PROGRESS_UPDATE_STATUSES = {
@@ -130,29 +130,23 @@ export function getProgressUpdateStatus(studentOrMember, liveProgressRecord = nu
 }
 
 /**
- * Suggest next program code (e.g. K1.10 -> K1.11, or K1 -> K2).
+ * Suggest next program code (e.g. K1.10 -> K2, J1.10 -> J2, Coder Basic -> Coder Intermediate).
+ * Target program represents the term of the program name (e.g. K1, K2, J1, J2, Coder Basic).
  */
-export function suggestNextProgramCode(currentCode) {
+export function suggestNextProgramCode(currentCode, category = 'Kinder') {
   if (!currentCode || typeof currentCode !== 'string') return '';
-  const trimmed = currentCode.trim();
+  const parsed = parseProgram(currentCode);
+  const baseCode = parsed.code || currentCode.trim();
+  const cat = parsed.category || category || 'Kinder';
 
-  // Pattern like "K1.10" or "KF1.8" -> increment lesson or level
-  const dotMatch = trimmed.match(/^([A-Za-z0-9]+)\.(\d+)$/);
-  if (dotMatch) {
-    const prefix = dotMatch[1];
-    const num = parseInt(dotMatch[2], 10);
-    return `${prefix}.${num + 1}`;
+  const levels = CATEGORY_LEVELS[cat] || [];
+  const idx = levels.findIndex((lvl) => lvl.toLowerCase() === baseCode.toLowerCase());
+
+  if (idx !== -1 && idx < levels.length - 1) {
+    return levels[idx + 1];
   }
 
-  // Pattern ending in number like "Scratch 2" -> "Scratch 3"
-  const endNumMatch = trimmed.match(/^(.*?)(\d+)$/);
-  if (endNumMatch) {
-    const prefix = endNumMatch[1];
-    const num = parseInt(endNumMatch[2], 10);
-    return `${prefix}${num + 1}`;
-  }
-
-  return trimmed;
+  return baseCode;
 }
 
 /**

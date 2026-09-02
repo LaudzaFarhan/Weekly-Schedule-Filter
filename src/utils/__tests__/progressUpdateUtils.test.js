@@ -104,19 +104,21 @@ describe('progressUpdateUtils', () => {
   });
 
   describe('suggestNextProgramCode', () => {
-    it('increments dotted program codes', () => {
-      expect(suggestNextProgramCode('K1.10')).toBe('K1.11');
-      expect(suggestNextProgramCode('KF1.8')).toBe('KF1.9');
-      expect(suggestNextProgramCode('J2.4')).toBe('J2.5');
+    it('advances to next program level for Kinder and Junior', () => {
+      expect(suggestNextProgramCode('K1.10', 'Kinder')).toBe('K2');
+      expect(suggestNextProgramCode('K1', 'Kinder')).toBe('K2');
+      expect(suggestNextProgramCode('KF1.10', 'Kinder')).toBe('KF2');
+      expect(suggestNextProgramCode('J1.10', 'Junior')).toBe('J2');
+      expect(suggestNextProgramCode('J2.10', 'Junior')).toBe('J3');
     });
 
-    it('increments trailing numbered programs', () => {
-      expect(suggestNextProgramCode('Scratch 2')).toBe('Scratch 3');
-      expect(suggestNextProgramCode('Roblox 1')).toBe('Roblox 2');
+    it('advances to next program level for Coder', () => {
+      expect(suggestNextProgramCode('Coder Basic', 'Coder')).toBe('Coder Intermediate');
+      expect(suggestNextProgramCode('Coder Intermediate', 'Coder')).toBe('Coder Advance');
     });
 
-    it('returns untouched for unnumbered program strings', () => {
-      expect(suggestNextProgramCode('Coder Basic')).toBe('Coder Basic');
+    it('returns base code for last level or empty string', () => {
+      expect(suggestNextProgramCode('K4', 'Kinder')).toBe('K4');
       expect(suggestNextProgramCode('')).toBe('');
     });
   });

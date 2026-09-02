@@ -11,7 +11,7 @@ import {
   suggestNextProgramCode,
   buildTermHistoryEntry,
 } from '../../utils/progressUpdateUtils';
-import { CONTINUATION_OPTIONS } from '../../lib/programRules';
+import { CONTINUATION_OPTIONS, levelsForCategory } from '../../lib/programRules';
 
 export default function NextTermContinuationModal({
   isOpen,
@@ -39,7 +39,18 @@ export default function NextTermContinuationModal({
     return [];
   }, [row?.termHistory]);
 
-  const nextTermNumber = termHistory.length + 2;
+  const effectiveCategory = category || row?.category || 'Kinder';
+  const availableLevels = useMemo(() => {
+    return levelsForCategory(effectiveCategory) || [];
+  }, [effectiveCategory]);
+
+  const programOptions = useMemo(() => {
+    const list = [...availableLevels];
+    if (nextProgramCode && !list.includes(nextProgramCode)) {
+      list.push(nextProgramCode);
+    }
+    return list.length ? list : ['K1', 'K2', 'K3', 'K4', 'KF1', 'KF2', 'J1', 'J2', 'J3', 'J4', 'Coder Basic', 'Coder Intermediate', 'Coder Advance'];
+  }, [availableLevels, nextProgramCode]);
 
   useEffect(() => {
     if (row) {
@@ -50,8 +61,8 @@ export default function NextTermContinuationModal({
       const defaultDate = `${nextWeek.getFullYear()}-${String(nextWeek.getMonth() + 1).padStart(2, '0')}-${String(nextWeek.getDate()).padStart(2, '0')}`;
       
       setNextTermStartDate(defaultDate);
-      const suggested = suggestNextProgramCode(row.program || row.programCode || '');
-      setNextProgramCode(suggested || row.program || row.programCode || '');
+      const suggested = suggestNextProgramCode(row.program || row.programCode || '', effectiveCategory);
+      setNextProgramCode(suggested || availableLevels[0] || 'K1');
       setTermName(`Term ${termHistory.length + 1}`);
       setPaymentType(row.progressUpdateStatus === PROGRESS_UPDATE_STATUSES.WAIT_PAYMENT ? 'Paid After Wait' : 'Upfront Paid');
       setSpaNote(row.progressUpdateNote || '');
@@ -62,7 +73,7 @@ export default function NextTermContinuationModal({
         setSelectedMode('confirm_continue');
       }
     }
-  }, [row, termHistory.length]);
+  }, [row, termHistory.length, effectiveCategory, availableLevels]);
 
   useEffect(() => {
     const handleKeyDown = (e) => {
@@ -441,16 +452,20 @@ export default function NextTermContinuationModal({
                   {/* Next Program Level Code */}
                   <div>
                     <label style={{ fontSize: '0.8rem', fontWeight: 700, display: 'block', marginBottom: '0.35rem' }}>
-                      Target Program / Next Level
+                      Target Program / Next Term Level
                     </label>
-                    <input
-                      type="text"
+                    <select
                       value={nextProgramCode}
                       onChange={(e) => setNextProgramCode(e.target.value)}
-                      placeholder="e.g. K1.11 or K2.1"
-                      className="modal-input-field"
+                      className="modal-select-field"
                       style={{ width: '100%', padding: '0.5rem 0.75rem', borderRadius: '8px' }}
-                    />
+                    >
+                      {programOptions.map((lvl) => (
+                        <option key={lvl} value={lvl}>
+                          {lvl}
+                        </option>
+                      ))}
+                    </select>
                   </div>
 
                   {/* Payment Type */}
