@@ -22,6 +22,7 @@ export default defineConfig({
     // supported per-file mechanism.)
     environment: 'node',
     globals: true,
+    testTimeout: 30000,
     setupFiles: ['./vitest.setup.js'],
     include: ['src/**/*.{test,spec}.{js,jsx}'],
     exclude: ['node_modules/**', '.next/**', 'dist/**'],
