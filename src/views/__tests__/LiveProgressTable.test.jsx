@@ -267,11 +267,15 @@ describe('LiveProgressTable - Unassigned Students & Unregistered Instructors', (
     const moveSameDayBtn = screen.getByRole('button', { name: /Move \(Same Day\)/i });
     fireEvent.click(moveSameDayBtn);
     expect(screen.getByText(/Move Temporary \(Same Day\)/i)).toBeInTheDocument();
+    // In Move (Same Day), calendar date picker must NOT be displayed
+    expect(screen.queryByLabelText(/Date of Replacement/i)).not.toBeInTheDocument();
 
     // Switch to Replacement (Custom)
     const replacementBtn = screen.getByRole('button', { name: /Replacement Day\/Time/i });
     fireEvent.click(replacementBtn);
     expect(screen.getByText(/Move Temporary \(Replacement\)/i)).toBeInTheDocument();
+    // In Replacement (Custom), calendar date picker is displayed
+    expect(screen.getByLabelText(/Date of Replacement/i)).toBeInTheDocument();
 
     // Switch back to Same Schedule and save
     const sameSchedBtn = screen.getByRole('button', { name: /Same Schedule/i });

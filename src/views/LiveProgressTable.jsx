@@ -466,13 +466,15 @@ export default function LiveProgressTable({ category }) {
         effectiveTime = buildTimeRangeStr(activeStart, durationMin);
       }
 
+      const effectiveDate = arrangementMode === 'replacement_custom' ? arrangedDate : null;
+
       // 1. Save arrangedLesson, arrangedTeacher, arrangedDay, arrangedTime, arrangedDate, isMoveTemporary, arrangementType into liveProgress
       await persist(arrangingRow, () => ({
         arrangedLesson,
         arrangedTeacher,
         arrangedDay: effectiveDay,
         arrangedTime: effectiveTime,
-        arrangedDate,
+        arrangedDate: effectiveDate,
         isMoveTemporary: isMoveTemp,
         arrangementType: arrangementMode,
         mainTeacher,
@@ -493,7 +495,7 @@ export default function LiveProgressTable({ category }) {
         classType: isMoveTemp ? 'Replacement' : (arrangingRow.classType || 'Regular'),
         program: newProgStr,
         isMoveTemporary: isMoveTemp,
-        arrangedDate,
+        arrangedDate: effectiveDate,
       });
 
       await logActivity({
@@ -2520,22 +2522,25 @@ export default function LiveProgressTable({ category }) {
                   </div>
                 )}
 
-                {/* Replacement / Arranged Session Date */}
-                <div>
-                  <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-secondary)', display: 'block', marginBottom: '0.35rem' }}>
-                    Date of Replacement / Arranged Session *
-                  </label>
-                  <input
-                    type="date"
-                    value={arrangedDate}
-                    onChange={(e) => setArrangedDate(e.target.value)}
-                    className="modal-input-field"
-                    style={{ width: '100%', fontSize: '0.85rem', padding: '0.5rem 0.75rem' }}
-                  />
-                  <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '0.25rem', display: 'block' }}>
-                    Specific date when this arranged lesson takes place.
-                  </span>
-                </div>
+                {/* Replacement Session Date (Only for Replacement Schedule) */}
+                {arrangementMode === 'replacement_custom' && (
+                  <div>
+                    <label htmlFor="replacement-date-input" style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-secondary)', display: 'block', marginBottom: '0.35rem' }}>
+                      Date of Replacement Session *
+                    </label>
+                    <input
+                      id="replacement-date-input"
+                      type="date"
+                      value={arrangedDate}
+                      onChange={(e) => setArrangedDate(e.target.value)}
+                      className="modal-input-field"
+                      style={{ width: '100%', fontSize: '0.85rem', padding: '0.5rem 0.75rem' }}
+                    />
+                    <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '0.25rem', display: 'block' }}>
+                      Specific date when this replacement lesson takes place.
+                    </span>
+                  </div>
+                )}
 
                 {/* Target Day & Target Time Selection */}
                 {arrangementMode === 'same_schedule' ? (
