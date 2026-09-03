@@ -422,8 +422,8 @@ const mergeCase = fc
   .oneof(
     // The already-empty list is its own branch: it is the state a new student is
     // in, and left to a free draw it would not reliably appear in 20 examples.
-    { arbitrary: fc.constant([]), weight: 1 },
-    { arbitrary: fc.uniqueArray(fc.integer({ min: 1, max: 8 }), { minLength: 1, maxLength: 4 }), weight: 4 }
+    { arbitrary: fc.constant([]), weight: 2 },
+    { arbitrary: fc.uniqueArray(fc.integer({ min: 1, max: 8 }), { minLength: 1, maxLength: 4 }), weight: 3 }
   )
   .chain((lessons) =>
     fc.tuple(
@@ -579,9 +579,23 @@ describe('NewStudentReportCardsPage save merge', () => {
       }),
       // DOM-driven: every example mounts the page, drives five ratings and a
       // save, so `{ numRuns: 20 }` per the repo convention. The two examples run
-      // first (and count toward the 20) pin the replaced-day and new-day cases
-      // into the budget rather than leaving both to a weighted draw.
-      { numRuns: 20 }
+      // first (and count toward the 20) pin the replaced-day, shared-day, and
+      // empty-start cases into the budget rather than leaving them to a weighted draw.
+      {
+        numRuns: 20,
+        examples: [
+          [
+            [
+              [],
+              {
+                id: 1, studentId: STUDENT.id, lessonNumber: 1, date: isoDay(1),
+                lessonTopic: 'Lesson 1', instructorNotes: 'Notes 1', instructorName: INSTRUCTOR,
+                concept: 4, building: 4, problemSolving: 4, focus: 4, attitude: 4,
+              },
+            ],
+          ],
+        ],
+      }
     );
 
     expect(seen.replaced).toBeGreaterThan(0);
