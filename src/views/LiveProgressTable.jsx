@@ -28,6 +28,10 @@ import {
   normaliseCoderLevel, lessonsForCategory, meetingsForSubscription,
 } from '../lib/programRules';
 import { resolveProgramCategory, studentProgramCategory } from '../lib/studentFilter';
+import { useNewOperationals } from '../hooks/useNewOperationals';
+import {
+  isClosedOnDate, dayNameOfISO, nextOpenDateFrom, openDayNames, closedDayMessage,
+} from '../lib/branchOpenDays';
 import { isoOf } from '../lib/instructorAvailability';
 import { isSameBranch, getCanonicalBranchName, DEFAULT_BRANCH_LIST } from '../utils/constants';
 import { parseTimeSlot } from '../utils/timeUtils';
@@ -178,6 +182,14 @@ export default function LiveProgressTable({ category }) {
   const [customStartTime, setCustomStartTime] = useState('3:00 PM');
   const [isCustomStartTime, setIsCustomStartTime] = useState(false);
   const [arrangingSaving, setArrangingSaving] = useState(false);
+
+  /**
+   * Branch operating days, from Operationals.
+   *
+   * A replacement session happens at a branch on a date, so it cannot land on a
+   * day that branch is shut.
+   */
+  const { rules: branchRules } = useNewOperationals();
 
   // Video attachment modal state
   const [videoModal, setVideoModal] = useState(null); // { row, level, link }
@@ -448,6 +460,38 @@ export default function LiveProgressTable({ category }) {
 
   const handleSaveArrangement = async () => {
     if (!arrangingRow) return;
+
+    /**
+     * A replacement lands on a specific date, so it cannot be booked on a day the
+     * branch is shut. Re-checked here and not only on the disabled button, so the
+     * rule holds whatever route reaches this function.
+     *
+     * Only `replacement_custom` is gated: the other modes keep the student's
+     * existing day, and refusing those would block editing a schedule that is
+     * already in place.
+     */
+    if (arrangementMode === 'replacement_custom') {
+      const branch = arrangingRow.branchName && arrangingRow.branchName !== '—'
+        ? arrangingRow.branchName
+        : '';
+      if (!arrangedDate) {
+        showToast({
+          title: 'Pick a date',
+          message: 'A replacement session needs the date it takes place on.',
+          variant: 'warning',
+        });
+        return;
+      }
+      if (isClosedOnDate(branchRules, branch, arrangedDate)) {
+        showToast({
+          title: 'Branch is closed that day',
+          message: closedDayMessage(branchRules, branch, dayNameOfISO(arrangedDate)),
+          variant: 'error',
+          duration: 7000,
+        });
+        return;
+      }
+    }
     setArrangingSaving(true);
     try {
       // The main/original teacher — use stored mainTeacher if already saved, else current instructor or original instructor
@@ -468,7 +512,10 @@ export default function LiveProgressTable({ category }) {
         const activeStart = isCustomStartTime ? customStartTime : startTimeChoice;
         effectiveTime = buildTimeRangeStr(activeStart, durationMin);
       } else if (arrangementMode === 'replacement_custom') {
-        effectiveDay = arrangedDay;
+        // The date is what the session actually happens on, so the weekday is
+        // read from it rather than from a separate picker. The two used to be
+        // independent, which let a session be saved as "Friday" on a Monday date.
+        effectiveDay = dayNameOfISO(arrangedDate) || arrangedDay;
         const activeStart = isCustomStartTime ? customStartTime : startTimeChoice;
         effectiveTime = buildTimeRangeStr(activeStart, durationMin);
       }
@@ -2332,6 +2379,23 @@ export default function LiveProgressTable({ category }) {
         const currentAvail = checkInstructorAvailability(arrangedTeacher, arrangingRow.day);
         const mainAvail = checkInstructorAvailability(arrangingRow.instructor, arrangingRow.day);
 
+        // The branch this session would happen at, and whether it is open then.
+        const arrangeBranch = arrangingRow.branchName && arrangingRow.branchName !== '—'
+          ? arrangingRow.branchName
+          : '';
+        const arrangeBranchOpenDays = openDayNames(branchRules, arrangeBranch);
+        // Derived from the date, never from a separate picker.
+        const arrangedWeekday = dayNameOfISO(arrangedDate);
+        const arrangeDateClosed = arrangementMode === 'replacement_custom'
+          && isClosedOnDate(branchRules, arrangeBranch, arrangedDate);
+        const arrangeSuggestedDate = arrangeDateClosed
+          ? nextOpenDateFrom(branchRules, arrangeBranch, arrangedDate)
+          : '';
+        // A replacement needs a date, and it cannot fall on a closed day. The
+        // other two modes keep the student's existing day, so they are left alone.
+        const arrangeMissingDate = arrangementMode === 'replacement_custom' && !arrangedDate;
+        const arrangeBlocked = arrangeDateClosed || arrangeMissingDate;
+
         return (
           <div
             style={{
@@ -2540,13 +2604,60 @@ export default function LiveProgressTable({ category }) {
                       id="replacement-date-input"
                       type="date"
                       value={arrangedDate}
-                      onChange={(e) => setArrangedDate(e.target.value)}
+                      onChange={(e) => {
+                        const next = e.target.value;
+                        setArrangedDate(next);
+                        // Keep the weekday in step with the date. They were
+                        // separate fields before, so they could disagree.
+                        const weekday = dayNameOfISO(next);
+                        if (weekday) setArrangedDay(weekday);
+                      }}
+                      aria-invalid={arrangeBlocked || undefined}
                       className="modal-input-field"
-                      style={{ width: '100%', fontSize: '0.85rem', padding: '0.5rem 0.75rem' }}
+                      style={{
+                        width: '100%', fontSize: '0.85rem', padding: '0.5rem 0.75rem',
+                        border: `1px solid ${arrangeBlocked ? '#dc2626' : 'var(--border-color)'}`,
+                        background: arrangeBlocked ? 'rgba(220,38,38,0.06)' : undefined,
+                      }}
                     />
                     <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '0.25rem', display: 'block' }}>
                       Specific date when this replacement lesson takes place.
+                      {arrangeBranchOpenDays.length > 0 && ` ${arrangeBranch} opens ${arrangeBranchOpenDays.map((d) => d.slice(0, 3)).join(', ')}.`}
                     </span>
+
+                    {arrangeDateClosed && (
+                      <div
+                        role="alert"
+                        style={{
+                          marginTop: '0.45rem', padding: '0.5rem 0.7rem', borderRadius: '8px',
+                          background: 'rgba(220,38,38,0.08)', border: '1px solid rgba(220,38,38,0.3)',
+                          color: '#b91c1c', fontSize: '0.75rem', fontWeight: 600,
+                          display: 'flex', alignItems: 'flex-start', gap: '0.45rem',
+                        }}
+                      >
+                        <AlertTriangle size={14} style={{ flexShrink: 0, marginTop: '0.1rem' }} />
+                        <span style={{ flex: 1 }}>
+                          {closedDayMessage(branchRules, arrangeBranch, arrangedWeekday)}
+                          {arrangeSuggestedDate && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setArrangedDate(arrangeSuggestedDate);
+                                const weekday = dayNameOfISO(arrangeSuggestedDate);
+                                if (weekday) setArrangedDay(weekday);
+                              }}
+                              style={{
+                                marginLeft: '0.4rem', background: 'transparent', border: 'none',
+                                padding: 0, font: 'inherit', color: '#b91c1c',
+                                textDecoration: 'underline', cursor: 'pointer',
+                              }}
+                            >
+                              Use {dayNameOfISO(arrangeSuggestedDate).slice(0, 3)} {arrangeSuggestedDate} instead
+                            </button>
+                          )}
+                        </span>
+                      </div>
+                    )}
                   </div>
                 )}
 
@@ -2583,18 +2694,24 @@ export default function LiveProgressTable({ category }) {
                           style={{ width: '100%', fontSize: '0.85rem', padding: '0.5rem 0.75rem', background: 'var(--bg-color)', cursor: 'not-allowed' }}
                         />
                       ) : (
-                        <select
-                          value={arrangedDay}
-                          onChange={(e) => setArrangedDay(e.target.value)}
-                          className="modal-select-field"
-                          style={{ width: '100%', fontSize: '0.85rem', padding: '0.5rem 0.75rem' }}
-                        >
-                          {['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'].map((d) => (
-                            <option key={d} value={d}>
-                              {d} {d.toLowerCase() === (arrangingRow.day || '').toLowerCase() ? '(Main Schedule Day)' : ''}
-                            </option>
-                          ))}
-                        </select>
+                        /* Read-only: the weekday is whatever the chosen date falls
+                           on. It used to be a free Mon-Sun picker beside the date,
+                           so the two could disagree and the saved day was wrong. */
+                        <input
+                          type="text"
+                          readOnly
+                          aria-label="Replacement day, taken from the chosen date"
+                          value={arrangedWeekday
+                            ? `${arrangedWeekday}${arrangedWeekday.toLowerCase() === String(arrangingRow.day || '').toLowerCase() ? ' (Main Schedule Day)' : ''}`
+                            : 'Pick a date above'}
+                          className="modal-input-field"
+                          style={{
+                            width: '100%', fontSize: '0.85rem', padding: '0.5rem 0.75rem',
+                            background: 'var(--bg-color)', cursor: 'not-allowed',
+                            color: arrangedWeekday ? undefined : 'var(--text-muted)',
+                            border: `1px solid ${arrangeDateClosed ? '#dc2626' : 'var(--border-color)'}`,
+                          }}
+                        />
                       )}
                     </div>
 
@@ -2752,10 +2869,19 @@ export default function LiveProgressTable({ category }) {
                 </button>
                 <button
                   type="button"
-                  disabled={arrangingSaving}
+                  disabled={arrangingSaving || arrangeBlocked}
+                  title={arrangeMissingDate
+                    ? 'Pick the date of the replacement session first'
+                    : (arrangeDateClosed
+                      ? closedDayMessage(branchRules, arrangeBranch, arrangedWeekday)
+                      : undefined)}
                   onClick={handleSaveArrangement}
                   className="btn btn-primary"
-                  style={{ display: 'flex', alignItems: 'center', gap: '4px' }}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: '4px',
+                    cursor: (arrangingSaving || arrangeBlocked) ? 'not-allowed' : 'pointer',
+                    opacity: (arrangingSaving || arrangeBlocked) ? 0.6 : 1,
+                  }}
                 >
                   <Save size={15} />
                   {arrangingSaving ? 'Saving…' : (arrangementMode === 'same_schedule' ? 'Save Lesson Arrangement' : 'Save Temporary Move')}
