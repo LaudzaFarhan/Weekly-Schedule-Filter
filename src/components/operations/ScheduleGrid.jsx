@@ -209,6 +209,15 @@ export default function ScheduleGrid({
   const [editor, setEditor] = useState(null);    // { slot, type, start, end, label, scope }
   const [moving, setMoving] = useState(null);
   const [resizing, setResizing] = useState(null);
+  /**
+   * Student names on the class cards.
+   *
+   * On by default, because reading a slot without opening it is the point. A card
+   * only ever shows as many names as it has height for, so this is a way to buy
+   * that space back on a dense day rather than a way to reveal hidden data — the
+   * full roster is in every card's tooltip either way.
+   */
+  const [showNames, setShowNames] = useState(true);
   // Roster is held by key, not by value, so it stays in step with the 3s poll
   // and closes itself if the last student is removed.
   const [rosterKey, setRosterKey] = useState(null);
@@ -1187,6 +1196,32 @@ export default function ScheduleGrid({
                 </optgroup>
               </select>
             </label>
+            <button
+              type="button"
+              onClick={() => setShowNames((on) => !on)}
+              className="btn"
+              aria-pressed={showNames}
+              title={showNames
+                ? 'Hide student names on the cards — the full list stays in each card’s tooltip'
+                : 'Show student names on the cards'}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '0.35rem',
+                padding: '0.35rem 0.75rem',
+                fontSize: '0.75rem',
+                fontWeight: 600,
+                borderRadius: '8px',
+                border: '1px solid',
+                borderColor: showNames ? 'var(--primary-blue, #4f46e5)' : 'var(--border-color)',
+                background: showNames ? 'rgba(79, 70, 229, 0.1)' : 'transparent',
+                color: showNames ? 'var(--primary-blue, #4f46e5)' : 'var(--text-secondary)',
+                cursor: 'pointer',
+                transition: 'all 0.15s ease',
+              }}
+            >
+              <Users size={13} /> Names
+            </button>
             {onToggleFullscreen && (
               <button
                 type="button"
@@ -1590,6 +1625,7 @@ export default function ScheduleGrid({
                             moving={moving}
                             isTarget={isTarget}
                             liveProgressMap={liveProgressMap}
+                            showNames={showNames}
                             resizing={resizingThis ? resizing : null}
                             openPicker={openPicker}
                             rowIdx={rowIdx}
@@ -3054,9 +3090,17 @@ function cardRadius(buttedPrev, buttedNext) {
   return `${top} ${top} ${bottom} ${bottom}`;
 }
 
+/**
+ * Line height of one name on a class card, in px.
+ *
+ * Drives the estimate of how many names a card can hold, so it has to stay in
+ * step with the font size used to render them.
+ */
+const NAME_LINE_H = 11;
+
 /** One cell's content. */
 function Cell({
-  cell, inst, start, height, allBranches, rules, saving, week, liveProgressMap,
+  cell, inst, start, height, allBranches, rules, saving, week, liveProgressMap, showNames,
   moving, isTarget, resizing, openPicker, openEditor, openRoster, onPreviewClass, onRemoveSlot,
   beginMoveClass, beginMoveSlot, setMoving, applyMove, beginResize, nudge,
   rowIdx, beginDraw, inDraw, drawAnchor, drawnDuration, drawnRows,
@@ -3193,6 +3237,52 @@ function Cell({
     const gripped = !allBranches;
     const edgeMarks = cell.span >= EDGE_MARK_MIN_SPAN;
 
+    // Progress flags, counted once. The badge row needs them, and so does the
+    // name budget below — which has to know whether that row will take a line.
+    const flags = { needUpdate: 0, offer: 0, scheduled: 0, tempMove: 0 };
+    for (const m of (Array.isArray(cls.members) ? cls.members : [])) {
+      const progRecord = liveProgressMap?.get
+        ? liveProgressMap.get(String(m.student || '').toLowerCase().trim())
+        : null;
+      const st = getProgressUpdateStatus(m, progRecord);
+      if (st === 'Need update progress') flags.needUpdate += 1;
+      else if (st === 'Update Offer') flags.offer += 1;
+      else if (st === 'Update Scheduled') flags.scheduled += 1;
+      if (progRecord?.isMoveTemporary
+        || progRecord?.arrangementType === 'move_same_day'
+        || progRecord?.arrangementType === 'replacement_custom'
+        || m.classType === 'Replacement') {
+        flags.tempMove += 1;
+      }
+    }
+    const hasFlags = flags.needUpdate > 0 || flags.offer > 0 || flags.scheduled > 0 || flags.tempMove > 0;
+
+    // Who is in the class, and who is away this week. Already loaded with the
+    // group, so naming them costs no extra request.
+    const roster = (cls.members || [])
+      .filter((m) => String(m.student || '').trim())
+      .map((m) => ({ name: String(m.student).trim(), away: !attendsInWeek(m, week, cls.day) }));
+
+    /**
+     * How many names fit beneath the fixed content.
+     *
+     * Estimated from the font sizes set in this file rather than measured:
+     * measuring would cost a second layout pass per card, and a grid can hold
+     * hundreds. A 120-minute card has room for about four names; a 90-minute one
+     * carrying a status badge has none, which is why the roster is also in the
+     * card's tooltip.
+     */
+    const padY = edgeMarks ? 15.2 + (gripped ? 22.4 : 13.6) : 4.8 + 11.2;
+    const fixedH = 17 + 12 + 17 + (hasFlags ? 18 : 0) + (allBranches && cls.branchName ? 12 : 0);
+    const nameCapacity = showNames
+      ? Math.max(0, Math.floor((boxH - padY - fixedH) / NAME_LINE_H))
+      : 0;
+    const namesShown = roster.slice(0, nameCapacity);
+    // Hung off the end of the last name rather than given a line of its own: a
+    // 90-minute card has room for exactly one line, and spending it on "+3 more"
+    // told you less than a name and a count together do.
+    const namesHidden = roster.length - namesShown.length;
+
     return (
       <div
         data-class-chip="true"
@@ -3219,7 +3309,16 @@ function Cell({
             else openRoster(cls);
           }
         }}
-        title={allBranches ? undefined : 'Click to preview class & students'}
+        /* The roster goes in the tooltip as well as on the card. A 90-minute card
+           has no room for names, and hovering should still answer "who is in
+           this?" without opening anything. */
+        title={allBranches ? undefined : [
+          roster.length
+            ? roster.map((r) => (r.away ? `${r.name} (away this week)` : r.name)).join('\n')
+            : 'No students yet',
+          '',
+          'Click to preview class & students',
+        ].join('\n')}
         style={{
           position: 'relative', height: boxH, maxHeight: boxH, boxSizing: 'border-box',
           borderRadius: cardRadius(cell.buttedPrev, cell.buttedNext),
@@ -3284,30 +3383,43 @@ function Cell({
             {occ.total}/{seats} Pax
           </span>
         </span>
-        {(() => {
-          let needUpdateCount = 0;
-          let offerCount = 0;
-          let scheduledCount = 0;
-          let tempMoveCount = 0;
-          if (Array.isArray(cls.members)) {
-            for (const m of cls.members) {
-              const progRecord = liveProgressMap?.get ? liveProgressMap.get(String(m.student || '').toLowerCase().trim()) : null;
-              const st = getProgressUpdateStatus(m, progRecord);
-              if (st === 'Need update progress') needUpdateCount += 1;
-              else if (st === 'Update Offer') offerCount += 1;
-              else if (st === 'Update Scheduled') scheduledCount += 1;
 
-              if (progRecord?.isMoveTemporary || progRecord?.arrangementType === 'move_same_day' || progRecord?.arrangementType === 'replacement_custom' || m.classType === 'Replacement') {
-                tempMoveCount += 1;
-              }
-            }
-          }
+        {/* Who is in the class, as far as the card's height allows. */}
+        {namesShown.length > 0 && (
+          <span style={{ display: 'block', marginTop: '0.1rem' }}>
+            {namesShown.map((r, i) => (
+              <span
+                key={r.name}
+                style={{
+                  display: 'flex', alignItems: 'baseline', gap: '0.2rem',
+                  fontSize: '0.58rem', lineHeight: `${NAME_LINE_H}px`,
+                  color: meta.subtextColor || 'var(--text-secondary)',
+                }}
+              >
+                <span style={{
+                  overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0,
+                  // Away this week, so the seat is really free even though it is taken.
+                  opacity: r.away ? 0.5 : 1,
+                  textDecoration: r.away ? 'line-through' : 'none',
+                }}>
+                  {r.name}
+                </span>
+                {namesHidden > 0 && i === namesShown.length - 1 && (
+                  <span
+                    title={`${namesHidden} more student${namesHidden === 1 ? '' : 's'} — hover the card for the full list`}
+                    style={{ flexShrink: 0, fontWeight: 700, color: meta.textColor, opacity: 0.8 }}
+                  >
+                    +{namesHidden}
+                  </span>
+                )}
+              </span>
+            ))}
+          </span>
+        )}
 
-          if (needUpdateCount === 0 && offerCount === 0 && scheduledCount === 0 && tempMoveCount === 0) return null;
-
-          return (
+        {hasFlags && (
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.2rem', marginTop: '0.25rem' }}>
-              {tempMoveCount > 0 && (
+              {flags.tempMove > 0 && (
                 <span
                   style={{
                     fontSize: '0.58rem',
@@ -3321,12 +3433,12 @@ function Cell({
                     alignItems: 'center',
                     gap: '0.15rem',
                   }}
-                  title={`${tempMoveCount} student(s) on temporary move / replacement`}
+                  title={`${flags.tempMove} student(s) on temporary move / replacement`}
                 >
-                  <Clock size={8} /> Move Temp {tempMoveCount > 1 ? `(${tempMoveCount})` : ''}
+                  <Clock size={8} /> Move Temp {flags.tempMove > 1 ? `(${flags.tempMove})` : ''}
                 </span>
               )}
-              {needUpdateCount > 0 && (
+              {flags.needUpdate > 0 && (
                 <span
                   style={{
                     fontSize: '0.58rem',
@@ -3340,12 +3452,12 @@ function Cell({
                     alignItems: 'center',
                     gap: '0.15rem',
                   }}
-                  title={`${needUpdateCount} student(s) need progress update`}
+                  title={`${flags.needUpdate} student(s) need progress update`}
                 >
-                  <Clock size={8} /> Need Update {needUpdateCount > 1 ? `(${needUpdateCount})` : ''}
+                  <Clock size={8} /> Need Update {flags.needUpdate > 1 ? `(${flags.needUpdate})` : ''}
                 </span>
               )}
-              {offerCount > 0 && (
+              {flags.offer > 0 && (
                 <span
                   style={{
                     fontSize: '0.58rem',
@@ -3359,12 +3471,12 @@ function Cell({
                     alignItems: 'center',
                     gap: '0.15rem',
                   }}
-                  title={`${offerCount} student(s) update offer sent`}
+                  title={`${flags.offer} student(s) update offer sent`}
                 >
-                  <Send size={8} /> Offer ({offerCount})
+                  <Send size={8} /> Offer ({flags.offer})
                 </span>
               )}
-              {scheduledCount > 0 && (
+              {flags.scheduled > 0 && (
                 <span
                   style={{
                     fontSize: '0.58rem',
@@ -3378,14 +3490,13 @@ function Cell({
                     alignItems: 'center',
                     gap: '0.15rem',
                   }}
-                  title={`${scheduledCount} student(s) update scheduled`}
+                  title={`${flags.scheduled} student(s) update scheduled`}
                 >
-                  <Calendar size={8} /> Scheduled ({scheduledCount})
+                  <Calendar size={8} /> Scheduled ({flags.scheduled})
                 </span>
               )}
             </div>
-          );
-        })()}
+        )}
         {allBranches && cls.branchName && (
           <span style={{ display: 'block', fontSize: '0.6rem', color: meta.subtextColor || 'var(--text-muted)' }}>{cls.branchName}</span>
         )}
