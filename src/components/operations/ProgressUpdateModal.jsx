@@ -7,6 +7,11 @@ import {
   Layers, CheckCircle, ArrowRight,
 } from 'lucide-react';
 import { PROGRESS_UPDATE_STATUSES, PROGRESS_UPDATE_BADGES } from '../../utils/progressUpdateUtils';
+import { useNewOperationals } from '../../hooks/useNewOperationals';
+import {
+  isClosedOnDate, dayNameOfISO, nextOpenDateFrom, openDayNames,
+  isBranchConfigured, closedDayMessage,
+} from '../../lib/branchOpenDays';
 
 const TIME_SLOT_OPTIONS = [
   '09:00 AM',
@@ -86,6 +91,24 @@ export default function ProgressUpdateModal({
   const [updateNote, setUpdateNote] = useState('');
   const [selectedHistoryProgram, setSelectedHistoryProgram] = useState('current');
   const [saving, setSaving] = useState(false);
+
+  /**
+   * Branch operating days, from Operationals.
+   *
+   * A progress update is an appointment at a branch, so it cannot be booked on a
+   * day that branch is shut. Read here rather than passed in, because the parent
+   * table does not load operational rules for anything else.
+   */
+  const { rules: branchRules } = useNewOperationals();
+  const branchName = row?.branchName && row.branchName !== '—' ? row.branchName : '';
+  const branchOpenDays = useMemo(
+    () => openDayNames(branchRules, branchName),
+    [branchRules, branchName]
+  );
+  const branchKnown = useMemo(
+    () => isBranchConfigured(branchRules, branchName),
+    [branchRules, branchName]
+  );
 
   useEffect(() => {
     if (row) {
@@ -181,8 +204,25 @@ export default function ProgressUpdateModal({
   const effectiveTime = isCustomTime ? customTime.trim() : timeSlot;
   const finalScheduledSlot = formatCombinedSchedule(calendarDate, effectiveTime);
 
+  /**
+   * Only a future appointment is refused. "Update Done" also carries a date, but
+   * that records a meeting which already happened — forbidding it after the fact
+   * would just make history unrecordable.
+   */
+  const needsDate = selectedStatus === PROGRESS_UPDATE_STATUSES.UPDATE_SCHEDULED
+    || selectedStatus === PROGRESS_UPDATE_STATUSES.UPDATE_RESCHEDULE;
+  const chosenWeekday = dayNameOfISO(calendarDate);
+  const branchClosedOnDate = isClosedOnDate(branchRules, branchName, calendarDate);
+  const blockedByBranch = needsDate && branchClosedOnDate;
+  const suggestedDate = blockedByBranch
+    ? nextOpenDateFrom(branchRules, branchName, calendarDate)
+    : '';
+
   const handleFormSubmit = async (e) => {
     e.preventDefault();
+    // The button is disabled too, but a form can still be submitted by pressing
+    // Enter in a field, so the rule is enforced here rather than only in the UI.
+    if (blockedByBranch) return;
     setSaving(true);
     try {
       const userIdentifier = user?.email || user?.name || 'SPA Staff';
@@ -665,18 +705,25 @@ export default function ProgressUpdateModal({
                       type="date"
                       value={calendarDate}
                       onChange={(e) => setCalendarDate(e.target.value)}
+                      aria-invalid={branchClosedOnDate || undefined}
+                      aria-describedby={branchClosedOnDate ? 'progress-update-closed-day' : undefined}
                       style={{
                         width: '100%',
                         padding: '0.52rem 0.65rem',
                         borderRadius: '8px',
-                        border: '1.5px solid var(--border-color, #e2e8f0)',
+                        border: `1.5px solid ${branchClosedOnDate ? '#dc2626' : 'var(--border-color, #e2e8f0)'}`,
                         fontSize: '0.82rem',
-                        background: 'var(--bg-color, #f8fafc)',
+                        background: branchClosedOnDate ? 'rgba(220,38,38,0.06)' : 'var(--bg-color, #f8fafc)',
                         color: 'var(--text-main, #1e293b)',
                         outline: 'none',
                         boxSizing: 'border-box',
                       }}
                     />
+                    {branchName && branchKnown && !branchClosedOnDate && (
+                      <span style={{ fontSize: '0.66rem', color: 'var(--text-muted, #94a3b8)', display: 'block', marginTop: '0.2rem' }}>
+                        {branchName} opens {branchOpenDays.map((d) => d.slice(0, 3)).join(', ') || 'no days'}
+                      </span>
+                    )}
                   </div>
 
                   {/* Time Slot Dropdown */}
@@ -762,8 +809,52 @@ export default function ProgressUpdateModal({
                   </div>
                 </div>
 
+                {/* Branch is shut that day, so this appointment cannot exist. */}
+                {branchClosedOnDate && (
+                  <div
+                    id="progress-update-closed-day"
+                    role="alert"
+                    style={{
+                      marginTop: '0.2rem',
+                      padding: '0.5rem 0.65rem',
+                      borderRadius: '6px',
+                      background: 'rgba(220,38,38,0.08)',
+                      border: '1px solid rgba(220,38,38,0.3)',
+                      color: '#b91c1c',
+                      fontSize: '0.74rem',
+                      fontWeight: 600,
+                      display: 'flex',
+                      alignItems: 'flex-start',
+                      gap: '0.45rem',
+                    }}
+                  >
+                    <AlertTriangle size={13} style={{ flexShrink: 0, marginTop: '0.1rem' }} />
+                    <span style={{ flex: 1 }}>
+                      {closedDayMessage(branchRules, branchName, chosenWeekday)}
+                      {suggestedDate && (
+                        <button
+                          type="button"
+                          onClick={() => setCalendarDate(suggestedDate)}
+                          style={{
+                            marginLeft: '0.4rem',
+                            background: 'transparent',
+                            border: 'none',
+                            padding: 0,
+                            font: 'inherit',
+                            color: '#b91c1c',
+                            textDecoration: 'underline',
+                            cursor: 'pointer',
+                          }}
+                        >
+                          Use {dayNameOfISO(suggestedDate).slice(0, 3)} {suggestedDate} instead
+                        </button>
+                      )}
+                    </span>
+                  </div>
+                )}
+
                 {/* Formatted Preview Badge */}
-                {finalScheduledSlot && (
+                {finalScheduledSlot && !branchClosedOnDate && (
                   <div
                     style={{
                       marginTop: '0.2rem',
@@ -841,7 +932,10 @@ export default function ProgressUpdateModal({
               </button>
               <button
                 type="submit"
-                disabled={saving}
+                disabled={saving || blockedByBranch}
+                title={blockedByBranch
+                  ? closedDayMessage(branchRules, branchName, chosenWeekday)
+                  : undefined}
                 className="btn btn-primary"
                 style={{
                   padding: '0.45rem 1.25rem',
@@ -851,8 +945,8 @@ export default function ProgressUpdateModal({
                   display: 'inline-flex',
                   alignItems: 'center',
                   gap: '0.4rem',
-                  cursor: saving ? 'not-allowed' : 'pointer',
-                  opacity: saving ? 0.7 : 1,
+                  cursor: (saving || blockedByBranch) ? 'not-allowed' : 'pointer',
+                  opacity: (saving || blockedByBranch) ? 0.7 : 1,
                 }}
               >
                 <Save size={14} />
