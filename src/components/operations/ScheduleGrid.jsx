@@ -3098,6 +3098,42 @@ function cardRadius(buttedPrev, buttedNext) {
  */
 const NAME_LINE_H = 11;
 
+/**
+ * A per-student status badge on a class card.
+ *
+ * Names the student instead of only counting them: "Scheduled (1)" told you
+ * something needed attention but not who, so it still cost a click to act on.
+ *
+ * The name is width-bounded and ellipsised. Without that, one long name would
+ * widen the badge enough to wrap the row onto a second line and overflow the
+ * card, which on a 90-minute card there is no room for.
+ */
+function StatusBadge({ Icon, label, names, color, background, borderColor, description }) {
+  if (!names?.length) return null;
+  const [first, ...rest] = names;
+  return (
+    <span
+      title={`${description}: ${names.join(', ')}`}
+      style={{
+        fontSize: '0.58rem', fontWeight: 700, color, background,
+        border: `1px solid ${borderColor}`, borderRadius: '4px',
+        padding: '0.05rem 0.28rem', display: 'inline-flex', alignItems: 'center',
+        gap: '0.15rem', maxWidth: '100%', minWidth: 0, overflow: 'hidden',
+      }}
+    >
+      <Icon size={8} style={{ flexShrink: 0 }} />
+      <span style={{ flexShrink: 0 }}>{label}</span>
+      <span style={{
+        overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+        minWidth: 0, fontWeight: 600, maxWidth: '96px',
+      }}>
+        · {first}
+      </span>
+      {rest.length > 0 && <span style={{ flexShrink: 0 }}>+{rest.length}</span>}
+    </span>
+  );
+}
+
 /** One cell's content. */
 function Cell({
   cell, inst, start, height, allBranches, rules, saving, week, liveProgressMap, showNames,
@@ -3239,29 +3275,51 @@ function Cell({
 
     // Progress flags, counted once. The badge row needs them, and so does the
     // name budget below — which has to know whether that row will take a line.
-    const flags = { needUpdate: 0, offer: 0, scheduled: 0, tempMove: 0 };
+    // Names, not counts. "Scheduled (1)" meant opening the card to find out who
+    // it was about, which is the one thing the badge should have saved you.
+    const flags = { needUpdate: [], offer: [], scheduled: [], tempMove: [] };
     for (const m of (Array.isArray(cls.members) ? cls.members : [])) {
+      const who = String(m.student || '').trim() || 'Unnamed';
       const progRecord = liveProgressMap?.get
         ? liveProgressMap.get(String(m.student || '').toLowerCase().trim())
         : null;
       const st = getProgressUpdateStatus(m, progRecord);
-      if (st === 'Need update progress') flags.needUpdate += 1;
-      else if (st === 'Update Offer') flags.offer += 1;
-      else if (st === 'Update Scheduled') flags.scheduled += 1;
+      if (st === 'Need update progress') flags.needUpdate.push(who);
+      else if (st === 'Update Offer') flags.offer.push(who);
+      else if (st === 'Update Scheduled') flags.scheduled.push(who);
       if (progRecord?.isMoveTemporary
         || progRecord?.arrangementType === 'move_same_day'
         || progRecord?.arrangementType === 'replacement_custom'
         || m.classType === 'Replacement') {
-        flags.tempMove += 1;
+        flags.tempMove.push(who);
       }
     }
-    const hasFlags = flags.needUpdate > 0 || flags.offer > 0 || flags.scheduled > 0 || flags.tempMove > 0;
+    const badgeGroups = [flags.tempMove, flags.needUpdate, flags.offer, flags.scheduled]
+      .filter((names) => names.length > 0).length;
+    const hasFlags = badgeGroups > 0;
+
+    // One status per student for the card's tooltip. Later entries win, matching
+    // the order the badges read in: a scheduled update supersedes a bare "needs
+    // update", because it is the more advanced state of the same thing.
+    const statusByName = new Map();
+    for (const n of flags.needUpdate) statusByName.set(n, 'needs progress update');
+    for (const n of flags.offer) statusByName.set(n, 'update offer sent');
+    for (const n of flags.scheduled) statusByName.set(n, 'update scheduled');
+    const tempMoveNames = new Set(flags.tempMove);
 
     // Who is in the class, and who is away this week. Already loaded with the
     // group, so naming them costs no extra request.
     const roster = (cls.members || [])
       .filter((m) => String(m.student || '').trim())
-      .map((m) => ({ name: String(m.student).trim(), away: !attendsInWeek(m, week, cls.day) }));
+      .map((m) => {
+        const name = String(m.student).trim();
+        return {
+          name,
+          away: !attendsInWeek(m, week, cls.day),
+          status: statusByName.get(name) || null,
+          tempMove: tempMoveNames.has(name),
+        };
+      });
 
     /**
      * How many names fit beneath the fixed content.
@@ -3273,7 +3331,11 @@ function Cell({
      * card's tooltip.
      */
     const padY = edgeMarks ? 15.2 + (gripped ? 22.4 : 13.6) : 4.8 + 11.2;
-    const fixedH = 17 + 12 + 17 + (hasFlags ? 18 : 0) + (allBranches && cls.branchName ? 12 : 0);
+    // Badges wrap, and naming the student makes each one wider, so two per line
+    // is the realistic fit on a card this narrow. Counting the lines keeps the
+    // name budget honest instead of assuming the row is always 18px.
+    const badgeH = hasFlags ? Math.ceil(badgeGroups / 2) * 18 : 0;
+    const fixedH = 17 + 12 + 17 + badgeH + (allBranches && cls.branchName ? 12 : 0);
     const nameCapacity = showNames
       ? Math.max(0, Math.floor((boxH - padY - fixedH) / NAME_LINE_H))
       : 0;
@@ -3314,7 +3376,12 @@ function Cell({
            this?" without opening anything. */
         title={allBranches ? undefined : [
           roster.length
-            ? roster.map((r) => (r.away ? `${r.name} (away this week)` : r.name)).join('\n')
+            ? roster.map((r) => [
+              r.name,
+              r.away ? ' (away this week)' : '',
+              r.status ? ` — ${r.status}` : '',
+              r.tempMove ? ' — temporary move / replacement' : '',
+            ].join('')).join('\n')
             : 'No students yet',
           '',
           'Click to preview class & students',
@@ -3419,82 +3486,26 @@ function Cell({
 
         {hasFlags && (
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.2rem', marginTop: '0.25rem' }}>
-              {flags.tempMove > 0 && (
-                <span
-                  style={{
-                    fontSize: '0.58rem',
-                    fontWeight: 700,
-                    color: '#6d28d9',
-                    background: '#f5f3ff',
-                    border: '1px solid #8b5cf6',
-                    borderRadius: '4px',
-                    padding: '0.05rem 0.28rem',
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: '0.15rem',
-                  }}
-                  title={`${flags.tempMove} student(s) on temporary move / replacement`}
-                >
-                  <Clock size={8} /> Move Temp {flags.tempMove > 1 ? `(${flags.tempMove})` : ''}
-                </span>
-              )}
-              {flags.needUpdate > 0 && (
-                <span
-                  style={{
-                    fontSize: '0.58rem',
-                    fontWeight: 700,
-                    color: '#b45309',
-                    background: '#fef3c7',
-                    border: '1px solid #f59e0b',
-                    borderRadius: '4px',
-                    padding: '0.05rem 0.28rem',
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: '0.15rem',
-                  }}
-                  title={`${flags.needUpdate} student(s) need progress update`}
-                >
-                  <Clock size={8} /> Need Update {flags.needUpdate > 1 ? `(${flags.needUpdate})` : ''}
-                </span>
-              )}
-              {flags.offer > 0 && (
-                <span
-                  style={{
-                    fontSize: '0.58rem',
-                    fontWeight: 700,
-                    color: '#1d4ed8',
-                    background: '#eff6ff',
-                    border: '1px solid #3b82f6',
-                    borderRadius: '4px',
-                    padding: '0.05rem 0.28rem',
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: '0.15rem',
-                  }}
-                  title={`${flags.offer} student(s) update offer sent`}
-                >
-                  <Send size={8} /> Offer ({flags.offer})
-                </span>
-              )}
-              {flags.scheduled > 0 && (
-                <span
-                  style={{
-                    fontSize: '0.58rem',
-                    fontWeight: 700,
-                    color: '#6d28d9',
-                    background: '#f3e8ff',
-                    border: '1px solid #8b5cf6',
-                    borderRadius: '4px',
-                    padding: '0.05rem 0.28rem',
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: '0.15rem',
-                  }}
-                  title={`${flags.scheduled} student(s) update scheduled`}
-                >
-                  <Calendar size={8} /> Scheduled ({flags.scheduled})
-                </span>
-              )}
+              <StatusBadge
+                Icon={Clock} label="Move Temp" names={flags.tempMove}
+                color="#6d28d9" background="#f5f3ff" borderColor="#8b5cf6"
+                description="On temporary move / replacement"
+              />
+              <StatusBadge
+                Icon={Clock} label="Need Update" names={flags.needUpdate}
+                color="#b45309" background="#fef3c7" borderColor="#f59e0b"
+                description="Need progress update"
+              />
+              <StatusBadge
+                Icon={Send} label="Offer" names={flags.offer}
+                color="#1d4ed8" background="#eff6ff" borderColor="#3b82f6"
+                description="Update offer sent"
+              />
+              <StatusBadge
+                Icon={Calendar} label="Scheduled" names={flags.scheduled}
+                color="#6d28d9" background="#f3e8ff" borderColor="#8b5cf6"
+                description="Update scheduled"
+              />
             </div>
         )}
         {allBranches && cls.branchName && (
