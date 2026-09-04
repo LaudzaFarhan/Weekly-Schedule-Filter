@@ -12,7 +12,7 @@
  * terms are how the number is chosen and described, not a second stored field.
  */
 
-import { LESSONS_PER_LEVEL } from '../lib/programRules';
+import { LESSONS_PER_LEVEL, meetingsForSubscription } from '../lib/programRules';
 
 export const DEFAULT_TARGET_MEETINGS = 12; // 3-month package
 export const BUFFER_WEEKS = 2; // 14 days buffer for missed/sick days
@@ -72,16 +72,40 @@ function termWord(terms) {
 }
 
 /**
+ * The Coder package lengths, in the order a parent is offered them.
+ *
+ * The meeting count for each comes from `meetingsForSubscription`, so the label
+ * and the number can no longer disagree. They did: this list used to hardcode
+ * "1 Year Package (36 Meetings)" while the rules said a year is 48, and 36 is
+ * actually the nine-month figure. Anyone sold a year was given three months
+ * short.
+ */
+const CODER_PACKAGE_DURATIONS = ['1 Month', '3 Months', '6 Months', '9 Months', '1 Year'];
+
+/** The package a parent is steered towards when nothing else is specified. */
+const STANDARD_DURATION = '3 Months';
+
+/**
  * The month-length packages, for categories that are sold that way.
  *
  * Exported rather than written inline in the package `<select>` so the payment
  * ledger and the picker cannot drift: a recorded payment's label is looked up
  * from this same list.
+ *
+ * The legacy ten stays on the end because `packageLabelFor` reads this list to
+ * name an existing payment. Drop an entry and every payment recorded at that
+ * size silently degrades to "Top-Up".
  */
 export const SUBSCRIPTION_PACKAGES = [
-  { meetings: 12, label: '3 Months Package (12 Meetings - Standard)' },
-  { meetings: 24, label: '6 Months Package (24 Meetings)' },
-  { meetings: 36, label: '1 Year Package (36 Meetings)' },
+  ...CODER_PACKAGE_DURATIONS.map((duration) => {
+    const meetings = meetingsForSubscription(duration, 'Coder');
+    const suffix = duration === STANDARD_DURATION ? ' - Standard' : '';
+    return {
+      meetings,
+      duration,
+      label: `${duration} Package (${meetings} Meetings${suffix})`,
+    };
+  }),
   { meetings: 10, label: '10 Meetings (Legacy short package)' },
 ];
 
