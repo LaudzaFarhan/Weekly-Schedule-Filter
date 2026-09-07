@@ -6,7 +6,7 @@ import {
   GripVertical, ChevronUp, ChevronDown, ChevronLeft, ChevronRight,
   Plus, Pencil, Building2, UserPlus, Repeat, FileText, UserX, Sparkles, Send, Calendar, Eye, User,
   GripHorizontal, RotateCcw, Maximize2, Minimize2, UserCheck, CalendarOff, Lock,
-  CheckCircle2, Video, Check, HelpCircle, XCircle,
+  CheckCircle2, Video, Check, HelpCircle, XCircle, Pin,
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { resolveUserRole } from '../../utils/roles';
@@ -298,6 +298,46 @@ export default function ScheduleGrid({
     return resolveTeacherAssignedBranches(user, instructors, classGroups);
   }, [user, instructors, classGroups]);
 
+  const [pinnedInstructors, setPinnedInstructors] = useState(() => {
+    try {
+      const stored = typeof window !== 'undefined' ? localStorage.getItem('pulse_pinned_instructors') : null;
+      return stored ? JSON.parse(stored) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  const togglePinInstructor = useCallback((name) => {
+    setPinnedInstructors((prev) => {
+      const exists = prev.some((p) => isSameTeacher(p, name));
+      let next;
+      if (exists) {
+        next = prev.filter((p) => !isSameTeacher(p, name));
+      } else {
+        if (prev.length >= 3) {
+          next = [...prev.slice(1), name];
+        } else {
+          next = [...prev, name];
+        }
+      }
+      try {
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('pulse_pinned_instructors', JSON.stringify(next));
+        }
+      } catch {}
+      return next;
+    });
+  }, []);
+
+  const clearPinnedInstructors = useCallback(() => {
+    setPinnedInstructors([]);
+    try {
+      if (typeof window !== 'undefined') {
+        localStorage.removeItem('pulse_pinned_instructors');
+      }
+    } catch {}
+  }, []);
+
   const liveProgressMap = useMemo(() => {
     const map = new Map();
     if (Array.isArray(liveProgress)) {
@@ -526,12 +566,38 @@ export default function ScheduleGrid({
 
   const columns = useMemo(() => {
     const sorted = [...pool].sort((a, b) => String(a.name).localeCompare(String(b.name)));
-    if (teacher === 'all') return sorted;
-    if (teacher === 'Kinder' || teacher === 'Junior' || teacher === 'Coder') {
-      return sorted.filter((i) => instructorHasLevel(i, teacher, classGroups));
+    let filtered = sorted;
+    if (teacher !== 'all') {
+      if (teacher === 'Kinder' || teacher === 'Junior' || teacher === 'Coder') {
+        filtered = sorted.filter((i) => instructorHasLevel(i, teacher, classGroups));
+      } else {
+        filtered = sorted.filter((i) => isSameTeacher(i.name, teacher));
+      }
     }
-    return sorted.filter((i) => isSameTeacher(i.name, teacher));
-  }, [pool, teacher, classGroups]);
+    if (!pinnedInstructors || pinnedInstructors.length === 0) {
+      return filtered;
+    }
+    const pinned = [];
+    const unpinned = [];
+    for (const inst of filtered) {
+      if (pinnedInstructors.some((p) => isSameTeacher(p, inst.name))) {
+        pinned.push(inst);
+      } else {
+        unpinned.push(inst);
+      }
+    }
+    pinned.sort((a, b) => {
+      const idxA = pinnedInstructors.findIndex((p) => isSameTeacher(p, a.name));
+      const idxB = pinnedInstructors.findIndex((p) => isSameTeacher(p, b.name));
+      return idxA - idxB;
+    });
+    return [...pinned, ...unpinned];
+  }, [pool, teacher, classGroups, pinnedInstructors]);
+
+  const pinnedCount = useMemo(() => {
+    if (!pinnedInstructors || pinnedInstructors.length === 0) return 0;
+    return columns.filter((inst) => pinnedInstructors.some((p) => isSameTeacher(p, inst.name))).length;
+  }, [columns, pinnedInstructors]);
 
   const teacherOptions = useMemo(() => {
     return [...pool].map((i) => i.name).sort((a, b) => String(a).localeCompare(String(b)));
@@ -1193,6 +1259,7 @@ export default function ScheduleGrid({
 
   const timeColWidth = 88;
   const colWidth = 172;
+  const pinnedWidth = pinnedCount * colWidth;
 
   // ── horizontal scroll affordance ────────────────────────────────────────────
   // With more instructors than fit, the columns off to the right are invisible
@@ -1237,13 +1304,13 @@ export default function ScheduleGrid({
       observer?.disconnect();
       window.removeEventListener('resize', syncScrollNav);
     };
-  }, [syncScrollNav, columns.length, rowStarts.length]);
+  }, [syncScrollNav, columns.length, rowStarts.length, pinnedCount]);
 
   /** Scroll by roughly a screenful, but always a whole number of columns. */
   const scrollByColumns = (direction) => {
     const el = scrollerRef.current;
     if (!el) return;
-    const perScreen = Math.max(1, Math.floor((el.clientWidth - timeColWidth) / colWidth) - 1);
+    const perScreen = Math.max(1, Math.floor((el.clientWidth - timeColWidth - pinnedWidth) / colWidth) - 1);
     el.scrollBy({ left: direction * perScreen * colWidth, behavior: 'smooth' });
   };
   const isHour = (mins) => mins % 60 === 0;
@@ -1418,6 +1485,91 @@ export default function ScheduleGrid({
                 </optgroup>
               </select>
             </label>
+            <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600 }}>
+              <Pin size={12} style={{ color: pinnedInstructors.length > 0 ? 'var(--primary-blue, #4f46e5)' : 'inherit' }} />
+              Pin
+              <select
+                value=""
+                onChange={(e) => {
+                  if (e.target.value) {
+                    togglePinInstructor(e.target.value);
+                  }
+                }}
+                className="modal-select-field field-compact"
+                style={{ minWidth: '135px' }}
+                title="Pin instructor to the left of the schedule grid"
+              >
+                <option value="">{pinnedInstructors.length > 0 ? `Pin more (${pinnedInstructors.length} pinned)...` : 'Pin to left...'}</option>
+                {teacherOptions.map((n) => {
+                  const isP = pinnedInstructors.some((p) => isSameTeacher(p, n));
+                  return (
+                    <option key={n} value={n}>
+                      {isP ? `✓ Pinned: ${n}` : n}
+                    </option>
+                  );
+                })}
+              </select>
+            </label>
+            {pinnedInstructors.length > 0 && (
+              <div style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem', flexWrap: 'wrap' }}>
+                {pinnedInstructors.map((name) => (
+                  <span
+                    key={name}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '0.25rem',
+                      padding: '0.2rem 0.45rem',
+                      borderRadius: '6px',
+                      background: 'rgba(79, 70, 229, 0.1)',
+                      color: 'var(--primary-blue, #4f46e5)',
+                      fontSize: '0.68rem',
+                      fontWeight: 700,
+                      border: '1px solid rgba(79, 70, 229, 0.25)',
+                    }}
+                  >
+                    <Pin size={10} style={{ fill: 'currentColor' }} />
+                    {name}
+                    <button
+                      type="button"
+                      onClick={() => togglePinInstructor(name)}
+                      style={{
+                        background: 'none',
+                        border: 'none',
+                        padding: 0,
+                        cursor: 'pointer',
+                        color: 'inherit',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        marginLeft: '2px',
+                      }}
+                      title={`Unpin ${name}`}
+                      aria-label={`Unpin ${name}`}
+                    >
+                      <X size={11} />
+                    </button>
+                  </span>
+                ))}
+                {pinnedInstructors.length > 1 && (
+                  <button
+                    type="button"
+                    onClick={clearPinnedInstructors}
+                    style={{
+                      background: 'none',
+                      border: 'none',
+                      fontSize: '0.68rem',
+                      color: 'var(--text-muted)',
+                      cursor: 'pointer',
+                      textDecoration: 'underline',
+                      padding: '0.1rem 0.3rem',
+                    }}
+                    title="Unpin all instructors"
+                  >
+                    Clear all
+                  </button>
+                )}
+              </div>
+            )}
             <button
               type="button"
               onClick={() => setShowNames((on) => !on)}
@@ -1615,8 +1767,8 @@ export default function ScheduleGrid({
               the cells underneath, hence pointer-events: none. */}
           {scrollNav.left && (
             <div aria-hidden="true" style={{
-              position: 'absolute', top: 0, bottom: 0, left: timeColWidth, width: '38px',
-              zIndex: 4, pointerEvents: 'none',
+              position: 'absolute', top: 0, bottom: 0, left: timeColWidth + pinnedWidth, width: '38px',
+              zIndex: 7, pointerEvents: 'none',
               background: 'linear-gradient(to right, var(--panel-bg), transparent)',
             }} />
           )}
@@ -1635,7 +1787,7 @@ export default function ScheduleGrid({
               className="grid-scroll-nav"
               title="Scroll left"
               aria-label="Scroll the grid left"
-              style={{ left: `${timeColWidth + 6}px` }}
+              style={{ left: `${timeColWidth + pinnedWidth + 6}px`, zIndex: 8 }}
             >
               <ChevronLeft size={18} />
             </button>
@@ -1681,24 +1833,43 @@ export default function ScheduleGrid({
                   }}>
                     TIME
                   </th>
-                  {columns.map((inst) => {
+                  {columns.map((inst, colIdx) => {
                     const stat = load.get(inst.name);
                     const displayName = getInstructorDisplayName(inst) || inst.name;
+                    const isPinned = colIdx < pinnedCount;
+                    const isLastPinned = isPinned && colIdx === pinnedCount - 1;
+                    const stickyLeft = isPinned ? timeColWidth + (colIdx * colWidth) : undefined;
                     return (
-                      <th key={inst.name} className="schedule-grid-sticky-head" title={displayName !== inst.name ? `Full Name: ${inst.name}` : undefined} style={{
-                        position: 'sticky', top: 0, zIndex: 20, width: colWidth, minWidth: colWidth,
-                        background: 'var(--panel-bg)', borderBottom: '2px solid var(--border-color)',
-                        borderRight: '1px solid var(--border-color)', padding: '0.6rem 0.7rem', textAlign: 'left', verticalAlign: 'top',
-                      }}>
+                      <th
+                        key={inst.name}
+                        className={`schedule-grid-sticky-head ${isPinned ? 'schedule-grid-pinned-head' : ''}`}
+                        title={displayName !== inst.name ? `Full Name: ${inst.name}` : undefined}
+                        style={{
+                          position: 'sticky',
+                          top: 0,
+                          left: isPinned ? stickyLeft : undefined,
+                          zIndex: isPinned ? 28 : 20,
+                          width: colWidth,
+                          minWidth: colWidth,
+                          background: 'var(--panel-bg)',
+                          borderBottom: '2px solid var(--border-color)',
+                          borderRight: isLastPinned ? '2px solid var(--primary-blue, #4f46e5)' : '1px solid var(--border-color)',
+                          boxShadow: isLastPinned ? '4px 0 8px -2px rgba(0,0,0,0.12)' : undefined,
+                          padding: '0.6rem 0.7rem',
+                          textAlign: 'left',
+                          verticalAlign: 'top',
+                        }}
+                      >
                         <div style={{ display: 'flex', gap: '0.45rem', alignItems: 'flex-start' }}>
                           <span aria-hidden="true" style={{
                             flexShrink: 0, width: '22px', height: '22px', borderRadius: '6px',
-                            background: 'var(--primary-blue)', color: '#fff', fontSize: '0.62rem', fontWeight: 700,
+                            background: isPinned ? 'linear-gradient(135deg, #4f46e5, #3b82f6)' : 'var(--primary-blue)',
+                            color: '#fff', fontSize: '0.62rem', fontWeight: 700,
                             display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
                           }}>
                             {initials(displayName)}
                           </span>
-                          <span style={{ minWidth: 0 }}>
+                          <span style={{ minWidth: 0, flex: 1 }}>
                             <span style={{ display: 'block', fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-main)', textTransform: 'uppercase', lineHeight: 1.2 }}>
                               {displayName}
                             </span>
@@ -1706,6 +1877,35 @@ export default function ScheduleGrid({
                               {inst.level || 'Level not set'}
                             </span>
                           </span>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              togglePinInstructor(inst.name);
+                            }}
+                            className={`btn-pin-column ${isPinned ? 'is-pinned' : ''}`}
+                            title={isPinned ? `Unpin ${displayName} from left` : `Pin ${displayName} to left`}
+                            aria-label={isPinned ? `Unpin ${displayName} from left` : `Pin ${displayName} to left`}
+                            style={{
+                              flexShrink: 0,
+                              background: isPinned ? 'rgba(79, 70, 229, 0.15)' : 'transparent',
+                              color: isPinned ? 'var(--primary-blue, #4f46e5)' : 'var(--text-muted)',
+                              border: isPinned ? '1px solid rgba(79, 70, 229, 0.35)' : '1px solid transparent',
+                              borderRadius: '5px',
+                              padding: '2px 4px',
+                              cursor: 'pointer',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '2px',
+                              fontSize: '0.6rem',
+                              fontWeight: 700,
+                              lineHeight: 1,
+                              transition: 'all 0.15s ease',
+                            }}
+                          >
+                            <Pin size={11} style={{ fill: isPinned ? 'currentColor' : 'none' }} />
+                            {isPinned ? 'PIN' : ''}
+                          </button>
                         </div>
                         {stat && (
                           <div style={{ marginTop: '0.4rem', display: 'flex', gap: '0.3rem', flexWrap: 'wrap', alignItems: 'center' }}>
@@ -1746,7 +1946,7 @@ export default function ScheduleGrid({
                     {/* Above the butted cells below, which take z-index 1 so their
                         seam chip can straddle the edge between them. */}
                     <th scope="row" className="schedule-grid-sticky-col" style={{
-                      position: 'sticky', left: 0, zIndex: 2, background: 'var(--panel-bg)',
+                      position: 'sticky', left: 0, zIndex: 10, background: 'var(--panel-bg)',
                       // A row's bottom rule is the gridline for the time that starts
                       // the *next* row, so its weight follows that time, not this one.
                       borderBottom: `1px solid ${isHour(start + STEP) ? 'var(--border-color)' : 'rgba(120,120,120,0.12)'}`,
@@ -1770,9 +1970,13 @@ export default function ScheduleGrid({
                         {clockLabel(start)}
                       </span>
                     </th>
-                    {columns.map((inst) => {
+                    {columns.map((inst, colIdx) => {
                       const cell = (layout.get(inst.name) || [])[rowIdx];
                       if (!cell) return null;
+
+                      const isPinned = colIdx < pinnedCount;
+                      const isLastPinned = isPinned && colIdx === pinnedCount - 1;
+                      const stickyLeft = isPinned ? timeColWidth + (colIdx * colWidth) : undefined;
 
                       const key = `${inst.name}||${start}`;
                       const isTarget = !!moving && moveTargets.has(key);
@@ -1800,6 +2004,9 @@ export default function ScheduleGrid({
                           // coordinates keeps the drag aligned to real rows.
                           onPointerEnter={() => { if (draw) extendDraw(inst, rowIdx); }}
                           style={{
+                            position: isPinned ? 'sticky' : (cell.buttedNext ? 'relative' : undefined),
+                            left: isPinned ? stickyLeft : undefined,
+                            zIndex: isPinned ? (cell.buttedNext ? 6 : 5) : (cell.buttedNext ? 1 : undefined),
                             // Same convention as the time column: this rule is the
                             // gridline for the time the next row starts, so its
                             // weight follows that time. A multi-row cell always
@@ -1807,7 +2014,8 @@ export default function ScheduleGrid({
                             borderBottom: cell.buttedNext
                               ? '1px solid transparent'
                               : `1px solid ${isHour(rowStarts[rowIdx + cell.span] ?? timelineEnd) || cell.span > 1 ? 'var(--border-color)' : 'rgba(120,120,120,0.12)'}`,
-                            borderRight: '1px solid var(--border-color)',
+                            borderRight: isLastPinned ? '2px solid var(--primary-blue, #4f46e5)' : '1px solid var(--border-color)',
+                            boxShadow: isLastPinned ? '4px 0 8px -2px rgba(0,0,0,0.08)' : undefined,
                             verticalAlign: 'top', height: ROW_H * cell.span,
                             paddingTop: cell.buttedPrev ? 0 : '0.2rem',
                             paddingBottom: cell.buttedNext ? 0 : '0.2rem',
@@ -1820,9 +2028,6 @@ export default function ScheduleGrid({
                             // The gridline goes too: the two card borders meeting
                             // there already draw the divider, in both colours, so
                             // it says whose time ends and whose begins.
-                            ...(cell.buttedNext
-                              ? { position: 'relative', zIndex: 1 }
-                              : null),
                             background: inDraw
                               ? 'rgba(5,150,105,0.16)'
                               // A settled selection reads slightly stronger than
@@ -1832,7 +2037,11 @@ export default function ScheduleGrid({
                                 ? 'rgba(5,150,105,0.22)'
                                 : isTarget
                                   ? 'rgba(59,130,246,0.1)'
-                                  : cell.kind === 'unavailable' ? unavailableTint(cell.verdict.code) : 'transparent',
+                                  : cell.kind === 'unavailable'
+                                    ? unavailableTint(cell.verdict.code)
+                                    : isPinned
+                                      ? 'var(--panel-bg)'
+                                      : 'transparent',
                           }}
                         >
                           <Cell

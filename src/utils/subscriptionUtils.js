@@ -142,6 +142,151 @@ export function topUpPresetsFor(category) {
 }
 
 /**
+ * Calculate the sequence of academic terms covered by a package.
+ *
+ * Each academic year contains 4 terms (Term 1..4).
+ * If a package spans beyond Term 4 of a year, it rolls over into Term 1 of the following year.
+ *
+ * @param {number} startTerm - 1, 2, 3, or 4
+ * @param {number} startYear - e.g. 2026
+ * @param {number} termCount - number of terms (e.g. 1, 2, 3, 4...)
+ * @returns {Array<{ termNumber: number, year: number, label: string, fullLabel: string }>}
+ */
+export function calculateCoveredTerms(startTerm = 1, startYear = new Date().getFullYear(), termCount = 1) {
+  const sTerm = Math.max(1, Math.min(4, parseInt(startTerm, 10) || 1));
+  const sYear = parseInt(startYear, 10) || new Date().getFullYear();
+  const count = Math.max(0, parseInt(termCount, 10) || 0);
+
+  const covered = [];
+  for (let i = 0; i < count; i++) {
+    const totalTermIndex = (sTerm - 1) + i;
+    const termNumber = (totalTermIndex % 4) + 1;
+    const year = sYear + Math.floor(totalTermIndex / 4);
+    covered.push({
+      termNumber,
+      year,
+      label: `T${termNumber} ${year}`,
+      fullLabel: `Term ${termNumber} (${year})`,
+    });
+  }
+  return covered;
+}
+
+/**
+ * Format covered terms into a human-friendly string.
+ *
+ * Examples:
+ * - 1 term: "Term 3 (2026)"
+ * - 2 terms: "Term 3 & Term 4 (2026)"
+ * - 3 terms in same year: "Term 1, Term 2 & Term 3 (2026)"
+ * - crossing year: "Term 3 & Term 4 (2026), Term 1 (2027)"
+ *
+ * @param {Array<{ termNumber: number, year: number }>} coveredTerms
+ * @returns {string}
+ */
+export function formatCoveredTermsSummary(coveredTerms) {
+  if (!Array.isArray(coveredTerms) || coveredTerms.length === 0) return '';
+  if (coveredTerms.length === 1) {
+    return `Term ${coveredTerms[0].termNumber} (${coveredTerms[0].year})`;
+  }
+
+  // Group terms by year preserving order
+  const byYear = new Map();
+  for (const t of coveredTerms) {
+    if (!byYear.has(t.year)) byYear.set(t.year, []);
+    byYear.get(t.year).push(t.termNumber);
+  }
+
+  const parts = [];
+  for (const [year, termNums] of byYear.entries()) {
+    if (termNums.length === 1) {
+      parts.push(`Term ${termNums[0]} (${year})`);
+    } else if (termNums.length === 2) {
+      parts.push(`Term ${termNums[0]} & Term ${termNums[1]} (${year})`);
+    } else {
+      const allExceptLast = termNums.slice(0, -1).map((n) => `Term ${n}`).join(', ');
+      parts.push(`${allExceptLast} & Term ${termNums[termNums.length - 1]} (${year})`);
+    }
+  }
+
+  return parts.join(', ');
+}
+
+/**
+ * Infer the starting term and year for a student subscription.
+ *
+ * Priority:
+ * 1. From existing paid terms (`internal_student_terms`): find latest paid (year, termNumber),
+ *    step to next term.
+ * 2. From student's level or program text (e.g. "K3" -> Term 3, "J2" -> Term 2).
+ * 3. From liveProgress.termHistory length: if 2 terms completed, next is Term 3.
+ * 4. Fallback: Term 1, current calendar year (or student's start year).
+ *
+ * @param {Object} params
+ * @param {Object} [params.student] - student row (id, level, startDateStr, etc.)
+ * @param {Object} [params.liveProgress] - student's live progress record
+ * @param {Array} [params.existingTerms] - rows from internal_student_terms
+ * @param {number} [params.defaultYear]
+ * @returns {{ termNumber: number, year: number, source: string }}
+ */
+export function inferStartingTerm({ student = {}, liveProgress = null, existingTerms = [], defaultYear = new Date().getFullYear() } = {}) {
+  const currentYear = student?.startDateStr
+    ? new Date(student.startDateStr).getFullYear() || defaultYear
+    : defaultYear;
+
+  // 1. Check existingTerms (from internal_student_terms)
+  if (Array.isArray(existingTerms) && existingTerms.length > 0) {
+    const paidTerms = existingTerms
+      .filter((t) => t.paid === true && Number.isInteger(t.termNumber) && Number.isInteger(t.year))
+      .sort((a, b) => (a.year !== b.year ? a.year - b.year : a.termNumber - b.termNumber));
+
+    if (paidTerms.length > 0) {
+      const latest = paidTerms[paidTerms.length - 1];
+      const nextTermNumber = (latest.termNumber % 4) + 1;
+      const nextYear = latest.termNumber === 4 ? latest.year + 1 : latest.year;
+      return {
+        termNumber: nextTermNumber,
+        year: nextYear,
+        source: `Next term after paid Term ${latest.termNumber} (${latest.year})`,
+      };
+    }
+  }
+
+  // 2. Check liveProgress.termHistory
+  if (liveProgress && Array.isArray(liveProgress.termHistory) && liveProgress.termHistory.length > 0) {
+    const count = liveProgress.termHistory.length;
+    const termNum = (count % 4) + 1;
+    const yearOffset = Math.floor(count / 4);
+    return {
+      termNumber: termNum,
+      year: currentYear + yearOffset,
+      source: `Continuation after ${count} completed term${count === 1 ? '' : 's'} in history`,
+    };
+  }
+
+  // 3. Check student level / program code
+  const levelText = `${student?.level || ''} ${liveProgress?.programCode || ''} ${liveProgress?.program || ''}`;
+  const termMatch = levelText.match(/Term\s*([1-4])/i) || levelText.match(/\bT([1-4])\b/i) || levelText.match(/\b[A-Za-z]{1,2}([1-4])\b/);
+  if (termMatch && termMatch[1]) {
+    const termNum = parseInt(termMatch[1], 10);
+    if (termNum >= 1 && termNum <= 4) {
+      return {
+        termNumber: termNum,
+        year: currentYear,
+        source: `Inferred from student level "${student?.level || liveProgress?.programCode}"`,
+      };
+    }
+  }
+
+  // 4. Default fallback
+  return {
+    termNumber: 1,
+    year: currentYear,
+    source: 'Default starting term',
+  };
+}
+
+/**
  * What to call a payment of `meetings` meetings for a student in `category`.
  *
  * A payment that matches a catalogue package is named after it; anything else is
@@ -149,17 +294,23 @@ export function topUpPresetsFor(category) {
  *
  * @param {number} meetings
  * @param {string} [category]
+ * @param {string} [coveredSummary] optional term coverage string e.g. "Term 3 & Term 4 2026"
  * @returns {string}
  */
-export function packageLabelFor(meetings, category) {
+export function packageLabelFor(meetings, category, coveredSummary) {
   const count = Number(meetings) || 0;
   if (isTermBasedCategory(category)) {
     const terms = termsFromMeetings(count);
     // A whole number of terms is named as terms; a leftover count is not forced
     // into a term it does not fill.
-    return terms
-      ? `${termWord(terms)} (${count} Meetings)`
-      : `Top-Up (+${count} Meetings)`;
+    if (terms) {
+      if (coveredSummary) {
+        const cleanSummary = String(coveredSummary).replace(/[()]/g, '').trim();
+        return `${termWord(terms)} (${cleanSummary}) — ${count} Meetings`;
+      }
+      return `${termWord(terms)} (${count} Meetings)`;
+    }
+    return `Top-Up (+${count} Meetings)`;
   }
   const known = SUBSCRIPTION_PACKAGES.find((p) => p.meetings === count);
   return known ? known.label : `Top-Up (+${count} Meetings)`;

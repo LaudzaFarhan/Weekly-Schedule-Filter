@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useToast } from '../components/ui/Toast';
 import { useSchedule } from '../contexts/ScheduleContext';
 import { subscribeToInternalStudents } from '../services/internalStudentService';
@@ -17,6 +17,9 @@ import {
   todayISO,
   totalMeetingsPaid,
   DEFAULT_TARGET_MEETINGS,
+  calculateCoveredTerms,
+  formatCoveredTermsSummary,
+  inferStartingTerm,
 } from '../utils/subscriptionUtils';
 import {
   isTermBasedCategory,
@@ -29,9 +32,10 @@ import {
   MAX_TERMS,
 } from '../utils/subscriptionUtils';
 import { getTopUps, createTopUp, deleteTopUp } from '../services/subscriptionTopupService';
+import { getTerms, saveTerm } from '../services/studentTermService';
 import {
   Search, X, User, MapPin, Clock, Calendar, GraduationCap, AlertTriangle,
-  CheckCircle, HelpCircle, Edit3, ShieldAlert, Sparkles, RefreshCw, Filter, Plus,
+  CheckCircle, CheckCircle2, HelpCircle, Edit3, ShieldAlert, Sparkles, RefreshCw, Filter, Plus,
   Wallet, Trash2, Receipt, Paperclip, ExternalLink,
 } from 'lucide-react';
 
@@ -102,6 +106,15 @@ export default function NewStudentSubscriptionsPage() {
   // The date a staged top-up is recorded against: the day the parent paid.
   const [topUpDate, setTopUpDate] = useState(todayISO());
 
+  // Term continuation state for Kinder/Junior
+  // Term continuation state for Kinder/Junior
+  const [startTermNumber, setStartTermNumber] = useState(1);
+  const [startTermYear, setStartTermYear] = useState(new Date().getFullYear());
+  const [startTermSource, setStartTermSource] = useState('');
+  const [existingStudentTerms, setExistingStudentTerms] = useState([]);
+  const [studentTermsLoading, setStudentTermsLoading] = useState(false);
+  const userEditedTermRef = useRef(false);
+
   // Real-time Subscriptions
   useEffect(() => {
     let unmounted = false;
@@ -145,6 +158,7 @@ export default function NewStudentSubscriptionsPage() {
 
   // Edit Modal Handlers
   const openEditModal = (row) => {
+    userEditedTermRef.current = false;
     setEditingRow(row);
     setDraftStartDate(row.startDateStr || '');
     setDraftTarget(row.targetMeetings || DEFAULT_TARGET_MEETINGS);
@@ -156,7 +170,56 @@ export default function NewStudentSubscriptionsPage() {
     setPendingPayments([]);
     setSavedPayments([]);
     setPaymentsError(null);
+    setExistingStudentTerms([]);
+
+    const nameKey = String(row.name || '').trim().toLowerCase();
+    const override = overrides[nameKey] || {};
+    const prog = getProgressForStudent(row.name);
+    const defaultYear = row.startDateStr ? (new Date(row.startDateStr).getFullYear() || new Date().getFullYear()) : new Date().getFullYear();
+
+    if (override.startTermNumber && override.startTermYear) {
+      setStartTermNumber(Number(override.startTermNumber));
+      setStartTermYear(Number(override.startTermYear));
+      setStartTermSource('Previously set manually');
+    } else {
+      const initialInfer = inferStartingTerm({
+        student: row,
+        liveProgress: prog,
+        existingTerms: [],
+        defaultYear,
+      });
+      setStartTermNumber(initialInfer.termNumber);
+      setStartTermYear(initialInfer.year);
+      setStartTermSource(initialInfer.source);
+    }
+
     loadPayments(row.id);
+    loadStudentTerms(row.id, row, prog, defaultYear, override);
+  };
+
+  /** Read this student's recorded terms from internal_student_terms. */
+  const loadStudentTerms = async (studentId, row, prog, defaultYear, override) => {
+    if (!studentId) return;
+    setStudentTermsLoading(true);
+    try {
+      const terms = await getTerms({ studentId });
+      setExistingStudentTerms(Array.isArray(terms) ? terms : []);
+      if (!userEditedTermRef.current && !override?.startTermNumber) {
+        const inferred = inferStartingTerm({
+          student: row,
+          liveProgress: prog,
+          existingTerms: terms,
+          defaultYear,
+        });
+        setStartTermNumber(inferred.termNumber);
+        setStartTermYear(inferred.year);
+        setStartTermSource(inferred.source);
+      }
+    } catch (err) {
+      console.warn('Could not load student terms for subscription modal:', err);
+    } finally {
+      setStudentTermsLoading(false);
+    }
   };
 
   /** Read this student's recorded payments. Failure is shown, not swallowed. */
@@ -208,11 +271,30 @@ export default function NewStudentSubscriptionsPage() {
       return;
     }
 
+    // Calculate continuation terms for this top-up
+    let topUpSummary = '';
+    let topUpCovered = [];
+    if (isTermBasedCategory(editingRow?.category)) {
+      const addedTerms = termsFromMeetings(val);
+      if (addedTerms) {
+        const currentTermsCount = termsFromMeetings(draftTarget) || 0;
+        const totalTermOffset = (startTermNumber - 1) + currentTermsCount;
+        const nextStartTerm = (totalTermOffset % 4) + 1;
+        const nextStartYear = startTermYear + Math.floor(totalTermOffset / 4);
+        topUpCovered = calculateCoveredTerms(nextStartTerm, nextStartYear, addedTerms);
+        topUpSummary = formatCoveredTermsSummary(topUpCovered);
+      }
+    }
+
+    const packageLabel = packageLabelFor(val, editingRow?.category, topUpSummary);
+
     setDraftTarget((prev) => {
       const next = prev + val;
       showToast({
         title: `+${val} meetings added`,
-        message: `New total: ${next} meetings · payment dated ${formatDateFriendly(topUpDate)}`,
+        message: topUpSummary
+          ? `Covers ${topUpSummary} · New total: ${next} meetings`
+          : `New total: ${next} meetings · payment dated ${formatDateFriendly(topUpDate)}`,
         variant: 'success',
       });
       return next;
@@ -224,7 +306,8 @@ export default function NewStudentSubscriptionsPage() {
         key: `pending-${Date.now()}-${prev.length}`,
         meetings: val,
         paidAt: topUpDate,
-        packageLabel: packageLabelFor(val, editingRow?.category),
+        packageLabel,
+        coveredTerms: topUpCovered,
         invoiceUrl: invoiceUrl || null,
       },
     ]);
@@ -412,6 +495,13 @@ export default function NewStudentSubscriptionsPage() {
 
     const targetMeetings = Number(draftTarget) || DEFAULT_TARGET_MEETINGS;
     const startDate = draftStartDate || null;
+    const isTermBased = isTermBasedCategory(editingRow.category);
+    const draftTerms = isTermBased ? termsFromMeetings(targetMeetings) : null;
+    const coveredTerms = (isTermBased && draftTerms)
+      ? calculateCoveredTerms(startTermNumber, startTermYear, draftTerms)
+      : [];
+    const coveredSummary = formatCoveredTermsSummary(coveredTerms);
+
     setSaving(true);
 
     // Payments first. If the ledger cannot be written the save stops here rather
@@ -446,9 +536,31 @@ export default function NewStudentSubscriptionsPage() {
       return;
     }
 
+    // Mark covered terms as paid in internal_student_terms so Student Report Cards
+    // and term tracking stay completely synchronized with the package purchased.
+    if (isTermBased && editingRow.id && coveredTerms.length > 0) {
+      const paymentDate = topUpDate || todayISO();
+      for (const t of coveredTerms) {
+        try {
+          await saveTerm({
+            studentId: editingRow.id,
+            year: t.year,
+            termNumber: t.termNumber,
+            paid: true,
+            paidAt: paymentDate,
+            note: `Subscription package: ${draftTerms} Terms (${coveredSummary})`,
+          });
+        } catch (termErr) {
+          console.warn(`Could not sync term ${t.label} to internal_student_terms:`, termErr);
+        }
+      }
+    }
+
     saveOverride(editingRow.name, {
       startDate,
       targetMeetings,
+      startTermNumber: isTermBased ? startTermNumber : undefined,
+      startTermYear: isTermBased ? startTermYear : undefined,
     });
     setOverrides(readOverrides());
 
@@ -475,8 +587,6 @@ export default function NewStudentSubscriptionsPage() {
     setSaving(false);
 
     if (syncFailed) {
-      // The old code swallowed this entirely and still claimed success, which is
-      // how a route that 500s on every request went unnoticed. Say so instead.
       showToast({
         title: 'Saved on this device only',
         message: `The package could not be synced to the database: ${syncFailed}`,
@@ -485,9 +595,11 @@ export default function NewStudentSubscriptionsPage() {
     } else {
       showToast({
         title: 'Subscription updated successfully',
-        message: recorded.length > 0
-          ? `${recorded.length} payment${recorded.length === 1 ? '' : 's'} recorded`
-          : undefined,
+        message: coveredSummary
+          ? `Package covers ${coveredSummary} (marked as paid)`
+          : (recorded.length > 0
+            ? `${recorded.length} payment${recorded.length === 1 ? '' : 's'} recorded`
+            : undefined),
         variant: 'success',
       });
     }
@@ -752,6 +864,10 @@ export default function NewStudentSubscriptionsPage() {
         const packageOptions = packagesForCategory(editingRow.category);
         const topUpPresets = topUpPresetsFor(editingRow.category);
         const draftTerms = isTermBased ? termsFromMeetings(draftTarget) : null;
+        const coveredTerms = (isTermBased && draftTerms)
+          ? calculateCoveredTerms(startTermNumber, startTermYear, draftTerms)
+          : [];
+        const coveredSummary = formatCoveredTermsSummary(coveredTerms);
         // Where the date on screen came from, so nobody has to guess whether a
         // value is real attendance or something typed in by hand.
         const invoiceDraftInvalid = invoiceUrlDraft.trim() !== '' && !isHttpUrl(invoiceUrlDraft);
@@ -885,6 +1001,122 @@ export default function NewStudentSubscriptionsPage() {
                 </span>
               </div>
 
+              {/* Starting Term & Continuation Configuration (for Kinder & Junior) */}
+              {isTermBased && (
+                <div style={{
+                  background: 'linear-gradient(135deg, rgba(79, 70, 229, 0.04) 0%, rgba(99, 102, 241, 0.08) 100%)',
+                  border: '1.5px solid rgba(79, 70, 229, 0.18)',
+                  borderRadius: '12px',
+                  padding: '0.9rem 1rem',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '0.65rem',
+                }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.4rem' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                      <Calendar size={14} style={{ color: 'var(--primary-blue, #4f46e5)' }} />
+                      <span style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-main)' }}>
+                        Package Starting Term (Continuation)
+                      </span>
+                    </div>
+                    {startTermSource && (
+                      <span style={{
+                        fontSize: '0.68rem', color: '#4f46e5', background: 'rgba(79, 70, 229, 0.09)',
+                        padding: '0.15rem 0.45rem', borderRadius: '6px', fontWeight: 600,
+                      }}>
+                        {startTermSource}
+                      </span>
+                    )}
+                  </div>
+
+                  <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                      <label htmlFor="starting-term-select" style={{ fontSize: '0.74rem', fontWeight: 600, color: 'var(--text-secondary)' }}>
+                        Starts From:
+                      </label>
+                      <select
+                        id="starting-term-select"
+                        value={startTermNumber}
+                        onChange={(e) => {
+                          userEditedTermRef.current = true;
+                          setStartTermNumber(Number(e.target.value));
+                          setStartTermSource('Manually selected');
+                        }}
+                        className="modal-select-field field-compact"
+                        style={{ width: '110px', padding: '0.32rem 0.55rem' }}
+                      >
+                        <option value={1}>Term 1</option>
+                        <option value={2}>Term 2</option>
+                        <option value={3}>Term 3</option>
+                        <option value={4}>Term 4</option>
+                      </select>
+                    </div>
+
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                      <label htmlFor="starting-year-input" style={{ fontSize: '0.74rem', fontWeight: 600, color: 'var(--text-secondary)' }}>
+                        Year:
+                      </label>
+                      <input
+                        id="starting-year-input"
+                        type="number"
+                        min={2020}
+                        max={2035}
+                        value={startTermYear}
+                        onChange={(e) => {
+                          userEditedTermRef.current = true;
+                          setStartTermYear(Number(e.target.value));
+                          setStartTermSource('Manually selected');
+                        }}
+                        className="modal-input-field field-compact"
+                        style={{ width: '85px', padding: '0.32rem 0.55rem' }}
+                      />
+                    </div>
+                  </div>
+
+                  {coveredTerms.length > 0 && (
+                    <div style={{
+                      background: 'var(--panel-bg)',
+                      border: '1px solid rgba(79, 70, 229, 0.16)',
+                      borderRadius: '8px',
+                      padding: '0.65rem 0.75rem',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '0.3rem',
+                    }}>
+                      <div style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '0.3rem', flexWrap: 'wrap' }}>
+                        <Sparkles size={12} style={{ color: '#4f46e5' }} />
+                        <strong style={{ color: 'var(--text-main)' }}>Terms Covered:</strong>
+                        <span style={{ fontWeight: 700, color: '#047857' }}>{coveredSummary}</span>
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap', marginTop: '0.15rem' }}>
+                        {coveredTerms.map((t) => (
+                          <span
+                            key={`${t.year}-${t.termNumber}`}
+                            style={{
+                              padding: '0.2rem 0.55rem',
+                              borderRadius: '6px',
+                              background: '#10b981',
+                              color: 'white',
+                              fontSize: '0.72rem',
+                              fontWeight: 700,
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '0.25rem',
+                              boxShadow: '0 1px 3px rgba(16, 185, 129, 0.25)',
+                            }}
+                          >
+                            <CheckCircle2 size={11} /> {t.fullLabel}
+                          </span>
+                        ))}
+                      </div>
+                      <span style={{ fontSize: '0.68rem', color: 'var(--text-muted)', marginTop: '0.1rem' }}>
+                        Saving this package marks <strong>{coveredSummary}</strong> as paid in student term records.
+                      </span>
+                    </div>
+                  )}
+                </div>
+              )}
+
               {/* Package Selection */}
               <div>
                 <label className="modal-form-label" htmlFor="package-select">
@@ -896,14 +1128,23 @@ export default function NewStudentSubscriptionsPage() {
                   onChange={(e) => setDraftTarget(Number(e.target.value))}
                   className="modal-select-field"
                 >
-                  {packageOptions.map((p) => (
-                    <option key={p.meetings} value={p.meetings}>{p.label}</option>
-                  ))}
+                  {packageOptions.map((p) => {
+                    const pTerms = p.terms || termsFromMeetings(p.meetings);
+                    const pCovered = (isTermBased && pTerms)
+                      ? calculateCoveredTerms(startTermNumber, startTermYear, pTerms)
+                      : [];
+                    const pSummary = formatCoveredTermsSummary(pCovered);
+                    return (
+                      <option key={p.meetings} value={p.meetings}>
+                        {p.label}{pSummary ? ` — Covers ${pSummary}` : ''}
+                      </option>
+                    );
+                  })}
                   {/* Show current value if it's a custom number from top-ups */}
                   {!packageOptions.some((p) => p.meetings === draftTarget) && (
                     <option value={draftTarget}>
                       {draftTerms
-                        ? `Custom (${draftTerms} Term${draftTerms === 1 ? '' : 's'} — ${draftTarget} Meetings)`
+                        ? `Custom (${draftTerms} Term${draftTerms === 1 ? '' : 's'} — ${draftTarget} Meetings)${coveredSummary ? ` — Covers ${coveredSummary}` : ''}`
                         : `Custom (${draftTarget} Meetings)`}
                     </option>
                   )}
@@ -948,7 +1189,7 @@ export default function NewStudentSubscriptionsPage() {
                     <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.3rem', display: 'block' }}>
                       Each term is {MEETINGS_PER_TERM} meetings.
                       {draftTerms
-                        ? ` Currently ${draftTerms} term${draftTerms === 1 ? '' : 's'} (${draftTarget} meetings).`
+                        ? ` Currently ${draftTerms} term${draftTerms === 1 ? '' : 's'} (${draftTarget} meetings)${coveredSummary ? ` covering ${coveredSummary}` : ''}.`
                         : ` Currently ${draftTarget} meetings, which is not a whole number of terms.`}
                     </span>
                   </div>
@@ -1026,12 +1267,21 @@ export default function NewStudentSubscriptionsPage() {
                 <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
                   {topUpPresets.map((n) => {
                     const presetTerms = isTermBased ? termsFromMeetings(n) : null;
+                    let presetSummary = '';
+                    if (isTermBased && presetTerms) {
+                      const currentTermsCount = termsFromMeetings(draftTarget) || 0;
+                      const totalTermOffset = (startTermNumber - 1) + currentTermsCount;
+                      const nextStartTerm = (totalTermOffset % 4) + 1;
+                      const nextStartYear = startTermYear + Math.floor(totalTermOffset / 4);
+                      const pCovered = calculateCoveredTerms(nextStartTerm, nextStartYear, presetTerms);
+                      presetSummary = formatCoveredTermsSummary(pCovered);
+                    }
                     return (
                       <button
                         key={n}
                         type="button"
                         onClick={() => stageTopUp(n)}
-                        title={presetTerms ? `${n} meetings` : undefined}
+                        title={presetSummary ? `Adds ${presetSummary} (${n} meetings)` : (presetTerms ? `${n} meetings` : undefined)}
                         style={{
                           padding: '0.35rem 0.75rem', borderRadius: '8px', cursor: 'pointer',
                           fontSize: '0.78rem', fontWeight: 700, border: '1.5px solid rgba(16,185,129,0.35)',
@@ -1184,6 +1434,11 @@ export default function NewStudentSubscriptionsPage() {
                           <div style={{ fontSize: '0.68rem', color: 'var(--text-secondary)' }}>
                             {formatDateFriendly(p.paidAt)}
                           </div>
+                          {p.packageLabel && (
+                            <div style={{ fontSize: '0.66rem', color: '#047857', fontWeight: 600, marginTop: '0.15rem', overflowWrap: 'anywhere' }}>
+                              {p.packageLabel}
+                            </div>
+                          )}
                           {p.invoiceUrl && (
                             <div style={{ fontSize: '0.64rem', color: 'var(--text-muted)', marginTop: '0.15rem', display: 'flex', alignItems: 'center', gap: '0.2rem' }}>
                               <Paperclip size={10} /> Invoice attached
@@ -1223,7 +1478,7 @@ export default function NewStudentSubscriptionsPage() {
                             {formatDateFriendly(p.paidAt)}
                           </div>
                           {p.packageLabel && (
-                            <div style={{ fontSize: '0.64rem', color: 'var(--text-muted)', marginTop: '0.15rem', overflowWrap: 'anywhere' }}>
+                            <div style={{ fontSize: '0.66rem', color: 'var(--primary-blue, #4f46e5)', fontWeight: 600, marginTop: '0.15rem', overflowWrap: 'anywhere' }}>
                               {p.packageLabel}
                             </div>
                           )}
