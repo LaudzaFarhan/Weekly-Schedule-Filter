@@ -101,6 +101,15 @@ nginx in front of it:
 server {
     server_name thelabindonesia.my.id;
 
+    # 1. Hashed Next.js static assets: cache permanently (filenames change on every build)
+    location /_next/static/ {
+        proxy_pass http://127.0.0.1:3000;
+        proxy_set_header Host $host;
+        expires 365d;
+        add_header Cache-Control "public, max-age=31536000, immutable";
+    }
+
+    # 2. HTML pages and API routes: NEVER cache so users never need Ctrl+Shift+R
     location / {
         proxy_pass http://127.0.0.1:3000;
         proxy_http_version 1.1;
@@ -110,6 +119,10 @@ server {
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
         proxy_cache_bypass $http_upgrade;
+
+        add_header Cache-Control "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0";
+        add_header Pragma "no-cache";
+        add_header Expires "0";
     }
 }
 ```
