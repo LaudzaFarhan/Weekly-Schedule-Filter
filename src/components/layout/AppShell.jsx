@@ -33,6 +33,7 @@ import NewMeetingsPage from '@/views/NewMeetingsPage';
 import NewStudentSubscriptionsPage from '@/views/NewStudentSubscriptionsPage';
 import NewQaTrackerPage from '@/views/NewQaTrackerPage';
 import VercelMigrationNotice from '@/components/layout/VercelMigrationNotice';
+import { useAutoUpdate } from '@/hooks/useAutoUpdate';
 
 /** Derive page from URL pathname for New Operations */
 function parsePath(pathname) {
@@ -113,6 +114,7 @@ function QaBugNotificationListener({ onNavigate }) {
 }
 
 export default function AppShell() {
+  useAutoUpdate();
   const { user, loading } = useAuth();
   const [currentPage, setCurrentPage] = useState('home');
   const [pageParams, setPageParams] = useState(null);
