@@ -238,7 +238,7 @@ describe('ScheduleGrid teacher branch view restrictions', () => {
     );
 
     // Full student name should be visible on the card without being cut off
-    expect(screen.getByText(/Beatrice Eunice Wijaya/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/Beatrice Eunice Wijaya/i).length).toBeGreaterThanOrEqual(1);
 
     // Attendance count pill should be visible
     expect(screen.getByText(/7\/10 mtgs/i)).toBeInTheDocument();

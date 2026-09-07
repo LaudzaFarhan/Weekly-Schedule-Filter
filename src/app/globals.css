@@ -454,6 +454,29 @@ td.schedule-grid-sticky-col {
   overflow: auto !important;
 }
 
+/* ── Schedule Grid Class Card Text Clarity & Hover Expansion ─── */
+.schedule-class-card {
+  transition: box-shadow 0.15s ease, transform 0.15s ease;
+  word-break: break-word;
+}
+
+.schedule-class-card:hover {
+  z-index: 40 !important;
+  height: auto !important;
+  min-height: 100% !important;
+  max-height: none !important;
+  overflow: visible !important;
+  box-shadow: 0 10px 25px -4px rgba(0, 0, 0, 0.28), 0 0 0 1.5px var(--primary-blue, #4f46e5) !important;
+}
+
+.schedule-class-card:hover .schedule-card-roster-overflow {
+  display: flex !important;
+}
+
+.schedule-class-card:hover .schedule-card-more-badge {
+  display: none !important;
+}
+
 /* ── Notification bell + dropdown ─────────────────────── */
 /* The panel grows out of the bell rather than just fading, so the click and
    the thing it opened read as connected. */

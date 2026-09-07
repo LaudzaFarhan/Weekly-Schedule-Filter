@@ -3527,7 +3527,7 @@ const SEAM_CHIP_H = 15;
  * Hidden from assistive tech: the card already states the range in text, and
  * repeating it would just be noise.
  */
-function EdgeMarks({ color, textColor, startLabel, endLabel, gripped, buttedNext, buttedPrev, isDark }) {
+function EdgeMarks({ color, textColor, startLabel, endLabel, gripped, buttedNext, buttedPrev, isDark, showBands = true }) {
   const markColor = textColor || color;
   const band = {
     position: 'absolute', pointerEvents: 'none', left: 0, right: 0,
@@ -3538,17 +3538,21 @@ function EdgeMarks({ color, textColor, startLabel, endLabel, gripped, buttedNext
   };
   return (
     <>
-      <span aria-hidden="true" style={{ ...band, top: '3px' }}>
-        <span>START</span>
-        {/* The seam chip above already carries this time. */}
-        {!buttedPrev && <span style={{ opacity: 0.85 }}>{startLabel}</span>}
-      </span>
+      {showBands && (
+        <>
+          <span aria-hidden="true" style={{ ...band, top: '3px' }}>
+            <span>START</span>
+            {/* The seam chip above already carries this time. */}
+            {!buttedPrev && <span style={{ opacity: 0.85 }}>{startLabel}</span>}
+          </span>
 
-      {/* Sits above the resize grip band so the two never overlap. */}
-      <span aria-hidden="true" style={{ ...band, bottom: gripped ? '12px' : '3px' }}>
-        <span>END</span>
-        {!buttedNext && <span style={{ opacity: 0.85 }}>{endLabel}</span>}
-      </span>
+          {/* Sits above the resize grip band so the two never overlap. */}
+          <span aria-hidden="true" style={{ ...band, bottom: gripped ? '12px' : '3px' }}>
+            <span>END</span>
+            {!buttedNext && <span style={{ opacity: 0.85 }}>{endLabel}</span>}
+          </span>
+        </>
+      )}
 
       {buttedNext && (
         // Straddles the shared edge, half in each card. Opaque so the seam does
@@ -3575,10 +3579,10 @@ function EdgeMarks({ color, textColor, startLabel, endLabel, gripped, buttedNext
 
 /**
  * Card padding that leaves room for the edge labels when they are drawn.
- * Without them the padding is unchanged from before, so short cards look the same.
+ * Without them the padding is compact so class card text has full breathing room.
  */
 function cardPadding(edgeMarks, gripped) {
-  if (!edgeMarks) return '0.3rem 0.4rem 0.7rem';
+  if (!edgeMarks) return `0.3rem 0.4rem ${gripped ? '0.85rem' : '0.45rem'}`;
   return `0.95rem 0.4rem ${gripped ? '1.4rem' : '0.85rem'}`;
 }
 
@@ -3981,7 +3985,7 @@ function Cell({
      * carrying a status badge has none, which is why the roster is also in the
      * card's tooltip.
      */
-    const padY = edgeMarks ? 15.2 + (gripped ? 22.4 : 13.6) : 4.8 + 11.2;
+    const padY = gripped ? 18 : 10;
     // Badges wrap, and naming the student makes each one wider, so two per line
     // is the realistic fit on a card this narrow. Counting the lines keeps the
     // name budget honest instead of assuming the row is always 18px.
@@ -3999,6 +4003,7 @@ function Cell({
     return (
       <div
         data-class-chip="true"
+        className="schedule-class-card"
         draggable={!allBranches && !saving}
         onDragStart={(e) => {
           e.dataTransfer.effectAllowed = 'move';
@@ -4041,13 +4046,13 @@ function Cell({
           position: 'relative', height: boxH, maxHeight: boxH, boxSizing: 'border-box',
           borderRadius: cardRadius(cell.buttedPrev, cell.buttedNext),
           border: `1px solid ${meta.border || meta.color}`, background: meta.bg,
-          padding: cardPadding(edgeMarks, gripped),
+          padding: cardPadding(false, gripped),
           overflow: cell.buttedNext ? 'visible' : 'hidden',
           cursor: allBranches ? 'default' : 'pointer',
           outline: resizing ? `2px solid ${meta.border || meta.color}` : 'none',
         }}
       >
-        {edgeMarks && (
+        {cell.buttedNext && (
           <EdgeMarks
             color={meta.border || meta.color}
             textColor={meta.textColor}
@@ -4057,6 +4062,7 @@ function Cell({
             buttedNext={cell.buttedNext}
             buttedPrev={cell.buttedPrev}
             isDark={meta.isDark}
+            showBands={false}
           />
         )}
         <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.2rem' }}>
@@ -4103,35 +4109,41 @@ function Cell({
         </span>
 
         {/* Who is in the class, as far as the card's height allows. */}
-        {namesShown.length > 0 && (
-          <span style={{ display: 'block', marginTop: '0.1rem' }}>
-            {namesShown.map((r, i) => (
-              <span
-                key={r.name}
-                style={{
-                  display: 'flex', alignItems: 'baseline', gap: '0.2rem',
-                  fontSize: '0.58rem', lineHeight: `${NAME_LINE_H}px`,
-                  color: meta.subtextColor || 'var(--text-secondary)',
-                }}
-              >
-                <span style={{
-                  overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0,
-                  // Away this week, so the seat is really free even though it is taken.
-                  opacity: r.away ? 0.5 : 1,
-                  textDecoration: r.away ? 'line-through' : 'none',
-                }}>
-                  {r.name}
-                </span>
-                {namesHidden > 0 && i === namesShown.length - 1 && (
-                  <span
-                    title={`${namesHidden} more student${namesHidden === 1 ? '' : 's'} — hover the card for the full list`}
-                    style={{ flexShrink: 0, fontWeight: 700, color: meta.textColor, opacity: 0.8 }}
-                  >
-                    +{namesHidden}
+        {roster.length > 0 && showNames && (
+          <span className="schedule-card-roster-list" style={{ display: 'block', marginTop: '0.1rem' }}>
+            {roster.map((r, i) => {
+              const isOverflow = namesShown.length > 0 ? i >= namesShown.length : i > 0;
+              return (
+                <span
+                  key={r.name}
+                  className={isOverflow ? 'schedule-card-roster-overflow' : ''}
+                  style={{
+                    display: isOverflow ? 'none' : 'flex',
+                    alignItems: 'baseline', gap: '0.2rem',
+                    fontSize: '0.58rem', lineHeight: `${NAME_LINE_H}px`,
+                    color: meta.subtextColor || 'var(--text-secondary)',
+                  }}
+                >
+                  <span style={{
+                    overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0,
+                    // Away this week, so the seat is really free even though it is taken.
+                    opacity: r.away ? 0.5 : 1,
+                    textDecoration: r.away ? 'line-through' : 'none',
+                  }}>
+                    {r.name}
                   </span>
-                )}
-              </span>
-            ))}
+                  {namesHidden > 0 && i === namesShown.length - 1 && (
+                    <span
+                      className="schedule-card-more-badge"
+                      title={`${namesHidden} more student${namesHidden === 1 ? '' : 's'} — hover the card for the full list`}
+                      style={{ flexShrink: 0, fontWeight: 700, color: meta.textColor, opacity: 0.8 }}
+                    >
+                      +{namesHidden}
+                    </span>
+                  )}
+                </span>
+              );
+            })}
           </span>
         )}
 
