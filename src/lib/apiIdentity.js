@@ -103,7 +103,7 @@ async function lookupSession(token) {
 
   const res = await query(
     `SELECT s.id AS session_id, s.expires_at, u.id, u.username, u.email, u.role,
-            u.status, u.fullname, u.must_change_password
+            u.status, u.fullname, u.location, u.instructor_id, u.must_change_password
        FROM internal_sessions s
        JOIN internal_users u ON u.id = s.user_id
       WHERE s.token_hash = $1`,
@@ -141,6 +141,8 @@ async function lookupSession(token) {
     role: row.role,
     status: row.status,
     displayName: row.fullname || row.username || row.email,
+    location: row.location || null,
+    instructorId: row.instructor_id || null,
     mustChangePassword: row.must_change_password,
   };
 }

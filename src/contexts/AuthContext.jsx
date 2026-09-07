@@ -32,10 +32,13 @@ function normalisePgUser(payload) {
     // Prefixed so it can never collide with a Firebase uid, and so a stray
     // comparison against one fails loudly rather than matching by accident.
     uid: `pg:${user.id}`,
+    id: user.id,
     email: user.email,
     displayName: user.displayName || user.username,
     username: user.username,
     role: user.role,
+    location: user.location || null,
+    instructorId: user.instructorId || null,
     mustChangePassword: Boolean(user.mustChangePassword),
     source: 'postgres',
   };

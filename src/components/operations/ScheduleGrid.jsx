@@ -5,10 +5,15 @@ import {
   Users, Filter, Trash2, X, CalendarDays, CalendarPlus, AlertTriangle, Clock,
   GripVertical, ChevronUp, ChevronDown, ChevronLeft, ChevronRight,
   Plus, Pencil, Building2, UserPlus, Repeat, FileText, UserX, Sparkles, Send, Calendar, Eye, User,
-  GripHorizontal, RotateCcw, Maximize2, Minimize2, UserCheck, CalendarOff,
+  GripHorizontal, RotateCcw, Maximize2, Minimize2, UserCheck, CalendarOff, Lock,
+  CheckCircle2, Video, Check, HelpCircle, XCircle,
 } from 'lucide-react';
+import { useAuth } from '../../contexts/AuthContext';
+import { resolveUserRole } from '../../utils/roles';
+import { extractEmailFromRemarks, usernameFromName } from '../../lib/employeeAccounts';
 import {
   getProgressUpdateStatus,
+  getEffectiveProgressUpdateStatus,
   PROGRESS_UPDATE_STATUSES,
   PROGRESS_UPDATE_BADGES,
 } from '../../utils/progressUpdateUtils';
@@ -21,13 +26,21 @@ import {
   SLOT_TYPES, SESSION_TYPES, slotTypeMeta, slotKeyForCategory,
   durationForCategory, isInstructorScoped, getCategoryColorStyle,
 } from '../../lib/slotTypes';
-import { maxStudentsFor } from '../../lib/programRules';
+import { maxStudentsFor, parseProgram } from '../../lib/programRules';
 import { DAY_NAMES, isSameBranch, DEFAULT_BRANCH_LIST } from '../../utils/constants';
-import { isSameTeacher, getInstructorDisplayName, resolveCanonicalTeacherName } from '../../utils/instructorUtils';
+import { isSameTeacher, getInstructorDisplayName, resolveCanonicalTeacherName, isInstructorMatch } from '../../utils/instructorUtils';
 import { parseStudentLeave, formatDatePretty, formatDateShort } from '../../utils/studentLeaveUtils';
 import StudentLeaveModal from './StudentLeaveModal';
+import ProgressUpdateModal from './ProgressUpdateModal';
 
 const CATEGORIES = ['Kinder', 'Junior', 'Coder'];
+
+export const CONTINUATION_BADGE_STYLES = {
+  Continue: { bg: 'rgba(16, 185, 129, 0.12)', color: '#047857', borderColor: 'rgba(16, 185, 129, 0.3)', label: 'Continue' },
+  Uncertain: { bg: 'rgba(245, 158, 11, 0.12)', color: '#b45309', borderColor: 'rgba(245, 158, 11, 0.3)', label: 'Uncertain' },
+  Stop: { bg: 'rgba(244, 63, 94, 0.12)', color: '#be123c', borderColor: 'rgba(244, 63, 94, 0.3)', label: 'Stop' },
+  'Not Decide Yet': { bg: 'rgba(100, 116, 139, 0.12)', color: '#475569', borderColor: 'rgba(100, 116, 139, 0.25)', label: 'Not Decide' },
+};
 
 /** Timeline granularity. Classes run 90 or 120 minutes, so 30 divides both. */
 const STEP = 30;
@@ -151,6 +164,88 @@ function instructorHasLevel(instructor, levelCategory, classGroups) {
 }
 
 /**
+ * Resolves the assigned branches for a teacher / instructor.
+ * Returns an array of branch names (e.g. ['Bekasi']), or null if unrestricted (Admin, Supervisor, etc.).
+ */
+export function resolveTeacherAssignedBranches(user, instructors = [], classGroups = []) {
+  if (!user) return null;
+
+  const role = user.role || resolveUserRole(null, user.email, user);
+  if (role !== 'Instructor') {
+    return null; // Admin, Supervisor, SPA, EC, etc. have unrestricted branch access
+  }
+
+  const assigned = new Set();
+
+  // 1. Direct location on user object (from internal_users.location)
+  if (user.location && user.location !== 'All Branches') {
+    assigned.add(user.location);
+  }
+
+  // 2. Direct branches array on user object
+  if (Array.isArray(user.branches)) {
+    user.branches.forEach((b) => {
+      if (b && b !== 'All Branches') assigned.add(b);
+    });
+  } else if (typeof user.branches === 'string' && user.branches && user.branches !== 'All Branches') {
+    assigned.add(user.branches);
+  }
+
+  // 3. Match against instructors list
+  const userEmail = (user.email || '').toLowerCase().trim();
+  const userName = (user.displayName || user.fullname || user.username || '').toLowerCase().trim();
+  const userId = user.instructorId || user.id;
+
+  const matchedInst = (instructors || []).find((inst) => {
+    if (!inst) return false;
+    // Match by ID
+    if (userId && (String(inst.id) === String(userId) || String(inst.instructorId) === String(userId))) {
+      return true;
+    }
+    // Match by email
+    const instEmail = (inst.email || extractEmailFromRemarks(inst.remarks) || '').toLowerCase().trim();
+    if (userEmail && instEmail && userEmail === instEmail) {
+      return true;
+    }
+    if (userEmail && inst.contact && inst.contact.toLowerCase().includes(userEmail)) {
+      return true;
+    }
+    // Match by name or alias
+    if (userName) {
+      if (isSameTeacher(inst.name, userName)) return true;
+      if (usernameFromName(inst.name) === user.username) return true;
+      if (isInstructorMatch(userName, inst)) return true;
+    }
+    return false;
+  });
+
+  if (matchedInst) {
+    if (Array.isArray(matchedInst.branches)) {
+      matchedInst.branches.forEach((b) => {
+        if (b && b !== 'All Branches') assigned.add(b);
+      });
+    } else if (typeof matchedInst.branches === 'string' && matchedInst.branches && matchedInst.branches !== 'All Branches') {
+      assigned.add(matchedInst.branches);
+    }
+    if (matchedInst.location && matchedInst.location !== 'All Branches') {
+      assigned.add(matchedInst.location);
+    }
+  }
+
+  // 4. Fallback: check classGroups taught by this teacher
+  if (assigned.size === 0 && (userName || matchedInst?.name)) {
+    const targetTeacherName = matchedInst?.name || user.displayName || user.fullname || user.username;
+    (classGroups || []).forEach((g) => {
+      if (g?.branchName && isSameTeacher(g.teacher, targetTeacherName)) {
+        assigned.add(g.branchName);
+      }
+    });
+  }
+
+  return Array.from(assigned);
+}
+
+/**
  * Time-by-instructor planning grid for Class Operation slots.
  *
  * Rows step every 30 minutes so 90-minute Kinder classes land as cleanly as
@@ -160,6 +255,7 @@ function instructorHasLevel(instructor, levelCategory, classGroups) {
  * from the shared availability engine.
  */
 export default function ScheduleGrid({
+  user: userProp,
   branches = [],
   instructors = [],
   classGroups = [],
@@ -183,6 +279,25 @@ export default function ScheduleGrid({
   isFullscreen = false,
   onToggleFullscreen,
 }) {
+  let authContextUser = null;
+  try {
+    // eslint-disable-next-line react-hooks/rules-of-hooks
+    const auth = useAuth();
+    authContextUser = auth?.user || null;
+  } catch {
+    authContextUser = null;
+  }
+  const user = userProp !== undefined ? userProp : authContextUser;
+
+  const isTeacher = Boolean(user) && (
+    user.role === 'Instructor' ||
+    (!user.role && resolveUserRole(null, user.email, user) === 'Instructor')
+  );
+
+  const teacherAssignedBranches = useMemo(() => {
+    return resolveTeacherAssignedBranches(user, instructors, classGroups);
+  }, [user, instructors, classGroups]);
+
   const liveProgressMap = useMemo(() => {
     const map = new Map();
     if (Array.isArray(liveProgress)) {
@@ -198,8 +313,29 @@ export default function ScheduleGrid({
 
   const selectable = useMemo(() => {
     const list = branches.filter((b) => b.name !== 'Default Branch');
-    return list.length ? list : DEFAULT_BRANCH_LIST;
-  }, [branches]);
+    const baseList = list.length ? list : DEFAULT_BRANCH_LIST;
+
+    if (!isTeacher || !teacherAssignedBranches) {
+      return baseList;
+    }
+
+    if (teacherAssignedBranches.length === 0) {
+      return baseList;
+    }
+
+    const filtered = baseList.filter((b) =>
+      teacherAssignedBranches.some((tb) => isSameBranch(tb, b.name) || isSameBranch(tb, b.id) || tb === b.id)
+    );
+
+    if (filtered.length > 0) {
+      return filtered;
+    }
+
+    return teacherAssignedBranches.map((name) => ({
+      id: String(name).toLowerCase().replace(/\s+/g, '-'),
+      name,
+    }));
+  }, [branches, isTeacher, teacherAssignedBranches]);
 
   const [branchChoice, setBranchChoice] = useState('');
   const [dayChoice, setDayChoice] = useState('');
@@ -222,6 +358,8 @@ export default function ScheduleGrid({
   // and closes itself if the last student is removed.
   const [rosterKey, setRosterKey] = useState(null);
   const [leaveModal, setLeaveModal] = useState({ isOpen: false, member: null, classInfo: null, defaultDate: '' });
+  const [progressModalRow, setProgressModalRow] = useState(null);
+
   // Selected class for right side preview panel & custom positioning
   const [previewClass, setPreviewClass] = useState(null);
   const [isClosingPreview, setIsClosingPreview] = useState(false);
@@ -281,13 +419,40 @@ export default function ScheduleGrid({
   }, [previewPos]);
 
   const branchId = useMemo(() => {
+    if (isTeacher) {
+      if (branchChoice && selectable.some((b) => b.id === branchChoice)) return branchChoice;
+      return selectable[0]?.id || '';
+    }
     if (branchChoice === 'all') return 'all';
     if (branchChoice && selectable.some((b) => b.id === branchChoice)) return branchChoice;
     return selectable[0]?.id || '';
-  }, [branchChoice, selectable]);
+  }, [branchChoice, selectable, isTeacher]);
 
   const branch = selectable.find((b) => b.id === branchId) || null;
-  const allBranches = branchId === 'all';
+  const allBranches = !isTeacher && branchId === 'all';
+
+  const openProgressModal = useCallback((member, progRecord, classContext = null) => {
+    if (!member && !progRecord) return;
+    const rawProg = member?.program || progRecord?.programCode || '';
+    const parsed = parseProgram(rawProg);
+    const cat = progRecord?.category || parsed.category || categoryOfProgram(classContext || { programs: [rawProg] }) || 'Kinder';
+    setProgressModalRow({
+      ...progRecord,
+      ...member,
+      id: progRecord?.id || member?.id,
+      memberId: member?.id,
+      studentName: member?.student || progRecord?.studentName || 'Student',
+      program: rawProg || 'General',
+      programCode: rawProg,
+      branchName: (classContext?.branchName) || branch?.name || progRecord?.branchName || '',
+      category: cat,
+      progressUpdateStatus: getEffectiveProgressUpdateStatus(member, progRecord),
+      progressUpdateDate: progRecord?.progressUpdateDate || '',
+      progressUpdateNote: progRecord?.progressUpdateNote || '',
+      progressUpdateHistory: Array.isArray(progRecord?.progressUpdateHistory) ? progRecord.progressUpdateHistory : [],
+      attendance: (progRecord?.attendance && typeof progRecord.attendance === 'object') ? progRecord.attendance : {},
+    });
+  }, [branch]);
 
   const openDays = useMemo(() => {
     if (allBranches) {
@@ -1171,11 +1336,35 @@ export default function ScheduleGrid({
                 value={branchId}
                 onChange={(e) => { setBranchChoice(e.target.value); setTeacher('all'); }}
                 className="modal-select-field field-compact"
-                style={{ minWidth: '160px' }}
+                style={{
+                  minWidth: '160px',
+                  ...(isTeacher && selectable.length <= 1 ? { opacity: 0.9, cursor: 'not-allowed', backgroundColor: 'var(--panel-bg-subtle, rgba(0,0,0,0.03))' } : {}),
+                }}
+                disabled={isTeacher && selectable.length <= 1}
+                title={isTeacher && selectable.length <= 1 ? `Locked to your assigned branch (${selectable[0]?.name || ''})` : 'Branch filter'}
               >
                 {selectable.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
-                <option value="all">All Branches (view only)</option>
+                {!isTeacher && <option value="all">All Branches (view only)</option>}
               </select>
+              {isTeacher && selectable.length <= 1 && (
+                <span
+                  style={{
+                    fontSize: '0.68rem',
+                    fontWeight: 600,
+                    color: 'var(--primary-blue, #4f46e5)',
+                    background: 'rgba(79,70,229,0.08)',
+                    border: '1px solid rgba(79,70,229,0.2)',
+                    padding: '0.15rem 0.45rem',
+                    borderRadius: '4px',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '0.25rem',
+                  }}
+                  title="Your schedule view is restricted to your assigned branch"
+                >
+                  <Lock size={10} /> Assigned
+                </span>
+              )}
             </label>
             <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600 }}>
               Level
@@ -1790,8 +1979,28 @@ export default function ScheduleGrid({
                             const leaveInfo = parseStudentLeave(m);
                             const isIzin = leaveInfo.isIzin;
                             const progRecord = liveProgressMap?.get ? liveProgressMap.get(String(m.student || '').toLowerCase().trim()) : null;
-                            const progressStatus = getProgressUpdateStatus(m, progRecord);
-                            const badgeInfo = PROGRESS_UPDATE_BADGES[progressStatus];
+                            const progressStatus = getEffectiveProgressUpdateStatus(m, progRecord);
+                            const badgeInfo = progressStatus ? (PROGRESS_UPDATE_BADGES[progressStatus] || PROGRESS_UPDATE_BADGES['Need update progress']) : null;
+
+                            const studentCat = progRecord?.category || categoryOfProgram(previewClass || { programs: [m.program] }) || 'Kinder';
+                            const attendedCount = progRecord?.attendance
+                              ? Object.keys(progRecord.attendance).filter((k) => progRecord.attendance[k]).length
+                              : (m.attendanceCount != null ? Number(m.attendanceCount) : 0);
+                            const maxMeetings = progRecord?.targetMeetings || (studentCat === 'Coder' ? 12 : 10);
+                            const threshold = studentCat === 'Coder' ? 9 : 7;
+                            const isThresholdReached = attendedCount >= threshold;
+
+                            const continuationStyle = progRecord?.continuation ? CONTINUATION_BADGE_STYLES[progRecord.continuation] : null;
+
+                            const videoEntries = progRecord?.videos && typeof progRecord.videos === 'object'
+                              ? Object.entries(progRecord.videos)
+                                  .filter(([lvl, v]) => Boolean(v))
+                                  .map(([lvl, v]) => ({
+                                    level: lvl,
+                                    link: typeof v === 'string' ? v : v?.link || null,
+                                    sent: typeof v === 'object' ? Boolean(v?.sent) : Boolean(v),
+                                  }))
+                              : [];
 
                             return (
                               <div
@@ -1804,9 +2013,102 @@ export default function ScheduleGrid({
                                 }}
                               >
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.35rem' }}>
-                                  <div style={{ fontWeight: 700, fontSize: '0.84rem', color: 'var(--text-main)', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                                  <div style={{ fontWeight: 700, fontSize: '0.84rem', color: 'var(--text-main)', display: 'flex', alignItems: 'center', gap: '0.35rem', flexWrap: 'wrap' }}>
                                     <User size={14} style={{ color: 'var(--text-muted)' }} />
-                                    {m.student}
+                                    <span>{m.student}</span>
+
+                                    {/* Attendance count pill */}
+                                    {(attendedCount > 0 || progRecord) && (
+                                      <span
+                                        title={`Attended ${attendedCount} of ${maxMeetings} meetings${isThresholdReached ? ' (Progress update threshold reached!)' : ''}`}
+                                        style={{
+                                          fontSize: '0.64rem',
+                                          fontWeight: 700,
+                                          padding: '0.1rem 0.4rem',
+                                          borderRadius: '5px',
+                                          display: 'inline-flex',
+                                          alignItems: 'center',
+                                          gap: '0.22rem',
+                                          color: isThresholdReached ? '#b45309' : attendedCount >= maxMeetings ? '#047857' : 'var(--text-secondary)',
+                                          background: isThresholdReached ? '#fef3c7' : attendedCount >= maxMeetings ? 'rgba(16, 185, 129, 0.12)' : 'rgba(0, 0, 0, 0.05)',
+                                          border: isThresholdReached ? '1px solid #f59e0b' : '1px solid var(--border-color)',
+                                        }}
+                                      >
+                                        <CheckCircle2 size={10} style={{ color: isThresholdReached ? '#d97706' : attendedCount >= maxMeetings ? '#059669' : 'var(--text-muted)' }} />
+                                        {attendedCount}/{maxMeetings} mtgs
+                                      </span>
+                                    )}
+
+                                    {/* Continuation badge */}
+                                    {continuationStyle && (
+                                      <span
+                                        title={`Continuation: ${continuationStyle.label}${progRecord?.continuationNote ? `\nNote: ${progRecord.continuationNote}` : ''}`}
+                                        style={{
+                                          fontSize: '0.63rem',
+                                          fontWeight: 700,
+                                          color: continuationStyle.color,
+                                          background: continuationStyle.bg,
+                                          border: `1px solid ${continuationStyle.borderColor}`,
+                                          borderRadius: '5px',
+                                          padding: '0.1rem 0.38rem',
+                                          display: 'inline-flex',
+                                          alignItems: 'center',
+                                          gap: '0.2rem',
+                                        }}
+                                      >
+                                        {progRecord.continuation === 'Continue' && <Check size={9} />}
+                                        {progRecord.continuation === 'Uncertain' && <HelpCircle size={9} />}
+                                        {progRecord.continuation === 'Stop' && <XCircle size={9} />}
+                                        {continuationStyle.label}
+                                      </span>
+                                    )}
+
+                                    {/* Video pill */}
+                                    {videoEntries.map((v) => (
+                                      v.link ? (
+                                        <a
+                                          key={v.level}
+                                          href={v.link}
+                                          target="_blank"
+                                          rel="noopener noreferrer"
+                                          title={`Open Google Drive video for ${v.level}: ${v.link}`}
+                                          style={{
+                                            fontSize: '0.63rem',
+                                            fontWeight: 700,
+                                            color: '#0891b2',
+                                            background: 'rgba(8, 145, 178, 0.12)',
+                                            border: '1px solid #0891b2',
+                                            borderRadius: '5px',
+                                            padding: '0.1rem 0.35rem',
+                                            display: 'inline-flex',
+                                            alignItems: 'center',
+                                            gap: '0.2rem',
+                                            textDecoration: 'none',
+                                          }}
+                                        >
+                                          <Video size={10} /> {v.level}
+                                        </a>
+                                      ) : (
+                                        <span
+                                          key={v.level}
+                                          title={`Video marked sent for ${v.level}`}
+                                          style={{
+                                            fontSize: '0.63rem',
+                                            fontWeight: 700,
+                                            color: '#0891b2',
+                                            background: 'rgba(8, 145, 178, 0.1)',
+                                            border: '1px solid rgba(8, 145, 178, 0.3)',
+                                            borderRadius: '5px',
+                                            padding: '0.1rem 0.35rem',
+                                            display: 'inline-flex',
+                                            alignItems: 'center',
+                                            gap: '0.2rem',
+                                          }}
+                                        >
+                                          <Video size={10} /> {v.level}
+                                        </span>
+                                      )
+                                    ))}
                                   </div>
                                   <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', flexWrap: 'wrap' }}>
                                     <span style={{
@@ -1870,9 +2172,35 @@ export default function ScheduleGrid({
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.74rem', color: 'var(--text-secondary)' }}>
                                   <span>Program: <strong style={{ color: 'var(--text-main)' }}>{getStudentProgramDisplay(m, progRecord)}</strong></span>
                                   {badgeInfo && (
-                                    <span style={{ fontSize: '0.62rem', fontWeight: 700, color: badgeInfo.color, background: badgeInfo.bg, border: `1px solid ${badgeInfo.borderColor}`, padding: '0.05rem 0.35rem', borderRadius: '4px' }}>
-                                      {badgeInfo.label}
-                                    </span>
+                                    <button
+                                      type="button"
+                                      onClick={() => openProgressModal(m, progRecord, previewClass)}
+                                      title={`Click to update progress tracking for ${m.student}\nCurrent Status: ${badgeInfo.label}${progRecord?.progressUpdateDate ? `\nScheduled: ${progRecord.progressUpdateDate}` : ''}`}
+                                      style={{
+                                        fontSize: '0.64rem',
+                                        fontWeight: 700,
+                                        color: badgeInfo.color,
+                                        background: badgeInfo.bg,
+                                        border: `1px solid ${badgeInfo.borderColor}`,
+                                        padding: '0.08rem 0.45rem',
+                                        borderRadius: '5px',
+                                        cursor: 'pointer',
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        gap: '0.25rem',
+                                      }}
+                                    >
+                                      {progressStatus === 'Need update progress' && <Clock size={10} />}
+                                      {progressStatus === 'Update Offer' && <Send size={10} />}
+                                      {progressStatus === 'Update Scheduled' && <Calendar size={10} />}
+                                      {progressStatus === 'Update Reschedule' && <RotateCcw size={10} />}
+                                      {progressStatus === 'Update Done' && <CheckCircle2 size={10} />}
+                                      {progressStatus === 'Wait Payment' && <Clock size={10} />}
+                                      <span>{badgeInfo.shortLabel || badgeInfo.label}</span>
+                                      {progressStatus === 'Update Scheduled' && progRecord?.progressUpdateDate && (
+                                        <span style={{ opacity: 0.85, fontSize: '0.6rem' }}>· {progRecord.progressUpdateDate}</span>
+                                      )}
+                                    </button>
                                   )}
                                 </div>
 
@@ -2336,8 +2664,28 @@ export default function ScheduleGrid({
                         const spent = isExpired(m, todayISO);
 
                         const progRecord = liveProgressMap?.get ? liveProgressMap.get(String(m.student || '').toLowerCase().trim()) : null;
-                        const progressStatus = getProgressUpdateStatus(m, progRecord);
-                        const badgeInfo = progressStatus ? PROGRESS_UPDATE_BADGES[progressStatus] : null;
+                        const progressStatus = getEffectiveProgressUpdateStatus(m, progRecord);
+                        const badgeInfo = progressStatus ? (PROGRESS_UPDATE_BADGES[progressStatus] || PROGRESS_UPDATE_BADGES['Need update progress']) : null;
+
+                        const category = progRecord?.category || categoryOfProgram({ programs: [m.program] }) || 'Kinder';
+                        const attendedCount = progRecord?.attendance
+                          ? Object.keys(progRecord.attendance).filter((k) => progRecord.attendance[k]).length
+                          : (m.attendanceCount != null ? Number(m.attendanceCount) : 0);
+                        const maxMeetings = progRecord?.targetMeetings || (category === 'Coder' ? 12 : 10);
+                        const threshold = category === 'Coder' ? 9 : 7;
+                        const isThresholdReached = attendedCount >= threshold;
+
+                        const continuationStyle = progRecord?.continuation ? CONTINUATION_BADGE_STYLES[progRecord.continuation] : null;
+
+                        const videoEntries = progRecord?.videos && typeof progRecord.videos === 'object'
+                          ? Object.entries(progRecord.videos)
+                              .filter(([lvl, v]) => Boolean(v))
+                              .map(([lvl, v]) => ({
+                                level: lvl,
+                                link: typeof v === 'string' ? v : v?.link || null,
+                                sent: typeof v === 'object' ? Boolean(v?.sent) : Boolean(v),
+                              }))
+                          : [];
 
                         return (
                           <div
@@ -2418,8 +2766,34 @@ export default function ScheduleGrid({
                                   </span>
                                 )}
 
-                                {badgeInfo && (
+                                {/* Attendance count pill */}
+                                {(attendedCount > 0 || progRecord) && (
                                   <span
+                                    title={`Attended ${attendedCount} of ${maxMeetings} meetings${isThresholdReached ? ' (Progress update threshold reached!)' : ''}`}
+                                    style={{
+                                      fontSize: '0.64rem',
+                                      fontWeight: 700,
+                                      padding: '0.1rem 0.4rem',
+                                      borderRadius: '5px',
+                                      display: 'inline-flex',
+                                      alignItems: 'center',
+                                      gap: '0.22rem',
+                                      color: isThresholdReached ? '#b45309' : attendedCount >= maxMeetings ? '#047857' : 'var(--text-secondary)',
+                                      background: isThresholdReached ? '#fef3c7' : attendedCount >= maxMeetings ? 'rgba(16, 185, 129, 0.12)' : 'rgba(0, 0, 0, 0.05)',
+                                      border: isThresholdReached ? '1px solid #f59e0b' : '1px solid var(--border-color)',
+                                    }}
+                                  >
+                                    <CheckCircle2 size={10} style={{ color: isThresholdReached ? '#d97706' : attendedCount >= maxMeetings ? '#059669' : 'var(--text-muted)' }} />
+                                    {attendedCount}/{maxMeetings} mtgs
+                                  </span>
+                                )}
+
+                                {/* Status badge */}
+                                {badgeInfo && (
+                                  <button
+                                    type="button"
+                                    onClick={() => openProgressModal(m, progRecord, roster)}
+                                    title={`Click to update progress tracking for ${m.student}\nCurrent Status: ${badgeInfo.label}${progRecord?.progressUpdateDate ? `\nScheduled: ${progRecord.progressUpdateDate}` : ''}`}
                                     style={{
                                       fontSize: '0.63rem',
                                       fontWeight: 700,
@@ -2428,18 +2802,96 @@ export default function ScheduleGrid({
                                       background: badgeInfo.bg,
                                       border: `1px solid ${badgeInfo.borderColor}`,
                                       borderRadius: '5px',
-                                      padding: '0.1rem 0.35rem',
+                                      padding: '0.1rem 0.45rem',
                                       display: 'inline-flex',
                                       alignItems: 'center',
-                                      gap: '0.2rem',
+                                      gap: '0.25rem',
+                                      cursor: 'pointer',
                                     }}
                                   >
                                     {progressStatus === 'Need update progress' && <Clock size={9} />}
                                     {progressStatus === 'Update Offer' && <Send size={9} />}
                                     {progressStatus === 'Update Scheduled' && <Calendar size={9} />}
-                                    {badgeInfo.label}
+                                    {progressStatus === 'Update Reschedule' && <RotateCcw size={9} />}
+                                    {progressStatus === 'Update Done' && <CheckCircle2 size={9} />}
+                                    {progressStatus === 'Wait Payment' && <Clock size={9} />}
+                                    <span>{badgeInfo.shortLabel || badgeInfo.label}</span>
+                                    {progressStatus === 'Update Scheduled' && progRecord?.progressUpdateDate && (
+                                      <span style={{ opacity: 0.85, fontSize: '0.6rem' }}>· {progRecord.progressUpdateDate}</span>
+                                    )}
+                                  </button>
+                                )}
+
+                                {/* Continuation badge */}
+                                {continuationStyle && (
+                                  <span
+                                    title={`Continuation: ${continuationStyle.label}${progRecord?.continuationNote ? `\nNote: ${progRecord.continuationNote}` : ''}`}
+                                    style={{
+                                      fontSize: '0.63rem',
+                                      fontWeight: 700,
+                                      color: continuationStyle.color,
+                                      background: continuationStyle.bg,
+                                      border: `1px solid ${continuationStyle.borderColor}`,
+                                      borderRadius: '5px',
+                                      padding: '0.1rem 0.38rem',
+                                      display: 'inline-flex',
+                                      alignItems: 'center',
+                                      gap: '0.2rem',
+                                    }}
+                                  >
+                                    {progRecord.continuation === 'Continue' && <Check size={9} />}
+                                    {progRecord.continuation === 'Uncertain' && <HelpCircle size={9} />}
+                                    {progRecord.continuation === 'Stop' && <XCircle size={9} />}
+                                    {continuationStyle.label}
                                   </span>
                                 )}
+
+                                {/* Video pill */}
+                                {videoEntries.map((v) => (
+                                  v.link ? (
+                                    <a
+                                      key={v.level}
+                                      href={v.link}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      title={`Open Google Drive video for ${v.level}: ${v.link}`}
+                                      style={{
+                                        fontSize: '0.63rem',
+                                        fontWeight: 700,
+                                        color: '#0891b2',
+                                        background: 'rgba(8, 145, 178, 0.12)',
+                                        border: '1px solid #0891b2',
+                                        borderRadius: '5px',
+                                        padding: '0.1rem 0.35rem',
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        gap: '0.2rem',
+                                        textDecoration: 'none',
+                                      }}
+                                    >
+                                      <Video size={10} /> {v.level}
+                                    </a>
+                                  ) : (
+                                    <span
+                                      key={v.level}
+                                      title={`Video marked sent for ${v.level}`}
+                                      style={{
+                                        fontSize: '0.63rem',
+                                        fontWeight: 700,
+                                        color: '#0891b2',
+                                        background: 'rgba(8, 145, 178, 0.1)',
+                                        border: '1px solid rgba(8, 145, 178, 0.3)',
+                                        borderRadius: '5px',
+                                        padding: '0.1rem 0.35rem',
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        gap: '0.2rem',
+                                      }}
+                                    >
+                                      <Video size={10} /> {v.level}
+                                    </span>
+                                  )
+                                ))}
                               </span>
                               <span style={{ display: 'block', fontSize: '0.72rem', color: isIzin ? '#b45309' : 'var(--text-secondary)', marginTop: '0.15rem' }}>
                                 {isIzin ? (
@@ -2479,6 +2931,9 @@ export default function ScheduleGrid({
                                 <option value="Need update progress">Need update progress</option>
                                 <option value="Update Offer">Update Offer</option>
                                 <option value="Update Scheduled">Update Scheduled</option>
+                                <option value="Update Reschedule">Update Reschedule</option>
+                                <option value="Update Done">Update Done</option>
+                                <option value="Wait Payment">Wait Payment</option>
                                 <option value="Completed">Completed / Clear</option>
                               </select>
                               {isIzin ? (
@@ -2955,6 +3410,21 @@ export default function ScheduleGrid({
           setLeaveModal({ isOpen: false, member: null, classInfo: null, defaultDate: '' });
         }}
       />
+
+      {/* Progress Update Lifecycle Modal */}
+      {progressModalRow && (
+        <ProgressUpdateModal
+          isOpen={Boolean(progressModalRow)}
+          onClose={() => setProgressModalRow(null)}
+          row={progressModalRow}
+          category={progressModalRow.category || 'Kinder'}
+          user={user}
+          onSave={async (updates) => {
+            await onUpdateStudent?.(progressModalRow, updates);
+            setProgressModalRow(null);
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -3283,10 +3753,10 @@ function Cell({
       const progRecord = liveProgressMap?.get
         ? liveProgressMap.get(String(m.student || '').toLowerCase().trim())
         : null;
-      const st = getProgressUpdateStatus(m, progRecord);
+      const st = getEffectiveProgressUpdateStatus(m, progRecord);
       if (st === 'Need update progress') flags.needUpdate.push(who);
       else if (st === 'Update Offer') flags.offer.push(who);
-      else if (st === 'Update Scheduled') flags.scheduled.push(who);
+      else if (st === 'Update Scheduled' || st === 'Update Reschedule') flags.scheduled.push(who);
       if (progRecord?.isMoveTemporary
         || progRecord?.arrangementType === 'move_same_day'
         || progRecord?.arrangementType === 'replacement_custom'

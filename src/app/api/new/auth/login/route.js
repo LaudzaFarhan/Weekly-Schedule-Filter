@@ -65,6 +65,8 @@ const publicUser = (row) => ({
   status: row.status,
   fullname: row.fullname,
   nickname: row.nickname,
+  location: row.location || null,
+  instructorId: row.instructor_id || null,
   mustChangePassword: row.must_change_password,
   lastLoginAt: row.last_login_at,
 });
