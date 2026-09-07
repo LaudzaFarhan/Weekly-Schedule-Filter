@@ -143,6 +143,9 @@ describe('ScheduleGrid teacher branch view restrictions', () => {
 
     // "Assigned" indicator badge must be visible
     expect(screen.getByText(/^Assigned$/)).toBeInTheDocument();
+
+    // Right-side "You are assigned to this branch" badge must be visible
+    expect(screen.getByText(/You are assigned to this branch/i)).toBeInTheDocument();
   });
 
   it('allows teacher assigned to multiple branches to switch between assigned branches only', () => {
@@ -193,5 +196,55 @@ describe('ScheduleGrid teacher branch view restrictions', () => {
     const branchSelect = screen.getByDisplayValue('Bintaro');
     expect(branchSelect).toBeDisabled();
     expect(screen.getByText(/^Assigned$/)).toBeInTheDocument();
+    expect(screen.getByText(/You are assigned to this branch/i)).toBeInTheDocument();
+  });
+
+  it('displays full student name, attendance count, and continuation badge on class card', () => {
+    const mockClassGroups = [
+      {
+        id: 'cls-1',
+        key: 'cls-1',
+        branchName: 'Bekasi',
+        day: 'Monday',
+        teacher: 'Risafya Tabrina Aurelia',
+        startMin: 900,
+        endMin: 990,
+        programs: ['K1.8', 'K1.3'],
+        members: [
+          { student: 'Beatrice Eunice Wijaya', program: 'K1.8' },
+        ],
+      },
+    ];
+
+    const mockLiveProgress = [
+      {
+        studentName: 'Beatrice Eunice Wijaya',
+        category: 'Kinder',
+        attendance: { 1: {}, 2: {}, 3: {}, 4: {}, 5: {}, 6: {}, 7: {} },
+        progressUpdateStatus: 'Update Scheduled',
+        progressUpdateDate: '2026-09-12',
+        continuation: 'Continue',
+      },
+    ];
+
+    render(
+      <ScheduleGrid
+        user={{ role: 'Admin' }}
+        branches={mockBranches}
+        instructors={mockInstructors}
+        classGroups={mockClassGroups}
+        liveProgress={mockLiveProgress}
+      />
+    );
+
+    // Full student name should be visible on the card without being cut off
+    expect(screen.getByText(/Beatrice Eunice Wijaya/i)).toBeInTheDocument();
+
+    // Attendance count pill should be visible
+    expect(screen.getByText(/7\/10 mtgs/i)).toBeInTheDocument();
+
+    // Continuation pill should be visible
+    expect(screen.getByText(/^Continue$/)).toBeInTheDocument();
   });
 });
+

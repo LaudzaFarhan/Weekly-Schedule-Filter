@@ -46,10 +46,12 @@ export default function ScheduleGridPanel({ onNavigate } = {}) {
   const [saving, setSaving] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isClosingFullscreen, setIsClosingFullscreen] = useState(false);
+  const [placeholderHeight, setPlaceholderHeight] = useState(null);
+  const [hasReturned, setHasReturned] = useState(false);
   const exitTimerRef = useRef(null);
   const panelRef = useRef(null);
 
-  const FULLSCREEN_EXIT_MS = 200;
+  const FULLSCREEN_EXIT_MS = 240;
 
   const exitFullscreen = useCallback(() => {
     if (!isFullscreen || isClosingFullscreen) return;
@@ -58,11 +60,17 @@ export default function ScheduleGridPanel({ onNavigate } = {}) {
     exitTimerRef.current = setTimeout(() => {
       setIsFullscreen(false);
       setIsClosingFullscreen(false);
+      setPlaceholderHeight(null);
+      setHasReturned(true);
     }, FULLSCREEN_EXIT_MS);
   }, [isFullscreen, isClosingFullscreen]);
 
   const enterFullscreen = useCallback(() => {
     if (exitTimerRef.current) clearTimeout(exitTimerRef.current);
+    if (panelRef.current) {
+      setPlaceholderHeight(panelRef.current.offsetHeight || 650);
+    }
+    setHasReturned(false);
     setIsClosingFullscreen(false);
     setIsFullscreen(true);
   }, []);
@@ -604,45 +612,66 @@ export default function ScheduleGridPanel({ onNavigate } = {}) {
   const fullscreenActive = isFullscreen || isClosingFullscreen;
 
   return (
-    <div
-      ref={panelRef}
-      data-tour="schedule-grid"
-      className={`panel ${fullscreenActive ? 'schedule-grid-fullscreen' : ''}${isClosingFullscreen ? ' is-closing' : ''}`}
-      style={{ margin: fullscreenActive ? 0 : '0 0 1.5rem' }}
-    >
-      <div className="panel-header" style={{ flexWrap: 'wrap', gap: '0.75rem', justifyContent: 'space-between', alignItems: 'center' }}>
-        <div>
-          <h2 style={{ fontSize: fullscreenActive ? '1.25rem' : '1.15rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.45rem' }}>
-            <LayoutGrid size={19} /> Schedule Grid
-            {fullscreenActive && (
-              <span style={{
-                fontSize: '0.72rem',
-                fontWeight: 600,
-                padding: '0.2rem 0.55rem',
-                borderRadius: '99px',
-                background: 'rgba(79,70,229,0.1)',
-                color: 'var(--primary-blue, #4f46e5)',
-                border: '1px solid rgba(79,70,229,0.25)',
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '0.25rem',
-                marginLeft: '0.35rem',
-              }}>
-                <Sparkles size={12} /> Focus Mode
-              </span>
-            )}
-          </h2>
-          <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', margin: '0.2rem 0 0' }}>
-            Plan from who is actually free. Columns are instructors, rows are 30 minutes. Click a cell to open a class,
-            or a card to manage its students. Gaps too short for a class can still take a meeting, training or break.
-            Drag a card to move it, drag its bottom edge to change length.
-          </p>
-        </div>
+    <>
+      {fullscreenActive && (
+        <div
+          className={`schedule-grid-fullscreen-backdrop ${isClosingFullscreen ? 'is-closing' : ''}`}
+          onClick={exitFullscreen}
+          title="Click backdrop to exit fullscreen (Esc)"
+          aria-hidden="true"
+        />
+      )}
+      {fullscreenActive && placeholderHeight > 0 && (
+        <div
+          className="schedule-grid-inpage-placeholder"
+          style={{ height: `${placeholderHeight}px` }}
+          aria-hidden="true"
+        />
+      )}
+      <div
+        ref={panelRef}
+        data-tour="schedule-grid"
+        className={`panel ${fullscreenActive ? 'schedule-grid-fullscreen' : ''}${isClosingFullscreen ? ' is-closing' : ''}${hasReturned && !fullscreenActive ? ' schedule-grid-returned' : ''}`}
+        style={{ margin: fullscreenActive ? 0 : '0 0 1.5rem' }}
+        onAnimationEnd={(e) => {
+          if (e.animationName === 'scheduleGridInPageSettle') {
+            setHasReturned(false);
+          }
+        }}
+      >
+        <div className="panel-header" style={{ flexWrap: 'wrap', gap: '0.75rem', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div>
+            <h2 style={{ fontSize: fullscreenActive ? '1.25rem' : '1.15rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.45rem' }}>
+              <LayoutGrid size={19} /> Schedule Grid
+              {fullscreenActive && (
+                <span className="schedule-focus-mode-badge" style={{
+                  fontSize: '0.72rem',
+                  fontWeight: 600,
+                  padding: '0.2rem 0.55rem',
+                  borderRadius: '99px',
+                  background: 'rgba(79,70,229,0.1)',
+                  color: 'var(--primary-blue, #4f46e5)',
+                  border: '1px solid rgba(79,70,229,0.25)',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '0.25rem',
+                  marginLeft: '0.35rem',
+                }}>
+                  <Sparkles size={12} /> Focus Mode
+                </span>
+              )}
+            </h2>
+            <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', margin: '0.2rem 0 0' }}>
+              Plan from who is actually free. Columns are instructors, rows are 30 minutes. Click a cell to open a class,
+              or a card to manage its students. Gaps too short for a class can still take a meeting, training or break.
+              Drag a card to move it, drag its bottom edge to change length.
+            </p>
+          </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
           <button
             type="button"
             onClick={toggleFullscreen}
-            className={`btn ${fullscreenActive ? 'btn-primary' : ''}`}
+            className={`btn btn-fullscreen-toggle ${fullscreenActive ? 'btn-primary is-active' : ''}`}
             title={fullscreenActive ? 'Exit Fullscreen Focus (Esc)' : 'Maximize Schedule Grid to Fullscreen'}
             style={{
               fontSize: '0.8rem',
@@ -656,11 +685,10 @@ export default function ScheduleGridPanel({ onNavigate } = {}) {
               color: fullscreenActive ? undefined : 'var(--text-main)',
               cursor: 'pointer',
               fontWeight: 600,
-              transition: 'all 0.15s ease',
             }}
           >
-            {fullscreenActive ? <Minimize2 size={15} /> : <Maximize2 size={15} />}
-            {fullscreenActive ? 'Exit Fullscreen' : 'Fullscreen'}
+            {fullscreenActive ? <Minimize2 size={15} className="fullscreen-icon" /> : <Maximize2 size={15} className="fullscreen-icon" />}
+            <span>{fullscreenActive ? 'Exit Fullscreen' : 'Fullscreen'}</span>
             {fullscreenActive && (
               <kbd style={{
                 fontSize: '0.65rem',
@@ -718,5 +746,6 @@ export default function ScheduleGridPanel({ onNavigate } = {}) {
           : undefined}
       />
     </div>
+    </>
   );
 }

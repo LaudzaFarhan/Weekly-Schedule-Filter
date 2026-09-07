@@ -90,12 +90,17 @@ describe('ScheduleGridPanel Fullscreen Mode', () => {
     expect(panel).toHaveClass('schedule-grid-fullscreen');
     expect(screen.getByText(/Focus Mode/i)).toBeInTheDocument();
 
+    // Backdrop scrim must be rendered
+    const backdrop = container.querySelector('.schedule-grid-fullscreen-backdrop');
+    expect(backdrop).toBeInTheDocument();
+
     // Click Exit Fullscreen -> triggers closing transition
     const exitBtn = screen.getByRole('button', { name: /exit fullscreen/i });
     act(() => {
       fireEvent.click(exitBtn);
     });
     expect(panel).toHaveClass('is-closing');
+    expect(backdrop).toHaveClass('is-closing');
 
     // Wait for exit timer to complete
     act(() => {
@@ -103,6 +108,35 @@ describe('ScheduleGridPanel Fullscreen Mode', () => {
     });
     expect(panel).not.toHaveClass('schedule-grid-fullscreen');
     expect(panel).not.toHaveClass('is-closing');
+    expect(container.querySelector('.schedule-grid-fullscreen-backdrop')).not.toBeInTheDocument();
+  });
+
+  it('exits fullscreen when backdrop is clicked', () => {
+    const { container } = render(<ScheduleGridPanel />);
+    const panel = container.querySelector('.panel');
+
+    const fullscreenBtn = screen.getAllByRole('button', { name: /fullscreen/i })[0];
+    act(() => {
+      fireEvent.click(fullscreenBtn);
+    });
+    expect(panel).toHaveClass('schedule-grid-fullscreen');
+
+    const backdrop = container.querySelector('.schedule-grid-fullscreen-backdrop');
+    expect(backdrop).toBeInTheDocument();
+
+    // Click backdrop -> triggers closing transition
+    act(() => {
+      fireEvent.click(backdrop);
+    });
+    expect(panel).toHaveClass('is-closing');
+    expect(backdrop).toHaveClass('is-closing');
+
+    // Advance timer to complete exit transition
+    act(() => {
+      vi.advanceTimersByTime(250);
+    });
+    expect(panel).not.toHaveClass('schedule-grid-fullscreen');
+    expect(container.querySelector('.schedule-grid-fullscreen-backdrop')).not.toBeInTheDocument();
   });
 
   it('exits fullscreen when Esc key is pressed', () => {

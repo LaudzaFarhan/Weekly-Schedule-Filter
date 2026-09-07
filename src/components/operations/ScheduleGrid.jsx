@@ -431,6 +431,14 @@ export default function ScheduleGrid({
   const branch = selectable.find((b) => b.id === branchId) || null;
   const allBranches = !isTeacher && branchId === 'all';
 
+  const isCurrentBranchAssigned = useMemo(() => {
+    if (!isTeacher || !branch) return false;
+    if (!teacherAssignedBranches || teacherAssignedBranches.length === 0) return true;
+    return teacherAssignedBranches.some(
+      (tb) => isSameBranch(tb, branch.name) || isSameBranch(tb, branch.id) || tb === branch.id
+    );
+  }, [isTeacher, branch, teacherAssignedBranches]);
+
   const openProgressModal = useCallback((member, progRecord, classContext = null) => {
     if (!member && !progRecord) return;
     const rawProg = member?.program || progRecord?.programCode || '';
@@ -1280,6 +1288,31 @@ export default function ScheduleGrid({
               </button>
             ))}
           </div>
+
+          {/* Right side: Teacher Assigned Branch Badge */}
+          {isTeacher && isCurrentBranchAssigned && (
+            <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center' }}>
+              <span
+                className="schedule-assigned-branch-badge"
+                style={{
+                  fontSize: '0.75rem',
+                  fontWeight: 600,
+                  color: 'var(--primary-blue, #4f46e5)',
+                  background: 'rgba(79, 70, 229, 0.08)',
+                  border: '1px solid rgba(79, 70, 229, 0.22)',
+                  padding: '0.35rem 0.75rem',
+                  borderRadius: '6px',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '0.38rem',
+                  whiteSpace: 'nowrap',
+                }}
+                title={`You are assigned to ${branch?.name || 'this branch'}`}
+              >
+                <Lock size={12} /> You are assigned to this branch
+              </span>
+            </div>
+          )}
         </div>
 
         {/* Row 2: Program Filter Pills (Left) & Controls (Right) - 1 horizontal line */}
@@ -1415,7 +1448,7 @@ export default function ScheduleGrid({
               <button
                 type="button"
                 onClick={onToggleFullscreen}
-                className="btn"
+                className={`btn btn-fullscreen-toggle ${isFullscreen ? 'is-active' : ''}`}
                 title={isFullscreen ? 'Exit Fullscreen Focus (Esc)' : 'Expand to Fullscreen Focus Grid'}
                 style={{
                   display: 'inline-flex',
@@ -1430,11 +1463,10 @@ export default function ScheduleGrid({
                   background: isFullscreen ? 'rgba(79, 70, 229, 0.1)' : 'transparent',
                   color: isFullscreen ? 'var(--primary-blue, #4f46e5)' : 'var(--text-secondary)',
                   cursor: 'pointer',
-                  transition: 'all 0.15s ease',
                 }}
               >
-                {isFullscreen ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
-                {isFullscreen ? 'Exit Focus' : 'Fullscreen'}
+                {isFullscreen ? <Minimize2 size={13} className="fullscreen-icon" /> : <Maximize2 size={13} className="fullscreen-icon" />}
+                <span>{isFullscreen ? 'Exit Focus' : 'Fullscreen'}</span>
               </button>
             )}
           </div>
@@ -1833,6 +1865,7 @@ export default function ScheduleGrid({
                             openEditor={openEditor}
                             openRoster={openRoster}
                             onPreviewClass={(c) => openPreview(c)}
+                            openProgressModal={openProgressModal}
                             week={week}
                             onRemoveSlot={onRemoveSlot}
                             beginMoveClass={beginMoveClass}
@@ -3571,36 +3604,153 @@ const NAME_LINE_H = 11;
 /**
  * A per-student status badge on a class card.
  *
- * Names the student instead of only counting them: "Scheduled (1)" told you
- * something needed attention but not who, so it still cost a click to act on.
- *
- * The name is width-bounded and ellipsised. Without that, one long name would
- * widen the badge enough to wrap the row onto a second line and overflow the
- * card, which on a 90-minute card there is no room for.
+ * Displays full student name and update progress text without truncation,
+ * plus attendance count pill and continuation badge from live progress.
  */
-function StatusBadge({ Icon, label, names, color, background, borderColor, description }) {
+function StatusBadge({
+  Icon, label, names, color, background, borderColor, description,
+  onOpenProgressModal, cls,
+}) {
   if (!names?.length) return null;
   const [first, ...rest] = names;
+  const firstObj = typeof first === 'object' && first !== null ? first : { name: first };
+  const firstName = firstObj.name || String(first || '');
+  const dateStr = firstObj.date ? ` (${firstObj.date})` : '';
+  const continuationStyle = firstObj.continuation ? CONTINUATION_BADGE_STYLES[firstObj.continuation] : null;
+
+  const tooltipLines = [
+    `${description}: ${names.map((n) => {
+      if (typeof n === 'object' && n !== null) {
+        const parts = [n.name];
+        if (n.status) parts.push(n.status);
+        if (n.attCount) parts.push(`${n.attCount}/${n.totalMeetings || 10} mtgs`);
+        if (n.continuation) parts.push(`Continuation: ${n.continuation}`);
+        if (n.date) parts.push(`Date: ${n.date}`);
+        if (n.note) parts.push(`Note: ${n.note}`);
+        return parts.join(' · ');
+      }
+      return n;
+    }).join('\n')}`,
+    firstObj.note ? `Note: ${firstObj.note}` : '',
+    onOpenProgressModal ? 'Click to view & update live progress' : '',
+  ].filter(Boolean);
+
   return (
-    <span
-      title={`${description}: ${names.join(', ')}`}
+    <div
       style={{
-        fontSize: '0.58rem', fontWeight: 700, color, background,
-        border: `1px solid ${borderColor}`, borderRadius: '4px',
-        padding: '0.05rem 0.28rem', display: 'inline-flex', alignItems: 'center',
-        gap: '0.15rem', maxWidth: '100%', minWidth: 0, overflow: 'hidden',
+        display: 'inline-flex',
+        flexDirection: 'column',
+        gap: '0.15rem',
+        maxWidth: '100%',
+        minWidth: 0,
       }}
     >
-      <Icon size={8} style={{ flexShrink: 0 }} />
-      <span style={{ flexShrink: 0 }}>{label}</span>
-      <span style={{
-        overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-        minWidth: 0, fontWeight: 600, maxWidth: '96px',
-      }}>
-        · {first}
+      <span
+        onClick={(e) => {
+          if (onOpenProgressModal && firstObj.member) {
+            e.stopPropagation();
+            onOpenProgressModal(firstObj.member, firstObj.progRecord, cls);
+          }
+        }}
+        title={tooltipLines.join('\n')}
+        style={{
+          fontSize: '0.58rem',
+          fontWeight: 700,
+          color,
+          background,
+          border: `1px solid ${borderColor}`,
+          borderRadius: '4px',
+          padding: '0.08rem 0.32rem',
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: '0.2rem',
+          maxWidth: '100%',
+          minWidth: 0,
+          cursor: onOpenProgressModal ? 'pointer' : 'default',
+          flexWrap: 'wrap',
+          lineHeight: '1.25',
+        }}
+      >
+        <Icon size={9} style={{ flexShrink: 0 }} />
+        <span style={{ flexShrink: 0 }}>{label}</span>
+        <span
+          style={{
+            fontWeight: 600,
+            wordBreak: 'break-word',
+            display: 'inline',
+          }}
+        >
+          · {firstName}{dateStr}
+        </span>
+        {rest.length > 0 && (
+          <span
+            title={`${rest.length} more: ${rest.map((r) => (typeof r === 'object' ? r.name : r)).join(', ')}`}
+            style={{
+              flexShrink: 0,
+              fontSize: '0.52rem',
+              opacity: 0.85,
+              background: 'rgba(0,0,0,0.06)',
+              borderRadius: '3px',
+              padding: '0 0.15rem',
+            }}
+          >
+            +{rest.length}
+          </span>
+        )}
       </span>
-      {rest.length > 0 && <span style={{ flexShrink: 0 }}>+{rest.length}</span>}
-    </span>
+
+      {/* Live Progress Info: Meeting attendance count & Continuation badges */}
+      {(firstObj.attCount > 0 || continuationStyle) && (
+        <div style={{ display: 'inline-flex', alignItems: 'center', gap: '0.2rem', flexWrap: 'wrap' }}>
+          {firstObj.attCount > 0 && (
+            <span
+              title={`Attendance: ${firstObj.attCount}/${firstObj.totalMeetings || 10} meetings completed`}
+              style={{
+                fontSize: '0.54rem',
+                fontWeight: 700,
+                color: firstObj.attCount >= (firstObj.category === 'Coder' ? 9 : 7) ? '#b45309' : 'var(--text-secondary, #475569)',
+                background: firstObj.attCount >= (firstObj.category === 'Coder' ? 9 : 7) ? 'rgba(245, 158, 11, 0.16)' : 'rgba(0,0,0,0.05)',
+                border: `1px solid ${firstObj.attCount >= (firstObj.category === 'Coder' ? 9 : 7) ? '#f59e0b' : 'rgba(0,0,0,0.12)'}`,
+                borderRadius: '3px',
+                padding: '0.02rem 0.22rem',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '0.15rem',
+                whiteSpace: 'nowrap',
+                lineHeight: '1.2',
+              }}
+            >
+              <CheckCircle2 size={8} /> {firstObj.attCount}/{firstObj.totalMeetings || 10} mtgs
+            </span>
+          )}
+
+          {continuationStyle && (
+            <span
+              title={`Continuation: ${continuationStyle.label}${firstObj.continuationNote ? `\nNote: ${firstObj.continuationNote}` : ''}`}
+              style={{
+                fontSize: '0.54rem',
+                fontWeight: 700,
+                color: continuationStyle.color,
+                background: continuationStyle.bg,
+                border: `1px solid ${continuationStyle.borderColor}`,
+                borderRadius: '3px',
+                padding: '0.02rem 0.22rem',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '0.15rem',
+                whiteSpace: 'nowrap',
+                lineHeight: '1.2',
+              }}
+            >
+              {firstObj.continuation === 'Continue' && <Check size={8} />}
+              {firstObj.continuation === 'Uncertain' && <HelpCircle size={8} />}
+              {firstObj.continuation === 'Stop' && <XCircle size={8} />}
+              {continuationStyle.label}
+            </span>
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -3608,6 +3758,7 @@ function StatusBadge({ Icon, label, names, color, background, borderColor, descr
 function Cell({
   cell, inst, start, height, allBranches, rules, saving, week, liveProgressMap, showNames,
   moving, isTarget, resizing, openPicker, openEditor, openRoster, onPreviewClass, onRemoveSlot,
+  openProgressModal,
   beginMoveClass, beginMoveSlot, setMoving, applyMove, beginResize, nudge,
   rowIdx, beginDraw, inDraw, drawAnchor, drawnDuration, drawnRows,
   inSel, selSummaryRow, selEditRow, selStart, selDuration, selRows, onEditSelection,
@@ -3754,14 +3905,44 @@ function Cell({
         ? liveProgressMap.get(String(m.student || '').toLowerCase().trim())
         : null;
       const st = getEffectiveProgressUpdateStatus(m, progRecord);
-      if (st === 'Need update progress') flags.needUpdate.push(who);
-      else if (st === 'Update Offer') flags.offer.push(who);
-      else if (st === 'Update Scheduled' || st === 'Update Reschedule') flags.scheduled.push(who);
+
+      const rawProg = m.program || m.level || progRecord?.programCode || '';
+      const parsed = parseProgram(rawProg);
+      const cat = parsed.category || cell.category || progRecord?.category || 'Kinder';
+      const totalMeetings = cat === 'Coder' ? 12 : 10;
+      let attCount = 0;
+      if (progRecord?.attendance && typeof progRecord.attendance === 'object') {
+        attCount = Object.keys(progRecord.attendance).filter((k) => progRecord.attendance[k]).length;
+      } else if (m.attendance && typeof m.attendance === 'object') {
+        attCount = Object.keys(m.attendance).filter((k) => m.attendance[k]).length;
+      } else if (m.attendanceCount != null) {
+        attCount = Number(m.attendanceCount);
+      } else if (parsed.lesson != null) {
+        attCount = Number(parsed.lesson);
+      }
+
+      const info = {
+        name: who,
+        status: st,
+        date: progRecord?.progressUpdateDate || '',
+        note: progRecord?.progressUpdateNote || '',
+        attCount,
+        totalMeetings,
+        category: cat,
+        continuation: progRecord?.continuation || '',
+        continuationNote: progRecord?.continuationNote || '',
+        member: m,
+        progRecord,
+      };
+
+      if (st === 'Need update progress') flags.needUpdate.push(info);
+      else if (st === 'Update Offer') flags.offer.push(info);
+      else if (st === 'Update Scheduled' || st === 'Update Reschedule') flags.scheduled.push(info);
       if (progRecord?.isMoveTemporary
         || progRecord?.arrangementType === 'move_same_day'
         || progRecord?.arrangementType === 'replacement_custom'
         || m.classType === 'Replacement') {
-        flags.tempMove.push(who);
+        flags.tempMove.push(info);
       }
     }
     const badgeGroups = [flags.tempMove, flags.needUpdate, flags.offer, flags.scheduled]
@@ -3772,10 +3953,10 @@ function Cell({
     // the order the badges read in: a scheduled update supersedes a bare "needs
     // update", because it is the more advanced state of the same thing.
     const statusByName = new Map();
-    for (const n of flags.needUpdate) statusByName.set(n, 'needs progress update');
-    for (const n of flags.offer) statusByName.set(n, 'update offer sent');
-    for (const n of flags.scheduled) statusByName.set(n, 'update scheduled');
-    const tempMoveNames = new Set(flags.tempMove);
+    for (const n of flags.needUpdate) statusByName.set(typeof n === 'object' ? n.name : n, 'needs progress update');
+    for (const n of flags.offer) statusByName.set(typeof n === 'object' ? n.name : n, 'update offer sent');
+    for (const n of flags.scheduled) statusByName.set(typeof n === 'object' ? n.name : n, 'update scheduled');
+    const tempMoveNames = new Set(flags.tempMove.map((n) => (typeof n === 'object' ? n.name : n)));
 
     // Who is in the class, and who is away this week. Already loaded with the
     // group, so naming them costs no extra request.
@@ -3955,26 +4136,30 @@ function Cell({
         )}
 
         {hasFlags && (
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.2rem', marginTop: '0.25rem' }}>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.25rem', marginTop: '0.25rem' }}>
               <StatusBadge
                 Icon={Clock} label="Move Temp" names={flags.tempMove}
                 color="#6d28d9" background="#f5f3ff" borderColor="#8b5cf6"
                 description="On temporary move / replacement"
+                onOpenProgressModal={openProgressModal} cls={cls}
               />
               <StatusBadge
                 Icon={Clock} label="Need Update" names={flags.needUpdate}
                 color="#b45309" background="#fef3c7" borderColor="#f59e0b"
                 description="Need progress update"
+                onOpenProgressModal={openProgressModal} cls={cls}
               />
               <StatusBadge
                 Icon={Send} label="Offer" names={flags.offer}
                 color="#1d4ed8" background="#eff6ff" borderColor="#3b82f6"
                 description="Update offer sent"
+                onOpenProgressModal={openProgressModal} cls={cls}
               />
               <StatusBadge
                 Icon={Calendar} label="Scheduled" names={flags.scheduled}
                 color="#6d28d9" background="#f3e8ff" borderColor="#8b5cf6"
                 description="Update scheduled"
+                onOpenProgressModal={openProgressModal} cls={cls}
               />
             </div>
         )}
