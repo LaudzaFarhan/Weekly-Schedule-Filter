@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   getProgressUpdateStatus,
+  getEffectiveProgressUpdateStatus,
   PROGRESS_UPDATE_STATUSES,
   PROGRESS_UPDATE_BADGES,
   suggestNextProgramCode,
@@ -100,6 +101,17 @@ describe('progressUpdateUtils', () => {
         progressUpdateStatus: 'Completed',
       };
       expect(getProgressUpdateStatus(studentDone)).toBeNull();
+
+      // Overrides stale Completed status when live progress record has 7 meetings
+      const beatriceRecord = {
+        studentName: 'Beatrice Eunice Wijaya',
+        category: 'Kinder',
+        attendance: { 1: {}, 2: {}, 3: {}, 4: {}, 5: {}, 6: {}, 7: {} },
+        progressUpdateStatus: 'Completed',
+      };
+      const beatriceMember = { student: 'Beatrice Eunice Wijaya', program: 'K1' };
+      expect(getProgressUpdateStatus(beatriceMember, beatriceRecord)).toBe(PROGRESS_UPDATE_STATUSES.NEED_UPDATE);
+      expect(getEffectiveProgressUpdateStatus(beatriceMember, beatriceRecord)).toBe(PROGRESS_UPDATE_STATUSES.NEED_UPDATE);
     });
   });
 

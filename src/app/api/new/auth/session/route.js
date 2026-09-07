@@ -30,6 +30,8 @@ export async function GET(req) {
         email: identity.email,
         role: identity.role,
         displayName: identity.displayName,
+        location: identity.location || null,
+        instructorId: identity.instructorId || null,
         mustChangePassword: identity.mustChangePassword ?? false,
       },
       permissions: { manageAccounts: canManageAccounts(identity.role) },

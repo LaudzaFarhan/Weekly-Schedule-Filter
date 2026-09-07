@@ -533,13 +533,22 @@ export default function ScheduleGridPanel({ onNavigate } = {}) {
     const parsedLeave = parseStudentLeave(finalRemarks);
     const newIzinState = parsedLeave.isIzin;
 
-    // Handle explicit progressUpdateStatus update
-    if (patch.progressUpdateStatus !== undefined) {
+    // Handle explicit progressUpdateStatus update & live progress attributes
+    if (
+      patch.progressUpdateStatus !== undefined ||
+      patch.progressUpdateDate !== undefined ||
+      patch.progressUpdateNote !== undefined ||
+      patch.continuation !== undefined
+    ) {
       try {
         await saveLiveProgress({
           studentName: row.student,
           programCode: row.program || 'General',
-          progressUpdateStatus: patch.progressUpdateStatus,
+          ...(patch.progressUpdateStatus !== undefined ? { progressUpdateStatus: patch.progressUpdateStatus } : {}),
+          ...(patch.progressUpdateDate !== undefined ? { progressUpdateDate: patch.progressUpdateDate } : {}),
+          ...(patch.progressUpdateNote !== undefined ? { progressUpdateNote: patch.progressUpdateNote } : {}),
+          ...(patch.progressUpdateHistory !== undefined ? { progressUpdateHistory: patch.progressUpdateHistory } : {}),
+          ...(patch.continuation !== undefined ? { continuation: patch.continuation } : {}),
         });
       } catch (e) {
         console.warn('Could not save live progress status:', e);
@@ -676,6 +685,7 @@ export default function ScheduleGridPanel({ onNavigate } = {}) {
       </div>
 
       <ScheduleGrid
+        user={user}
         isFullscreen={fullscreenActive}
         onToggleFullscreen={toggleFullscreen}
         branches={branches}

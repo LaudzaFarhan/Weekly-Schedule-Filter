@@ -84,34 +84,45 @@ export const PROGRESS_UPDATE_BADGES = {
  * @returns {string|null} status string or null if none
  */
 export function getProgressUpdateStatus(studentOrMember, liveProgressRecord = null) {
-  if (!studentOrMember) return null;
+  if (!studentOrMember && !liveProgressRecord) return null;
 
-  // Explicit status override takes priority
+  const targetStudent = studentOrMember || liveProgressRecord;
+
+  // Active manual/explicit statuses always take priority
   const explicitStatus =
-    studentOrMember.progressUpdateStatus ||
-    studentOrMember.progress_update_status ||
+    targetStudent?.progressUpdateStatus ||
+    targetStudent?.progress_update_status ||
     liveProgressRecord?.progressUpdateStatus ||
     liveProgressRecord?.progress_update_status;
 
-  if (explicitStatus && explicitStatus !== 'auto') {
-    if (explicitStatus === 'Completed' || explicitStatus === 'None' || explicitStatus === 'Done') {
-      return null;
-    }
+  const activeExplicitStatuses = [
+    PROGRESS_UPDATE_STATUSES.NEED_UPDATE,
+    PROGRESS_UPDATE_STATUSES.UPDATE_OFFER,
+    PROGRESS_UPDATE_STATUSES.UPDATE_SCHEDULED,
+    PROGRESS_UPDATE_STATUSES.UPDATE_RESCHEDULE,
+    PROGRESS_UPDATE_STATUSES.UPDATE_DONE,
+    PROGRESS_UPDATE_STATUSES.WAIT_PAYMENT,
+  ];
+
+  if (explicitStatus && activeExplicitStatuses.includes(explicitStatus)) {
     return explicitStatus;
   }
 
   // Program category & attendance count
-  const rawProgram = studentOrMember.program || studentOrMember.level || '';
+  const rawProgram = targetStudent?.program || targetStudent?.level || liveProgressRecord?.programCode || '';
   const parsed = parseProgram(rawProgram);
-  const category = parsed.category || studentProgramCategory(studentOrMember) || 'Kinder';
+  const category = parsed.category || studentProgramCategory(targetStudent) || liveProgressRecord?.category || 'Kinder';
 
   let attendanceCount = 0;
-  if (liveProgressRecord?.attendance) {
-    attendanceCount = Object.keys(liveProgressRecord.attendance).length;
-  } else if (studentOrMember.attendanceCount != null) {
-    attendanceCount = Number(studentOrMember.attendanceCount);
-  } else if (studentOrMember.attendance != null && typeof studentOrMember.attendance === 'object') {
-    attendanceCount = Object.keys(studentOrMember.attendance).length;
+  const hasLiveAttendance = liveProgressRecord?.attendance && typeof liveProgressRecord.attendance === 'object';
+  const hasStudentAttendance = targetStudent?.attendance && typeof targetStudent.attendance === 'object';
+
+  if (hasLiveAttendance) {
+    attendanceCount = Object.keys(liveProgressRecord.attendance).filter((k) => liveProgressRecord.attendance[k]).length;
+  } else if (hasStudentAttendance) {
+    attendanceCount = Object.keys(targetStudent.attendance).filter((k) => targetStudent.attendance[k]).length;
+  } else if (targetStudent?.attendanceCount != null) {
+    attendanceCount = Number(targetStudent.attendanceCount);
   } else if (parsed.lesson != null) {
     attendanceCount = Number(parsed.lesson);
   } else {
@@ -122,11 +133,34 @@ export function getProgressUpdateStatus(studentOrMember, liveProgressRecord = nu
   }
 
   const threshold = category === 'Coder' ? 9 : 7;
+
+  // If attendance has reached threshold:
+  // - If the user explicitly set 'Completed' directly on the student object and there is NO live attendance map, respect it
+  // - If there is a live attendance map with >= threshold meetings (e.g. 7 for Kinder/Junior), auto-trigger Need Update
   if (attendanceCount >= threshold) {
+    if (targetStudent?.progressUpdateStatus === 'Completed' && !hasLiveAttendance && !hasStudentAttendance) {
+      return null;
+    }
     return PROGRESS_UPDATE_STATUSES.NEED_UPDATE;
   }
 
+  if (explicitStatus && explicitStatus !== 'auto') {
+    if (explicitStatus === 'Completed' || explicitStatus === 'None' || explicitStatus === 'Done') {
+      return null;
+    }
+    return explicitStatus;
+  }
+
   return null;
+}
+
+/**
+ * Determine effective progress update status, ensuring that attendance reaching
+ * threshold (7 for Kinder/Junior, 9 for Coder) triggers 'Need update progress'.
+ */
+export function getEffectiveProgressUpdateStatus(studentOrMember, liveProgressRecord = null) {
+  if (!studentOrMember && !liveProgressRecord) return null;
+  return getProgressUpdateStatus(studentOrMember, liveProgressRecord);
 }
 
 /**
