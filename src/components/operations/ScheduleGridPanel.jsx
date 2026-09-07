@@ -642,7 +642,7 @@ export default function ScheduleGridPanel({ onNavigate } = {}) {
           <button
             type="button"
             onClick={toggleFullscreen}
-            className={`btn ${fullscreenActive ? 'btn-primary' : ''}`}
+            className={`btn btn-fullscreen-toggle ${fullscreenActive ? 'btn-primary is-active' : ''}`}
             title={fullscreenActive ? 'Exit Fullscreen Focus (Esc)' : 'Maximize Schedule Grid to Fullscreen'}
             style={{
               fontSize: '0.8rem',
@@ -656,11 +656,10 @@ export default function ScheduleGridPanel({ onNavigate } = {}) {
               color: fullscreenActive ? undefined : 'var(--text-main)',
               cursor: 'pointer',
               fontWeight: 600,
-              transition: 'all 0.15s ease',
             }}
           >
-            {fullscreenActive ? <Minimize2 size={15} /> : <Maximize2 size={15} />}
-            {fullscreenActive ? 'Exit Fullscreen' : 'Fullscreen'}
+            {fullscreenActive ? <Minimize2 size={15} className="fullscreen-icon" /> : <Maximize2 size={15} className="fullscreen-icon" />}
+            <span>{fullscreenActive ? 'Exit Fullscreen' : 'Fullscreen'}</span>
             {fullscreenActive && (
               <kbd style={{
                 fontSize: '0.65rem',

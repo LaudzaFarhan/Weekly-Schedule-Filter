@@ -142,25 +142,114 @@ td.schedule-grid-sticky-col {
 
 /* ── Schedule Grid Fullscreen Focus Mode ───────────────── */
 @keyframes scheduleGridFullscreenIn {
-  from {
+  0% {
     opacity: 0;
-    transform: scale(0.96) translateY(10px);
+    transform: scale(0.92) translateY(16px);
+    filter: blur(2px);
   }
-  to {
+  60% {
+    opacity: 0.98;
+    transform: scale(1.006) translateY(-1px);
+    filter: blur(0px);
+  }
+  100% {
     opacity: 1;
     transform: scale(1) translateY(0);
+    filter: blur(0px);
   }
 }
 
 @keyframes scheduleGridFullscreenOut {
-  from {
+  0% {
     opacity: 1;
     transform: scale(1) translateY(0);
+    filter: blur(0px);
   }
-  to {
+  100% {
     opacity: 0;
-    transform: scale(0.96) translateY(10px);
+    transform: scale(0.94) translateY(14px);
+    filter: blur(2px);
   }
+}
+
+/* Fullscreen Toggle Button Tactile Press & Pulse Animation */
+@keyframes fullscreenBtnPress {
+  0% {
+    transform: scale(1);
+  }
+  40% {
+    transform: scale(0.88);
+  }
+  80% {
+    transform: scale(1.05);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+.btn-fullscreen-toggle {
+  position: relative;
+  overflow: hidden;
+  transition: all 0.22s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.2s ease, border-color 0.2s ease !important;
+  user-select: none;
+  transform: translateZ(0);
+}
+
+.btn-fullscreen-toggle:hover {
+  transform: translateY(-1.5px) translateZ(0);
+  box-shadow: 0 4px 14px rgba(79, 70, 229, 0.2);
+  border-color: var(--primary-blue, #4f46e5) !important;
+}
+
+.btn-fullscreen-toggle:active {
+  transform: scale(0.91) translateY(1px) translateZ(0) !important;
+  box-shadow: 0 1px 3px rgba(79, 70, 229, 0.15) !important;
+  transition: transform 0.08s ease !important;
+}
+
+/* Icon micro-rotation & scale on hover and active */
+.btn-fullscreen-toggle .fullscreen-icon {
+  display: inline-block;
+  transition: transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.btn-fullscreen-toggle:hover .fullscreen-icon {
+  transform: scale(1.2) rotate(8deg);
+}
+
+.btn-fullscreen-toggle:active .fullscreen-icon {
+  transform: scale(0.82) rotate(-18deg);
+}
+
+.btn-fullscreen-toggle.is-active .fullscreen-icon {
+  transform: rotate(180deg);
+}
+
+.btn-fullscreen-toggle.is-active:hover .fullscreen-icon {
+  transform: rotate(180deg) scale(1.2);
+}
+
+/* Ripple wave on press */
+.btn-fullscreen-toggle::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 140%;
+  height: 140%;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(79, 70, 229, 0.3) 10%, transparent 70%);
+  transform: translate(-50%, -50%) scale(0);
+  opacity: 0;
+  pointer-events: none;
+  transition: transform 0.45s ease-out, opacity 0.45s ease-out;
+}
+
+.btn-fullscreen-toggle:active::after {
+  transform: translate(-50%, -50%) scale(1.4);
+  opacity: 1;
+  transition: 0s;
 }
 
 .schedule-grid-fullscreen {
@@ -179,9 +268,10 @@ td.schedule-grid-sticky-col {
   display: flex !important;
   flex-direction: column !important;
   overflow: hidden !important;
-  box-shadow: none !important;
-  animation: scheduleGridFullscreenIn 0.24s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-  will-change: transform, opacity;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25) !important;
+  animation: scheduleGridFullscreenIn 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  will-change: transform, opacity, filter;
+  transform-origin: center center;
 }
 
 .schedule-grid-fullscreen.is-closing {
@@ -198,6 +288,13 @@ td.schedule-grid-sticky-col {
   .schedule-grid-fullscreen.is-closing {
     animation: none !important;
     opacity: 0 !important;
+  }
+  .btn-fullscreen-toggle,
+  .btn-fullscreen-toggle .fullscreen-icon,
+  .btn-fullscreen-toggle::after {
+    animation: none !important;
+    transition: none !important;
+    transform: none !important;
   }
 }
 
