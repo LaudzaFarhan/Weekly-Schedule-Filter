@@ -276,8 +276,9 @@ export function resolveUserRole(users, email, user) {
   if (user?.role) return user.role;
   if (!email && !user) return DEFAULT_ROLE;
   const identifier = String(email || user?.email || user?.username || '').toLowerCase().trim();
-  if (identifier === 'admin' || identifier === 'admin@thelab.com' || identifier === 'admin@thelab.id' || identifier.startsWith('admin@')) return ADMIN_ROLE;
-  return users?.[identifier] || DEFAULT_ROLE;
+  if (users && typeof users === 'object' && users[identifier]) return users[identifier];
+  if (identifier === 'admin' || identifier === 'admin@thelab.com' || identifier === 'admin@thelab.id') return ADMIN_ROLE;
+  return DEFAULT_ROLE;
 }
 
 /**
@@ -317,7 +318,7 @@ export function pageToModuleId(pageId) {
  * @returns {{ view: boolean, read: boolean, write: boolean, admin: boolean }}
  */
 export function getEffectivePermissions(role = DEFAULT_ROLE, moduleId, rolePermissions, userOverrides, email) {
-  if (role === ADMIN_ROLE || isAdmin(null, email, { email, role })) {
+  if (role === ADMIN_ROLE) {
     return { view: true, read: true, write: true, admin: true, restrictBranch: false };
   }
 
