@@ -42,6 +42,7 @@ export function categorize(str) {
   if (/^kf|^k\d/.test(s)) return 'Kinder';
   if (/^jf|^j\d/.test(s)) return 'Junior';
   if (/^(basic|intermediate|advance)/.test(s)) return 'Coder';
+  if (/^foundation/.test(s)) return 'Coder';
   return null;
 }
 

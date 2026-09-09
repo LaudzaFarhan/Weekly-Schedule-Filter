@@ -116,14 +116,45 @@ function getStudentProgramDisplay(m, progRecord) {
   return rawProgram;
 }
 
-/** Which category a class belongs to, from its first program code or members. */
+/** Which category a class belongs to, evaluated from all its program codes, members, or explicit category. */
 export function categoryOfProgram(cls) {
-  const p = String(cls?.programs?.[0] || cls?.members?.[0]?.program || cls?.category || '');
-  if (/^kf?\d/i.test(p) || /^kinder/i.test(p)) return 'Kinder';
-  if (/^jf?\d/i.test(p) || /^junior/i.test(p)) return 'Junior';
-  if (/coder|basic|intermediate|advance|python|web|app|scratch|roblox/i.test(p)) return 'Coder';
-  const parsed = parseProgram(p);
-  return parsed?.category || null;
+  if (cls?.category) {
+    const c = String(cls.category).toLowerCase().trim();
+    if (c.includes('kinder') || c === 'k') return 'Kinder';
+    if (c.includes('junior') || c === 'j') return 'Junior';
+    if (c.includes('coder') || c === 'c') return 'Coder';
+  }
+
+  // Gather candidate program and level strings to evaluate
+  const candidates = [];
+  if (Array.isArray(cls?.programs)) candidates.push(...cls.programs);
+  if (cls?.program) candidates.push(cls.program);
+  if (Array.isArray(cls?.members)) {
+    for (const m of cls.members) {
+      if (m?.program) candidates.push(m.program);
+      if (m?.level) candidates.push(m.level);
+    }
+  }
+  if (typeof cls === 'string') candidates.push(cls);
+
+  const checkCategory = (str) => {
+    const p = String(str || '').trim();
+    if (!p) return null;
+    if (/^kf?\d/i.test(p) || /^kinder/i.test(p)) return 'Kinder';
+    if (/^jf?\d/i.test(p) || /^junior/i.test(p)) return 'Junior';
+    if (/coder|basic|intermediate|advance|python|web|app|scratch|roblox/i.test(p)) return 'Coder';
+    if (/foundation/i.test(p) && !/kinder|junior|^kf|^jf/i.test(p)) return 'Coder';
+    const parsed = parseProgram(p);
+    return parsed?.category || null;
+  };
+
+  // Check all candidates
+  for (const item of candidates) {
+    const cat = checkCategory(item);
+    if (cat) return cat;
+  }
+
+  return null;
 }
 
 /**
