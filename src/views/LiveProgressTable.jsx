@@ -138,7 +138,7 @@ const keyOf = (studentName, programCode) =>
 export default function LiveProgressTable({ category }) {
   const { user } = useAuth();
   const { showToast } = useToast();
-  const { enabledBranches, branches, rolePermissions, userPermissions } = useSchedule();
+  const { enabledBranches, branches, rolePermissions, userPermissions, users } = useSchedule();
 
   const maxLessons = useMemo(() => lessonsForCategory(category), [category]);
   const lessons = useMemo(() => Array.from({ length: maxLessons }, (_, i) => i + 1), [maxLessons]);
@@ -148,8 +148,8 @@ export default function LiveProgressTable({ category }) {
   const [instructorProfiles, setInstructorProfiles] = useState([]);
 
   const effectiveRole = useMemo(() => {
-    return user?.role || resolveUserRole(null, user?.email, user);
-  }, [user]);
+    return user?.role || resolveUserRole(users, user?.email, user);
+  }, [user, users]);
 
   // Resolve user permissions & branch restrictions for Live Progress
   const effectivePermissions = useMemo(() => {
@@ -188,7 +188,13 @@ export default function LiveProgressTable({ category }) {
   const [loadError, setLoadError] = useState(null);
 
   const [search, setSearch] = useState('');
-  const [filterBranch, setFilterBranch] = useState('all');
+  const [filterBranch, setFilterBranch] = useState(() => {
+    if (user?.location && user.location !== 'All Branches') {
+      const first = String(user.location).split(',')[0].trim();
+      if (first) return first;
+    }
+    return 'all';
+  });
   const [filterLevel, setFilterLevel] = useState('all');
   const [filterDay, setFilterDay] = useState('all');
   const [filterInstructor, setFilterInstructor] = useState('all');
@@ -649,10 +655,16 @@ export default function LiveProgressTable({ category }) {
   }, [enabledBranches, branches, isBranchRestricted, assignedBranches]);
 
   useEffect(() => {
-    if (isBranchRestricted && assignedBranches && assignedBranches.length > 0) {
-      const isCurrentValid = assignedBranches.some((ab) => isSameBranch(ab, filterBranch));
-      if (!isCurrentValid) {
-        setFilterBranch(branchList[0] || assignedBranches[0]);
+    if (isBranchRestricted) {
+      if (assignedBranches && assignedBranches.length > 0) {
+        const isCurrentValid = filterBranch !== 'all' && assignedBranches.some((ab) => isSameBranch(ab, filterBranch));
+        if (!isCurrentValid) {
+          setFilterBranch(branchList[0] || assignedBranches[0]);
+        }
+      } else {
+        if (filterBranch !== 'none') {
+          setFilterBranch('none');
+        }
       }
     }
   }, [isBranchRestricted, assignedBranches, branchList, filterBranch]);
@@ -765,8 +777,7 @@ export default function LiveProgressTable({ category }) {
     for (const c of classes) {
       if (isBranchRestricted) {
         if (!assignedBranches || assignedBranches.length === 0) continue;
-        const bMatch = assignedBranches.some((ab) => isSameBranch(ab, c.branchName)) ||
-          (matchedTeacherName && isSameTeacher(c.teacher, matchedTeacherName));
+        const bMatch = assignedBranches.some((ab) => isSameBranch(ab, c.branchName));
         if (!bMatch) continue;
       }
       const parsed = parseProgram(c.program);
@@ -968,7 +979,26 @@ export default function LiveProgressTable({ category }) {
     let waitPayment = 0;
     let total = 0;
 
+    if (isBranchRestricted && (!assignedBranches || assignedBranches.length === 0)) {
+      return {
+        active: 0,
+        longBreak: 0,
+        inactive: 0,
+        unassigned: 0,
+        needUpdate: 0,
+        updateOffer: 0,
+        updateScheduled: 0,
+        updateReschedule: 0,
+        updateDone: 0,
+        waitPayment: 0,
+        total: 0,
+      };
+    }
+
     for (const r of rows) {
+      if (isBranchRestricted && assignedBranches && assignedBranches.length > 0) {
+        if (!assignedBranches.some((ab) => isSameBranch(ab, r.branchName))) continue;
+      }
       if (filterBranch !== 'all' && !isSameBranch(r.branchName, filterBranch)) continue;
       total++;
       if (r.isUnassigned) {
@@ -1015,12 +1045,16 @@ export default function LiveProgressTable({ category }) {
       waitPayment,
       total,
     };
-  }, [rows, filterBranch, category]);
+  }, [rows, filterBranch, category, isBranchRestricted, assignedBranches]);
 
   const instructorList = useMemo(() => {
+    if (isBranchRestricted && (!assignedBranches || assignedBranches.length === 0)) return [];
     const set = new Set();
     let hasUnassigned = false;
     for (const r of rows) {
+      if (isBranchRestricted && assignedBranches && assignedBranches.length > 0) {
+        if (!assignedBranches.some((ab) => isSameBranch(ab, r.branchName))) continue;
+      }
       if (filterBranch !== 'all' && !isSameBranch(r.branchName, filterBranch)) continue;
       if (filterDay !== 'all' && r.day.trim().toLowerCase() !== filterDay.trim().toLowerCase()) continue;
       if (filterLevel !== 'all' && r.levelCode !== filterLevel) continue;
@@ -1036,7 +1070,7 @@ export default function LiveProgressTable({ category }) {
       return ['Unassigned', ...list];
     }
     return list;
-  }, [rows, filterBranch, filterDay, filterLevel]);
+  }, [rows, filterBranch, filterDay, filterLevel, isBranchRestricted, assignedBranches]);
 
   /**
    * The time slots present in what the other filters have already narrowed to,
@@ -1044,8 +1078,12 @@ export default function LiveProgressTable({ category }) {
    * "4.30 pm", which a string sort would reverse.
    */
   const timeList = useMemo(() => {
+    if (isBranchRestricted && (!assignedBranches || assignedBranches.length === 0)) return [];
     const set = new Set();
     for (const r of rows) {
+      if (isBranchRestricted && assignedBranches && assignedBranches.length > 0) {
+        if (!assignedBranches.some((ab) => isSameBranch(ab, r.branchName))) continue;
+      }
       if (filterBranch !== 'all' && !isSameBranch(r.branchName, filterBranch)) continue;
       if (filterDay !== 'all' && r.day.trim().toLowerCase() !== filterDay.trim().toLowerCase()) continue;
       if (filterLevel !== 'all' && r.levelCode !== filterLevel) continue;
@@ -1057,7 +1095,7 @@ export default function LiveProgressTable({ category }) {
       const byStart = getStartMinutes(a) - getStartMinutes(b);
       return byStart !== 0 ? byStart : a.localeCompare(b);
     });
-  }, [rows, filterBranch, filterDay, filterLevel, filterInstructor]);
+  }, [rows, filterBranch, filterDay, filterLevel, filterInstructor, isBranchRestricted, assignedBranches]);
 
   /**
    * Narrowing another filter can remove the chosen slot from the list. Derived
@@ -1073,8 +1111,12 @@ export default function LiveProgressTable({ category }) {
   }, [instructorList, filterInstructor]);
 
   const filtered = useMemo(() => {
+    if (isBranchRestricted && (!assignedBranches || assignedBranches.length === 0)) return [];
     const q = search.trim().toLowerCase();
     return rows.filter((r) => {
+      if (isBranchRestricted && assignedBranches && assignedBranches.length > 0) {
+        if (!assignedBranches.some((ab) => isSameBranch(ab, r.branchName))) return false;
+      }
       if (filterBranch !== 'all' && !isSameBranch(r.branchName, filterBranch)) return false;
       if (filterLevel !== 'all' && r.levelCode !== filterLevel) return false;
       if (filterDay !== 'all' && r.day.trim().toLowerCase() !== filterDay.trim().toLowerCase()) return false;
@@ -1846,12 +1888,23 @@ export default function LiveProgressTable({ category }) {
             </select>
           </div>
 
-          <div className="input-group" style={{ margin: 0, width: '140px' }}>
-            <label style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '0.3rem', display: 'block' }}>Branch</label>
+          <div className="input-group" style={{ margin: 0, width: '150px' }}>
+            <label style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '0.3rem', display: 'flex', alignItems: 'center', gap: '4px' }}>
+              Branch
+              {isBranchRestricted && (
+                <span title="Locked to your assigned branch" style={{ color: '#0284c7', display: 'inline-flex' }}>
+                  <MapPin size={11} />
+                </span>
+              )}
+            </label>
             <select
               value={filterBranch}
               onChange={(e) => { setFilterBranch(e.target.value); setPage(1); }}
-              style={{ width: '100%' }}
+              style={{
+                width: '100%',
+                background: isBranchRestricted && branchList.length <= 1 ? 'var(--bg-muted, #f8fafc)' : undefined,
+                cursor: isBranchRestricted && branchList.length <= 1 ? 'not-allowed' : undefined,
+              }}
               disabled={isBranchRestricted && branchList.length <= 1}
             >
               {!isBranchRestricted ? (
@@ -1860,6 +1913,9 @@ export default function LiveProgressTable({ category }) {
                 <option value="all">All My Branches ({assignedBranches.length})</option>
               ) : null}
               {branchList.map((b) => <option key={b} value={b}>{b}</option>)}
+              {isBranchRestricted && branchList.length === 0 && (
+                <option value="none">No Branch Assigned</option>
+              )}
             </select>
           </div>
 
@@ -1906,7 +1962,17 @@ export default function LiveProgressTable({ category }) {
                 </tr>
               </thead>
               <tbody>
-                {rows.length === 0 ? (
+                {isBranchRestricted && (!assignedBranches || assignedBranches.length === 0) ? (
+                  <tr>
+                    <td colSpan="10" style={{ textAlign: 'center', padding: '3.5rem 1.5rem', color: 'var(--text-muted)' }}>
+                      <AlertTriangle size={32} style={{ color: '#d97706', marginBottom: '0.6rem' }} />
+                      <div style={{ fontWeight: 700, fontSize: '0.95rem', color: 'var(--text-main)' }}>No Branch Assigned</div>
+                      <div style={{ fontSize: '0.8rem', marginTop: '0.35rem', maxWidth: '440px', margin: '0.35rem auto 0', lineHeight: 1.4 }}>
+                        Your instructor account has restricted branch scope, but no branch has been assigned yet. Please contact an Administrator to assign your branch in User Control.
+                      </div>
+                    </td>
+                  </tr>
+                ) : rows.length === 0 ? (
                   <tr>
                     <td colSpan="10" style={{ textAlign: 'center', padding: '3rem 1.5rem', color: 'var(--text-muted)' }}>
                       <AlertTriangle size={32} style={{ color: 'var(--warning)', marginBottom: '0.5rem' }} />

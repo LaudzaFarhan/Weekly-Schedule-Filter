@@ -10,7 +10,7 @@ import { onAuthStateChanged } from 'firebase/auth';
 import { useToast } from '../components/ui/Toast';
 import { logActivity } from '../services/activityService';
 import { getWorkingDaysForBranch, DEFAULT_BRANCH_LIST, isSameBranch } from '../utils/constants';
-import { DEFAULT_ROLE_PERMISSIONS } from '../utils/roles';
+import { DEFAULT_ROLE_PERMISSIONS, mergeRolePermissions } from '../utils/roles';
 import SyncReportModal from '../components/ui/SyncReportModal';
 
 const ScheduleContext = createContext(null);
@@ -217,7 +217,7 @@ export function ScheduleProvider({ children }) {
     return normalized;
   });
   const [roleToggles, setRoleToggles] = useState(() => mergeRoleToggles(loadLocal('roleToggles', DEFAULT_ROLE_TOGGLES)));
-  const [rolePermissions, setRolePermissions] = useState(() => loadLocal('rolePermissions', DEFAULT_ROLE_PERMISSIONS));
+  const [rolePermissions, setRolePermissions] = useState(() => mergeRolePermissions(DEFAULT_ROLE_PERMISSIONS, loadLocal('rolePermissions', null)));
   const [userPermissions, setUserPermissions] = useState(() => loadLocal('userPermissions', {}));
   const [sidebarOrder, setSidebarOrder] = useState(() => loadLocal('sidebarOrder', DEFAULT_SIDEBAR_ORDER));
   const [sidebarSubOrder, setSidebarSubOrder] = useState(() => loadLocal('sidebarSubOrder', DEFAULT_SIDEBAR_SUB_ORDER));
@@ -628,12 +628,13 @@ export function ScheduleProvider({ children }) {
   }, []);
 
   const updateRolePermissions = useCallback(async (newPermissions) => {
-    setRolePermissions(newPermissions);
-    try { localStorage.setItem('rolePermissions', JSON.stringify(newPermissions)); } catch {}
+    const merged = mergeRolePermissions(DEFAULT_ROLE_PERMISSIONS, newPermissions);
+    setRolePermissions(merged);
+    try { localStorage.setItem('rolePermissions', JSON.stringify(merged)); } catch {}
     return fetch('/api/new/config', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ key: 'rolePermissions', value: newPermissions }),
+      body: JSON.stringify({ key: 'rolePermissions', value: merged }),
     }).then((res) => res.json()).catch(() => null);
   }, []);
 
@@ -667,7 +668,7 @@ export function ScheduleProvider({ children }) {
     }).then((res) => res.json()).catch(() => null);
   }, []);
 
-  // Synchronize sidebar order from backend store on load
+  // Synchronize sidebar order, permissions, and roles from backend store on load
   useEffect(() => {
     fetch('/api/new/config?key=sidebarOrder')
       .then((res) => (res.ok ? res.json() : null))
@@ -688,6 +689,31 @@ export function ScheduleProvider({ children }) {
             ...data.value,
           }));
           try { localStorage.setItem('sidebarSubOrder', JSON.stringify(data.value)); } catch {}
+        }
+      })
+      .catch(() => {});
+
+    fetch('/api/new/config?key=rolePermissions')
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (data && data.value && typeof data.value === 'object') {
+          const merged = mergeRolePermissions(DEFAULT_ROLE_PERMISSIONS, data.value);
+          setRolePermissions(merged);
+          try { localStorage.setItem('rolePermissions', JSON.stringify(merged)); } catch {}
+        }
+      })
+      .catch(() => {});
+
+    fetch('/api/new/config?key=userRoles')
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (data && data.value && typeof data.value === 'object') {
+          const normalized = {};
+          for (const [k, v] of Object.entries(data.value)) {
+            if (k) normalized[k.toLowerCase()] = v;
+          }
+          setUsers(normalized);
+          try { localStorage.setItem('users', JSON.stringify(normalized)); } catch {}
         }
       })
       .catch(() => {});

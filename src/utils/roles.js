@@ -359,6 +359,33 @@ export function getEffectivePermissions(role = DEFAULT_ROLE, moduleId, rolePermi
 }
 
 /**
+ * Safely merge custom role permissions with system defaults,
+ * ensuring all modules, roles, and branch scoping rules are properly initialized.
+ */
+export function mergeRolePermissions(base = DEFAULT_ROLE_PERMISSIONS, custom = {}) {
+  if (!custom || typeof custom !== 'object') return { ...base };
+  const merged = {};
+  for (const role of SYSTEM_ROLES) {
+    merged[role] = {};
+    const baseRole = base[role] || {};
+    const customRole = custom[role] || {};
+    for (const mod of APP_MODULES) {
+      const baseMod = baseRole[mod.id] || { view: false, read: false, write: false, admin: false, restrictBranch: false };
+      const customMod = customRole[mod.id] || {};
+      const defaultRestricted = baseMod.restrictBranch ?? (role === 'Instructor' && mod.id === 'live-progress');
+      merged[role][mod.id] = {
+        view: customMod.view ?? baseMod.view ?? false,
+        read: customMod.read ?? baseMod.read ?? false,
+        write: customMod.write ?? baseMod.write ?? false,
+        admin: customMod.admin ?? baseMod.admin ?? false,
+        restrictBranch: customMod.restrictBranch ?? defaultRestricted,
+      };
+    }
+  }
+  return merged;
+}
+
+/**
  * Check whether a user or role can access (view) a specific page.
  *
  * @param {string} role

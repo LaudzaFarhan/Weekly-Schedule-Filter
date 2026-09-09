@@ -407,13 +407,14 @@ export function getRecommendedAliases(instructorName, currentAliases = [], impor
 export function resolveMatchedInstructor(user, instructors = []) {
   if (!user) return null;
   const userEmail = (user.email || '').toLowerCase().trim();
-  const userName = (user.displayName || user.fullname || user.username || '').toLowerCase().trim();
-  const userId = user.instructorId || user.id;
+  const emailPrefix = userEmail ? userEmail.split('@')[0].trim() : '';
+  const userName = (user.displayName || user.fullname || user.username || emailPrefix).toLowerCase().trim();
+  const userId = user.instructorId || user.instructor_id || user.id;
 
   return (instructors || []).find((inst) => {
     if (!inst) return false;
     // Match by ID
-    if (userId && (String(inst.id) === String(userId) || String(inst.instructorId) === String(userId))) {
+    if (userId && (String(inst.id) === String(userId) || String(inst.instructorId) === String(userId) || String(inst.instructor_id) === String(userId))) {
       return true;
     }
     // Match by email
@@ -429,6 +430,10 @@ export function resolveMatchedInstructor(user, instructors = []) {
       if (isSameTeacher(inst.name, userName)) return true;
       if (usernameFromName(inst.name) === user.username) return true;
       if (isInstructorMatch(userName, inst)) return true;
+    }
+    if (emailPrefix && emailPrefix !== userName) {
+      if (isSameTeacher(inst.name, emailPrefix)) return true;
+      if (isInstructorMatch(emailPrefix, inst)) return true;
     }
     return false;
   }) || null;

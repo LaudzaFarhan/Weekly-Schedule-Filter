@@ -21,13 +21,13 @@ import {
   Sliders, Shield, ChevronRight, CheckCircle2, XCircle, RotateCcw,
   Sparkles, Home, Calendar, Building2, Users as UsersIcon, ClipboardList,
   TrendingUp, User, BarChart3, CalendarOff, Star, Video, Activity, Terminal,
-  BookOpen, Edit3, Settings, ExternalLink, Filter
+  BookOpen, Edit3, Settings, ExternalLink, Filter, Globe, MapPin
 } from 'lucide-react';
 import { useToast } from '../components/ui/Toast';
 import { useSchedule } from '../contexts/ScheduleContext';
 import {
   APP_MODULES, SYSTEM_ROLES, ROLE_DESCRIPTIONS, DEFAULT_ROLE_PERMISSIONS,
-  getEffectivePermissions, resolveUserRole, isAdmin
+  getEffectivePermissions, resolveUserRole, isAdmin, mergeRolePermissions
 } from '../utils/roles';
 
 const ROLES = SYSTEM_ROLES;
@@ -137,18 +137,17 @@ export default function NewUsersPage() {
   const { rolePermissions, updateRolePermissions, branches = [] } = useSchedule();
   const [activeTab, setActiveTab] = useState('accounts'); // 'accounts' | 'roles' | 'inspector'
   const [selectedRole, setSelectedRole] = useState('Instructor');
-  const [rolePermissionsDraft, setRolePermissionsDraft] = useState(() => rolePermissions || DEFAULT_ROLE_PERMISSIONS);
+  const [rolePermissionsDraft, setRolePermissionsDraft] = useState(() => {
+    return mergeRolePermissions(DEFAULT_ROLE_PERMISSIONS, rolePermissions);
+  });
   const [savingPerms, setSavingPerms] = useState(false);
   const [inspectorUserId, setInspectorUserId] = useState('');
   const [inspectorSearch, setInspectorSearch] = useState('');
   const [matrixCategoryFilter, setMatrixCategoryFilter] = useState('all');
 
   useEffect(() => {
-    if (rolePermissions && typeof rolePermissions === 'object' && Object.keys(rolePermissions).length > 0) {
-      setRolePermissionsDraft((prev) => ({
-        ...DEFAULT_ROLE_PERMISSIONS,
-        ...rolePermissions,
-      }));
+    if (rolePermissions && typeof rolePermissions === 'object') {
+      setRolePermissionsDraft(mergeRolePermissions(DEFAULT_ROLE_PERMISSIONS, rolePermissions));
     }
   }, [rolePermissions]);
 
@@ -156,8 +155,14 @@ export default function NewUsersPage() {
     if (role === 'Admin') return; // Admins always have full root access
     setRolePermissionsDraft((prev) => {
       const currentRolePerms = prev[role] || DEFAULT_ROLE_PERMISSIONS[role] || {};
-      const currentModPerms = currentRolePerms[moduleId] || { view: true, read: true, write: false, admin: false };
-      const nextVal = !currentModPerms[permKey];
+      const defaultRestricted = (role === 'Instructor' && moduleId === 'live-progress');
+      const currentModPerms = currentRolePerms[moduleId] || {
+        view: true, read: true, write: false, admin: false, restrictBranch: defaultRestricted,
+      };
+      const currentVal = permKey === 'restrictBranch'
+        ? (currentModPerms.restrictBranch ?? defaultRestricted)
+        : Boolean(currentModPerms[permKey]);
+      const nextVal = !currentVal;
 
       const updatedModPerms = { ...currentModPerms, [permKey]: nextVal };
       if (permKey === 'view' && !nextVal) {
@@ -883,21 +888,20 @@ export default function NewUsersPage() {
                   </div>
                   <div style={{ flex: '1 1 160px' }}>
                     <label className="modal-form-label" htmlFor="user-location">Branch / Location</label>
-                    <input
+                    <select
                       id="user-location"
-                      list="user-branches-datalist"
-                      className="modal-input-field"
+                      className="modal-select-field"
                       style={{ width: '100%' }}
-                      value={draft.location}
+                      value={draft.location || ''}
                       onChange={(e) => setDraft({ ...draft, location: e.target.value })}
-                      placeholder="e.g. Kelapa Gading"
-                    />
-                    <datalist id="user-branches-datalist">
+                    >
+                      <option value="">-- Select Branch Assignment --</option>
+                      <option value="All Branches">All Branches (Global Scope)</option>
                       {(branches || []).map((b) => {
                         const name = typeof b === 'string' ? b : (b?.name || '');
-                        return name ? <option key={name} value={name} /> : null;
+                        return name ? <option key={name} value={name}>{name}</option> : null;
                       })}
-                    </datalist>
+                    </select>
                   </div>
                 </div>
 
@@ -1072,7 +1076,7 @@ export default function NewUsersPage() {
                 <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                   <thead>
                     <tr>
-                      {['Username', 'Name', 'Role', 'Password', 'Status', 'Verification', 'Permissions', 'Actions'].map((heading, i) => (
+                      {['Username', 'Name', 'Role', 'Branch Scope', 'Password', 'Status', 'Verification', 'Permissions', 'Actions'].map((heading, i) => (
                         <th
                           key={heading || `actions-${i}`}
                           scope="col"
@@ -1135,6 +1139,45 @@ export default function NewUsersPage() {
                             >
                               {ROLES.map((role) => <option key={role} value={role}>{role}</option>)}
                             </select>
+                          </td>
+                          <td style={{ padding: '0.55rem 0.75rem', borderBottom: '1px solid var(--border-color)', whiteSpace: 'nowrap' }}>
+                            {user.role === 'Admin' ? (
+                              <span style={{
+                                display: 'inline-flex', alignItems: 'center', gap: '0.25rem',
+                                padding: '0.15rem 0.45rem', borderRadius: '6px',
+                                fontSize: '0.7rem', fontWeight: 600,
+                                background: 'rgba(107,114,128,0.1)', color: 'var(--text-secondary)',
+                              }} title="Admin accounts have full global scope across all branches">
+                                <Globe size={11} /> All Branches
+                              </span>
+                            ) : user.location && user.location !== 'All Branches' ? (
+                              <span style={{
+                                display: 'inline-flex', alignItems: 'center', gap: '0.25rem',
+                                padding: '0.15rem 0.45rem', borderRadius: '6px',
+                                fontSize: '0.7rem', fontWeight: 600,
+                                background: 'rgba(59,130,246,0.1)', color: '#1d4ed8',
+                              }} title={`Scoped strictly to assigned branch: ${user.location}`}>
+                                <Lock size={11} /> {user.location}
+                              </span>
+                            ) : user.role === 'Instructor' ? (
+                              <span style={{
+                                display: 'inline-flex', alignItems: 'center', gap: '0.25rem',
+                                padding: '0.15rem 0.45rem', borderRadius: '6px',
+                                fontSize: '0.7rem', fontWeight: 600,
+                                background: 'rgba(239,68,68,0.1)', color: '#b91c1c',
+                              }} title="No branch assigned: Instructor cannot view student data until assigned">
+                                <AlertTriangle size={11} /> No Branch
+                              </span>
+                            ) : (
+                              <span style={{
+                                display: 'inline-flex', alignItems: 'center', gap: '0.25rem',
+                                padding: '0.15rem 0.45rem', borderRadius: '6px',
+                                fontSize: '0.7rem', fontWeight: 600,
+                                background: 'rgba(107,114,128,0.1)', color: 'var(--text-secondary)',
+                              }}>
+                                <Globe size={11} /> All Branches
+                              </span>
+                            )}
                           </td>
                           <td style={{ padding: '0.55rem 0.75rem', borderBottom: '1px solid var(--border-color)', whiteSpace: 'nowrap' }}>
                             <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem' }}>
@@ -1445,6 +1488,70 @@ export default function NewUsersPage() {
                     </button>
                   </div>
                 )}
+              </div>
+            </div>
+
+            {/* Branch Scoping Rules Policy Card */}
+            <div style={{
+              background: 'linear-gradient(135deg, rgba(59,130,246,0.06), rgba(99,102,241,0.04))',
+              border: '1px solid rgba(59,130,246,0.22)',
+              borderRadius: '12px',
+              padding: '1rem 1.25rem',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '0.65rem',
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.5rem' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.55rem' }}>
+                  <div style={{
+                    width: '30px', height: '30px', borderRadius: '7px',
+                    background: 'rgba(59,130,246,0.15)', color: 'var(--primary-blue)',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  }}>
+                    <MapPin size={16} />
+                  </div>
+                  <div>
+                    <h4 style={{ margin: 0, fontSize: '0.92rem', fontWeight: 700, color: 'var(--text-main)', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                      <span>Branch Scoping &amp; Data Access Rules</span>
+                      <span style={{
+                        fontSize: '0.65rem', fontWeight: 700, padding: '0.1rem 0.45rem',
+                        borderRadius: '6px', background: '#dbeafe', color: '#1e40af',
+                      }}>
+                        Active System Rules
+                      </span>
+                    </h4>
+                    <p style={{ margin: '0.1rem 0 0', fontSize: '0.74rem', color: 'var(--text-muted)' }}>
+                      Determines how student records and schedules are scoped per role and branch location across Live Progress and Schedule modules.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '0.75rem', marginTop: '0.2rem' }}>
+                <div style={{ background: 'var(--bg-card)', padding: '0.75rem 0.9rem', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontWeight: 700, fontSize: '0.8rem', color: '#b45309', marginBottom: '0.3rem' }}>
+                    <Lock size={14} /> Rule 1: Strict Live Progress Branch Lockdown
+                  </div>
+                  <p style={{ margin: 0, fontSize: '0.74rem', color: 'var(--text-secondary)', lineHeight: 1.45 }}>
+                    Instructors (and roles with Branch Scope set to <strong>Assigned Branch</strong>) only focus and can see student data at their assigned branch(es). Multi-branch filtering is locked, and all metrics, filters, and lesson rows strictly scope to their assigned branch.
+                  </p>
+                </div>
+                <div style={{ background: 'var(--bg-card)', padding: '0.75rem 0.9rem', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontWeight: 700, fontSize: '0.8rem', color: '#1d4ed8', marginBottom: '0.3rem' }}>
+                    <Building2 size={14} /> Rule 2: Branch Assignment Source
+                  </div>
+                  <p style={{ margin: 0, fontSize: '0.74rem', color: 'var(--text-secondary)', lineHeight: 1.45 }}>
+                    An instructor&apos;s assigned branch is sourced from their <strong>Branch / Location</strong> in User Accounts or matched profile in the Instructor Registry. If unassigned, access is safeguarded until assigned by an Admin.
+                  </p>
+                </div>
+                <div style={{ background: 'var(--bg-card)', padding: '0.75rem 0.9rem', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontWeight: 700, fontSize: '0.8rem', color: '#047857', marginBottom: '0.3rem' }}>
+                    <Globe size={14} /> Rule 3: Admin &amp; Supervisor Global Scope
+                  </div>
+                  <p style={{ margin: 0, fontSize: '0.74rem', color: 'var(--text-secondary)', lineHeight: 1.45 }}>
+                    Admins and global roles (Supervisor, Operations) maintain unrestricted multi-branch visibility, enabling cross-center oversight, cross-branch scheduling, and global student search.
+                  </p>
+                </div>
               </div>
             </div>
 
@@ -1817,6 +1924,19 @@ export default function NewUsersPage() {
                         <span><strong>Email:</strong> {inspectedUser.email}</span>
                         <span>·</span>
                         <span><strong>Branch:</strong> {inspectedUser.location || 'All Branches (Unscoped)'}</span>
+                        <span>·</span>
+                        <span>
+                          <strong>Branch Scope:</strong>{' '}
+                          {inspectedUser.role === 'Admin' ? (
+                            <span style={{ color: 'var(--text-secondary)' }}>🌐 Global Scope (All Branches)</span>
+                          ) : inspectedUser.location && inspectedUser.location !== 'All Branches' ? (
+                            <span style={{ color: '#1d4ed8', fontWeight: 600 }}>🔒 Scoped strictly to {inspectedUser.location}</span>
+                          ) : inspectedUser.role === 'Instructor' ? (
+                            <span style={{ color: '#b91c1c', fontWeight: 600 }}>⚠️ No Branch Assigned (Live Progress locked)</span>
+                          ) : (
+                            <span style={{ color: 'var(--text-secondary)' }}>🌐 All Branches (Global)</span>
+                          )}
+                        </span>
                       </div>
                     </div>
                   </div>
