@@ -66,6 +66,14 @@ describe('parseProgram', () => {
       family: 'Coder',
       category: 'Coder',
     }));
+    expect(parseProgram('Foundation 2')).toEqual(expect.objectContaining({
+      family: 'Coder',
+      category: 'Coder',
+    }));
+    expect(parseProgram('Foundation 1')).toEqual(expect.objectContaining({
+      family: 'Coder',
+      category: 'Coder',
+    }));
   });
 
   it('handles empty or blank values cleanly', () => {
