@@ -18,7 +18,7 @@ function normaliseProgramLevel(rawProgram, rawTerm) {
   const combined = `${prog} ${term}`.trim();
 
   // 1. Coder (includes Basic 1, Basic 2, Intermediate, Advance, Python, Web, etc.)
-  if (/coder|basic|intermediate|advance|python|web|app|scratch|roblox/i.test(combined)) {
+  if (/coder|basic|intermediate|advance|python|web|app|scratch|roblox/i.test(combined) || (/foundation/i.test(combined) && !/kinder|junior|^kf|^jf/i.test(combined))) {
     if (combined.includes('intermediate')) return 'Coder Intermediate';
     if (combined.includes('advance')) return 'Coder Advance';
     return 'Coder Basic';

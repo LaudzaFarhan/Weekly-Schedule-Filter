@@ -19,7 +19,7 @@ const FAMILIES = [
   { family: 'Kinder Core',       category: 'Kinder', test: (c) => /^k\d+$/i.test(c) || /^k$/i.test(c) || /^kinder/i.test(c) },
   { family: 'Junior Foundation', category: 'Junior', test: (c) => /^jf\d*$/i.test(c) || /^junior\s*foundation/i.test(c) },
   { family: 'Junior Core',       category: 'Junior', test: (c) => /^j\d+$/i.test(c) || /^j$/i.test(c) || /^junior/i.test(c) },
-  { family: 'Coder',             category: 'Coder',  test: (c) => /coder|basic|intermediate|advance|python|web|app|scratch|roblox/i.test(c) },
+  { family: 'Coder',             category: 'Coder',  test: (c) => /coder|basic|intermediate|advance|python|web|app|scratch|roblox/i.test(c) || (/foundation/i.test(c) && !/kinder|junior|^kf|^jf/i.test(c)) },
 ];
 
 export const CATEGORIES = ['Kinder', 'Junior', 'Coder'];

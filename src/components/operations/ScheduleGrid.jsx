@@ -28,7 +28,7 @@ import {
 } from '../../lib/slotTypes';
 import { maxStudentsFor, parseProgram } from '../../lib/programRules';
 import { DAY_NAMES, isSameBranch, DEFAULT_BRANCH_LIST } from '../../utils/constants';
-import { isSameTeacher, getInstructorDisplayName, resolveCanonicalTeacherName, isInstructorMatch } from '../../utils/instructorUtils';
+import { isSameTeacher, getInstructorDisplayName, resolveCanonicalTeacherName, isInstructorMatch, resolveTeacherAssignedBranches, resolveMatchedInstructor } from '../../utils/instructorUtils';
 import { parseStudentLeave, formatDatePretty, formatDateShort } from '../../utils/studentLeaveUtils';
 import StudentLeaveModal from './StudentLeaveModal';
 import ProgressUpdateModal from './ProgressUpdateModal';
@@ -116,14 +116,178 @@ function getStudentProgramDisplay(m, progRecord) {
   return rawProgram;
 }
 
-/** Which category a class belongs to, from its first program code. */
-function categoryOfProgram(cls) {
-  const p = String(cls.programs?.[0] || '');
-  if (/^kf?\d/i.test(p)) return 'Kinder';
-  if (/^jf?\d/i.test(p)) return 'Junior';
-  if (/coder/i.test(p)) return 'Coder';
+/** Which category a class belongs to, evaluated from all its program codes, members, or explicit category. */
+export function categoryOfProgram(cls) {
+  if (cls?.category) {
+    const c = String(cls.category).toLowerCase().trim();
+    if (c.includes('kinder') || c === 'k') return 'Kinder';
+    if (c.includes('junior') || c === 'j') return 'Junior';
+    if (c.includes('coder') || c === 'c') return 'Coder';
+  }
+
+  // Gather candidate program and level strings to evaluate
+  const candidates = [];
+  if (Array.isArray(cls?.programs)) candidates.push(...cls.programs);
+  if (cls?.program) candidates.push(cls.program);
+  if (Array.isArray(cls?.members)) {
+    for (const m of cls.members) {
+      if (m?.program) candidates.push(m.program);
+      if (m?.level) candidates.push(m.level);
+    }
+  }
+  if (typeof cls === 'string') candidates.push(cls);
+
+  const checkCategory = (str) => {
+    const p = String(str || '').trim();
+    if (!p) return null;
+    if (/^kf?\d/i.test(p) || /^kinder/i.test(p)) return 'Kinder';
+    if (/^jf?\d/i.test(p) || /^junior/i.test(p)) return 'Junior';
+    if (/coder|basic|intermediate|advance|python|web|app|scratch|roblox/i.test(p)) return 'Coder';
+    if (/foundation/i.test(p) && !/kinder|junior|^kf|^jf/i.test(p)) return 'Coder';
+    const parsed = parseProgram(p);
+    return parsed?.category || null;
+  };
+
+  // Check all candidates
+  for (const item of candidates) {
+    const cat = checkCategory(item);
+    if (cat) return cat;
+  }
+
   return null;
 }
+
+/**
+ * Extract distinct lessons/programs in a class slot for lesson variety tracking.
+ * Normalizes dotted lesson codes (e.g., "J1.3"), live progress arranged lessons,
+ * and base program codes (e.g., "J2", "J3", "JF1", "J1").
+ */
+export function getDistinctClassLessons(cls, liveProgressMap) {
+  if (!cls) return [];
+  const lessons = new Set();
+
+  const validMembers = (cls.members || []).filter(
+    (m) => m && m.student && String(m.student).trim().length > 0
+  );
+
+  if (validMembers.length > 0) {
+    for (const m of validMembers) {
+      const sKey = String(m.student || '').toLowerCase().trim();
+      const progRecord = liveProgressMap?.get ? liveProgressMap.get(sKey) : null;
+
+      const rawProg = String(m.program || m.level || progRecord?.programCode || '').trim();
+      const activeArrangedLesson =
+        progRecord?.arrangedLesson ||
+        progRecord?.arranged_lesson ||
+        null;
+
+      if (rawProg) {
+        const parsed = parseProgram(rawProg);
+        if (parsed.lesson) {
+          lessons.add(`${parsed.code}.${parsed.lesson}`);
+        } else if (activeArrangedLesson != null && String(activeArrangedLesson).trim() !== '') {
+          const lNum = String(activeArrangedLesson).trim().replace(/^L/i, '');
+          lessons.add(`${parsed.code || rawProg}.${lNum}`);
+        } else {
+          lessons.add(parsed.code || rawProg);
+        }
+      }
+    }
+  }
+
+  // Fallback to cls.programs if members are not populated yet
+  if (lessons.size === 0 && Array.isArray(cls.programs)) {
+    for (const p of cls.programs) {
+      if (p && String(p).trim()) {
+        const parsed = parseProgram(p);
+        lessons.add(parsed.lessonKey || parsed.code || String(p).trim());
+      }
+    }
+  }
+
+  return [...lessons];
+}
+
+/**
+ * Returns true if the class has more than 2 distinct lessons/programs
+ * and is subject to lesson limits.
+ * Strictly ONLY for Kinder and Junior programs (including their foundation levels).
+ * Coder is excluded.
+ */
+export function isMultiLessonWarning(cls, distinctLessons) {
+  if (!cls) return false;
+  const list = distinctLessons || getDistinctClassLessons(cls);
+  if (!Array.isArray(list) || list.length <= 2) return false;
+
+  const cat = cls.category || categoryOfProgram(cls);
+  if (cat === 'Kinder' || cat === 'Junior') {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Returns maximum student capacity based on program category:
+ * - Kinder max: 4
+ * - Junior max: 6
+ * - Coder max: 6
+ */
+export function getMaxCapacityForClass(cls, rules) {
+  const cat = cls?.category || categoryOfProgram(cls);
+  if (cat === 'Kinder') return 4;
+  if (cat === 'Junior') return 6;
+  if (cat === 'Coder') return 6;
+  if (cls?.programs?.[0]) {
+    return maxStudentsFor(cls.programs[0], rules);
+  }
+  return 6;
+}
+
+/**
+ * Evaluates student occupancy against class capacity.
+ * Returns { status: 'over'|'full'|'open', count, max, isOver, isFull, badgeText, message }
+ */
+export function getClassCapacityStatus(cls, occ, rules) {
+  const max = getMaxCapacityForClass(cls, rules);
+  const count = occ?.total != null
+    ? occ.total
+    : (cls?.members?.filter((m) => m?.student && String(m.student).trim()).length || 0);
+
+  const cat = cls?.category || categoryOfProgram(cls) || 'class';
+
+  if (count > max) {
+    return {
+      status: 'over',
+      count,
+      max,
+      isOver: true,
+      isFull: true,
+      badgeText: `${count}/${max} Over`,
+      message: `Over capacity: ${count}/${max} students (${count - max} over limit of ${max} for ${cat}).`,
+    };
+  }
+  if (count === max) {
+    return {
+      status: 'full',
+      count,
+      max,
+      isOver: false,
+      isFull: true,
+      badgeText: `${count}/${max} Full`,
+      message: `Class at full capacity (${count}/${max} seats filled for ${cat}).`,
+    };
+  }
+  return {
+    status: 'open',
+    count,
+    max,
+    isOver: false,
+    isFull: false,
+    badgeText: `${count}/${max} Pax`,
+    message: `${max - count} open seat${max - count === 1 ? '' : 's'} available.`,
+  };
+}
+
 
 /** Compact cell text for a hard refusal; the full sentence is in the tooltip. */
 function shortReason(code, conflict) {
@@ -163,87 +327,8 @@ function instructorHasLevel(instructor, levelCategory, classGroups) {
   return false;
 }
 
-/**
- * Resolves the assigned branches for a teacher / instructor.
- * Returns an array of branch names (e.g. ['Bekasi']), or null if unrestricted (Admin, Supervisor, etc.).
- */
-export function resolveTeacherAssignedBranches(user, instructors = [], classGroups = []) {
-  if (!user) return null;
-
-  const role = user.role || resolveUserRole(null, user.email, user);
-  if (role !== 'Instructor') {
-    return null; // Admin, Supervisor, SPA, EC, etc. have unrestricted branch access
-  }
-
-  const assigned = new Set();
-
-  // 1. Direct location on user object (from internal_users.location)
-  if (user.location && user.location !== 'All Branches') {
-    assigned.add(user.location);
-  }
-
-  // 2. Direct branches array on user object
-  if (Array.isArray(user.branches)) {
-    user.branches.forEach((b) => {
-      if (b && b !== 'All Branches') assigned.add(b);
-    });
-  } else if (typeof user.branches === 'string' && user.branches && user.branches !== 'All Branches') {
-    assigned.add(user.branches);
-  }
-
-  // 3. Match against instructors list
-  const userEmail = (user.email || '').toLowerCase().trim();
-  const userName = (user.displayName || user.fullname || user.username || '').toLowerCase().trim();
-  const userId = user.instructorId || user.id;
-
-  const matchedInst = (instructors || []).find((inst) => {
-    if (!inst) return false;
-    // Match by ID
-    if (userId && (String(inst.id) === String(userId) || String(inst.instructorId) === String(userId))) {
-      return true;
-    }
-    // Match by email
-    const instEmail = (inst.email || extractEmailFromRemarks(inst.remarks) || '').toLowerCase().trim();
-    if (userEmail && instEmail && userEmail === instEmail) {
-      return true;
-    }
-    if (userEmail && inst.contact && inst.contact.toLowerCase().includes(userEmail)) {
-      return true;
-    }
-    // Match by name or alias
-    if (userName) {
-      if (isSameTeacher(inst.name, userName)) return true;
-      if (usernameFromName(inst.name) === user.username) return true;
-      if (isInstructorMatch(userName, inst)) return true;
-    }
-    return false;
-  });
-
-  if (matchedInst) {
-    if (Array.isArray(matchedInst.branches)) {
-      matchedInst.branches.forEach((b) => {
-        if (b && b !== 'All Branches') assigned.add(b);
-      });
-    } else if (typeof matchedInst.branches === 'string' && matchedInst.branches && matchedInst.branches !== 'All Branches') {
-      assigned.add(matchedInst.branches);
-    }
-    if (matchedInst.location && matchedInst.location !== 'All Branches') {
-      assigned.add(matchedInst.location);
-    }
-  }
-
-  // 4. Fallback: check classGroups taught by this teacher
-  if (assigned.size === 0 && (userName || matchedInst?.name)) {
-    const targetTeacherName = matchedInst?.name || user.displayName || user.fullname || user.username;
-    (classGroups || []).forEach((g) => {
-      if (g?.branchName && isSameTeacher(g.teacher, targetTeacherName)) {
-        assigned.add(g.branchName);
-      }
-    });
-  }
-
-  return Array.from(assigned);
-}
+// Re-export resolveTeacherAssignedBranches from instructorUtils for backward compatibility
+export { resolveTeacherAssignedBranches };
 
 /**
  * Time-by-instructor planning grid for Class Operation slots.
@@ -405,7 +490,6 @@ export default function ScheduleGrid({
   const [isClosingPreview, setIsClosingPreview] = useState(false);
   const [previewPos, setPreviewPos] = useState(null); // { x, y } in px, or null for default right-centered
   const previewPanelRef = useRef(null);
-
   const closeTimeoutRef = useRef(null);
 
   const closePreview = useCallback(() => {
@@ -537,6 +621,42 @@ export default function ScheduleGrid({
 
   const openMin = toMinutes(hours?.start) ?? 9 * 60;
   const closeMin = Math.max(toMinutes(hours?.end) ?? 0, 19 * 60 + 30);
+
+  const [dismissMultiLessonNotice, setDismissMultiLessonNotice] = useState(false);
+
+  // Reset notice dismissal when day or branch changes
+  useEffect(() => {
+    setDismissMultiLessonNotice(false);
+  }, [day, branch]);
+
+  const multiLessonClassesToday = useMemo(() => {
+    if (!day || !Array.isArray(classGroups)) return [];
+    const hits = [];
+    for (const g of classGroups) {
+      if (String(g.day || '').trim().toLowerCase() !== String(day).trim().toLowerCase()) continue;
+      if (branch && !isSameBranch(g.branchName, branch.name) && String(branch.name || '').toLowerCase() !== 'all branches') continue;
+      const distinct = getDistinctClassLessons(g, liveProgressMap);
+      if (isMultiLessonWarning(g, distinct)) {
+        hits.push({ classGroup: g, distinctLessons: distinct });
+      }
+    }
+    return hits;
+  }, [classGroups, day, branch, liveProgressMap]);
+
+  const overCapacityClassesToday = useMemo(() => {
+    if (!day || !Array.isArray(classGroups)) return [];
+    const hits = [];
+    for (const g of classGroups) {
+      if (String(g.day || '').trim().toLowerCase() !== String(day).trim().toLowerCase()) continue;
+      if (branch && !isSameBranch(g.branchName, branch.name) && String(branch.name || '').toLowerCase() !== 'all branches') continue;
+      const occ = occupancyForWeek(g, week);
+      const cap = getClassCapacityStatus(g, occ, rules);
+      if (cap.status === 'over') {
+        hits.push({ classGroup: g, cap });
+      }
+    }
+    return hits;
+  }, [classGroups, day, branch, week, rules]);
 
   const daySlots = useMemo(() => {
     if (allBranches) {
@@ -1625,6 +1745,116 @@ export default function ScheduleGrid({
         </div>
       </div>
 
+      {!dismissMultiLessonNotice && (multiLessonClassesToday.length > 0 || overCapacityClassesToday.length > 0) && (
+        <div
+          data-testid="schedule-grid-multi-lesson-day-notice"
+          style={{
+            margin: '0.75rem 1.5rem 0',
+            padding: '0.65rem 0.9rem',
+            borderRadius: '10px',
+            background: 'rgba(245, 158, 11, 0.1)',
+            border: '1px solid rgba(245, 158, 11, 0.35)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: '0.75rem',
+            fontSize: '0.78rem',
+            color: '#b45309',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+            <AlertTriangle size={15} style={{ flexShrink: 0, color: '#d97706' }} />
+            <span>
+              {overCapacityClassesToday.length > 0 && (
+                <span style={{ marginRight: '0.5rem' }}>
+                  <strong style={{ color: '#b91c1c' }}>Capacity Alert:</strong>{' '}
+                  {overCapacityClassesToday.length} class{overCapacityClassesToday.length === 1 ? '' : 'es'} over capacity on {day}:
+                  {' '}
+                  {overCapacityClassesToday.map((h, i) => {
+                    const teacherName = resolveCanonicalTeacherName(h.classGroup.teacher, instructors) || h.classGroup.teacher;
+                    return (
+                      <button
+                        key={`cap-${h.classGroup.key || i}`}
+                        type="button"
+                        onClick={() => {
+                          if (onPreviewClass) onPreviewClass(h.classGroup);
+                          else openPreview(h.classGroup);
+                        }}
+                        style={{
+                          background: '#fee2e2',
+                          border: '1px solid #ef4444',
+                          borderRadius: '5px',
+                          padding: '0.05rem 0.35rem',
+                          fontSize: '0.74rem',
+                          fontWeight: 700,
+                          color: '#b91c1c',
+                          cursor: 'pointer',
+                          margin: '0 0.2rem',
+                        }}
+                        title={h.cap.message}
+                      >
+                        {teacherName} ({h.classGroup.time} · {h.cap.badgeText})
+                      </button>
+                    );
+                  })}
+                </span>
+              )}
+              {multiLessonClassesToday.length > 0 && (
+                <span>
+                  <strong>Multi-Lesson Notice:</strong>{' '}
+                  {multiLessonClassesToday.length} class{multiLessonClassesToday.length === 1 ? '' : 'es'} on {day} {multiLessonClassesToday.length === 1 ? 'has' : 'have'} &gt; 2 different lessons:
+                  {' '}
+                  {multiLessonClassesToday.map((h, i) => {
+                    const teacherName = resolveCanonicalTeacherName(h.classGroup.teacher, instructors) || h.classGroup.teacher;
+                    return (
+                      <button
+                        key={h.classGroup.key || i}
+                        type="button"
+                        onClick={() => {
+                          if (onPreviewClass) onPreviewClass(h.classGroup);
+                          else openPreview(h.classGroup);
+                        }}
+                        style={{
+                          background: 'rgba(245, 158, 11, 0.18)',
+                          border: '1px solid rgba(245, 158, 11, 0.4)',
+                          borderRadius: '5px',
+                          padding: '0.05rem 0.35rem',
+                          fontSize: '0.74rem',
+                          fontWeight: 600,
+                          color: '#92400e',
+                          cursor: 'pointer',
+                          margin: '0 0.2rem',
+                        }}
+                        title={`Click to preview ${teacherName}'s class (${h.distinctLessons.join(', ')})`}
+                      >
+                        {teacherName} ({h.classGroup.time} · {h.distinctLessons.length} lessons)
+                      </button>
+                    );
+                  })}
+                </span>
+              )}
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setDismissMultiLessonNotice(true)}
+            title="Dismiss notice"
+            style={{
+              background: 'transparent',
+              border: 'none',
+              cursor: 'pointer',
+              color: '#b45309',
+              opacity: 0.7,
+              display: 'inline-flex',
+              alignItems: 'center',
+              padding: '0.2rem',
+            }}
+          >
+            <X size={14} />
+          </button>
+        </div>
+      )}
+
       {allBranches && (
         <div style={{
           margin: '0.9rem 1.5rem 0', padding: '0.6rem 0.85rem', borderRadius: '10px',
@@ -2096,9 +2326,13 @@ export default function ScheduleGrid({
 
           {/* Right Side Class Preview Panel */}
           {previewClass && (() => {
-            const meta = getCategoryColorStyle(categoryOfProgram(previewClass) || 'Kinder');
-            const seats = maxStudentsFor(previewClass.programs[0] || 'Kinder', rules);
+            const previewCat = previewClass.category || categoryOfProgram(previewClass) || 'Kinder';
+            const meta = getCategoryColorStyle(previewCat);
+            const seats = getMaxCapacityForClass(previewClass, rules);
             const occ = occupancyForWeek(previewClass, week);
+            const previewDistinctLessons = getDistinctClassLessons(previewClass, liveProgressMap);
+            const previewHasMultiLesson = isMultiLessonWarning(previewClass, previewDistinctLessons);
+            const previewCapStatus = getClassCapacityStatus(previewClass, occ, rules);
 
             return (
               <div
@@ -2134,12 +2368,54 @@ export default function ScheduleGrid({
                       <span style={{ fontSize: '1rem', fontWeight: 800, color: meta.textColor }}>
                         {previewClass.programs.join(', ') || 'Class'}
                       </span>
-                      <span style={{
-                        fontSize: '0.66rem', fontWeight: 700, padding: '0.12rem 0.45rem', borderRadius: '6px',
-                        color: meta.textColor, background: meta.isDark ? 'rgba(255,255,255,0.22)' : 'rgba(0,0,0,0.06)',
-                      }}>
-                        {occ.total}/{seats} Pax
-                      </span>
+                      {previewCapStatus.status === 'over' ? (
+                        <span
+                          data-testid="preview-capacity-over-badge"
+                          title={previewCapStatus.message}
+                          style={{
+                            fontSize: '0.66rem', fontWeight: 700, padding: '0.12rem 0.45rem', borderRadius: '6px',
+                            color: '#b91c1c', background: '#fee2e2', border: '1px solid #ef4444',
+                            display: 'inline-flex', alignItems: 'center', gap: '0.2rem',
+                          }}
+                        >
+                          <AlertTriangle size={10} style={{ color: '#dc2626' }} />
+                          Over Capacity ({occ.total}/{seats})
+                        </span>
+                      ) : previewCapStatus.status === 'full' ? (
+                        <span
+                          data-testid="preview-capacity-full-badge"
+                          title={previewCapStatus.message}
+                          style={{
+                            fontSize: '0.66rem', fontWeight: 700, padding: '0.12rem 0.45rem', borderRadius: '6px',
+                            color: '#047857', background: 'rgba(16,185,129,0.16)', border: '1px solid rgba(16,185,129,0.45)',
+                            display: 'inline-flex', alignItems: 'center', gap: '0.2rem',
+                          }}
+                        >
+                          <CheckCircle2 size={10} style={{ color: '#059669' }} />
+                          Full Capacity ({seats} seats)
+                        </span>
+                      ) : (
+                        <span style={{
+                          fontSize: '0.66rem', fontWeight: 700, padding: '0.12rem 0.45rem', borderRadius: '6px',
+                          color: meta.textColor, background: meta.isDark ? 'rgba(255,255,255,0.22)' : 'rgba(0,0,0,0.06)',
+                        }}>
+                          {occ.total}/{seats} Pax
+                        </span>
+                      )}
+                      {previewHasMultiLesson && (
+                        <span
+                          data-testid="preview-multi-lesson-badge"
+                          title={`Alert: ${previewDistinctLessons.length} different lessons in this class (${previewDistinctLessons.join(', ')}). Recommended max is 2.`}
+                          style={{
+                            fontSize: '0.66rem', fontWeight: 700, padding: '0.12rem 0.45rem', borderRadius: '6px',
+                            color: '#b45309', background: '#fef3c7', border: '1px solid #f59e0b',
+                            display: 'inline-flex', alignItems: 'center', gap: '0.2rem',
+                          }}
+                        >
+                          <AlertTriangle size={10} style={{ color: '#d97706' }} />
+                          {previewDistinctLessons.length} Lessons
+                        </span>
+                      )}
                     </div>
                     <p style={{ margin: '0.3rem 0 0', fontSize: '0.78rem', color: meta.textColor, opacity: 0.9, lineHeight: 1.4 }}>
                       <strong style={{ color: meta.textColor }}>
@@ -2196,6 +2472,84 @@ export default function ScheduleGrid({
                     const validMembers = (previewClass.members || []).filter((m) => m.student && String(m.student).trim().length > 0);
                     return (
                       <>
+                        {/* Capacity Notification Banner */}
+                        {previewCapStatus.status === 'over' && (
+                          <div
+                            data-testid="preview-capacity-alert"
+                            style={{
+                              padding: '0.65rem 0.85rem',
+                              borderRadius: '10px',
+                              background: 'rgba(239, 68, 68, 0.1)',
+                              border: '1px solid rgba(239, 68, 68, 0.35)',
+                              display: 'flex',
+                              alignItems: 'flex-start',
+                              gap: '0.55rem',
+                              color: '#b91c1c',
+                              marginBottom: '0.25rem',
+                            }}
+                          >
+                            <AlertTriangle size={16} style={{ flexShrink: 0, marginTop: '0.1rem', color: '#dc2626' }} />
+                            <div style={{ fontSize: '0.74rem', lineHeight: 1.45 }}>
+                              <strong style={{ display: 'block', fontSize: '0.78rem', color: '#991b1b', marginBottom: '0.15rem' }}>
+                                Capacity Limit Exceeded ({occ.total}/{seats} Students)
+                              </strong>
+                              This {previewCat} class has <strong>{occ.total} students enrolled</strong>, exceeding the maximum limit of <strong>{seats} students</strong> ({previewCat === 'Kinder' ? 'Kinder max: 4' : `${previewCat} max: 6`} students).
+                            </div>
+                          </div>
+                        )}
+                        {previewCapStatus.status === 'full' && (
+                          <div
+                            data-testid="preview-capacity-alert"
+                            style={{
+                              padding: '0.65rem 0.85rem',
+                              borderRadius: '10px',
+                              background: 'rgba(79, 70, 229, 0.08)',
+                              border: '1px solid rgba(79, 70, 229, 0.25)',
+                              display: 'flex',
+                              alignItems: 'flex-start',
+                              gap: '0.55rem',
+                              color: 'var(--primary-blue, #4f46e5)',
+                              marginBottom: '0.25rem',
+                            }}
+                          >
+                            <Users size={16} style={{ flexShrink: 0, marginTop: '0.1rem' }} />
+                            <div style={{ fontSize: '0.74rem', lineHeight: 1.45 }}>
+                              <strong style={{ display: 'block', fontSize: '0.78rem', marginBottom: '0.15rem' }}>
+                                Class at Full Capacity ({seats}/{seats} Students)
+                              </strong>
+                              All {seats} seats are filled for this {previewCat} class ({previewCat === 'Kinder' ? 'Kinder max: 4' : `${previewCat} max: 6`} students). No open seats remaining.
+                            </div>
+                          </div>
+                        )}
+
+                        {previewHasMultiLesson && (
+                          <div
+                            data-testid="preview-multi-lesson-alert"
+                            style={{
+                              padding: '0.65rem 0.85rem',
+                              borderRadius: '10px',
+                              background: 'rgba(245, 158, 11, 0.1)',
+                              border: '1px solid rgba(245, 158, 11, 0.35)',
+                              display: 'flex',
+                              alignItems: 'flex-start',
+                              gap: '0.55rem',
+                              color: '#b45309',
+                              marginBottom: '0.25rem',
+                            }}
+                          >
+                            <AlertTriangle size={16} style={{ flexShrink: 0, marginTop: '0.1rem', color: '#d97706' }} />
+                            <div style={{ fontSize: '0.74rem', lineHeight: 1.45 }}>
+                              <strong style={{ display: 'block', fontSize: '0.78rem', color: '#92400e', marginBottom: '0.15rem' }}>
+                                Multiple Lessons Alert ({previewDistinctLessons.length} different lessons)
+                              </strong>
+                              This class currently runs <strong>{previewDistinctLessons.length} different lessons</strong> simultaneously: <span style={{ fontWeight: 600 }}>{previewDistinctLessons.join(', ')}</span>.
+                              <span style={{ display: 'block', marginTop: '0.2rem', color: 'var(--text-secondary)', fontSize: '0.71rem' }}>
+                                Teaching more than 2 different lessons in one session exceeds the recommended variety limit and may divide instructor focus.
+                              </span>
+                            </div>
+                          </div>
+                        )}
+
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                           <span style={{ fontSize: '0.72rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)' }}>
                             Enrolled Students ({validMembers.length})
@@ -2886,10 +3240,89 @@ export default function ScheduleGrid({
               {(() => {
                 const izinCount = roster.members.filter((m) => m.notArranged || m.isIzin || (typeof m.remarks === 'string' && m.remarks.toLowerCase().includes('izin'))).length;
                 const attendingCount = Math.max(0, rosterOccupancy.total - izinCount);
+                const rosterSeats = getMaxCapacityForClass(roster, rules);
                 const openReplacementSeats = Math.max(0, rosterSeats - attendingCount);
+                const rosterDistinctLessons = getDistinctClassLessons(roster, liveProgressMap);
+                const rosterHasMultiLesson = isMultiLessonWarning(roster, rosterDistinctLessons);
+                const rosterCapStatus = getClassCapacityStatus(roster, rosterOccupancy, rules);
+                const rosterCat = roster.category || categoryOfProgram(roster) || 'class';
 
                 return (
                   <>
+                    {rosterCapStatus.status === 'over' && (
+                      <div
+                        data-testid="roster-capacity-alert"
+                        style={{
+                          margin: '0 0 0.85rem',
+                          padding: '0.65rem 0.85rem',
+                          borderRadius: '8px',
+                          background: 'rgba(239, 68, 68, 0.1)',
+                          border: '1px solid rgba(239, 68, 68, 0.35)',
+                          display: 'flex',
+                          alignItems: 'flex-start',
+                          gap: '0.55rem',
+                          color: '#b91c1c',
+                        }}
+                      >
+                        <AlertTriangle size={15} style={{ flexShrink: 0, marginTop: '0.1rem', color: '#dc2626' }} />
+                        <div style={{ fontSize: '0.74rem', lineHeight: 1.45 }}>
+                          <strong style={{ display: 'block', fontSize: '0.78rem', color: '#991b1b', marginBottom: '0.1rem' }}>
+                            Capacity Limit Exceeded ({rosterOccupancy.total}/{rosterSeats} Students)
+                          </strong>
+                          This {rosterCat} class exceeds the maximum limit of {rosterSeats} students ({rosterCat === 'Kinder' ? 'Kinder max: 4' : `${rosterCat} max: 6`} students).
+                        </div>
+                      </div>
+                    )}
+                    {rosterCapStatus.status === 'full' && (
+                      <div
+                        data-testid="roster-capacity-alert"
+                        style={{
+                          margin: '0 0 0.85rem',
+                          padding: '0.65rem 0.85rem',
+                          borderRadius: '8px',
+                          background: 'rgba(79, 70, 229, 0.08)',
+                          border: '1px solid rgba(79, 70, 229, 0.25)',
+                          display: 'flex',
+                          alignItems: 'flex-start',
+                          gap: '0.55rem',
+                          color: 'var(--primary-blue, #4f46e5)',
+                        }}
+                      >
+                        <Users size={15} style={{ flexShrink: 0, marginTop: '0.1rem' }} />
+                        <div style={{ fontSize: '0.74rem', lineHeight: 1.45 }}>
+                          <strong style={{ display: 'block', fontSize: '0.78rem', marginBottom: '0.1rem' }}>
+                            Class at Full Capacity ({rosterSeats}/{rosterSeats} Students)
+                          </strong>
+                          All {rosterSeats} seats are occupied ({rosterCat === 'Kinder' ? 'Kinder max: 4' : `${rosterCat} max: 6`} students).
+                        </div>
+                      </div>
+                    )}
+
+                    {rosterHasMultiLesson && (
+                      <div
+                        data-testid="roster-multi-lesson-alert"
+                        style={{
+                          margin: '0 0 0.85rem',
+                          padding: '0.65rem 0.85rem',
+                          borderRadius: '8px',
+                          background: 'rgba(245, 158, 11, 0.1)',
+                          border: '1px solid rgba(245, 158, 11, 0.35)',
+                          display: 'flex',
+                          alignItems: 'flex-start',
+                          gap: '0.55rem',
+                          color: '#b45309',
+                        }}
+                      >
+                        <AlertTriangle size={15} style={{ flexShrink: 0, marginTop: '0.1rem', color: '#d97706' }} />
+                        <div style={{ fontSize: '0.74rem', lineHeight: 1.45 }}>
+                          <strong style={{ display: 'block', fontSize: '0.78rem', color: '#92400e', marginBottom: '0.1rem' }}>
+                            Multiple Lessons Alert ({rosterDistinctLessons.length} different lessons)
+                          </strong>
+                          This class runs <strong>{rosterDistinctLessons.length} different lessons</strong>: {rosterDistinctLessons.join(', ')}. More than 2 different lessons in one slot exceeds the recommended lesson variety.
+                        </div>
+                      </div>
+                    )}
+
                     <p style={{ margin: '0 0 0.5rem', fontSize: '0.72rem', fontWeight: 700, letterSpacing: '0.04em', color: 'var(--text-muted)' }}>
                       STUDENTS ({roster.members.length})
                     </p>
@@ -4096,8 +4529,11 @@ function Cell({
   if (cell.kind === 'class') {
     const cls = cell.cls;
     const meta = getCategoryColorStyle(cell.category);
-    const seats = maxStudentsFor(cls.programs[0] || cell.category, rules);
+    const seats = getMaxCapacityForClass(cls, rules);
     const occ = occupancyForWeek(cls, week);
+    const distinctLessons = getDistinctClassLessons(cls, liveProgressMap);
+    const hasMultiLessonWarning = isMultiLessonWarning(cls, distinctLessons);
+    const capStatus = getClassCapacityStatus(cls, occ, rules);
     const item = {
       kind: 'class', cls, instructorName: inst.name, startMin: cls.startMin,
       duration: (cls.endMin ?? 0) - (cls.startMin ?? 0),
@@ -4240,6 +4676,14 @@ function Cell({
            has no room for names, and hovering should still answer "who is in
            this?" without opening anything. */
         title={allBranches ? undefined : [
+          capStatus.status === 'over'
+            ? `⚠️ Capacity Alert: OVER CAPACITY (${capStatus.count}/${capStatus.max} students. Limit is ${capStatus.max})`
+            : capStatus.status === 'full'
+              ? `Notice: Class at full capacity (${capStatus.count}/${capStatus.max} students)`
+              : '',
+          hasMultiLessonWarning
+            ? `⚠️ Alert: ${distinctLessons.length} different lessons in this class (${distinctLessons.join(', ')})`
+            : '',
           roster.length
             ? roster.map((r) => [
               r.name,
@@ -4250,7 +4694,7 @@ function Cell({
             : 'No students yet',
           '',
           'Click to preview class & students',
-        ].join('\n')}
+        ].filter(Boolean).join('\n')}
         style={{
           position: 'relative', height: boxH, maxHeight: boxH, boxSizing: 'border-box',
           borderRadius: cardRadius(cell.buttedPrev, cell.buttedNext),
@@ -4309,11 +4753,63 @@ function Cell({
             <Users size={9} /> {occ.regular} reg
             {occ.guests > 0 && <span style={{ color: meta.isDark ? '#e9d5ff' : '#6d28d9', fontWeight: 700 }}>+{occ.guests}</span>}
           </span>
-          <span style={{
-            fontSize: '0.63rem', fontWeight: 700, color: meta.textColor,
-            background: meta.isDark ? 'rgba(255, 255, 255, 0.18)' : 'rgba(0, 0, 0, 0.06)', borderRadius: '5px', padding: '0.05rem 0.28rem',
-          }}>
-            {occ.total}/{seats} Pax
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem' }}>
+            {hasMultiLessonWarning && (
+              <span
+                data-testid="multi-lesson-badge"
+                title={`Attention: ${distinctLessons.length} different lessons (${distinctLessons.join(', ')}). Recommended max is 2.`}
+                style={{
+                  fontSize: '0.58rem', fontWeight: 700, color: '#b45309',
+                  background: '#fef3c7', border: '1px solid #f59e0b',
+                  borderRadius: '4px', padding: '0.04rem 0.25rem',
+                  display: 'inline-flex', alignItems: 'center', gap: '0.15rem',
+                  lineHeight: 1.1, flexShrink: 0,
+                }}
+              >
+                <AlertTriangle size={8} style={{ color: '#d97706', flexShrink: 0 }} />
+                <span>{distinctLessons.length} Les</span>
+              </span>
+            )}
+            {capStatus.status === 'over' ? (
+              <span
+                data-testid="capacity-over-badge"
+                title={capStatus.message}
+                style={{
+                  fontSize: '0.63rem', fontWeight: 700, color: '#b91c1c',
+                  background: '#fee2e2', border: '1px solid #ef4444',
+                  borderRadius: '5px', padding: '0.05rem 0.28rem',
+                  display: 'inline-flex', alignItems: 'center', gap: '0.15rem',
+                  flexShrink: 0,
+                }}
+              >
+                <AlertTriangle size={8} style={{ color: '#dc2626' }} />
+                {capStatus.badgeText}
+              </span>
+            ) : capStatus.status === 'full' ? (
+              <span
+                data-testid="capacity-full-badge"
+                title={capStatus.message}
+                style={{
+                  fontSize: '0.63rem', fontWeight: 700,
+                  color: meta.isDark ? '#a7f3d0' : '#047857',
+                  background: meta.isDark ? 'rgba(16, 185, 129, 0.3)' : 'rgba(16, 185, 129, 0.16)',
+                  border: '1px solid rgba(16, 185, 129, 0.45)',
+                  borderRadius: '5px', padding: '0.05rem 0.28rem',
+                  display: 'inline-flex', alignItems: 'center', gap: '0.15rem',
+                  flexShrink: 0,
+                }}
+              >
+                <CheckCircle2 size={8} style={{ color: meta.isDark ? '#a7f3d0' : '#059669' }} />
+                {capStatus.badgeText}
+              </span>
+            ) : (
+              <span style={{
+                fontSize: '0.63rem', fontWeight: 700, color: meta.textColor,
+                background: meta.isDark ? 'rgba(255, 255, 255, 0.18)' : 'rgba(0, 0, 0, 0.06)', borderRadius: '5px', padding: '0.05rem 0.28rem',
+              }}>
+                {occ.total}/{seats} Pax
+              </span>
+            )}
           </span>
         </span>
 

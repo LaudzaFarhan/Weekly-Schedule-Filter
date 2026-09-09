@@ -64,7 +64,7 @@ const programDurationMin = (program) => (isKinderProgram(program) ? 90 : 120);
 /** Classify a level/program string into Kinder | Junior | Coder | null. */
 const categorizeLevel = (str) => {
   const s = String(str || '').toLowerCase();
-  if (s.includes('coder') || /basic|intermediate|advance|python|web|app|scratch|roblox/.test(s)) return 'Coder';
+  if (s.includes('coder') || /basic|intermediate|advance|python|web|app|scratch|roblox/.test(s) || (/foundation/.test(s) && !/kinder|junior|^kf|^jf/.test(s))) return 'Coder';
   if (s.includes('kinder') || /^kf|^k\d/.test(s)) return 'Kinder';
   if (s.includes('junior') || /^jf|^j\d/.test(s)) return 'Junior';
   return null;
@@ -82,7 +82,7 @@ const defaultCodeForLevel = (level) => {
   // Coder levels are stored verbatim as the program code. Folded first, so a
   // student still recorded as "Coder Advance 1" or "Basic 1" resolves to "Coder Basic/Advance"
   // rather than failing to match and leaving the program field empty.
-  if (/^coder/i.test(s) || /basic|intermediate|advance|python|web|app|scratch|roblox/i.test(s)) {
+  if (/^coder/i.test(s) || /basic|intermediate|advance|python|web|app|scratch|roblox/i.test(s) || (/foundation/i.test(s) && !/kinder|junior|^kf|^jf/i.test(s))) {
     const folded = normaliseCoderLevel(s);
     const exact = PROGRAM_GROUPS.find((g) => g.label === 'Coder')
       ?.codes.find((c) => c.toLowerCase() === folded.toLowerCase());
@@ -147,7 +147,7 @@ const PROGRAM_CATEGORY_OPTIONS = [
 const resolveProgramCategoryName = (levelOrCode) => {
   const s = String(levelOrCode || '').trim().toLowerCase();
   if (!s) return 'Junior Core';
-  if (/coder|basic|intermediate|advance|python|web|app|scratch|roblox/i.test(s)) return 'Coder';
+  if (/coder|basic|intermediate|advance|python|web|app|scratch|roblox/i.test(s) || (/foundation/i.test(s) && !/kinder|junior|^kf|^jf/i.test(s))) return 'Coder';
   if (s.includes('foundation') || s.startsWith('kf') || s.startsWith('jf')) {
     if (s.includes('kinder') || s.startsWith('kf')) return 'Kinder Foundation';
     return 'Junior Foundation';
@@ -420,7 +420,7 @@ const parseProgramValue = (p) => {
   const val = String(p || '').trim();
   if (!val) return { code: '', lesson: '1' };
   // Coder programs store their full level/stage as code (e.g. "Coder Advance", "Basic 1"). No lesson numbers.
-  if (/coder|basic|intermediate|advance|python|web|app|scratch|roblox/i.test(val)) return { code: val, lesson: null };
+  if (/coder|basic|intermediate|advance|python|web|app|scratch|roblox/i.test(val) || (/foundation/i.test(val) && !/kinder|junior|^kf|^jf/i.test(val))) return { code: val, lesson: null };
   const m = val.match(/^([A-Za-z]{1,3}\d+)(?:[.\s]+(\d+))?$/);
   if (m) return { code: m[1].toUpperCase(), lesson: m[2] || '1' };
   return { code: '', lesson: '1' };
@@ -448,7 +448,7 @@ const formatProgramBadge = (program, term, remarks, studentName, liveProgressLis
   if (!progStr && !term) return '';
 
   // Coder programs (Basic 1, Coder Basic, Intermediate, Advance, etc.)
-  if (/coder|basic|intermediate|advance|python|web|app|scratch|roblox/i.test(progStr || term)) {
+  if (/coder|basic|intermediate|advance|python|web|app|scratch|roblox/i.test(progStr || term) || (/foundation/i.test(progStr || term) && !/kinder|junior|^kf|^jf/i.test(progStr || term))) {
     return progStr || term;
   }
 

@@ -658,7 +658,7 @@ export default function NewStudentsPage({ onNavigate } = {}) {
     const lvl = String(level || '').toLowerCase();
     const isKinder = lvl.includes('kinder') || /^kf?\d/i.test(lvl);
     const isJunior = lvl.includes('junior') || /^jf?\d/i.test(lvl);
-    const isCoder = lvl.includes('coder') || /basic|intermediate|advance|python|web|app|scratch|roblox/i.test(lvl);
+    const isCoder = lvl.includes('coder') || /basic|intermediate|advance|python|web|app|scratch|roblox/i.test(lvl) || (/foundation/i.test(lvl) && !isKinder && !isJunior);
 
     if (isKinder) {
       return {

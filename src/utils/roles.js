@@ -250,7 +250,7 @@ export const DEFAULT_ROLE_PERMISSIONS = {
     operationals: { view: false, read: false, write: false, admin: false },
     students: { view: true, read: true, write: false, admin: false },
     'report-cards': { view: true, read: true, write: true, admin: false },
-    'live-progress': { view: true, read: true, write: true, admin: false },
+    'live-progress': { view: true, read: true, write: true, admin: false, restrictBranch: true },
     instructors: { view: true, read: true, write: false, admin: false },
     workload: { view: true, read: true, write: false, admin: false },
     leave: { view: true, read: true, write: true, admin: false },
@@ -276,7 +276,7 @@ export function resolveUserRole(users, email, user) {
   if (user?.role) return user.role;
   if (!email && !user) return DEFAULT_ROLE;
   const identifier = String(email || user?.email || user?.username || '').toLowerCase().trim();
-  if (identifier === 'admin' || identifier === 'admin@thelab.com') return ADMIN_ROLE;
+  if (identifier === 'admin' || identifier === 'admin@thelab.com' || identifier === 'admin@thelab.id' || identifier.startsWith('admin@')) return ADMIN_ROLE;
   return users?.[identifier] || DEFAULT_ROLE;
 }
 
@@ -317,8 +317,8 @@ export function pageToModuleId(pageId) {
  * @returns {{ view: boolean, read: boolean, write: boolean, admin: boolean }}
  */
 export function getEffectivePermissions(role = DEFAULT_ROLE, moduleId, rolePermissions, userOverrides, email) {
-  if (role === ADMIN_ROLE) {
-    return { view: true, read: true, write: true, admin: true };
+  if (role === ADMIN_ROLE || isAdmin(null, email, { email, role })) {
+    return { view: true, read: true, write: true, admin: true, restrictBranch: false };
   }
 
   const modKey = pageToModuleId(moduleId);
@@ -332,23 +332,29 @@ export function getEffectivePermissions(role = DEFAULT_ROLE, moduleId, rolePermi
       read: uPerm.read ?? true,
       write: uPerm.write ?? false,
       admin: uPerm.admin ?? false,
+      restrictBranch: uPerm.restrictBranch ?? false,
     };
   }
 
   // 2. Check dynamic role permissions from DB/config
   if (rolePermissions?.[role]?.[modKey]) {
     const rPerm = rolePermissions[role][modKey];
+    const defaultRestricted = DEFAULT_ROLE_PERMISSIONS[role]?.[modKey]?.restrictBranch ?? (role === 'Instructor' && modKey === 'live-progress');
     return {
       view: rPerm.view ?? false,
       read: rPerm.read ?? false,
       write: rPerm.write ?? false,
       admin: rPerm.admin ?? false,
+      restrictBranch: rPerm.restrictBranch ?? defaultRestricted,
     };
   }
 
   // 3. Fallback to default role permissions
-  const defaults = DEFAULT_ROLE_PERMISSIONS[role]?.[modKey] || { view: false, read: false, write: false, admin: false };
-  return { ...defaults };
+  const defaults = DEFAULT_ROLE_PERMISSIONS[role]?.[modKey] || { view: false, read: false, write: false, admin: false, restrictBranch: false };
+  return {
+    ...defaults,
+    restrictBranch: defaults.restrictBranch ?? (role === 'Instructor' && modKey === 'live-progress'),
+  };
 }
 
 /**
