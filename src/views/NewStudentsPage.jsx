@@ -18,7 +18,7 @@ import { logActivity } from '../services/newActivityService';
 import Pagination from '../components/ui/Pagination';
 import WipeStudentsDialog from '../components/operations/WipeStudentsDialog';
 import ImportStudentsModal from '../components/operations/ImportStudentsModal';
-import { isAdmin, ADMIN_ROLE } from '../utils/roles';
+import { isAdmin, ADMIN_ROLE, getEffectivePermissions, resolveUserRole } from '../utils/roles';
 import { WIPE_CONFIRMATION_PHRASE } from '../lib/wipeConfirmation';
 import {
   WIPE_ACTIVITY,
@@ -30,7 +30,7 @@ import {
 import { bulkCreateInternalClasses, subscribeToInternalClasses, updateInternalClass, deleteInternalClass, bulkDeleteAllClasses } from '../services/internalScheduleService';
 import { getLiveProgress, deleteLiveProgress, bulkDeleteAllLiveProgress } from '../services/newLiveProgressService';
 import { subscribeToInternalInstructors } from '../services/internalInstructorService';
-import { resolveCanonicalTeacherName, isInstructorMatch, isSameTeacher, getInstructorDisplayName } from '../utils/instructorUtils';
+import { resolveCanonicalTeacherName, isInstructorMatch, isSameTeacher, getInstructorDisplayName, resolveTeacherAssignedBranches, resolveMatchedInstructor } from '../utils/instructorUtils';
 import { STUDENT_LEVELS, normaliseCoderLevel, lessonsForCategory } from '../lib/programRules';
 
 function normaliseDayName(dayStr) {
@@ -46,9 +46,9 @@ function normaliseDayName(dayStr) {
   return str.charAt(0).toUpperCase() + str.slice(1);
 }
 import { formatNormalizedTimeSlot } from '../utils/timeUtils';
-import { getCanonicalBranchName } from '../utils/constants';
+import { getCanonicalBranchName, isSameBranch } from '../utils/constants';
 import { filterStudents } from '../lib/studentFilter';
-import { Plus, Pencil, Trash2, FileText, Search, X, MapPin, User, UserCheck, GraduationCap, Phone, CheckCircle, HelpCircle, AlertTriangle, Upload, Clock, Sparkles, ExternalLink } from 'lucide-react';
+import { Plus, Pencil, Trash2, FileText, Search, X, MapPin, User, UserCheck, GraduationCap, Phone, CheckCircle, HelpCircle, AlertTriangle, Upload, Clock, Sparkles, ExternalLink, Building2, Globe, Lock } from 'lucide-react';
 
 const STUDENTS_PAGE_SIZE = 5;
 
@@ -122,9 +122,22 @@ function appendStudentBranchHistory(id, branch) {
  *   is absent rather than throwing. Req 6.4
  */
 export default function NewStudentsPage({ onNavigate } = {}) {
-  const { enabledBranches, branches, users } = useSchedule();
+  const { enabledBranches, branches, users, rolePermissions, userPermissions } = useSchedule();
   const { user } = useAuth();
   const { showToast } = useToast();
+
+  const effectiveRole = useMemo(() => {
+    return resolveUserRole(users, user?.email, user);
+  }, [users, user]);
+
+  const effectivePerms = useMemo(() => {
+    return getEffectivePermissions(effectiveRole, 'students', rolePermissions, userPermissions, user?.email);
+  }, [effectiveRole, rolePermissions, userPermissions, user?.email]);
+
+  const isBranchRestricted = useMemo(() => {
+    if (isAdmin(users, user?.email, user)) return false;
+    return Boolean(effectivePerms.restrictBranch);
+  }, [users, user, effectivePerms]);
 
   // State
   const [students, setStudents] = useState([]);
@@ -132,7 +145,7 @@ export default function NewStudentsPage({ onNavigate } = {}) {
   
   const [search, setSearch] = useState('');
   const [filterLevel, setFilterLevel] = useState('all');
-  const [filterBranch, setFilterBranch] = useState('all');
+  const [filterBranch, setFilterBranch] = useState(user?.location && user.location !== 'All Branches' ? user.location : 'all');
   const [filterStatus, setFilterStatus] = useState('all');
   const [filterSubscription, setFilterSubscription] = useState('all');
   const [page, setPage] = useState(1);
@@ -217,19 +230,67 @@ export default function NewStudentsPage({ onNavigate } = {}) {
     return null;
   };
 
-  const branchList = [...new Set([...(enabledBranches || []).map(b => b.name), ...(branches || []).map(b => b.name)])].filter(Boolean);
+  const assignedBranches = useMemo(() => {
+    return resolveTeacherAssignedBranches(user, instructorsList, classes, isBranchRestricted);
+  }, [user, instructorsList, classes, isBranchRestricted]);
+
+  const allAvailableBranches = useMemo(() => {
+    return [...new Set([...(enabledBranches || []).map(b => b.name), ...(branches || []).map(b => b.name)])].filter(Boolean);
+  }, [enabledBranches, branches]);
+
+  const branchList = useMemo(() => {
+    if (isBranchRestricted && assignedBranches && assignedBranches.length > 0) {
+      return assignedBranches;
+    }
+    return allAvailableBranches;
+  }, [isBranchRestricted, assignedBranches, allAvailableBranches]);
+
+  useEffect(() => {
+    if (isBranchRestricted && assignedBranches && assignedBranches.length > 0) {
+      if (filterBranch === 'all' || !assignedBranches.some(ab => isSameBranch(ab, filterBranch))) {
+        const initial = (user?.location && assignedBranches.some(ab => isSameBranch(ab, user.location)))
+          ? user.location
+          : assignedBranches[0];
+        setFilterBranch(initial);
+      }
+    }
+  }, [isBranchRestricted, assignedBranches, user?.location]);
 
   // Filters & Search.
   const filtered = useMemo(() => {
-    const base = filterStudents(students, {
-      search,
-      level: filterLevel,
-      branch: filterBranch,
-      status: filterStatus,
+    let scopedStudents = students;
+    if (isBranchRestricted && assignedBranches && assignedBranches.length > 0) {
+      scopedStudents = students.filter(st => {
+        const b = st.branchName || st.branch_name || st.branch;
+        return assignedBranches.some(ab => isSameBranch(ab, b));
+      });
+    }
+
+    const base = scopedStudents.filter((st) => {
+      // Search
+      const needle = String(search ?? '').trim().toLowerCase();
+      if (needle) {
+        const searchable = [
+          st.name,
+          st.parentName,
+          st.contact,
+          st.remarks,
+        ].filter(Boolean).map(v => String(v).toLowerCase());
+        if (!searchable.some(s => s.includes(needle))) return false;
+      }
+      // Level
+      if (filterLevel !== 'all' && normaliseCoderLevel(st.level) !== filterLevel) return false;
+      // Branch
+      if (filterBranch !== 'all' && !isSameBranch(st.branchName || st.branch_name || st.branch, filterBranch)) return false;
+      // Status
+      if (filterStatus !== 'all' && String(st.status).toLowerCase() !== String(filterStatus).toLowerCase()) return false;
+      // Subscription
+      if (filterSubscription !== 'all' && getStudentSubscriptionStatus(st) !== filterSubscription) return false;
+      return true;
     });
-    if (filterSubscription === 'all') return base;
-    return base.filter((st) => getStudentSubscriptionStatus(st) === filterSubscription);
-  }, [students, search, filterLevel, filterBranch, filterStatus, filterSubscription]);
+
+    return base;
+  }, [students, search, filterLevel, filterBranch, filterStatus, filterSubscription, isBranchRestricted, assignedBranches]);
 
   const sortedFiltered = useMemo(() => {
     return [...filtered].sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
@@ -251,10 +312,13 @@ export default function NewStudentsPage({ onNavigate } = {}) {
   const openAddModal = () => {
     setEditingStudent(null);
     setBranchHistory([]);
+    const defaultBranch = (isBranchRestricted && assignedBranches && assignedBranches.length > 0)
+      ? assignedBranches[0]
+      : (branchList[0] || '');
     setForm({
       name: '',
       level: STUDENT_LEVELS[0],
-      branchName: branchList[0] || '',
+      branchName: defaultBranch,
       parentName: '',
       contact: '',
       status: 'Active',
@@ -692,16 +756,117 @@ export default function NewStudentsPage({ onNavigate } = {}) {
           <div>
             <h2 style={{ fontSize: '1.25rem', fontWeight: 600 }}>Student Database</h2>
             <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', margin: '0.2rem 0 0' }}>
-              Add, update, and sort student records for all academic levels.
+              Add, update, and sort student records for all academic levels. · <strong style={{ color: 'var(--text-main)' }}>{sortedFiltered.length}</strong> students
             </p>
           </div>
           
-          {/*
-            The two actions are grouped so they read as one pair. The header is
-            space-between, so leaving them as separate children would push
-            Delete All to the far edge, away from the button it belongs beside.
-          */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.55rem', flexWrap: 'wrap' }}>
+            {/* Top Right: Branch Badge */}
+            {isBranchRestricted && assignedBranches && assignedBranches.length > 0 ? (
+              <div
+                className="student-branch-badge"
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '0.45rem',
+                  padding: '0.42rem 0.8rem',
+                  borderRadius: '10px',
+                  background: 'rgba(59, 130, 246, 0.08)',
+                  border: '1px solid rgba(59, 130, 246, 0.25)',
+                  color: '#1d4ed8',
+                  fontSize: '0.82rem',
+                  fontWeight: 600,
+                  boxShadow: '0 1px 2px rgba(0,0,0,0.03)',
+                }}
+                title={`Access scoped to your assigned branch: ${assignedBranches.join(', ')}`}
+              >
+                <MapPin size={13} strokeWidth={2.5} style={{ color: '#2563eb' }} />
+                <span>Branch: <strong style={{ color: '#1e40af' }}>{assignedBranches.join(', ')}</strong></span>
+                <span style={{
+                  fontSize: '0.65rem',
+                  fontWeight: 700,
+                  padding: '0.1rem 0.4rem',
+                  borderRadius: '4px',
+                  background: '#dbeafe',
+                  color: '#1e40af',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '0.2rem',
+                  marginLeft: '0.15rem',
+                }}>
+                  <Lock size={10} /> Assigned
+                </span>
+              </div>
+            ) : isBranchRestricted && (!assignedBranches || assignedBranches.length === 0) ? (
+              <div
+                className="student-branch-badge"
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '0.45rem',
+                  padding: '0.42rem 0.8rem',
+                  borderRadius: '10px',
+                  background: 'rgba(239, 68, 68, 0.1)',
+                  border: '1px solid rgba(239, 68, 68, 0.3)',
+                  color: '#b91c1c',
+                  fontSize: '0.82rem',
+                  fontWeight: 600,
+                }}
+                title="No branch assigned: Contact an administrator to assign your branch"
+              >
+                <AlertTriangle size={13} style={{ color: '#ef4444' }} />
+                <span>Branch: <strong>Unassigned</strong></span>
+                <span style={{
+                  fontSize: '0.65rem',
+                  fontWeight: 700,
+                  padding: '0.1rem 0.4rem',
+                  borderRadius: '4px',
+                  background: '#fee2e2',
+                  color: '#b91c1c',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '0.2rem',
+                  marginLeft: '0.15rem',
+                }}>
+                  <Lock size={10} /> Locked
+                </span>
+              </div>
+            ) : (
+              <div
+                className="student-branch-badge"
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '0.45rem',
+                  padding: '0.42rem 0.8rem',
+                  borderRadius: '10px',
+                  background: 'rgba(107, 114, 128, 0.08)',
+                  border: '1px solid rgba(107, 114, 128, 0.2)',
+                  color: 'var(--text-secondary)',
+                  fontSize: '0.82rem',
+                  fontWeight: 600,
+                }}
+                title={filterBranch === 'all' ? 'Viewing all branches (Global Scope)' : `Currently filtered to ${filterBranch}`}
+              >
+                <Building2 size={13} style={{ color: 'var(--text-muted)' }} />
+                <span>Branch: <strong style={{ color: 'var(--text-main)' }}>{filterBranch === 'all' ? 'All Branches' : filterBranch}</strong></span>
+                <span style={{
+                  fontSize: '0.65rem',
+                  fontWeight: 700,
+                  padding: '0.1rem 0.4rem',
+                  borderRadius: '4px',
+                  background: 'rgba(107, 114, 128, 0.12)',
+                  color: 'var(--text-secondary)',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '0.2rem',
+                  marginLeft: '0.15rem',
+                }}>
+                  <Globe size={10} /> {filterBranch === 'all' ? 'Global' : 'Filtered'}
+                </span>
+              </div>
+            )}
+
             <button 
               data-tour="add-student-btn"
               onClick={openAddModal} 
@@ -729,13 +894,6 @@ export default function NewStudentsPage({ onNavigate } = {}) {
               <Upload size={16} /> Bulk Import
             </button>
 
-            {/*
-              Admin-only, and absent from the DOM for every other role rather than
-              hidden or merely disabled. Sitting immediately after Add Student in
-              the header gives it the header's tab order for free, and being a real
-              <button> gives it Enter/Space activation and the platform focus ring.
-              Req 1.1, 1.2, 1.3, 1.6
-            */}
             {canWipeAll && (
               <button
                 ref={wipeControlRef}
@@ -766,6 +924,26 @@ export default function NewStudentsPage({ onNavigate } = {}) {
           </div>
         </div>
 
+        {isBranchRestricted && assignedBranches && assignedBranches.length === 0 && (
+          <div style={{
+            margin: '0.75rem 1.5rem',
+            padding: '0.75rem 1.2rem',
+            borderRadius: '8px',
+            background: 'rgba(245, 158, 11, 0.12)',
+            border: '1px solid rgba(245, 158, 11, 0.3)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.65rem',
+            color: '#b45309',
+            fontSize: '0.8rem',
+          }}>
+            <AlertTriangle size={16} style={{ flexShrink: 0 }} />
+            <div>
+              <strong>No Assigned Branch:</strong> Your instructor account is branch-restricted, but no branch has been assigned to your profile. Please contact an Administrator to set your branch in User Control.
+            </div>
+          </div>
+        )}
+
         {/* Filter Toolbar */}
         <div style={{ display: 'flex', alignItems: 'flex-end', gap: '0.75rem', padding: '1rem 1.5rem', borderBottom: '1px solid var(--border-color)', flexWrap: 'wrap', background: 'var(--bg-color)' }}>
           <div className="input-group" style={{ margin: 0, flex: '1 1 200px' }}>
@@ -794,15 +972,34 @@ export default function NewStudentsPage({ onNavigate } = {}) {
             </select>
           </div>
 
-          <div className="input-group" style={{ margin: 0, width: '150px' }}>
-            <label style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '0.3rem', display: 'block' }}>Branch</label>
+          <div className="input-group" style={{ margin: 0, width: '160px' }}>
+            <label style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '0.3rem', display: 'flex', alignItems: 'center', gap: '4px' }}>
+              Branch
+              {isBranchRestricted && (
+                <span title="Locked to your assigned branch" style={{ color: '#0284c7', display: 'inline-flex' }}>
+                  <MapPin size={11} />
+                </span>
+              )}
+            </label>
             <select
               value={filterBranch}
               onChange={(e) => { setFilterBranch(e.target.value); setPage(1); }}
-              style={{ width: '100%' }}
+              style={{
+                width: '100%',
+                background: isBranchRestricted && branchList.length <= 1 ? 'var(--bg-muted, #f8fafc)' : undefined,
+                cursor: isBranchRestricted && branchList.length <= 1 ? 'not-allowed' : undefined,
+              }}
+              disabled={isBranchRestricted && branchList.length <= 1}
             >
-              <option value="all">All Branches</option>
+              {!isBranchRestricted ? (
+                <option value="all">All Branches</option>
+              ) : assignedBranches && assignedBranches.length > 1 ? (
+                <option value="all">All My Branches ({assignedBranches.length})</option>
+              ) : null}
               {branchList.map(name => <option key={name} value={name}>{name}</option>)}
+              {isBranchRestricted && branchList.length === 0 && (
+                <option value="none">No Branch Assigned</option>
+              )}
             </select>
           </div>
 
@@ -863,7 +1060,7 @@ export default function NewStudentsPage({ onNavigate } = {}) {
               <tbody>
                 {students.length === 0 ? (
                   <tr>
-                    <td colSpan="8" style={{ textAlign: 'center', padding: '3rem 1.5rem', color: 'var(--text-muted)' }}>
+                    <td colSpan="9" style={{ textAlign: 'center', padding: '3rem 1.5rem', color: 'var(--text-muted)' }}>
                       <AlertTriangle size={32} style={{ color: 'var(--warning)', marginBottom: '0.5rem' }} />
                       <div style={{ fontWeight: 600 }}>No Students Registered</div>
                       <div style={{ fontSize: '0.8rem', marginTop: '0.2rem' }}>Click "Add Student" to create your first student record.</div>
@@ -871,7 +1068,7 @@ export default function NewStudentsPage({ onNavigate } = {}) {
                   </tr>
                 ) : paged.length === 0 ? (
                   <tr>
-                    <td colSpan="8" style={{ textAlign: 'center', padding: '3rem 1.5rem', color: 'var(--text-muted)' }}>
+                    <td colSpan="9" style={{ textAlign: 'center', padding: '3rem 1.5rem', color: 'var(--text-muted)' }}>
                       <div style={{ fontWeight: 600 }}>No students match your filter settings.</div>
                     </td>
                   </tr>

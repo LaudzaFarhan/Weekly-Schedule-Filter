@@ -248,7 +248,7 @@ export const DEFAULT_ROLE_PERMISSIONS = {
     dashboard: { view: true, read: true, write: false, admin: false },
     schedule: { view: true, read: true, write: true, admin: false },
     operationals: { view: false, read: false, write: false, admin: false },
-    students: { view: true, read: true, write: false, admin: false },
+    students: { view: true, read: true, write: false, admin: false, restrictBranch: true },
     'report-cards': { view: true, read: true, write: true, admin: false },
     'live-progress': { view: true, read: true, write: true, admin: false, restrictBranch: true },
     instructors: { view: true, read: true, write: false, admin: false },
@@ -340,7 +340,7 @@ export function getEffectivePermissions(role = DEFAULT_ROLE, moduleId, rolePermi
   // 2. Check dynamic role permissions from DB/config
   if (rolePermissions?.[role]?.[modKey]) {
     const rPerm = rolePermissions[role][modKey];
-    const defaultRestricted = DEFAULT_ROLE_PERMISSIONS[role]?.[modKey]?.restrictBranch ?? (role === 'Instructor' && modKey === 'live-progress');
+    const defaultRestricted = DEFAULT_ROLE_PERMISSIONS[role]?.[modKey]?.restrictBranch ?? (role === 'Instructor' && (modKey === 'live-progress' || modKey === 'students'));
     return {
       view: rPerm.view ?? false,
       read: rPerm.read ?? false,
@@ -354,7 +354,7 @@ export function getEffectivePermissions(role = DEFAULT_ROLE, moduleId, rolePermi
   const defaults = DEFAULT_ROLE_PERMISSIONS[role]?.[modKey] || { view: false, read: false, write: false, admin: false, restrictBranch: false };
   return {
     ...defaults,
-    restrictBranch: defaults.restrictBranch ?? (role === 'Instructor' && modKey === 'live-progress'),
+    restrictBranch: defaults.restrictBranch ?? (role === 'Instructor' && (modKey === 'live-progress' || modKey === 'students')),
   };
 }
 
@@ -372,7 +372,7 @@ export function mergeRolePermissions(base = DEFAULT_ROLE_PERMISSIONS, custom = {
     for (const mod of APP_MODULES) {
       const baseMod = baseRole[mod.id] || { view: false, read: false, write: false, admin: false, restrictBranch: false };
       const customMod = customRole[mod.id] || {};
-      const defaultRestricted = baseMod.restrictBranch ?? (role === 'Instructor' && mod.id === 'live-progress');
+      const defaultRestricted = baseMod.restrictBranch ?? (role === 'Instructor' && (mod.id === 'live-progress' || mod.id === 'students'));
       merged[role][mod.id] = {
         view: customMod.view ?? baseMod.view ?? false,
         read: customMod.read ?? baseMod.read ?? false,

@@ -12,33 +12,47 @@ import {
 
 describe('Branch Restriction & Scoping for Live Progress & User Control', () => {
   describe('DEFAULT_ROLE_PERMISSIONS', () => {
-    it('has restrictBranch: true for Instructor on live-progress module', () => {
+    it('has restrictBranch: true for Instructor on live-progress and students modules', () => {
       expect(DEFAULT_ROLE_PERMISSIONS.Instructor['live-progress'].restrictBranch).toBe(true);
+      expect(DEFAULT_ROLE_PERMISSIONS.Instructor['students'].restrictBranch).toBe(true);
     });
 
-    it('has restrictBranch: false or undefined for Admin on live-progress', () => {
+    it('has restrictBranch: false or undefined for Admin on live-progress and students', () => {
       expect(Boolean(DEFAULT_ROLE_PERMISSIONS.Admin['live-progress']?.restrictBranch)).toBe(false);
+      expect(Boolean(DEFAULT_ROLE_PERMISSIONS.Admin['students']?.restrictBranch)).toBe(false);
     });
 
     it('has restrictBranch: false or undefined for Supervisor, SPA, and EC', () => {
       expect(Boolean(DEFAULT_ROLE_PERMISSIONS.Supervisor['live-progress']?.restrictBranch)).toBe(false);
+      expect(Boolean(DEFAULT_ROLE_PERMISSIONS.Supervisor['students']?.restrictBranch)).toBe(false);
       expect(Boolean(DEFAULT_ROLE_PERMISSIONS.SPA['live-progress']?.restrictBranch)).toBe(false);
+      expect(Boolean(DEFAULT_ROLE_PERMISSIONS.SPA['students']?.restrictBranch)).toBe(false);
       expect(Boolean(DEFAULT_ROLE_PERMISSIONS.EC['live-progress']?.restrictBranch)).toBe(false);
+      expect(Boolean(DEFAULT_ROLE_PERMISSIONS.EC['students']?.restrictBranch)).toBe(false);
     });
   });
 
   describe('getEffectivePermissions', () => {
-    it('returns restrictBranch: true by default for Instructor on live-progress', () => {
-      const perms = getEffectivePermissions('Instructor', 'live-progress');
-      expect(perms.view).toBe(true);
-      expect(perms.read).toBe(true);
-      expect(perms.restrictBranch).toBe(true);
+    it('returns restrictBranch: true by default for Instructor on live-progress and students', () => {
+      const permsLP = getEffectivePermissions('Instructor', 'live-progress');
+      expect(permsLP.view).toBe(true);
+      expect(permsLP.read).toBe(true);
+      expect(permsLP.restrictBranch).toBe(true);
+
+      const permsST = getEffectivePermissions('Instructor', 'students');
+      expect(permsST.view).toBe(true);
+      expect(permsST.read).toBe(true);
+      expect(permsST.restrictBranch).toBe(true);
     });
 
     it('returns restrictBranch: false for Admin even if requested', () => {
       const perms = getEffectivePermissions('Admin', 'live-progress');
       expect(perms.restrictBranch).toBe(false);
       expect(perms.admin).toBe(true);
+
+      const permsST = getEffectivePermissions('Admin', 'students');
+      expect(permsST.restrictBranch).toBe(false);
+      expect(permsST.admin).toBe(true);
     });
 
     it('respects custom DB rolePermissions overrides', () => {

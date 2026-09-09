@@ -155,7 +155,7 @@ export default function NewUsersPage() {
     if (role === 'Admin') return; // Admins always have full root access
     setRolePermissionsDraft((prev) => {
       const currentRolePerms = prev[role] || DEFAULT_ROLE_PERMISSIONS[role] || {};
-      const defaultRestricted = (role === 'Instructor' && moduleId === 'live-progress');
+      const defaultRestricted = (role === 'Instructor' && ['live-progress', 'students'].includes(moduleId));
       const currentModPerms = currentRolePerms[moduleId] || {
         view: true, read: true, write: false, admin: false, restrictBranch: defaultRestricted,
       };
@@ -208,7 +208,7 @@ export default function NewUsersPage() {
               read: true,
               write: true,
               admin: false,
-              restrictBranch: mod.id === 'live-progress',
+              restrictBranch: ['live-progress', 'students'].includes(mod.id),
             };
           } else if (isReadOnlyMod) {
             updated[mod.id] = { view: true, read: true, write: false, admin: false, restrictBranch: false };
@@ -1530,10 +1530,10 @@ export default function NewUsersPage() {
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '0.75rem', marginTop: '0.2rem' }}>
                 <div style={{ background: 'var(--bg-card)', padding: '0.75rem 0.9rem', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontWeight: 700, fontSize: '0.8rem', color: '#b45309', marginBottom: '0.3rem' }}>
-                    <Lock size={14} /> Rule 1: Strict Live Progress Branch Lockdown
+                    <Lock size={14} /> Rule 1: Strict Branch Lockdown (Live Progress &amp; Student Database)
                   </div>
                   <p style={{ margin: 0, fontSize: '0.74rem', color: 'var(--text-secondary)', lineHeight: 1.45 }}>
-                    Instructors (and roles with Branch Scope set to <strong>Assigned Branch</strong>) only focus and can see student data at their assigned branch(es). Multi-branch filtering is locked, and all metrics, filters, and lesson rows strictly scope to their assigned branch.
+                    Instructors (and roles with Branch Scope set to <strong>Assigned Branch</strong>) only focus and can see student data at their assigned branch(es) across Live Progress and the Student Database. Multi-branch filtering is locked, and all metrics, student profiles, and lesson rows strictly scope to their assigned branch.
                   </p>
                 </div>
                 <div style={{ background: 'var(--bg-card)', padding: '0.75rem 0.9rem', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
@@ -1724,7 +1724,7 @@ export default function NewUsersPage() {
 
                         {/* Branch Scope Switch */}
                         <td style={{ padding: '0.85rem 0.8rem', textAlign: 'center' }}>
-                          {['live-progress', 'schedule'].includes(mod.id) ? (
+                          {['live-progress', 'schedule', 'students'].includes(mod.id) ? (
                             <button
                               type="button"
                               disabled={isRootAdmin}
@@ -2082,7 +2082,7 @@ export default function NewUsersPage() {
                         </td>
 
                         <td style={{ padding: '0.85rem 0.8rem', textAlign: 'center' }}>
-                          {['live-progress', 'schedule'].includes(mod.id) ? (
+                          {['live-progress', 'schedule', 'students'].includes(mod.id) ? (
                             <span style={{
                               display: 'inline-flex', alignItems: 'center', gap: '0.25rem',
                               fontSize: '0.7rem', fontWeight: 700, padding: '0.2rem 0.45rem', borderRadius: '6px',
