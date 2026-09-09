@@ -5,6 +5,10 @@
  * Handles cross-branch matching and deduplication.
  */
 
+import { isSameBranch } from './constants';
+import { extractEmailFromRemarks, usernameFromName } from '../lib/employeeAccounts';
+import { resolveUserRole } from './roles';
+
 /**
  * Validates whether a string looks like a legitimate teacher name,
  * filtering out URLs, days of the week, and common placeholders.
@@ -395,4 +399,110 @@ export function getRecommendedAliases(instructorName, currentAliases = [], impor
 
   return recommendations;
 }
+
+/**
+ * Find the instructor profile matching a user object (by ID, email, username, or name).
+ * Returns the matched instructor object or null.
+ */
+export function resolveMatchedInstructor(user, instructors = []) {
+  if (!user) return null;
+  const userEmail = (user.email || '').toLowerCase().trim();
+  const userName = (user.displayName || user.fullname || user.username || '').toLowerCase().trim();
+  const userId = user.instructorId || user.id;
+
+  return (instructors || []).find((inst) => {
+    if (!inst) return false;
+    // Match by ID
+    if (userId && (String(inst.id) === String(userId) || String(inst.instructorId) === String(userId))) {
+      return true;
+    }
+    // Match by email
+    const instEmail = (inst.email || extractEmailFromRemarks(inst.remarks) || '').toLowerCase().trim();
+    if (userEmail && instEmail && userEmail === instEmail) {
+      return true;
+    }
+    if (userEmail && inst.contact && inst.contact.toLowerCase().includes(userEmail)) {
+      return true;
+    }
+    // Match by name or alias
+    if (userName) {
+      if (isSameTeacher(inst.name, userName)) return true;
+      if (usernameFromName(inst.name) === user.username) return true;
+      if (isInstructorMatch(userName, inst)) return true;
+    }
+    return false;
+  }) || null;
+}
+
+/**
+ * Resolves the assigned branches for a teacher / instructor.
+ * Returns an array of branch names (e.g. ['Bekasi']), or null if unrestricted (Admin, Supervisor, etc.).
+ */
+export function resolveTeacherAssignedBranches(user, instructors = [], classGroups = [], isBranchRestricted = null) {
+  if (!user) return null;
+
+  const role = user.role || resolveUserRole(null, user.email, user);
+  const shouldRestrict = isBranchRestricted !== null ? Boolean(isBranchRestricted) : (role === 'Instructor');
+  if (!shouldRestrict) {
+    return null; // Admin, Supervisor, SPA, EC, etc. have unrestricted branch access unless restricted
+  }
+
+  const assigned = new Set();
+
+  // 1. Direct location on user object (from internal_users.location)
+  if (user.location && user.location !== 'All Branches') {
+    String(user.location).split(',').forEach((l) => {
+      const trimmed = l.trim();
+      if (trimmed && trimmed !== 'All Branches') assigned.add(trimmed);
+    });
+  }
+
+  // 2. Direct branches array on user object
+  if (Array.isArray(user.branches)) {
+    user.branches.forEach((b) => {
+      if (b && b !== 'All Branches') assigned.add(b);
+    });
+  } else if (typeof user.branches === 'string' && user.branches && user.branches !== 'All Branches') {
+    String(user.branches).split(',').forEach((b) => {
+      const trimmed = b.trim();
+      if (trimmed && trimmed !== 'All Branches') assigned.add(trimmed);
+    });
+  }
+
+  // 3. Match against instructors list
+  const matchedInst = resolveMatchedInstructor(user, instructors);
+  if (matchedInst) {
+    if (Array.isArray(matchedInst.branches)) {
+      matchedInst.branches.forEach((b) => {
+        if (b && b !== 'All Branches') assigned.add(b);
+      });
+    } else if (typeof matchedInst.branches === 'string' && matchedInst.branches && matchedInst.branches !== 'All Branches') {
+      String(matchedInst.branches).split(',').forEach((b) => {
+        const trimmed = b.trim();
+        if (trimmed && trimmed !== 'All Branches') assigned.add(trimmed);
+      });
+    }
+    if (matchedInst.location && matchedInst.location !== 'All Branches') {
+      String(matchedInst.location).split(',').forEach((l) => {
+        const trimmed = l.trim();
+        if (trimmed && trimmed !== 'All Branches') assigned.add(trimmed);
+      });
+    }
+  }
+
+  // 4. Fallback: check classGroups taught by this teacher
+  if (assigned.size === 0) {
+    const targetTeacherName = matchedInst?.name || user.displayName || user.fullname || user.username;
+    if (targetTeacherName) {
+      (classGroups || []).forEach((g) => {
+        if (g?.branchName && isSameTeacher(g.teacher, targetTeacherName)) {
+          assigned.add(g.branchName);
+        }
+      });
+    }
+  }
+
+  return Array.from(assigned);
+}
+
 

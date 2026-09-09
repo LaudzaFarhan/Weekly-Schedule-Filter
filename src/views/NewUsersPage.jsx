@@ -134,7 +134,7 @@ export default function NewUsersPage() {
   const [myId, setMyId] = useState(null);
 
   // RBAC Matrix & Access Control State
-  const { rolePermissions, updateRolePermissions } = useSchedule();
+  const { rolePermissions, updateRolePermissions, branches = [] } = useSchedule();
   const [activeTab, setActiveTab] = useState('accounts'); // 'accounts' | 'roles' | 'inspector'
   const [selectedRole, setSelectedRole] = useState('Instructor');
   const [rolePermissionsDraft, setRolePermissionsDraft] = useState(() => rolePermissions || DEFAULT_ROLE_PERMISSIONS);
@@ -198,11 +198,17 @@ export default function NewUsersPage() {
           const isInstructorMod = ['schedule', 'report-cards', 'live-progress', 'leave', 'meetings'].includes(mod.id);
           const isReadOnlyMod = ['dashboard', 'students', 'instructors', 'workload'].includes(mod.id);
           if (isInstructorMod) {
-            updated[mod.id] = { view: true, read: true, write: true, admin: false };
+            updated[mod.id] = {
+              view: true,
+              read: true,
+              write: true,
+              admin: false,
+              restrictBranch: mod.id === 'live-progress',
+            };
           } else if (isReadOnlyMod) {
-            updated[mod.id] = { view: true, read: true, write: false, admin: false };
+            updated[mod.id] = { view: true, read: true, write: false, admin: false, restrictBranch: false };
           } else {
-            updated[mod.id] = { view: false, read: false, write: false, admin: false };
+            updated[mod.id] = { view: false, read: false, write: false, admin: false, restrictBranch: false };
           }
         } else if (presetType === 'reset') {
           updated[mod.id] = { ...(DEFAULT_ROLE_PERMISSIONS[role]?.[mod.id] || { view: true, read: true, write: false, admin: false }) };
@@ -616,7 +622,7 @@ export default function NewUsersPage() {
     const role = inspectedUser.role || 'Instructor';
     const out = {};
     APP_MODULES.forEach((mod) => {
-      out[mod.id] = getEffectivePermissions(role, mod.id, rolePermissionsDraft);
+      out[mod.id] = getEffectivePermissions(role, mod.id, rolePermissionsDraft, null, inspectedUser.email);
     });
     return out;
   }, [inspectedUser, rolePermissionsDraft]);
@@ -875,17 +881,44 @@ export default function NewUsersPage() {
                       onChange={(e) => setDraft({ ...draft, phoneNumber: e.target.value })}
                     />
                   </div>
-                  <div style={{ flex: '1 1 140px' }}>
-                    <label className="modal-form-label" htmlFor="user-location">Location</label>
+                  <div style={{ flex: '1 1 160px' }}>
+                    <label className="modal-form-label" htmlFor="user-location">Branch / Location</label>
                     <input
                       id="user-location"
+                      list="user-branches-datalist"
                       className="modal-input-field"
                       style={{ width: '100%' }}
                       value={draft.location}
                       onChange={(e) => setDraft({ ...draft, location: e.target.value })}
+                      placeholder="e.g. Kelapa Gading"
                     />
+                    <datalist id="user-branches-datalist">
+                      {(branches || []).map((b) => {
+                        const name = typeof b === 'string' ? b : (b?.name || '');
+                        return name ? <option key={name} value={name} /> : null;
+                      })}
+                    </datalist>
                   </div>
                 </div>
+
+                {draft.role === 'Instructor' && (
+                  <div style={{
+                    padding: '0.45rem 0.65rem',
+                    borderRadius: '6px',
+                    background: 'rgba(59, 130, 246, 0.08)',
+                    border: '1px solid rgba(59, 130, 246, 0.2)',
+                    fontSize: '0.72rem',
+                    color: '#1d4ed8',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.4rem',
+                  }}>
+                    <Building2 size={13} style={{ flexShrink: 0 }} />
+                    <span>
+                      <strong>Branch Scoping Rule:</strong> Instructors assigned to a branch will only focus and see data at their assigned branch(es) in Live Progress &amp; Class Operations. Multiple branches can be comma-separated (e.g. &quot;Kelapa Gading, Puri Indah&quot;).
+                    </span>
+                  </div>
+                )}
 
                 <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
                   <button type="submit" className="btn btn-primary btn-sm" disabled={saving}>
@@ -1467,6 +1500,9 @@ export default function NewUsersPage() {
                     <th style={{ padding: '0.75rem 0.8rem', textAlign: 'center', width: '130px', fontSize: '0.7rem', fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-muted)' }}>
                       ✏️ Write / Modify
                     </th>
+                    <th style={{ padding: '0.75rem 0.8rem', textAlign: 'center', width: '145px', fontSize: '0.7rem', fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-muted)' }}>
+                      🏢 Branch Scope
+                    </th>
                     <th style={{ padding: '0.75rem 1rem', textAlign: 'right', width: '120px', fontSize: '0.7rem', fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-muted)' }}>
                       Access Status
                     </th>
@@ -1579,6 +1615,33 @@ export default function NewUsersPage() {
                           </button>
                         </td>
 
+                        {/* Branch Scope Switch */}
+                        <td style={{ padding: '0.85rem 0.8rem', textAlign: 'center' }}>
+                          {['live-progress', 'schedule'].includes(mod.id) ? (
+                            <button
+                              type="button"
+                              disabled={isRootAdmin}
+                              onClick={() => togglePermission(selectedRole, mod.id, 'restrictBranch')}
+                              style={{
+                                display: 'inline-flex', alignItems: 'center', gap: '0.3rem',
+                                padding: '0.3rem 0.55rem', borderRadius: '8px', border: 'none',
+                                fontSize: '0.7rem', fontWeight: 700, cursor: isRootAdmin ? 'default' : 'pointer',
+                                background: modPerms.restrictBranch ? 'rgba(245,158,11,0.14)' : 'rgba(8,145,178,0.12)',
+                                color: modPerms.restrictBranch ? '#b45309' : '#0e7490',
+                                opacity: isRootAdmin ? 0.85 : 1,
+                              }}
+                              title={modPerms.restrictBranch
+                                ? "Restricted: User only sees data at their assigned branch."
+                                : "Unrestricted: User can see data and filter across all branches."}
+                            >
+                              {modPerms.restrictBranch ? <Lock size={12} /> : <Unlock size={12} />}
+                              {modPerms.restrictBranch ? 'Assigned Branch' : 'All Branches'}
+                            </button>
+                          ) : (
+                            <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Global</span>
+                          )}
+                        </td>
+
                         {/* Summary Pill */}
                         <td style={{ padding: '0.85rem 1rem', textAlign: 'right', whiteSpace: 'nowrap' }}>
                           {isFull ? (
@@ -1616,6 +1679,25 @@ export default function NewUsersPage() {
                   })}
                 </tbody>
               </table>
+            </div>
+
+            {/* Branch Scoping Rule Card */}
+            <div style={{
+              display: 'flex', alignItems: 'flex-start', gap: '0.75rem',
+              padding: '0.85rem 1rem', borderRadius: '10px',
+              background: 'rgba(59, 130, 246, 0.06)',
+              border: '1px solid rgba(59, 130, 246, 0.2)',
+              fontSize: '0.76rem', color: 'var(--text-secondary)',
+            }}>
+              <Building2 size={18} style={{ color: 'var(--primary-blue)', flexShrink: 0, marginTop: '2px' }} />
+              <div>
+                <strong style={{ color: 'var(--text-main)', display: 'block', marginBottom: '0.2rem' }}>
+                  Branch Scoping &amp; Data Access Rules
+                </strong>
+                <span>
+                  When <strong>Assigned Branch</strong> is active on a module (e.g. <em>Live Progress</em>), users with this role are strictly scoped to the branch(es) configured on their user account (<code>location</code>) or matched instructor profile. Admins and unrestricted roles retain full visibility across all branches.
+                </span>
+              </div>
             </div>
 
             {/* Bottom Save Action Bar */}
@@ -1729,10 +1811,12 @@ export default function NewUsersPage() {
                           {inspectedUser.status}
                         </span>
                       </div>
-                      <div style={{ display: 'flex', gap: '0.75rem', fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.2rem' }}>
+                      <div style={{ display: 'flex', gap: '0.75rem', fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.2rem', flexWrap: 'wrap' }}>
                         <span><strong>Username:</strong> {inspectedUser.username}</span>
                         <span>·</span>
                         <span><strong>Email:</strong> {inspectedUser.email}</span>
+                        <span>·</span>
+                        <span><strong>Branch:</strong> {inspectedUser.location || 'All Branches (Unscoped)'}</span>
                       </div>
                     </div>
                   </div>
@@ -1796,6 +1880,9 @@ export default function NewUsersPage() {
                     </th>
                     <th style={{ padding: '0.75rem 0.8rem', textAlign: 'center', width: '120px', fontSize: '0.7rem', fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-muted)' }}>
                       ✏️ Write / Modify
+                    </th>
+                    <th style={{ padding: '0.75rem 0.8rem', textAlign: 'center', width: '140px', fontSize: '0.7rem', fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-muted)' }}>
+                      🏢 Branch Scope
                     </th>
                     <th style={{ padding: '0.75rem 1rem', textAlign: 'right', width: '140px', fontSize: '0.7rem', fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-muted)' }}>
                       Permission Source
@@ -1872,6 +1959,22 @@ export default function NewUsersPage() {
                             {perms.write ? <Check size={12} /> : <X size={12} />}
                             {perms.write ? 'Editable' : 'Read Only'}
                           </span>
+                        </td>
+
+                        <td style={{ padding: '0.85rem 0.8rem', textAlign: 'center' }}>
+                          {['live-progress', 'schedule'].includes(mod.id) ? (
+                            <span style={{
+                              display: 'inline-flex', alignItems: 'center', gap: '0.25rem',
+                              fontSize: '0.7rem', fontWeight: 700, padding: '0.2rem 0.45rem', borderRadius: '6px',
+                              background: perms.restrictBranch ? 'rgba(245,158,11,0.14)' : 'rgba(8,145,178,0.12)',
+                              color: perms.restrictBranch ? '#b45309' : '#0e7490',
+                            }}>
+                              {perms.restrictBranch ? <Lock size={11} /> : <Unlock size={11} />}
+                              {perms.restrictBranch ? (inspectedUser.location || 'Assigned Branch') : 'All Branches'}
+                            </span>
+                          ) : (
+                            <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Global</span>
+                          )}
                         </td>
 
                         <td style={{ padding: '0.85rem 1rem', textAlign: 'right', fontSize: '0.74rem', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>

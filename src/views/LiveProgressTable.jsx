@@ -15,7 +15,8 @@ import { useToast } from '../components/ui/Toast';
 import { subscribeToInternalClasses, updateInternalClass, createInternalClass, deleteInternalClass } from '../services/internalScheduleService';
 import { subscribeToInternalInstructors } from '../services/internalInstructorService';
 import { subscribeToInternalStudents, updateInternalStudent } from '../services/internalStudentService';
-import { resolveCanonicalTeacherName, getInstructorDisplayName, isInstructorMatch, isSameTeacher } from '../utils/instructorUtils';
+import { resolveCanonicalTeacherName, getInstructorDisplayName, isInstructorMatch, isSameTeacher, resolveTeacherAssignedBranches, resolveMatchedInstructor } from '../utils/instructorUtils';
+import { getEffectivePermissions, resolveUserRole } from '../utils/roles';
 import {
   subscribeToLiveProgress, saveLiveProgress,
 } from '../services/newLiveProgressService';
@@ -137,7 +138,7 @@ const keyOf = (studentName, programCode) =>
 export default function LiveProgressTable({ category }) {
   const { user } = useAuth();
   const { showToast } = useToast();
-  const { enabledBranches, branches } = useSchedule();
+  const { enabledBranches, branches, rolePermissions, userPermissions } = useSchedule();
 
   const maxLessons = useMemo(() => lessonsForCategory(category), [category]);
   const lessons = useMemo(() => Array.from({ length: maxLessons }, (_, i) => i + 1), [maxLessons]);
@@ -145,6 +146,43 @@ export default function LiveProgressTable({ category }) {
   const [classes, setClasses] = useState([]);
   const [progress, setProgress] = useState([]);
   const [instructorProfiles, setInstructorProfiles] = useState([]);
+
+  const effectiveRole = useMemo(() => {
+    return user?.role || resolveUserRole(null, user?.email, user);
+  }, [user]);
+
+  // Resolve user permissions & branch restrictions for Live Progress
+  const effectivePermissions = useMemo(() => {
+    return getEffectivePermissions(
+      effectiveRole,
+      'live-progress',
+      rolePermissions,
+      userPermissions,
+      user?.email
+    );
+  }, [effectiveRole, rolePermissions, userPermissions, user?.email]);
+
+  const assignedBranches = useMemo(() => {
+    return resolveTeacherAssignedBranches(
+      user,
+      instructorProfiles,
+      classes,
+      effectivePermissions.restrictBranch
+    );
+  }, [user, instructorProfiles, classes, effectivePermissions.restrictBranch]);
+
+  const isBranchRestricted = Array.isArray(assignedBranches);
+
+  const matchedInstructor = useMemo(() => {
+    return resolveMatchedInstructor(user, instructorProfiles);
+  }, [user, instructorProfiles]);
+
+  const matchedTeacherName = useMemo(() => {
+    if (!matchedInstructor) {
+      return user?.displayName || user?.fullname || user?.username || null;
+    }
+    return getInstructorDisplayName(matchedInstructor) || matchedInstructor.name;
+  }, [matchedInstructor, user]);
   const [studentRegistry, setStudentRegistry] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(null);
@@ -601,8 +639,23 @@ export default function LiveProgressTable({ category }) {
       ...(enabledBranches || []).map((b) => b.name),
       ...(branches || []).map((b) => b.name),
     ])].filter(Boolean);
-    return list.length > 0 ? list : DEFAULT_BRANCH_LIST.map((b) => b.name);
-  }, [enabledBranches, branches]);
+    const baseList = list.length > 0 ? list : DEFAULT_BRANCH_LIST.map((b) => b.name);
+    if (isBranchRestricted) {
+      if (!assignedBranches || assignedBranches.length === 0) return [];
+      const filtered = baseList.filter((b) => assignedBranches.some((ab) => isSameBranch(ab, b)));
+      return filtered.length > 0 ? filtered : assignedBranches;
+    }
+    return baseList;
+  }, [enabledBranches, branches, isBranchRestricted, assignedBranches]);
+
+  useEffect(() => {
+    if (isBranchRestricted && assignedBranches && assignedBranches.length > 0) {
+      const isCurrentValid = assignedBranches.some((ab) => isSameBranch(ab, filterBranch));
+      if (!isCurrentValid) {
+        setFilterBranch(branchList[0] || assignedBranches[0]);
+      }
+    }
+  }, [isBranchRestricted, assignedBranches, branchList, filterBranch]);
 
   useEffect(() => {
     const unsub = subscribeToInternalInstructors((data) => setInstructorProfiles(data || []));
@@ -710,6 +763,12 @@ export default function LiveProgressTable({ category }) {
 
     // 1. Collect students from classes that match this category
     for (const c of classes) {
+      if (isBranchRestricted) {
+        if (!assignedBranches || assignedBranches.length === 0) continue;
+        const bMatch = assignedBranches.some((ab) => isSameBranch(ab, c.branchName)) ||
+          (matchedTeacherName && isSameTeacher(c.teacher, matchedTeacherName));
+        if (!bMatch) continue;
+      }
       const parsed = parseProgram(c.program);
       const progCategory = parsed.category || resolveProgramCategory(c.program);
       if (progCategory !== category) continue;
@@ -794,6 +853,13 @@ export default function LiveProgressTable({ category }) {
       if (!s.name || !s.name.trim()) continue;
       const sCategory = studentProgramCategory(s) || resolveProgramCategory(s.level);
       if (sCategory !== category) continue;
+
+      if (isBranchRestricted) {
+        if (!assignedBranches || assignedBranches.length === 0) continue;
+        const sBranch = s.branchName || s.branch_name;
+        const bMatch = assignedBranches.some((ab) => isSameBranch(ab, sBranch));
+        if (!bMatch) continue;
+      }
 
       const normName = s.name.trim().toLowerCase();
       if (placedStudents.has(normName)) continue; // Already covered by classes
@@ -886,7 +952,7 @@ export default function LiveProgressTable({ category }) {
     }
 
     return result;
-  }, [classes, studentRegistry, category, progressByKey, instructorProfiles, studentInfoMap]);
+  }, [classes, studentRegistry, category, progressByKey, instructorProfiles, studentInfoMap, isBranchRestricted, assignedBranches, matchedTeacherName]);
 
   /** Summary count for Active, Long Break, Inactive, Unassigned, and Need Update students */
   const statusStats = useMemo(() => {
@@ -1452,6 +1518,22 @@ export default function LiveProgressTable({ category }) {
             </p>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem', flexWrap: 'wrap' }}>
+            {/* Scoped Branch Badge */}
+            {isBranchRestricted && assignedBranches && assignedBranches.length > 0 && (
+              <div
+                style={{
+                  display: 'inline-flex', alignItems: 'center', gap: '0.35rem',
+                  padding: '0.3rem 0.65rem', borderRadius: '20px',
+                  background: 'rgba(59,130,246,0.12)', border: '1px solid rgba(59,130,246,0.3)',
+                  color: '#1d4ed8', fontSize: '0.75rem', fontWeight: 600,
+                }}
+                title={`Access scoped to your assigned branch: ${assignedBranches.join(', ')}`}
+              >
+                <MapPin size={11} strokeWidth={2.5} style={{ color: '#2563eb' }} />
+                <span>Branch: <strong>{assignedBranches.join(', ')}</strong></span>
+              </div>
+            )}
+
             {/* Active Students Counter Badge */}
             <div
               onClick={() => { setFilterStatus(filterStatus === 'Active' ? 'all' : 'Active'); setPage(1); }}
@@ -1635,6 +1717,26 @@ export default function LiveProgressTable({ category }) {
           </div>
         </div>
 
+        {isBranchRestricted && assignedBranches && assignedBranches.length === 0 && (
+          <div style={{
+            margin: '0.75rem 1.5rem',
+            padding: '0.75rem 1.2rem',
+            borderRadius: '8px',
+            background: 'rgba(245, 158, 11, 0.12)',
+            border: '1px solid rgba(245, 158, 11, 0.3)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.65rem',
+            color: '#b45309',
+            fontSize: '0.8rem',
+          }}>
+            <AlertTriangle size={16} style={{ flexShrink: 0 }} />
+            <div>
+              <strong>No Assigned Branch:</strong> Your account is branch-restricted, but no branch has been assigned to your profile. Please contact an Administrator to set your branch in User Control.
+            </div>
+          </div>
+        )}
+
         {loadError && (
           <div style={{ padding: '0.7rem 1.5rem', fontSize: '0.78rem', color: 'var(--danger)', background: 'var(--danger-bg, rgba(239,68,68,0.08))' }}>
             Could not load progress: {loadError}
@@ -1691,8 +1793,28 @@ export default function LiveProgressTable({ category }) {
             </select>
           </div>
 
-          <div className="input-group" style={{ margin: 0, width: '150px' }}>
-            <label style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '0.3rem', display: 'block' }}>Instructor</label>
+          <div className="input-group" style={{ margin: 0, width: '160px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.3rem' }}>
+              <label style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-secondary)', margin: 0 }}>Instructor</label>
+              {matchedTeacherName && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFilterInstructor(filterInstructor === matchedTeacherName ? 'all' : matchedTeacherName);
+                    setPage(1);
+                  }}
+                  style={{
+                    background: 'none', border: 'none', padding: 0,
+                    fontSize: '0.68rem', fontWeight: 700, cursor: 'pointer',
+                    color: filterInstructor === matchedTeacherName ? '#2563eb' : 'var(--primary-blue)',
+                    textDecoration: 'underline',
+                  }}
+                  title={filterInstructor === matchedTeacherName ? 'Show all branch instructors' : 'Focus only on my classes'}
+                >
+                  {filterInstructor === matchedTeacherName ? 'Show All' : 'Focus Me'}
+                </button>
+              )}
+            </div>
             <select value={filterInstructor} onChange={(e) => { setFilterInstructor(e.target.value); setPage(1); }} style={{ width: '100%' }}>
               <option value="all">All Instructors</option>
               {instructorList.map((inst) => <option key={inst} value={inst}>{inst}</option>)}
@@ -1726,8 +1848,17 @@ export default function LiveProgressTable({ category }) {
 
           <div className="input-group" style={{ margin: 0, width: '140px' }}>
             <label style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '0.3rem', display: 'block' }}>Branch</label>
-            <select value={filterBranch} onChange={(e) => { setFilterBranch(e.target.value); setPage(1); }} style={{ width: '100%' }}>
-              <option value="all">All Branches</option>
+            <select
+              value={filterBranch}
+              onChange={(e) => { setFilterBranch(e.target.value); setPage(1); }}
+              style={{ width: '100%' }}
+              disabled={isBranchRestricted && branchList.length <= 1}
+            >
+              {!isBranchRestricted ? (
+                <option value="all">All Branches</option>
+              ) : (assignedBranches && assignedBranches.length > 1) ? (
+                <option value="all">All My Branches ({assignedBranches.length})</option>
+              ) : null}
               {branchList.map((b) => <option key={b} value={b}>{b}</option>)}
             </select>
           </div>
