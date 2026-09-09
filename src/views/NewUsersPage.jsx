@@ -145,11 +145,20 @@ export default function NewUsersPage() {
   const [inspectorSearch, setInspectorSearch] = useState('');
   const [matrixCategoryFilter, setMatrixCategoryFilter] = useState('all');
 
-  useEffect(() => {
-    if (rolePermissions && typeof rolePermissions === 'object') {
-      setRolePermissionsDraft(mergeRolePermissions(DEFAULT_ROLE_PERMISSIONS, rolePermissions));
-    }
+  const rolePermissionsKey = useMemo(() => {
+    return rolePermissions && typeof rolePermissions === 'object' && Object.keys(rolePermissions).length > 0
+      ? JSON.stringify(rolePermissions)
+      : null;
   }, [rolePermissions]);
+
+  useEffect(() => {
+    if (rolePermissionsKey) {
+      try {
+        const parsed = JSON.parse(rolePermissionsKey);
+        setRolePermissionsDraft(mergeRolePermissions(DEFAULT_ROLE_PERMISSIONS, parsed));
+      } catch {}
+    }
+  }, [rolePermissionsKey]);
 
   const togglePermission = (role, moduleId, permKey) => {
     if (role === 'Admin') return; // Admins always have full root access

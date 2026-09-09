@@ -7,11 +7,13 @@ import NewUsersPage from '../NewUsersPage';
 
 const mockShowToast = vi.fn();
 
+const mockSchedule = {
+  rolePermissions: {},
+  updateRolePermissions: vi.fn(),
+};
+
 vi.mock('@/contexts/ScheduleContext', () => ({
-  useSchedule: () => ({
-    rolePermissions: {},
-    updateRolePermissions: vi.fn(),
-  }),
+  useSchedule: () => mockSchedule,
 }));
 
 vi.mock('@/components/ui/Toast', () => ({
