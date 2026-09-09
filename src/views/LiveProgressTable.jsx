@@ -39,7 +39,7 @@ import { parseTimeSlot } from '../utils/timeUtils';
 import {
   Search, X, User, MapPin, Clock, Calendar, GraduationCap, Check, Video,
   StickyNote, AlertTriangle, TrendingUp, BookOpen, Edit3, Save, UserCheck, ChevronDown, CheckCircle2,
-  ExternalLink, Eye, Send, RotateCcw, FileText, Info, Sparkles,
+  ExternalLink, Eye, Send, RotateCcw, FileText, Info, Sparkles, Building2, Globe, Lock,
 } from 'lucide-react';
 import AttendanceDetailHistoryModal from '../components/operations/AttendanceDetailHistoryModal';
 import ProgressUpdateModal from '../components/operations/ProgressUpdateModal';
@@ -1549,32 +1549,130 @@ export default function LiveProgressTable({ category }) {
   return (
     <section className="dashboard-view active">
       <div className="panel full-schedule-panel">
-        <div className="panel-header" style={{ flexWrap: 'wrap', gap: '0.75rem', justifyContent: 'space-between', alignItems: 'center' }}>
-          <div>
-            <h2 style={{ fontSize: '1.25rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.45rem' }}>
-              <TrendingUp size={18} /> {category} Progress
-            </h2>
-            <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', margin: '0.2rem 0 0' }}>
-              Attendance, videos sent and continuation for every {category} student.
-              Tick a lesson to record the date and a note.
-            </p>
+        <div className="panel-header" style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
+          {/* Top Row: Title on Left, Branch Badge at Top Right */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', flexWrap: 'wrap', gap: '0.75rem' }}>
+            <div>
+              <h2 style={{ fontSize: '1.25rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.45rem', margin: 0 }}>
+                <TrendingUp size={18} /> {category} Progress
+              </h2>
+              <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', margin: '0.2rem 0 0' }}>
+                Attendance, videos sent and continuation for every {category} student.
+                Tick a lesson to record the date and a note.
+              </p>
+            </div>
+
+            {/* Top Right: Branch Badge */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              {isBranchRestricted && assignedBranches && assignedBranches.length > 0 ? (
+                <div
+                  className="live-progress-branch-badge"
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '0.45rem',
+                    padding: '0.35rem 0.75rem',
+                    borderRadius: '8px',
+                    background: 'rgba(59, 130, 246, 0.08)',
+                    border: '1px solid rgba(59, 130, 246, 0.25)',
+                    color: '#1d4ed8',
+                    fontSize: '0.8rem',
+                    fontWeight: 600,
+                    boxShadow: '0 1px 2px rgba(0,0,0,0.03)',
+                  }}
+                  title={`Access scoped to your assigned branch: ${assignedBranches.join(', ')}`}
+                >
+                  <MapPin size={13} strokeWidth={2.5} style={{ color: '#2563eb' }} />
+                  <span>Branch: <strong style={{ color: '#1e40af' }}>{assignedBranches.join(', ')}</strong></span>
+                  <span style={{
+                    fontSize: '0.65rem',
+                    fontWeight: 700,
+                    padding: '0.1rem 0.4rem',
+                    borderRadius: '4px',
+                    background: '#dbeafe',
+                    color: '#1e40af',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '0.2rem',
+                    marginLeft: '0.15rem',
+                  }}>
+                    <Lock size={10} /> Assigned
+                  </span>
+                </div>
+              ) : isBranchRestricted && (!assignedBranches || assignedBranches.length === 0) ? (
+                <div
+                  className="live-progress-branch-badge"
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '0.45rem',
+                    padding: '0.35rem 0.75rem',
+                    borderRadius: '8px',
+                    background: 'rgba(239, 68, 68, 0.1)',
+                    border: '1px solid rgba(239, 68, 68, 0.3)',
+                    color: '#b91c1c',
+                    fontSize: '0.8rem',
+                    fontWeight: 600,
+                  }}
+                  title="No branch assigned: Contact an administrator to assign your branch"
+                >
+                  <AlertTriangle size={13} style={{ color: '#ef4444' }} />
+                  <span>Branch: <strong>Unassigned</strong></span>
+                  <span style={{
+                    fontSize: '0.65rem',
+                    fontWeight: 700,
+                    padding: '0.1rem 0.4rem',
+                    borderRadius: '4px',
+                    background: '#fee2e2',
+                    color: '#b91c1c',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '0.2rem',
+                    marginLeft: '0.15rem',
+                  }}>
+                    <Lock size={10} /> Locked
+                  </span>
+                </div>
+              ) : (
+                <div
+                  className="live-progress-branch-badge"
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '0.45rem',
+                    padding: '0.35rem 0.75rem',
+                    borderRadius: '8px',
+                    background: 'rgba(107, 114, 128, 0.08)',
+                    border: '1px solid rgba(107, 114, 128, 0.2)',
+                    color: 'var(--text-secondary)',
+                    fontSize: '0.8rem',
+                    fontWeight: 600,
+                  }}
+                  title={filterBranch === 'all' ? 'Viewing all branches (Global Scope)' : `Currently filtered to ${filterBranch}`}
+                >
+                  <Building2 size={13} style={{ color: 'var(--text-muted)' }} />
+                  <span>Branch: <strong style={{ color: 'var(--text-main)' }}>{filterBranch === 'all' ? 'All Branches' : filterBranch}</strong></span>
+                  <span style={{
+                    fontSize: '0.65rem',
+                    fontWeight: 700,
+                    padding: '0.1rem 0.4rem',
+                    borderRadius: '4px',
+                    background: 'rgba(107, 114, 128, 0.12)',
+                    color: 'var(--text-secondary)',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '0.2rem',
+                    marginLeft: '0.15rem',
+                  }}>
+                    <Globe size={10} /> {filterBranch === 'all' ? 'Global' : 'Filtered'}
+                  </span>
+                </div>
+              )}
+            </div>
           </div>
+
+          {/* Bottom Row: Status Counters */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem', flexWrap: 'wrap' }}>
-            {/* Scoped Branch Badge */}
-            {isBranchRestricted && assignedBranches && assignedBranches.length > 0 && (
-              <div
-                style={{
-                  display: 'inline-flex', alignItems: 'center', gap: '0.35rem',
-                  padding: '0.3rem 0.65rem', borderRadius: '20px',
-                  background: 'rgba(59,130,246,0.12)', border: '1px solid rgba(59,130,246,0.3)',
-                  color: '#1d4ed8', fontSize: '0.75rem', fontWeight: 600,
-                }}
-                title={`Access scoped to your assigned branch: ${assignedBranches.join(', ')}`}
-              >
-                <MapPin size={11} strokeWidth={2.5} style={{ color: '#2563eb' }} />
-                <span>Branch: <strong>{assignedBranches.join(', ')}</strong></span>
-              </div>
-            )}
 
             {/* Active Students Counter Badge */}
             <div
