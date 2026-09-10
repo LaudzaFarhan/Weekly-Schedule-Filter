@@ -33,13 +33,18 @@ export const firebaseConfigured = Boolean(
   firebaseConfig.apiKey && firebaseConfig.projectId
 );
 
-const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
-export const auth = getAuth(app);
-export const db = getFirestore(app);
+const app = firebaseConfigured
+  ? (!getApps().length ? initializeApp(firebaseConfig) : getApp())
+  : null;
+
+export const auth = app ? getAuth(app) : null;
+export const db = app ? getFirestore(app) : null;
 
 // Secondary app for creating accounts without logging the admin out
-const secondaryApp = getApps().find(a => a.name === 'Secondary') 
-  || initializeApp(firebaseConfig, 'Secondary');
-export const secondaryAuth = getAuth(secondaryApp);
+const secondaryApp = firebaseConfigured
+  ? (getApps().find(a => a.name === 'Secondary') || initializeApp(firebaseConfig, 'Secondary'))
+  : null;
+
+export const secondaryAuth = secondaryApp ? getAuth(secondaryApp) : null;
 
 export default app;

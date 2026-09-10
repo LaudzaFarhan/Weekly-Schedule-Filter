@@ -2,6 +2,7 @@ import { query } from '@/lib/db';
 import { buildListQuery, withLimit } from '@/lib/listQuery';
 import { NextResponse } from 'next/server';
 import { autoSyncInstructorAccounts } from '@/lib/syncInstructorAccounts';
+import { identify, canAdminAccounts } from '@/lib/apiIdentity';
 
 const mapRow = (row) => ({
   id: row.id,
@@ -63,6 +64,10 @@ export async function GET(req) {
  */
 export async function POST(req) {
   try {
+    const identity = await identify(req);
+    if (identity.kind === 'session' && !canAdminAccounts(identity)) {
+      return NextResponse.json({ error: 'Forbidden', message: 'Only administrators can create instructors.' }, { status: 403 });
+    }
     const body = await req.json();
     const { name, level, branches, contact, status, remarks, employmentType, availableDays, aliases, verifiedAliases } = body;
  
@@ -124,6 +129,10 @@ export async function POST(req) {
  */
 export async function PUT(req) {
   try {
+    const identity = await identify(req);
+    if (identity.kind === 'session' && !canAdminAccounts(identity)) {
+      return NextResponse.json({ error: 'Forbidden', message: 'Only administrators can update instructors.' }, { status: 403 });
+    }
     const body = await req.json();
     const { id, name, level, branches, contact, status, remarks, employmentType, availableDays, aliases, verifiedAliases } = body;
  
@@ -209,6 +218,10 @@ export async function PUT(req) {
  */
 export async function DELETE(req) {
   try {
+    const identity = await identify(req);
+    if (identity.kind === 'session' && !canAdminAccounts(identity)) {
+      return NextResponse.json({ error: 'Forbidden', message: 'Only administrators can delete instructors.' }, { status: 403 });
+    }
     const { searchParams } = new URL(req.url);
     const all = searchParams.get('all');
 

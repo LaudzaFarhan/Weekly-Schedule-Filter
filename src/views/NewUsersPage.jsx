@@ -24,6 +24,7 @@ import {
   BookOpen, Edit3, Settings, ExternalLink, Filter, Globe, MapPin
 } from 'lucide-react';
 import { useToast } from '../components/ui/Toast';
+import { useAuth } from '../contexts/AuthContext';
 import { useSchedule } from '../contexts/ScheduleContext';
 import {
   APP_MODULES, SYSTEM_ROLES, ROLE_DESCRIPTIONS, DEFAULT_ROLE_PERMISSIONS,
@@ -94,6 +95,9 @@ async function errorFrom(res) {
 
 export default function NewUsersPage() {
   const { showToast } = useToast();
+  const { user: authUser } = useAuth();
+  const { rolePermissions, updateRolePermissions, branches = [], users: roleMap } = useSchedule();
+  const isUserAdmin = authUser ? (isAdmin(roleMap, authUser?.email, authUser) || authUser?.role === 'Admin') : true;
 
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -134,7 +138,6 @@ export default function NewUsersPage() {
   const [myId, setMyId] = useState(null);
 
   // RBAC Matrix & Access Control State
-  const { rolePermissions, updateRolePermissions, branches = [] } = useSchedule();
   const [activeTab, setActiveTab] = useState('accounts'); // 'accounts' | 'roles' | 'inspector'
   const [selectedRole, setSelectedRole] = useState('Instructor');
   const [rolePermissionsDraft, setRolePermissionsDraft] = useState(() => {
@@ -161,7 +164,7 @@ export default function NewUsersPage() {
   }, [rolePermissionsKey]);
 
   const togglePermission = (role, moduleId, permKey) => {
-    if (role === 'Admin') return; // Admins always have full root access
+    if (!isUserAdmin || role === 'Admin') return; // Admins always have full root access
     setRolePermissionsDraft((prev) => {
       const currentRolePerms = prev[role] || DEFAULT_ROLE_PERMISSIONS[role] || {};
       const defaultRestricted = (role === 'Instructor' && ['live-progress', 'students'].includes(moduleId));
@@ -193,7 +196,7 @@ export default function NewUsersPage() {
   };
 
   const applyPreset = (role, presetType) => {
-    if (role === 'Admin') return;
+    if (!isUserAdmin || role === 'Admin') return;
     setRolePermissionsDraft((prev) => {
       const updated = { ...(prev[role] || {}) };
 
@@ -244,6 +247,10 @@ export default function NewUsersPage() {
   };
 
   const handleSaveRolePermissions = async () => {
+    if (!isUserAdmin) {
+      showToast({ variant: 'error', title: 'Permission Denied', message: 'Only administrators can update role permissions.' });
+      return;
+    }
     setSavingPerms(true);
     try {
       if (updateRolePermissions) {
@@ -366,6 +373,10 @@ export default function NewUsersPage() {
   }, [users]);
 
   const toggleVerification = async (user) => {
+    if (!isUserAdmin) {
+      showToast({ variant: 'error', title: 'Permission Denied', message: 'Only administrators can verify user accounts.' });
+      return;
+    }
     setBusyId(user.id);
     try {
       const nextVerified = !user.isVerified;
@@ -391,6 +402,10 @@ export default function NewUsersPage() {
   };
 
   const verifyAllPending = async () => {
+    if (!isUserAdmin) {
+      showToast({ variant: 'error', title: 'Permission Denied', message: 'Only administrators can verify accounts.' });
+      return;
+    }
     const pendingList = users.filter((u) => !u.isVerified && u.role !== 'Admin');
     if (pendingList.length === 0) return;
     const ok = window.confirm(
@@ -423,6 +438,10 @@ export default function NewUsersPage() {
   };
 
   const toggleReveal = async (user) => {
+    if (!isUserAdmin) {
+      showToast({ variant: 'error', title: 'Permission Denied', message: 'Only administrators can view user passwords.' });
+      return;
+    }
     if (revealed[user.id]) {
       setRevealed((prev) => {
         const next = { ...prev };
@@ -445,6 +464,10 @@ export default function NewUsersPage() {
   };
 
   const resetPassword = async (user) => {
+    if (!isUserAdmin) {
+      showToast({ variant: 'error', title: 'Permission Denied', message: 'Only administrators can reset user passwords.' });
+      return;
+    }
     const expected = user.role === 'Instructor' ? 'instructor12345' : 'thelab12345';
     const ok = window.confirm(
       `Reset ${user.username}'s password to "${expected}"?\n\n`
@@ -481,6 +504,10 @@ export default function NewUsersPage() {
   };
 
   const setStatus = async (user, status) => {
+    if (!isUserAdmin) {
+      showToast({ variant: 'error', title: 'Permission Denied', message: 'Only administrators can change account status.' });
+      return;
+    }
     setBusyId(user.id);
     try {
       const res = await fetch('/api/new/users', {
@@ -505,6 +532,10 @@ export default function NewUsersPage() {
   };
 
   const changeRole = async (user, role) => {
+    if (!isUserAdmin) {
+      showToast({ variant: 'error', title: 'Permission Denied', message: 'Only administrators can change user roles.' });
+      return;
+    }
     setBusyId(user.id);
     try {
       const res = await fetch('/api/new/users', {
@@ -523,6 +554,10 @@ export default function NewUsersPage() {
   };
 
   const remove = async (user) => {
+    if (!isUserAdmin) {
+      showToast({ variant: 'error', title: 'Permission Denied', message: 'Only administrators can delete user accounts.' });
+      return;
+    }
     const ok = window.confirm(
       `Delete the account "${user.username}"?\n\n`
       + 'This cannot be undone. If you only want to stop them signing in, suspend '
@@ -545,6 +580,10 @@ export default function NewUsersPage() {
 
   const submitDraft = async (e) => {
     e.preventDefault();
+    if (!isUserAdmin) {
+      showToast({ variant: 'error', title: 'Permission Denied', message: 'Only administrators can create or edit accounts.' });
+      return;
+    }
     setSaving(true);
     try {
       const editing = editingId !== null;
@@ -576,6 +615,7 @@ export default function NewUsersPage() {
   };
 
   const startEdit = (user) => {
+    if (!isUserAdmin) return;
     setEditingId(user.id);
     setAdding(true);
     setDraft({
@@ -589,6 +629,10 @@ export default function NewUsersPage() {
   };
 
   const previewProvision = async () => {
+    if (!isUserAdmin) {
+      showToast({ variant: 'error', title: 'Permission Denied', message: 'Only administrators can provision instructor accounts.' });
+      return;
+    }
     setProvisioning(true);
     try {
       const res = await fetch('/api/new/users/provision');
@@ -602,6 +646,10 @@ export default function NewUsersPage() {
   };
 
   const runProvision = async () => {
+    if (!isUserAdmin) {
+      showToast({ variant: 'error', title: 'Permission Denied', message: 'Only administrators can provision instructor accounts.' });
+      return;
+    }
     setProvisioning(true);
     try {
       const res = await fetch('/api/new/users/provision', {
@@ -764,7 +812,7 @@ export default function NewUsersPage() {
               </div>
 
               <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
-                {counts.pending > 0 && (
+                {isUserAdmin && counts.pending > 0 && (
                   <button
                     type="button"
                     className="btn btn-sm"
@@ -780,17 +828,19 @@ export default function NewUsersPage() {
                     <CheckCircle2 size={14} /> Verify all pending ({counts.pending})
                   </button>
                 )}
-                <button
-                  type="button"
-                  className="btn btn-sm"
-                  onClick={previewProvision}
-                  disabled={provisioning}
-                  title="Create a login for every instructor who does not have one yet"
-                  style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }}
-                >
-                  {provisioning ? <Loader2 size={14} className="spin" /> : <UserPlus size={14} />}
-                  Accounts for instructors
-                </button>
+                {isUserAdmin && (
+                  <button
+                    type="button"
+                    className="btn btn-sm"
+                    onClick={previewProvision}
+                    disabled={provisioning}
+                    title="Create a login for every instructor who does not have one yet"
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }}
+                  >
+                    {provisioning ? <Loader2 size={14} className="spin" /> : <UserPlus size={14} />}
+                    Accounts for instructors
+                  </button>
+                )}
                 <button
                   type="button"
                   className="btn btn-sm"
@@ -800,16 +850,29 @@ export default function NewUsersPage() {
                 >
                   <RefreshCw size={14} className={loading ? 'spin' : ''} /> Reload
                 </button>
-                <button
-                  type="button"
-                  className="btn btn-primary btn-sm"
-                  onClick={() => { setEditingId(null); setDraft(emptyDraft()); setAdding((v) => !v); }}
-                  style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }}
-                >
-                  <Plus size={14} /> New account
-                </button>
+                {isUserAdmin && (
+                  <button
+                    type="button"
+                    className="btn btn-primary btn-sm"
+                    onClick={() => { setEditingId(null); setDraft(emptyDraft()); setAdding((v) => !v); }}
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }}
+                  >
+                    <Plus size={14} /> New account
+                  </button>
+                )}
               </div>
             </div>
+
+            {!isUserAdmin && (
+              <div style={{
+                margin: '0 1.5rem 1rem', padding: '0.7rem 0.9rem', borderRadius: '10px',
+                background: 'rgba(59,130,246,0.08)', border: '1px solid rgba(59,130,246,0.3)',
+                display: 'flex', gap: '0.5rem', alignItems: 'center', fontSize: '0.8rem', color: 'var(--text-secondary)'
+              }}>
+                <Shield size={16} style={{ color: 'var(--primary-blue)', flexShrink: 0 }} />
+                <span>You are viewing user accounts in read-only mode. Creating or modifying user accounts requires Administrator privileges.</span>
+              </div>
+            )}
 
             {!keyConfigured && (
               <div style={{
@@ -1085,7 +1148,7 @@ export default function NewUsersPage() {
                 <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                   <thead>
                     <tr>
-                      {['Username', 'Name', 'Role', 'Branch Scope', 'Password', 'Status', 'Verification', 'Permissions', 'Actions'].map((heading, i) => (
+                      {['Username', 'Name', 'Role', 'Branch Scope', 'Password', 'Status', 'Verification', 'Permissions', ...(isUserAdmin ? ['Actions'] : [])].map((heading, i) => (
                         <th
                           key={heading || `actions-${i}`}
                           scope="col"
@@ -1137,11 +1200,11 @@ export default function NewUsersPage() {
                             <select
                               value={user.role}
                               onChange={(e) => changeRole(user, e.target.value)}
-                              disabled={busy}
+                              disabled={busy || !isUserAdmin}
                               aria-label={`Role for ${user.username}`}
                               style={{
                                 border: 'none', borderRadius: '6px', padding: '0.18rem 0.4rem',
-                                fontSize: '0.72rem', fontWeight: 700, cursor: 'pointer',
+                                fontSize: '0.72rem', fontWeight: 700, cursor: isUserAdmin ? 'pointer' : 'default',
                                 color: roleStyle.color, background: roleStyle.bg,
                                 fontFamily: 'inherit',
                               }}
@@ -1197,7 +1260,7 @@ export default function NewUsersPage() {
                               }}>
                                 {shown || (user.hasPassword ? '••••••••' : 'not set')}
                               </code>
-                              {user.hasPassword && (
+                              {user.hasPassword && isUserAdmin && (
                                 <button
                                   type="button"
                                   onClick={() => toggleReveal(user)}
@@ -1214,11 +1277,11 @@ export default function NewUsersPage() {
                             <button
                               type="button"
                               onClick={() => setStatus(user, user.status === 'Active' ? 'Suspended' : 'Active')}
-                              disabled={busy || isMe}
+                              disabled={busy || isMe || !isUserAdmin}
                               style={{
                                 display: 'inline-flex', alignItems: 'center', gap: '0.25rem',
                                 border: 'none', borderRadius: '6px', padding: '0.18rem 0.45rem',
-                                fontSize: '0.7rem', fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit',
+                                fontSize: '0.7rem', fontWeight: 700, cursor: !isUserAdmin ? 'default' : 'pointer', fontFamily: 'inherit',
                                 color: user.status === 'Active' ? '#047857' : '#b91c1c',
                                 background: user.status === 'Active' ? 'rgba(5,150,105,0.12)' : 'rgba(239,68,68,0.12)',
                               }}
@@ -1242,7 +1305,7 @@ export default function NewUsersPage() {
                                 >
                                   <CheckCircle2 size={11} /> Verified
                                 </span>
-                                {user.role !== 'Admin' && !isMe && (
+                                {isUserAdmin && user.role !== 'Admin' && !isMe && (
                                   <button
                                     type="button"
                                     onClick={() => toggleVerification(user)}
@@ -1272,21 +1335,23 @@ export default function NewUsersPage() {
                                 >
                                   <AlertTriangle size={11} /> Pending
                                 </span>
-                                <button
-                                  type="button"
-                                  onClick={() => toggleVerification(user)}
-                                  disabled={busy}
-                                  className="btn btn-sm"
-                                  style={{
-                                    fontSize: '0.68rem', padding: '0.18rem 0.45rem', height: 'auto',
-                                    display: 'inline-flex', alignItems: 'center', gap: '0.25rem',
-                                    borderRadius: '6px', background: '#059669', color: '#fff',
-                                    borderColor: '#047857', fontWeight: 600,
-                                  }}
-                                  title="Verify and approve this account so user can log in"
-                                >
-                                  <ShieldCheck size={11} /> Verify
-                                </button>
+                                {isUserAdmin && (
+                                  <button
+                                    type="button"
+                                    onClick={() => toggleVerification(user)}
+                                    disabled={busy}
+                                    className="btn btn-sm"
+                                    style={{
+                                      fontSize: '0.68rem', padding: '0.18rem 0.45rem', height: 'auto',
+                                      display: 'inline-flex', alignItems: 'center', gap: '0.25rem',
+                                      borderRadius: '6px', background: '#059669', color: '#fff',
+                                      borderColor: '#047857', fontWeight: 600,
+                                    }}
+                                    title="Verify and approve this account so user can log in"
+                                  >
+                                    <ShieldCheck size={11} /> Verify
+                                  </button>
+                                )}
                               </div>
                             )}
                           </td>
@@ -1309,47 +1374,49 @@ export default function NewUsersPage() {
                               <span>Inspect</span>
                             </button>
                           </td>
-                          <td style={{ padding: '0.55rem 0.75rem', borderBottom: '1px solid var(--border-color)', textAlign: 'right', whiteSpace: 'nowrap' }}>
-                            <span style={{ display: 'inline-flex', gap: '0.15rem' }}>
-                              <button
-                                type="button"
-                                onClick={() => resetPassword(user)}
-                                disabled={busy || isMe}
-                                title={isMe ? 'Resetting own password would sign out' : 'Reset password to role default'}
-                                style={{
-                                  background: 'none', border: 'none', padding: '0.2rem', lineHeight: 0,
-                                  cursor: isMe ? 'not-allowed' : 'pointer',
-                                  color: isMe ? 'var(--text-muted)' : 'var(--primary-blue)',
-                                  opacity: isMe ? 0.4 : 1,
-                                }}
-                              >
-                                <KeyRound size={14} />
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => startEdit(user)}
-                                disabled={busy}
-                                title="Edit account details"
-                                style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)', padding: '0.2rem', lineHeight: 0 }}
-                              >
-                                <Pencil size={14} />
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => remove(user)}
-                                disabled={busy || isMe}
-                                title={isMe ? 'Cannot delete own account' : 'Delete this account'}
-                                style={{
-                                  background: 'none', border: 'none', padding: '0.2rem', lineHeight: 0,
-                                  cursor: isMe ? 'not-allowed' : 'pointer',
-                                  color: isMe ? 'var(--text-muted)' : 'var(--danger)',
-                                  opacity: isMe ? 0.4 : 1,
-                                }}
-                              >
-                                <Trash2 size={14} />
-                              </button>
-                            </span>
-                          </td>
+                          {isUserAdmin && (
+                            <td style={{ padding: '0.55rem 0.75rem', borderBottom: '1px solid var(--border-color)', textAlign: 'right', whiteSpace: 'nowrap' }}>
+                              <span style={{ display: 'inline-flex', gap: '0.15rem' }}>
+                                <button
+                                  type="button"
+                                  onClick={() => resetPassword(user)}
+                                  disabled={busy || isMe}
+                                  title={isMe ? 'Resetting own password would sign out' : 'Reset password to role default'}
+                                  style={{
+                                    background: 'none', border: 'none', padding: '0.2rem', lineHeight: 0,
+                                    cursor: isMe ? 'not-allowed' : 'pointer',
+                                    color: isMe ? 'var(--text-muted)' : 'var(--primary-blue)',
+                                    opacity: isMe ? 0.4 : 1,
+                                  }}
+                                >
+                                  <KeyRound size={14} />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => startEdit(user)}
+                                  disabled={busy}
+                                  title="Edit account details"
+                                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)', padding: '0.2rem', lineHeight: 0 }}
+                                >
+                                  <Pencil size={14} />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => remove(user)}
+                                  disabled={busy || isMe}
+                                  title={isMe ? 'Cannot delete own account' : 'Delete this account'}
+                                  style={{
+                                    background: 'none', border: 'none', padding: '0.2rem', lineHeight: 0,
+                                    cursor: isMe ? 'not-allowed' : 'pointer',
+                                    color: isMe ? 'var(--text-muted)' : 'var(--danger)',
+                                    opacity: isMe ? 0.4 : 1,
+                                  }}
+                                >
+                                  <Trash2 size={14} />
+                                </button>
+                              </span>
+                            </td>
+                          )}
                         </tr>
                       );
                     })}
@@ -1442,7 +1509,7 @@ export default function NewUsersPage() {
                   </div>
                 </div>
 
-                {selectedRole !== 'Admin' && (
+                {isUserAdmin && selectedRole !== 'Admin' && (
                   <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap', alignItems: 'center' }}>
                     <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 600 }}>Quick Presets:</span>
                     <button
@@ -1672,15 +1739,15 @@ export default function NewUsersPage() {
                         <td style={{ padding: '0.85rem 0.8rem', textAlign: 'center' }}>
                           <button
                             type="button"
-                            disabled={isRootAdmin}
+                            disabled={isRootAdmin || !isUserAdmin}
                             onClick={() => togglePermission(selectedRole, mod.id, 'view')}
                             style={{
                               display: 'inline-flex', alignItems: 'center', gap: '0.3rem',
                               padding: '0.3rem 0.6rem', borderRadius: '8px', border: 'none',
-                              fontSize: '0.72rem', fontWeight: 700, cursor: isRootAdmin ? 'default' : 'pointer',
+                              fontSize: '0.72rem', fontWeight: 700, cursor: (isRootAdmin || !isUserAdmin) ? 'default' : 'pointer',
                               background: modPerms.view ? 'rgba(5,150,105,0.12)' : 'var(--bg-color)',
                               color: modPerms.view ? '#047857' : 'var(--text-muted)',
-                              opacity: isRootAdmin ? 0.85 : 1,
+                              opacity: (isRootAdmin || !isUserAdmin) ? 0.85 : 1,
                             }}
                             title={modPerms.view ? 'Visible in sidebar & routable' : 'Hidden from sidebar'}
                           >
@@ -1693,15 +1760,15 @@ export default function NewUsersPage() {
                         <td style={{ padding: '0.85rem 0.8rem', textAlign: 'center' }}>
                           <button
                             type="button"
-                            disabled={isRootAdmin}
+                            disabled={isRootAdmin || !isUserAdmin}
                             onClick={() => togglePermission(selectedRole, mod.id, 'read')}
                             style={{
                               display: 'inline-flex', alignItems: 'center', gap: '0.3rem',
                               padding: '0.3rem 0.6rem', borderRadius: '8px', border: 'none',
-                              fontSize: '0.72rem', fontWeight: 700, cursor: isRootAdmin ? 'default' : 'pointer',
+                              fontSize: '0.72rem', fontWeight: 700, cursor: (isRootAdmin || !isUserAdmin) ? 'default' : 'pointer',
                               background: modPerms.read ? 'rgba(59,130,246,0.12)' : 'var(--bg-color)',
                               color: modPerms.read ? '#1d4ed8' : 'var(--text-muted)',
-                              opacity: isRootAdmin ? 0.85 : 1,
+                              opacity: (isRootAdmin || !isUserAdmin) ? 0.85 : 1,
                             }}
                             title={modPerms.read ? 'Can read records and tables' : 'Restricted read'}
                           >
@@ -1714,15 +1781,15 @@ export default function NewUsersPage() {
                         <td style={{ padding: '0.85rem 0.8rem', textAlign: 'center' }}>
                           <button
                             type="button"
-                            disabled={isRootAdmin}
+                            disabled={isRootAdmin || !isUserAdmin}
                             onClick={() => togglePermission(selectedRole, mod.id, 'write')}
                             style={{
                               display: 'inline-flex', alignItems: 'center', gap: '0.3rem',
                               padding: '0.3rem 0.6rem', borderRadius: '8px', border: 'none',
-                              fontSize: '0.72rem', fontWeight: 700, cursor: isRootAdmin ? 'default' : 'pointer',
+                              fontSize: '0.72rem', fontWeight: 700, cursor: (isRootAdmin || !isUserAdmin) ? 'default' : 'pointer',
                               background: modPerms.write ? 'rgba(79,70,229,0.12)' : 'var(--bg-color)',
                               color: modPerms.write ? '#4f46e5' : 'var(--text-muted)',
-                              opacity: isRootAdmin ? 0.85 : 1,
+                              opacity: (isRootAdmin || !isUserAdmin) ? 0.85 : 1,
                             }}
                             title={modPerms.write ? 'Can create, edit and delete data' : 'Read-only access'}
                           >
@@ -1736,15 +1803,15 @@ export default function NewUsersPage() {
                           {['live-progress', 'schedule', 'students'].includes(mod.id) ? (
                             <button
                               type="button"
-                              disabled={isRootAdmin}
+                              disabled={isRootAdmin || !isUserAdmin}
                               onClick={() => togglePermission(selectedRole, mod.id, 'restrictBranch')}
                               style={{
                                 display: 'inline-flex', alignItems: 'center', gap: '0.3rem',
                                 padding: '0.3rem 0.55rem', borderRadius: '8px', border: 'none',
-                                fontSize: '0.7rem', fontWeight: 700, cursor: isRootAdmin ? 'default' : 'pointer',
+                                fontSize: '0.7rem', fontWeight: 700, cursor: (isRootAdmin || !isUserAdmin) ? 'default' : 'pointer',
                                 background: modPerms.restrictBranch ? 'rgba(245,158,11,0.14)' : 'rgba(8,145,178,0.12)',
                                 color: modPerms.restrictBranch ? '#b45309' : '#0e7490',
-                                opacity: isRootAdmin ? 0.85 : 1,
+                                opacity: (isRootAdmin || !isUserAdmin) ? 0.85 : 1,
                               }}
                               title={modPerms.restrictBranch
                                 ? "Restricted: User only sees data at their assigned branch."
@@ -1833,7 +1900,7 @@ export default function NewUsersPage() {
                   type="button"
                   className="btn btn-sm"
                   onClick={() => setRolePermissionsDraft(rolePermissions || DEFAULT_ROLE_PERMISSIONS)}
-                  disabled={savingPerms}
+                  disabled={savingPerms || !isUserAdmin}
                 >
                   <RotateCcw size={13} /> Reset Draft
                 </button>
@@ -1841,7 +1908,7 @@ export default function NewUsersPage() {
                   type="button"
                   className="btn btn-primary btn-sm"
                   onClick={handleSaveRolePermissions}
-                  disabled={savingPerms || selectedRole === 'Admin'}
+                  disabled={savingPerms || selectedRole === 'Admin' || !isUserAdmin}
                   style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', padding: '0.45rem 1rem' }}
                 >
                   {savingPerms ? <Loader2 size={14} className="spin" /> : <Check size={14} />}

@@ -37,7 +37,8 @@ export default function NewInstructorsPage({ onNavigate }) {
   const { user } = useAuth();
   const { showToast } = useToast();
   const [wiping, setWiping] = useState(false);
-  const canWipeAll = isAdmin(users, user?.email, user);
+  const isUserAdmin = isAdmin(users, user?.email, user) || user?.role === 'Admin';
+  const canWipeAll = isUserAdmin;
 
   // State
   const [instructors, setInstructors] = useState([]);
@@ -134,6 +135,10 @@ export default function NewInstructorsPage({ onNavigate }) {
   }, [instructors, search, filterBranch, filterStatus]);
 
   const openAddModal = () => {
+    if (!isUserAdmin) {
+      showToast({ variant: 'error', title: 'Permission Denied', message: 'Only administrators can add new instructors.' });
+      return;
+    }
     setEditingInstructor(null);
     setForm({
       name: '',
@@ -153,6 +158,10 @@ export default function NewInstructorsPage({ onNavigate }) {
   };
 
   const handleBulkImport = async (instructorsArray) => {
+    if (!isUserAdmin) {
+      showToast({ variant: 'error', title: 'Permission Denied', message: 'Only administrators can import instructors.' });
+      return;
+    }
     try {
       await bulkCreateInternalInstructors(instructorsArray);
       showToast({
@@ -196,6 +205,10 @@ export default function NewInstructorsPage({ onNavigate }) {
   };
 
   const openEditModal = (inst) => {
+    if (!isUserAdmin) {
+      showToast({ variant: 'error', title: 'Permission Denied', message: 'Only administrators can edit instructors.' });
+      return;
+    }
     setEditingInstructor(inst);
     setForm({
       name: inst.name || '',
@@ -218,6 +231,10 @@ export default function NewInstructorsPage({ onNavigate }) {
 
   const handleAddAlias = (e) => {
     if (e) e.preventDefault();
+    if (!isUserAdmin) {
+      showToast({ title: 'Only Admins can modify instructor aliases', variant: 'warning' });
+      return;
+    }
     const trimmed = aliasInput.trim();
     if (!trimmed) return;
     if (form.aliases.map(a => a.toLowerCase()).includes(trimmed.toLowerCase())) {
@@ -252,6 +269,10 @@ export default function NewInstructorsPage({ onNavigate }) {
   }, [form.name, form.aliases, scheduleTeacherNames]);
 
   const handleAddRecommendedAlias = async (recAlias) => {
+    if (!isUserAdmin) {
+      showToast({ title: 'Only Admins can add instructor aliases', variant: 'warning' });
+      return;
+    }
     const trimmed = String(recAlias).trim();
     if (!trimmed) return;
 
@@ -292,6 +313,10 @@ export default function NewInstructorsPage({ onNavigate }) {
   };
 
   const handleRemoveAlias = async (aliasToRemove) => {
+    if (!isUserAdmin) {
+      showToast({ title: 'Only Admins can remove instructor aliases', variant: 'warning' });
+      return;
+    }
     const existingAliases = Array.isArray(form.aliases) ? form.aliases : [];
     const existingVerified = Array.isArray(form.verifiedAliases) ? form.verifiedAliases : [];
 
@@ -319,7 +344,7 @@ export default function NewInstructorsPage({ onNavigate }) {
   };
 
   const handleToggleVerifyAliasInForm = async (alias) => {
-    if (!canWipeAll) {
+    if (!isUserAdmin) {
       showToast({ title: 'Only Admins can verify alias names for data sync', variant: 'warning' });
       return;
     }
@@ -357,7 +382,7 @@ export default function NewInstructorsPage({ onNavigate }) {
   };
 
   const handleQuickVerifyAlias = async (inst, alias) => {
-    if (!canWipeAll) {
+    if (!isUserAdmin) {
       showToast({ title: 'Only Admins can verify alias names for data sync', variant: 'warning' });
       return;
     }
@@ -408,6 +433,10 @@ export default function NewInstructorsPage({ onNavigate }) {
   };
 
   const handleQuickAddRecommendedAlias = async (inst, recAlias) => {
+    if (!isUserAdmin) {
+      showToast({ title: 'Only Admins can add instructor aliases', variant: 'warning' });
+      return;
+    }
     const currentAliases = Array.isArray(inst.aliases) ? inst.aliases : [];
     const currentVerified = Array.isArray(inst.verifiedAliases) ? inst.verifiedAliases : [];
 
@@ -489,6 +518,10 @@ export default function NewInstructorsPage({ onNavigate }) {
 
   const handleSave = async (e) => {
     e.preventDefault();
+    if (!isUserAdmin) {
+      showToast({ variant: 'error', title: 'Permission Denied', message: 'Only administrators can add or edit instructors.' });
+      return;
+    }
     if (!validateForm()) return;
 
     mutatingRef.current = true;
@@ -516,6 +549,10 @@ export default function NewInstructorsPage({ onNavigate }) {
   };
 
   const handleDelete = async (instructorId, instructorName) => {
+    if (!isUserAdmin) {
+      showToast({ variant: 'error', title: 'Permission Denied', message: 'Only administrators can delete instructors.' });
+      return;
+    }
     if (!window.confirm(`Are you sure you want to delete instructor "${instructorName}"?`)) return;
     try {
       await deleteInternalInstructor(instructorId);
@@ -561,7 +598,9 @@ export default function NewInstructorsPage({ onNavigate }) {
           <div>
             <h2 style={{ fontSize: '1.25rem', fontWeight: 600 }}>Instructors Registry</h2>
             <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', margin: '0.2rem 0 0' }}>
-              Manage instructor profiles, teaching capabilities, and branch allocations.
+              {isUserAdmin
+                ? 'Manage instructor profiles, teaching capabilities, and branch allocations.'
+                : 'Directory of instructor profiles, teaching capabilities, and branch allocations (Read-Only).'}
             </p>
           </div>
           
@@ -588,24 +627,26 @@ export default function NewInstructorsPage({ onNavigate }) {
                 <Trash2 size={16} /> Delete All
               </button>
             )}
-            <button 
-              onClick={() => setShowImportModal(true)} 
-              className="btn"
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '0.4rem',
-                borderRadius: '10px',
-                padding: '0.5rem 1.2rem',
-                fontSize: '0.85rem',
-                background: 'transparent',
-                border: '1px solid var(--border-color)',
-                cursor: 'pointer',
-              }}
-            >
-              <Upload size={16} /> Bulk Import
-            </button>
-            {onNavigate && (
+            {isUserAdmin && (
+              <button 
+                onClick={() => setShowImportModal(true)} 
+                className="btn"
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.4rem',
+                  borderRadius: '10px',
+                  padding: '0.5rem 1.2rem',
+                  fontSize: '0.85rem',
+                  background: 'transparent',
+                  border: '1px solid var(--border-color)',
+                  cursor: 'pointer',
+                }}
+              >
+                <Upload size={16} /> Bulk Import
+              </button>
+            )}
+            {isUserAdmin && onNavigate && (
               <button
                 onClick={() => onNavigate('users')}
                 className="btn"
@@ -627,14 +668,16 @@ export default function NewInstructorsPage({ onNavigate }) {
                 <ShieldAlert size={16} /> User Accounts & Verification
               </button>
             )}
-            <button 
-              data-tour="add-instructor-btn"
-              onClick={openAddModal} 
-              className="btn btn-primary"
-              style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', borderRadius: '10px', padding: '0.5rem 1.2rem', fontSize: '0.85rem' }}
-            >
-              <Plus size={16} /> Add Instructor
-            </button>
+            {isUserAdmin && (
+              <button 
+                data-tour="add-instructor-btn"
+                onClick={openAddModal} 
+                className="btn btn-primary"
+                style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', borderRadius: '10px', padding: '0.5rem 1.2rem', fontSize: '0.85rem' }}
+              >
+                <Plus size={16} /> Add Instructor
+              </button>
+            )}
           </div>
         </div>
 
@@ -728,21 +771,23 @@ export default function NewInstructorsPage({ onNavigate }) {
                   <th style={{ width: '150px' }}>Contact Info</th>
                   <th style={{ width: '90px', textAlign: 'center' }}>Status</th>
                   <th>Remarks</th>
-                  <th style={{ width: '100px', textAlign: 'center' }}>Actions</th>
+                  {isUserAdmin && <th style={{ width: '100px', textAlign: 'center' }}>Actions</th>}
                 </tr>
               </thead>
               <tbody>
                 {instructors.length === 0 ? (
                   <tr>
-                    <td colSpan="9" style={{ textAlign: 'center', padding: '3rem 1.5rem', color: 'var(--text-muted)' }}>
+                    <td colSpan={isUserAdmin ? 9 : 8} style={{ textAlign: 'center', padding: '3rem 1.5rem', color: 'var(--text-muted)' }}>
                       <ShieldAlert size={32} style={{ color: 'var(--warning)', marginBottom: '0.5rem' }} />
                       <div style={{ fontWeight: 600 }}>No Instructors Registered</div>
-                      <div style={{ fontSize: '0.8rem', marginTop: '0.2rem' }}>Click "Add Instructor" to register instructor profiles.</div>
+                      <div style={{ fontSize: '0.8rem', marginTop: '0.2rem' }}>
+                        {isUserAdmin ? 'Click "Add Instructor" to register instructor profiles.' : 'No instructors found in directory.'}
+                      </div>
                     </td>
                   </tr>
                 ) : paged.length === 0 ? (
                   <tr>
-                    <td colSpan="9" style={{ textAlign: 'center', padding: '3rem 1.5rem', color: 'var(--text-muted)' }}>
+                    <td colSpan={isUserAdmin ? 9 : 8} style={{ textAlign: 'center', padding: '3rem 1.5rem', color: 'var(--text-muted)' }}>
                       <div style={{ fontWeight: 600 }}>No instructors match your filters.</div>
                     </td>
                   </tr>
@@ -807,7 +852,7 @@ export default function NewInstructorsPage({ onNavigate }) {
                                 </span>
                               );
                             })}
-                            {recAliases.map((rec) => (
+                            {isUserAdmin && recAliases.map((rec) => (
                               <button
                                 key={rec}
                                 type="button"
@@ -830,7 +875,7 @@ export default function NewInstructorsPage({ onNavigate }) {
                                 <Sparkles size={10} /> + Add "{rec}"
                               </button>
                             ))}
-                            {aliases.length === 0 && recAliases.length === 0 && (
+                            {aliases.length === 0 && (!isUserAdmin || recAliases.length === 0) && (
                               <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>No aliases</span>
                             )}
                           </div>
@@ -911,30 +956,32 @@ export default function NewInstructorsPage({ onNavigate }) {
                           </span>
                         </td>
                         <td style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>{inst.remarks || '—'}</td>
-                        <td>
-                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem' }}>
-                            <button 
-                              onClick={() => openEditModal(inst)}
-                              title="Edit Instructor"
-                              style={{
-                                background: 'transparent', border: '1px solid var(--border-color)', cursor: 'pointer',
-                                padding: '0.3rem', borderRadius: '6px', color: 'var(--text-secondary)', display: 'flex'
-                              }}
-                            >
-                              <Pencil size={14} />
-                            </button>
-                            <button 
-                              onClick={() => handleDelete(inst.id, inst.name)}
-                              title="Delete Instructor"
-                              style={{
-                                background: 'transparent', border: '1px solid var(--danger-border)', cursor: 'pointer',
-                                padding: '0.3rem', borderRadius: '6px', color: 'var(--danger)', display: 'flex'
-                              }}
-                            >
-                              <Trash2 size={14} />
-                            </button>
-                          </div>
-                        </td>
+                        {isUserAdmin && (
+                          <td>
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem' }}>
+                              <button 
+                                onClick={() => openEditModal(inst)}
+                                title="Edit Instructor"
+                                style={{
+                                  background: 'transparent', border: '1px solid var(--border-color)', cursor: 'pointer',
+                                  padding: '0.3rem', borderRadius: '6px', color: 'var(--text-secondary)', display: 'flex'
+                                }}
+                              >
+                                <Pencil size={14} />
+                              </button>
+                              <button 
+                                onClick={() => handleDelete(inst.id, inst.name)}
+                                title="Delete Instructor"
+                                style={{
+                                  background: 'transparent', border: '1px solid var(--danger-border)', cursor: 'pointer',
+                                  padding: '0.3rem', borderRadius: '6px', color: 'var(--danger)', display: 'flex'
+                                }}
+                              >
+                                <Trash2 size={14} />
+                              </button>
+                            </div>
+                          </td>
+                        )}
                       </tr>
                     );
                   })

@@ -1,6 +1,7 @@
 import { query, withTransaction } from '@/lib/db';
 import { NextResponse } from 'next/server';
 import { autoSyncInstructorAccounts } from '@/lib/syncInstructorAccounts';
+import { identify, canAdminAccounts } from '@/lib/apiIdentity';
 
 /**
  * POST /api/new/instructors/bulk
@@ -9,6 +10,10 @@ import { autoSyncInstructorAccounts } from '@/lib/syncInstructorAccounts';
  */
 export async function POST(req) {
   try {
+    const identity = await identify(req);
+    if (identity.kind === 'session' && !canAdminAccounts(identity)) {
+      return NextResponse.json({ error: 'Forbidden', message: 'Only administrators can import instructors.' }, { status: 403 });
+    }
     const body = await req.json();
     const { instructors } = body;
 
