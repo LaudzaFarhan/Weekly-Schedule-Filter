@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  ADMIN_ROLE, DEFAULT_ROLE, resolveUserRole, isAdmin,
+  ADMIN_ROLE, DEFAULT_ROLE, resolveUserRole, isAdmin, canManageLeave,
   SYSTEM_ROLES, APP_MODULES, DEFAULT_ROLE_PERMISSIONS,
   getEffectivePermissions, canAccessPage, canReadModule, canWriteModule, pageToModuleId
 } from '@/utils/roles';
@@ -10,6 +10,8 @@ const users = {
   'sales@lab.com': 'Sales',
   'teacher@lab.com': 'Instructor',
   'advisor@lab.com': 'EC',
+  'spa@lab.com': 'SPA',
+  'supervisor@lab.com': 'Supervisor',
 };
 
 describe('resolveUserRole', () => {
@@ -56,6 +58,31 @@ describe('isAdmin', () => {
 
   it('is false for a case variant of the role value', () => {
     expect(isAdmin({ 'boss@lab.com': 'admin' }, 'boss@lab.com')).toBe(false);
+  });
+});
+
+describe('canManageLeave', () => {
+  it('returns true only for Admin and SPA', () => {
+    expect(canManageLeave(users, 'boss@lab.com')).toBe(true);
+    expect(canManageLeave(users, 'spa@lab.com')).toBe(true);
+    expect(canManageLeave(users, 'supervisor@lab.com')).toBe(false);
+    expect(canManageLeave(users, 'teacher@lab.com')).toBe(false);
+    expect(canManageLeave(users, 'advisor@lab.com')).toBe(false);
+    expect(canManageLeave(users, 'nobody@lab.com')).toBe(false);
+
+    // Using user object
+    expect(canManageLeave(null, null, { role: 'Admin' })).toBe(true);
+    expect(canManageLeave(null, null, { role: 'SPA' })).toBe(true);
+    expect(canManageLeave(null, null, { role: 'Instructor' })).toBe(false);
+    expect(canManageLeave(null, null, { role: 'Supervisor' })).toBe(false);
+  });
+
+  it('allows write access to leave module for Admin and SPA only', () => {
+    expect(canWriteModule('Admin', 'leave')).toBe(true);
+    expect(canWriteModule('SPA', 'leave')).toBe(true);
+    expect(canWriteModule('Supervisor', 'leave')).toBe(false);
+    expect(canWriteModule('Instructor', 'leave')).toBe(false);
+    expect(canWriteModule('EC', 'leave')).toBe(false);
   });
 });
 

@@ -199,7 +199,7 @@ export const DEFAULT_ROLE_PERMISSIONS = {
     'live-progress': { view: true, read: true, write: true, admin: false },
     instructors: { view: true, read: true, write: true, admin: false },
     workload: { view: true, read: true, write: true, admin: false },
-    leave: { view: true, read: true, write: true, admin: false },
+    leave: { view: true, read: true, write: false, admin: false },
     'trial-availability': { view: true, read: true, write: true, admin: false },
     crm: { view: true, read: true, write: true, admin: false },
     meetings: { view: true, read: true, write: true, admin: false },
@@ -217,7 +217,7 @@ export const DEFAULT_ROLE_PERMISSIONS = {
     'live-progress': { view: true, read: true, write: true, admin: false },
     instructors: { view: true, read: true, write: false, admin: false },
     workload: { view: true, read: true, write: false, admin: false },
-    leave: { view: true, read: true, write: false, admin: false },
+    leave: { view: true, read: true, write: true, admin: false },
     'trial-availability': { view: true, read: true, write: true, admin: false },
     crm: { view: true, read: true, write: true, admin: false },
     meetings: { view: true, read: true, write: true, admin: false },
@@ -253,7 +253,7 @@ export const DEFAULT_ROLE_PERMISSIONS = {
     'live-progress': { view: true, read: true, write: true, admin: false, restrictBranch: true },
     instructors: { view: true, read: true, write: false, admin: false },
     workload: { view: true, read: true, write: false, admin: false },
-    leave: { view: true, read: true, write: true, admin: false },
+    leave: { view: true, read: true, write: false, admin: false },
     'trial-availability': { view: true, read: true, write: false, admin: false },
     crm: { view: false, read: false, write: false, admin: false },
     meetings: { view: true, read: true, write: true, admin: false },
@@ -291,6 +291,19 @@ export function resolveUserRole(users, email, user) {
  */
 export function isAdmin(users, email, user) {
   return resolveUserRole(users, email, user) === ADMIN_ROLE;
+}
+
+/**
+ * Whether the email or user holds the Admin or SPA role, authorized to manage staff leaves.
+ *
+ * @param {Object<string, string>|null|undefined} users - email → role map
+ * @param {string|null|undefined} email - the signed-in account's email
+ * @param {Object|null|undefined} [user] - optional signed-in user object
+ * @returns {boolean} true only when a recorded role equals 'Admin' or 'SPA'
+ */
+export function canManageLeave(users, email, user) {
+  const role = resolveUserRole(users, email, user);
+  return role === ADMIN_ROLE || role === 'SPA' || user?.role === ADMIN_ROLE || user?.role === 'SPA';
 }
 
 /**

@@ -2,11 +2,13 @@
 
 import React, { useState, useEffect, useMemo, Fragment } from 'react';
 import { useSchedule } from '../contexts/ScheduleContext';
+import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../components/ui/Toast';
 import { subscribeToInternalClasses } from '../services/internalScheduleService';
 import { subscribeToInternalInstructors } from '../services/internalInstructorService';
 import { subscribeToLeaves, createLeave, deleteLeave, updateLeave } from '../services/newLeaveService';
 import { useNewOperationals } from '../hooks/useNewOperationals';
+import { canManageLeave } from '../utils/roles';
 import { doTimeSlotsOverlap } from '../utils/timeUtils';
 import { DAY_NAMES } from '../utils/constants';
 import { normalizeDayName } from '../utils/workloadUtils';
@@ -112,10 +114,13 @@ const atBranch = (instructor, branchName) => {
 };
 
 export default function NewLeavePage({ params }) {
-  const { branches, enabledBranches } = useSchedule();
+  const { branches, enabledBranches, users } = useSchedule();
+  const { user } = useAuth();
   const { showToast } = useToast();
   // Branch open days come from PostgreSQL, not the Sheets config.
   const { openDaysFor } = useNewOperationals();
+
+  const isAuthorized = canManageLeave(users, user?.email, user);
 
   const [leaves, setLeaves] = useState([]);
   const [classes, setClasses] = useState([]);
@@ -207,9 +212,13 @@ export default function NewLeavePage({ params }) {
     return visibleLeaves.filter((l) => leaveCoversDate(l, today));
   }, [visibleLeaves]);
 
-  const canAdd = name && startDate && endDate && startDate <= endDate && !saving;
+  const canAdd = isAuthorized && name && startDate && endDate && startDate <= endDate && !saving;
 
   const handleAdd = async () => {
+    if (!isAuthorized) {
+      showToast({ title: 'Access Denied', message: 'Only Admin and SPA can record leave.', variant: 'error' });
+      return;
+    }
     if (!canAdd) return;
     setSaving(true);
     try {
@@ -227,6 +236,10 @@ export default function NewLeavePage({ params }) {
   };
 
   const handleRemove = async (leave) => {
+    if (!isAuthorized) {
+      showToast({ title: 'Access Denied', message: 'Only Admin and SPA can remove leave.', variant: 'error' });
+      return;
+    }
     if (!window.confirm(`Remove ${leave.name}'s leave (${leave.startDate} to ${leave.endDate})?`)) return;
     try {
       await deleteLeave(leave.id);
@@ -238,6 +251,10 @@ export default function NewLeavePage({ params }) {
   };
 
   const handleStatus = async (leave, status) => {
+    if (!isAuthorized) {
+      showToast({ title: 'Access Denied', message: 'Only Admin and SPA can update leave status.', variant: 'error' });
+      return;
+    }
     try {
       await updateLeave(leave.id, { status });
       showToast({ title: `Marked ${status.toLowerCase()}`, variant: 'success' });
@@ -404,61 +421,84 @@ export default function NewLeavePage({ params }) {
         </div>
 
         <div className="panel-body">
-          {/* Add form */}
-          <div style={{ display: 'flex', gap: '0.85rem', flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: '1.1rem' }}>
-            <div style={{ flex: '1 1 190px' }}>
-              <label className="modal-form-label">Instructor *</label>
-              <select
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                className="modal-select-field"
-                style={{ width: '100%' }}
-              >
-                <option value="">
-                  {instructorOptions.length ? 'Select instructor…' : 'No instructors available'}
-                </option>
-                {instructorOptions.map((n) => <option key={n} value={n}>{n}</option>)}
-              </select>
-            </div>
-            <div style={{ flex: '1 1 145px' }}>
-              <label className="modal-form-label">Start date *</label>
-              <input
-                type="date"
-                className="modal-input-field"
-                value={startDate}
-                max={endDate || undefined}
-                onChange={(e) => setStartDate(e.target.value)}
-              />
-            </div>
-            <div style={{ flex: '1 1 145px' }}>
-              <label className="modal-form-label">End date *</label>
-              <input
-                type="date"
-                className={`modal-input-field ${startDate && endDate && endDate < startDate ? 'error' : ''}`}
-                value={endDate}
-                min={startDate || undefined}
-                onChange={(e) => setEndDate(e.target.value)}
-              />
-            </div>
-            <div style={{ flex: '2 1 200px' }}>
-              <label className="modal-form-label">Reason (optional)</label>
-              <input
-                type="text"
-                className="modal-input-field"
-                value={reason}
-                onChange={(e) => setReason(e.target.value)}
-                placeholder="e.g. Sick, Annual leave, Training"
-              />
-            </div>
-            <button
-              onClick={handleAdd}
-              disabled={!canAdd}
-              className="btn btn-primary"
-              style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', borderRadius: '10px', padding: '0.65rem 1.2rem', fontSize: '0.85rem' }}
+          {/* Add form / Read-only notice */}
+          {!isAuthorized ? (
+            <div
+              data-testid="leave-readonly-banner"
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.6rem',
+                padding: '0.75rem 1rem',
+                borderRadius: '10px',
+                background: 'rgba(59, 130, 246, 0.08)',
+                border: '1px solid rgba(59, 130, 246, 0.22)',
+                color: 'var(--text-main)',
+                fontSize: '0.82rem',
+                marginBottom: '1.2rem',
+              }}
             >
-              <Plus size={16} /> {saving ? 'Saving…' : 'Mark On Leave'}
-            </button>
-          </div>
+              <ShieldAlert size={18} style={{ color: 'var(--primary-blue)', flexShrink: 0 }} />
+              <div>
+                <strong>Read-Only Mode:</strong> Only <strong>Admin</strong> and <strong>SPA</strong> can record instructor leaves, update statuses, or delete records.
+              </div>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', gap: '0.85rem', flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: '1.1rem' }}>
+              <div style={{ flex: '1 1 190px' }}>
+                <label className="modal-form-label">Instructor *</label>
+                <select
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  className="modal-select-field"
+                  style={{ width: '100%' }}
+                >
+                  <option value="">
+                    {instructorOptions.length ? 'Select instructor…' : 'No instructors available'}
+                  </option>
+                  {instructorOptions.map((n) => <option key={n} value={n}>{n}</option>)}
+                </select>
+              </div>
+              <div style={{ flex: '1 1 145px' }}>
+                <label className="modal-form-label">Start date *</label>
+                <input
+                  type="date"
+                  className="modal-input-field"
+                  value={startDate}
+                  max={endDate || undefined}
+                  onChange={(e) => setStartDate(e.target.value)}
+                />
+              </div>
+              <div style={{ flex: '1 1 145px' }}>
+                <label className="modal-form-label">End date *</label>
+                <input
+                  type="date"
+                  className={`modal-input-field ${startDate && endDate && endDate < startDate ? 'error' : ''}`}
+                  value={endDate}
+                  min={startDate || undefined}
+                  onChange={(e) => setEndDate(e.target.value)}
+                />
+              </div>
+              <div style={{ flex: '2 1 200px' }}>
+                <label className="modal-form-label">Reason (optional)</label>
+                <input
+                  type="text"
+                  className="modal-input-field"
+                  value={reason}
+                  onChange={(e) => setReason(e.target.value)}
+                  placeholder="e.g. Sick, Annual leave, Training"
+                />
+              </div>
+              <button
+                onClick={handleAdd}
+                disabled={!canAdd}
+                className="btn btn-primary"
+                style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', borderRadius: '10px', padding: '0.65rem 1.2rem', fontSize: '0.85rem' }}
+              >
+                <Plus size={16} /> {saving ? 'Saving…' : 'Mark On Leave'}
+              </button>
+            </div>
+          )}
 
           {startDate && endDate && endDate < startDate && (
             <div style={{ fontSize: '0.75rem', color: 'var(--danger)', marginBottom: '0.75rem' }}>
@@ -524,14 +564,31 @@ export default function NewLeavePage({ params }) {
                         </td>
                         <td style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{l.reason || '—'}</td>
                         <td>
-                          <select
-                            value={l.status || 'Approved'}
-                            onChange={(e) => handleStatus(l, e.target.value)}
-                            className="modal-select-field field-compact"
-                            style={{ width: '100%' }}
-                          >
-                            {['Approved', 'Pending', 'Rejected'].map((s) => <option key={s} value={s}>{s}</option>)}
-                          </select>
+                          {isAuthorized ? (
+                            <select
+                              value={l.status || 'Approved'}
+                              onChange={(e) => handleStatus(l, e.target.value)}
+                              className="modal-select-field field-compact"
+                              style={{ width: '100%' }}
+                            >
+                              {['Approved', 'Pending', 'Rejected'].map((s) => <option key={s} value={s}>{s}</option>)}
+                            </select>
+                          ) : (
+                            <span
+                              style={{
+                                display: 'inline-block',
+                                padding: '0.2rem 0.6rem',
+                                borderRadius: '6px',
+                                fontSize: '0.75rem',
+                                fontWeight: 600,
+                                color: (l.status || 'Approved') === 'Approved' ? 'var(--success, #059669)' : (l.status === 'Rejected' ? '#dc2626' : '#d97706'),
+                                background: (l.status || 'Approved') === 'Approved' ? 'rgba(16, 185, 129, 0.12)' : (l.status === 'Rejected' ? 'rgba(239, 68, 68, 0.12)' : 'rgba(245, 158, 11, 0.12)'),
+                                border: `1px solid ${(l.status || 'Approved') === 'Approved' ? 'rgba(16, 185, 129, 0.3)' : (l.status === 'Rejected' ? 'rgba(239, 68, 68, 0.3)' : 'rgba(245, 158, 11, 0.3)')}`,
+                              }}
+                            >
+                              {l.status || 'Approved'}
+                            </span>
+                          )}
                         </td>
                         <td>
                           {cov.totalLessons === 0 ? (
@@ -576,18 +633,20 @@ export default function NewLeavePage({ params }) {
                               background: isOpen ? 'var(--primary-blue-light)' : 'transparent',
                               border: 'none', cursor: 'pointer',
                               color: isOpen ? 'var(--primary-blue)' : 'var(--text-secondary)',
-                              padding: '0.3rem', marginRight: '0.2rem', borderRadius: '4px',
+                              padding: '0.3rem', marginRight: isAuthorized ? '0.2rem' : 0, borderRadius: '4px',
                             }}
                           >
                             <Wand2 size={16} />
                           </button>
-                          <button
-                            onClick={() => handleRemove(l)}
-                            title="Remove leave"
-                            style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--danger)', padding: '0.3rem', borderRadius: '4px' }}
-                          >
-                            <Trash2 size={16} />
-                          </button>
+                          {isAuthorized && (
+                            <button
+                              onClick={() => handleRemove(l)}
+                              title="Remove leave"
+                              style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--danger)', padding: '0.3rem', borderRadius: '4px' }}
+                            >
+                              <Trash2 size={16} />
+                            </button>
+                          )}
                         </td>
                       </tr>
 

@@ -1,6 +1,7 @@
 import { query } from '@/lib/db';
 import { ensureTable } from '@/lib/ensureSchema';
 import { NextResponse } from 'next/server';
+import { identify, canAdminLeave } from '@/lib/apiIdentity';
 
 /** Create the table on first use so a fresh database needs no manual migration. */
 const ready = () => ensureTable('internal_leaves');
@@ -66,6 +67,13 @@ export async function GET(req) {
  */
 export async function POST(req) {
   try {
+    const identity = await identify(req);
+    if (identity.kind === 'session' && !canAdminLeave(identity)) {
+      return NextResponse.json(
+        { error: 'Forbidden', message: 'Only Admin and SPA can record leave.' },
+        { status: 403 }
+      );
+    }
     await ready();
     const body = await req.json();
     const { name, startDate, endDate, reason, status } = body;
@@ -110,6 +118,13 @@ export async function POST(req) {
  */
 export async function PUT(req) {
   try {
+    const identity = await identify(req);
+    if (identity.kind === 'session' && !canAdminLeave(identity)) {
+      return NextResponse.json(
+        { error: 'Forbidden', message: 'Only Admin and SPA can update leave records.' },
+        { status: 403 }
+      );
+    }
     await ready();
     const body = await req.json();
     const { id, name, startDate, endDate, reason, status } = body;
@@ -160,6 +175,13 @@ export async function PUT(req) {
  */
 export async function DELETE(req) {
   try {
+    const identity = await identify(req);
+    if (identity.kind === 'session' && !canAdminLeave(identity)) {
+      return NextResponse.json(
+        { error: 'Forbidden', message: 'Only Admin and SPA can delete leave records.' },
+        { status: 403 }
+      );
+    }
     await ready();
     const { searchParams } = new URL(req.url);
     const id = searchParams.get('id');

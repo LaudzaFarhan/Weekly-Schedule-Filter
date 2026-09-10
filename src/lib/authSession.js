@@ -46,6 +46,12 @@ export const ROLES = ['Admin', 'SPA', 'EC', 'Instructor', 'Supervisor'];
  */
 export const ACCOUNT_ADMIN_ROLES = ['Admin'];
 
+/**
+ * Roles allowed to manage staff leave records (create, approve, modify, delete).
+ * Deliberately Admin and SPA.
+ */
+export const LEAVE_ADMIN_ROLES = ['Admin', 'SPA'];
+
 /** A fresh session token, URL-safe so it survives a cookie round trip intact. */
 export function createSessionToken() {
   return randomBytes(TOKEN_BYTES).toString('base64url');
@@ -130,6 +136,11 @@ export function sessionCookieOptions({ secure = true, maxAgeMs = SESSION_TTL_MS 
 /** Does this role hold account-management rights? */
 export function canManageAccounts(role) {
   return ACCOUNT_ADMIN_ROLES.includes(role);
+}
+
+/** Does this role hold leave-management rights? */
+export function canManageLeaveRole(role) {
+  return LEAVE_ADMIN_ROLES.includes(role);
 }
 
 /** Is this one of the five recognised roles? */

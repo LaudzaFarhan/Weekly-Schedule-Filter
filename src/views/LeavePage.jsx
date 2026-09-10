@@ -2,6 +2,8 @@
 
 import { useState, useMemo, useEffect, Fragment } from 'react';
 import { useSchedule } from '../contexts/ScheduleContext';
+import { useAuth } from '../contexts/AuthContext';
+import { canManageLeave } from '../utils/roles';
 import { DAY_NAMES, getWorkingDaysForBranch } from '../utils/constants';
 import { getWeekdaysInRange, leaveAppliesToDay } from '../utils/dateUtils';
 import { doTimeSlotsOverlap } from '../utils/timeUtils';
@@ -47,7 +49,9 @@ function dateKey(date) {
 }
 
 export default function LeavePage({ params }) {
-  const { uniqueBaseTeachers, leaveList, updateLeaveList, disabledInstructors, overallClasses, instructorProfiles, trialPriorityList } = useSchedule();
+  const { uniqueBaseTeachers, leaveList, updateLeaveList, disabledInstructors, overallClasses, instructorProfiles, trialPriorityList, users } = useSchedule();
+  const { user } = useAuth();
+  const isAuthorized = canManageLeave(users, user?.email, user);
   const [selectedInstructor, setSelectedInstructor] = useState(params?.instructor || '');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
@@ -128,10 +132,10 @@ export default function LeavePage({ params }) {
   const totalPages = Math.ceil(leaveList.length / PAGE_SIZE);
   const paged = leaveList.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
-  const canAdd = selectedInstructor && startDate && endDate && startDate <= endDate;
+  const canAdd = isAuthorized && selectedInstructor && startDate && endDate && startDate <= endDate;
 
   const handleAdd = () => {
-    if (!canAdd) return;
+    if (!isAuthorized || !canAdd) return;
     const exists = leaveList.some(
       (l) => l.name === selectedInstructor && l.startDate === startDate && l.endDate === endDate
     );
@@ -148,6 +152,7 @@ export default function LeavePage({ params }) {
   };
 
   const handleRemove = (index) => {
+    if (!isAuthorized) return;
     const actualIndex = (page - 1) * PAGE_SIZE + index;
     const newList = leaveList.filter((_, i) => i !== actualIndex);
     updateLeaveList(newList);
@@ -165,32 +170,38 @@ export default function LeavePage({ params }) {
           <Badge variant="warning">{leaveList.length} On Leave</Badge>
         </div>
         <div className="panel-body leave-body">
-          <div className="leave-form">
-            <div className="leave-form-row">
-              <div className="input-group leave-input-name">
-                <label>Instructor</label>
-                <select value={selectedInstructor} onChange={(e) => setSelectedInstructor(e.target.value)}>
-                  <option value="" disabled>Select instructor...</option>
-                  {sortedTeachers.map((t) => <option key={t} value={t}>{t}</option>)}
-                </select>
-              </div>
-              <div className="input-group leave-input-day">
-                <label>Start Date</label>
-                <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
-              </div>
-              <div className="input-group leave-input-day">
-                <label>End Date</label>
-                <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
-              </div>
-              <div className="input-group leave-input-reason">
-                <label>Reason (optional)</label>
-                <input type="text" value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. Sick, Holiday..." />
-              </div>
-              <button className="btn btn-warning leave-add-btn" disabled={!canAdd} onClick={handleAdd}>
-                + Mark On Leave
-              </button>
+          {!isAuthorized ? (
+            <div style={{ padding: '0.75rem 1rem', background: 'var(--panel-bg)', border: '1px solid var(--border-color)', borderRadius: '8px', fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '1rem' }}>
+              <strong>Read-Only Mode:</strong> Only Admin and SPA can mark or remove instructor leaves.
             </div>
-          </div>
+          ) : (
+            <div className="leave-form">
+              <div className="leave-form-row">
+                <div className="input-group leave-input-name">
+                  <label>Instructor</label>
+                  <select value={selectedInstructor} onChange={(e) => setSelectedInstructor(e.target.value)}>
+                    <option value="" disabled>Select instructor...</option>
+                    {sortedTeachers.map((t) => <option key={t} value={t}>{t}</option>)}
+                  </select>
+                </div>
+                <div className="input-group leave-input-day">
+                  <label>Start Date</label>
+                  <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
+                </div>
+                <div className="input-group leave-input-day">
+                  <label>End Date</label>
+                  <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
+                </div>
+                <div className="input-group leave-input-reason">
+                  <label>Reason (optional)</label>
+                  <input type="text" value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. Sick, Holiday..." />
+                </div>
+                <button className="btn btn-warning leave-add-btn" disabled={!canAdd} onClick={handleAdd}>
+                  + Mark On Leave
+                </button>
+              </div>
+            </div>
+          )}
 
           <div className="leave-table-wrapper">
             <table className="leave-table">
@@ -215,15 +226,17 @@ export default function LeavePage({ params }) {
                         <td style={{ textAlign: 'center' }}>
                           <button 
                             className="btn-icon" 
-                            style={{ color: simulateKey === i ? 'var(--primary-blue)' : 'var(--text-secondary)', marginRight: '0.5rem' }} 
+                            style={{ color: simulateKey === i ? 'var(--primary-blue)' : 'var(--text-secondary)', marginRight: isAuthorized ? '0.5rem' : 0 }} 
                             onClick={() => setSimulateKey(simulateKey === i ? null : i)}
                             title="Simulate Impact"
                           >
                             <Wand2 size={16} />
                           </button>
-                          <button className="btn-icon btn-icon-danger" onClick={() => handleRemove(i)} title="Remove">
-                            <Trash2 size={16} />
-                          </button>
+                          {isAuthorized && (
+                            <button className="btn-icon btn-icon-danger" onClick={() => handleRemove(i)} title="Remove">
+                              <Trash2 size={16} />
+                            </button>
+                          )}
                         </td>
                       </tr>
                       {simulateKey === i && (

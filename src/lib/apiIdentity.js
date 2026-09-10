@@ -27,6 +27,7 @@ import { ensureTable } from '@/lib/ensureSchema';
 import {
   SESSION_COOKIE,
   canManageAccounts,
+  canManageLeaveRole,
   hashSessionToken,
   isSessionActive,
   sessionExpiry,
@@ -160,6 +161,13 @@ export function isAuthenticated(identity) {
  */
 export function canAdminAccounts(identity) {
   return isAuthenticated(identity) && canManageAccounts(identity.role);
+}
+
+/**
+ * True when the caller may manage leave records (Admin or SPA).
+ */
+export function canAdminLeave(identity) {
+  return isAuthenticated(identity) && canManageLeaveRole(identity.role);
 }
 
 /**
