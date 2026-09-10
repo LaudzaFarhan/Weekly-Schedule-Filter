@@ -97,12 +97,20 @@ describe('parseProgram', () => {
 });
 
 describe('normaliseCoderLevel', () => {
-  it('normalises basic and numbered coder levels', () => {
-    expect(normaliseCoderLevel('Basic 1')).toBe('Coder Basic');
-    expect(normaliseCoderLevel('Basic 2')).toBe('Coder Basic');
-    expect(normaliseCoderLevel('Intermediate 1')).toBe('Coder Intermediate');
-    expect(normaliseCoderLevel('Advance 2')).toBe('Coder Advance');
-    expect(normaliseCoderLevel('Coder Advance 2')).toBe('Coder Advance');
+  it('normalises basic and numbered coder levels into separated levels', () => {
+    expect(normaliseCoderLevel('Basic 1')).toBe('Basic 1');
+    expect(normaliseCoderLevel('Basic 2')).toBe('Basic 2');
+    expect(normaliseCoderLevel('Coder Basic 2')).toBe('Basic 2');
+    expect(normaliseCoderLevel('Intermediate 1')).toBe('Intermediate 1');
+    expect(normaliseCoderLevel('Intermediate 2')).toBe('Intermediate 2');
+    expect(normaliseCoderLevel('Advance 1')).toBe('Advance 1');
+    expect(normaliseCoderLevel('Advance 2')).toBe('Advance 2');
+    expect(normaliseCoderLevel('Advance 3')).toBe('Advance 3');
+    expect(normaliseCoderLevel('Coder Advance 2')).toBe('Advance 2');
+    expect(normaliseCoderLevel('Foundation 1')).toBe('Foundation 1');
+    expect(normaliseCoderLevel('Foundation 4')).toBe('Foundation 4');
+    expect(normaliseCoderLevel('Coder Foundation 3')).toBe('Foundation 3');
+    expect(normaliseCoderLevel('Coder Basic')).toBe('Basic 1');
     expect(normaliseCoderLevel('Junior Core')).toBe('Junior Core');
   });
 });
@@ -117,7 +125,19 @@ describe('lessonsForCategory, levelsForCategory, and meetingsForSubscription', (
   it('returns valid levels for each category', () => {
     expect(levelsForCategory('Kinder')).toEqual(['KF1', 'KF2', 'K1', 'K2', 'K3', 'K4']);
     expect(levelsForCategory('Junior')).toEqual(['JF1', 'JF2', 'J1', 'J2', 'J3', 'J4']);
-    expect(levelsForCategory('Coder')).toEqual(['Coder Basic', 'Coder Intermediate', 'Coder Advance']);
+    expect(levelsForCategory('Coder')).toEqual([
+      'Foundation 1',
+      'Foundation 2',
+      'Foundation 3',
+      'Foundation 4',
+      'Basic 1',
+      'Basic 2',
+      'Intermediate 1',
+      'Intermediate 2',
+      'Advance 1',
+      'Advance 2',
+      'Advance 3',
+    ]);
   });
 
   it('calculates meetings for subscription packages correctly', () => {

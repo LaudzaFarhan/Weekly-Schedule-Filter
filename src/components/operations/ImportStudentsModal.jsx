@@ -7,6 +7,7 @@ import * as XLSX from 'xlsx';
 import { formatNormalizedTimeSlot } from '../../utils/timeUtils';
 import { DEFAULT_BRANCH_LIST, getCanonicalBranchName } from '../../utils/constants';
 import { isInstructorMatch, isSameTeacher, getInstructorDisplayName } from '../../utils/instructorUtils';
+import { normaliseCoderLevel, CODER_LEVELS } from '../../lib/programRules';
 
 /**
  * Normalise level/program to standard options if possible
@@ -17,11 +18,14 @@ function normaliseProgramLevel(rawProgram, rawTerm) {
   const term = String(rawTerm || '').trim().toLowerCase();
   const combined = `${prog} ${term}`.trim();
 
-  // 1. Coder (includes Basic 1, Basic 2, Intermediate, Advance, Python, Web, etc.)
+  // 1. Coder (includes Foundation 1-4, Basic 1-2, Intermediate 1-2, Advance 1-3)
   if (/coder|basic|intermediate|advance|python|web|app|scratch|roblox/i.test(combined) || (/foundation/i.test(combined) && !/kinder|junior|^kf|^jf/i.test(combined))) {
-    if (combined.includes('intermediate')) return 'Coder Intermediate';
-    if (combined.includes('advance')) return 'Coder Advance';
-    return 'Coder Basic';
+    const norm = normaliseCoderLevel(combined) || normaliseCoderLevel(prog);
+    if (CODER_LEVELS.includes(norm)) return norm;
+    if (combined.includes('foundation')) return 'Foundation 1';
+    if (combined.includes('intermediate')) return 'Intermediate 1';
+    if (combined.includes('advance')) return 'Advance 1';
+    return 'Basic 1';
   }
 
   // 2. Kinder Foundation vs Core

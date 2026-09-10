@@ -26,7 +26,7 @@ import { useSchedule } from '../contexts/ScheduleContext';
 import Pagination from '../components/ui/Pagination';
 import {
   parseProgram, levelsForCategory, LESSONS_PER_LEVEL, CONTINUATION_OPTIONS,
-  normaliseCoderLevel, lessonsForCategory, meetingsForSubscription,
+  normaliseCoderLevel, lessonsForCategory, meetingsForSubscription, CODER_LEVELS,
 } from '../lib/programRules';
 import { resolveProgramCategory, studentProgramCategory } from '../lib/studentFilter';
 import { useNewOperationals } from '../hooks/useNewOperationals';
@@ -639,6 +639,76 @@ export default function LiveProgressTable({ category }) {
     }
   };
 
+  const handleUpdateCoderLevel = async (row, newLevel) => {
+    if (!row || !newLevel || newLevel === row.levelCode) return;
+    try {
+      const normStudent = row.studentName.trim().toLowerCase();
+
+      // 1. Update internal_classes if row has a class or student is in a class
+      const studentClasses = classes.filter((c) => {
+        const sList = String(c.student || '')
+          .split(',')
+          .map((s) => s.trim().toLowerCase());
+        return sList.includes(normStudent);
+      });
+      for (const c of studentClasses) {
+        await updateInternalClass(c.id, {
+          program: newLevel,
+        });
+      }
+
+      // 2. Update student registry (internal_students)
+      const studentRecord = (studentRegistry || []).find(
+        (s) => String(s.name || '').trim().toLowerCase() === normStudent
+      );
+      if (studentRecord) {
+        await updateInternalStudent(studentRecord.id, {
+          ...studentRecord,
+          level: newLevel,
+        });
+      }
+
+      // 3. Persist to live_progress
+      await persist(row, () => ({
+        programCode: newLevel,
+      }));
+
+      // 4. Update local states optimistically so UI reflects immediately
+      setClasses((prev) =>
+        prev.map((c) => {
+          const sList = String(c.student || '')
+            .split(',')
+            .map((s) => s.trim().toLowerCase());
+          if (sList.includes(normStudent)) {
+            return { ...c, program: newLevel };
+          }
+          return c;
+        })
+      );
+      setStudentRegistry((prev) =>
+        prev.map((s) => {
+          if (String(s.name || '').trim().toLowerCase() === normStudent) {
+            return { ...s, level: newLevel };
+          }
+          return s;
+        })
+      );
+
+      showToast({
+        title: 'Level Updated',
+        message: `${row.studentName}'s current level updated to ${newLevel}.`,
+        variant: 'success',
+      });
+    } catch (err) {
+      console.error('Failed to update Coder level:', err);
+      showToast({
+        title: 'Failed to update level',
+        message: err.message || 'An error occurred while updating the level.',
+        variant: 'error',
+      });
+    }
+  };
+
   const levels = useMemo(() => levelsForCategory(category), [category]);
   const branchList = useMemo(() => {
     const list = [...new Set([
@@ -876,7 +946,7 @@ export default function LiveProgressTable({ category }) {
       if (placedStudents.has(normName)) continue; // Already covered by classes
 
       const defaultLevelCode = category === 'Coder'
-        ? normaliseCoderLevel(s.level || 'Coder Basic')
+        ? normaliseCoderLevel(s.level || 'Basic 1')
         : (parseProgram(s.level).code || (category === 'Kinder' ? 'K1' : 'J1'));
 
       const rowKey = keyOf(s.name, defaultLevelCode);
@@ -2052,7 +2122,7 @@ export default function LiveProgressTable({ category }) {
                   <th style={{ width: '110px' }}>Program</th>
                   <th style={{ width: '140px' }}>Instructor</th>
                   <th style={{ minWidth: '170px' }}>Student Name</th>
-                  <th style={{ minWidth: '240px' }}>Lesson Arrangement</th>
+                  <th style={{ minWidth: '240px' }}>{category === 'Coder' ? 'Current Level' : 'Lesson Arrangement'}</th>
                   <th style={{ minWidth: category === 'Coder' ? '300px' : '250px' }}>{category === 'Coder' ? 'Attendance (Meetings)' : `Attendance 1–${maxLessons}`}</th>
                   <th style={{ minWidth: '130px', width: '130px' }}>Need Update</th>
                   <th style={{ minWidth: '180px' }}>Video Sent</th>
@@ -2244,61 +2314,116 @@ export default function LiveProgressTable({ category }) {
                           </div>
                         </td>
 
-                        {/* Lesson Arrangement (SPA arrangement) */}
+                        {/* Lesson Arrangement (SPA arrangement) for Kinder/Junior, Current Level selector for Coder */}
                         <td>
-                          {(() => {
-                            const studentTarget = r.targetMeetings || maxLessons;
-                            const displayTeacher = r.arrangedTeacher || (r.instructor && r.instructor !== 'Unassigned' && r.instructor !== '—' ? r.instructor : null);
-                            const displayLesson = r.arrangedLesson || r.lesson || getNextUndoneLesson(r.attendance, studentTarget);
-                            const isArranged = !!r.arrangedTeacher && (!r.instructor || r.arrangedTeacher.toLowerCase() !== r.instructor.toLowerCase());
-                            const termCode = r.levelCode || r.program;
-                            const cleanLesson = String(displayLesson).replace(/^L/i, '') || '1';
-                            
-                            let badgeLabel = category === 'Coder'
-                              ? `Coder · ${displayTeacher || 'Unassigned'}`
-                              : `${termCode}.${cleanLesson} · ${displayTeacher || 'Unassigned'}`;
-                            if (!displayTeacher && r.isUnassigned) {
-                              badgeLabel = `+ Assign Instructor`;
-                            }
+                          {category === 'Coder' ? (
+                            (() => {
+                              const currentLevel = normaliseCoderLevel(r.levelCode || r.program) || 'Basic 1';
+                              const isKnown = CODER_LEVELS.includes(currentLevel);
+                              return (
+                                <div style={{ display: 'inline-flex', alignItems: 'center', position: 'relative' }}>
+                                  <select
+                                    value={currentLevel}
+                                    onChange={(e) => handleUpdateCoderLevel(r, e.target.value)}
+                                    aria-label={`Current level for ${r.studentName}`}
+                                    title={`Current Level: ${currentLevel} (click to change)`}
+                                    style={{
+                                      display: 'inline-flex',
+                                      alignItems: 'center',
+                                      padding: '0.32rem 1.7rem 0.32rem 0.65rem',
+                                      borderRadius: '7px',
+                                      cursor: 'pointer',
+                                      fontSize: '0.78rem',
+                                      fontWeight: 600,
+                                      border: '1.5px solid rgba(79, 70, 229, 0.35)',
+                                      background: 'rgba(79, 70, 229, 0.06)',
+                                      color: '#3730a3',
+                                      appearance: 'none',
+                                      WebkitAppearance: 'none',
+                                      MozAppearance: 'none',
+                                      outline: 'none',
+                                      whiteSpace: 'nowrap',
+                                      transition: 'all 0.15s ease',
+                                    }}
+                                  >
+                                    {!isKnown && <option value={currentLevel}>{currentLevel}</option>}
+                                    <optgroup label="Foundation">
+                                      <option value="Foundation 1">Foundation 1</option>
+                                      <option value="Foundation 2">Foundation 2</option>
+                                      <option value="Foundation 3">Foundation 3</option>
+                                      <option value="Foundation 4">Foundation 4</option>
+                                    </optgroup>
+                                    <optgroup label="Basic">
+                                      <option value="Basic 1">Basic 1</option>
+                                      <option value="Basic 2">Basic 2</option>
+                                    </optgroup>
+                                    <optgroup label="Intermediate">
+                                      <option value="Intermediate 1">Intermediate 1</option>
+                                      <option value="Intermediate 2">Intermediate 2</option>
+                                    </optgroup>
+                                    <optgroup label="Advance">
+                                      <option value="Advance 1">Advance 1</option>
+                                      <option value="Advance 2">Advance 2</option>
+                                      <option value="Advance 3">Advance 3</option>
+                                    </optgroup>
+                                  </select>
+                                  <ChevronDown size={12} style={{ position: 'absolute', right: '8px', pointerEvents: 'none', color: '#4f46e5' }} />
+                                </div>
+                              );
+                            })()
+                          ) : (
+                            (() => {
+                              const studentTarget = r.targetMeetings || maxLessons;
+                              const displayTeacher = r.arrangedTeacher || (r.instructor && r.instructor !== 'Unassigned' && r.instructor !== '—' ? r.instructor : null);
+                              const displayLesson = r.arrangedLesson || r.lesson || getNextUndoneLesson(r.attendance, studentTarget);
+                              const isArranged = !!r.arrangedTeacher && (!r.instructor || r.arrangedTeacher.toLowerCase() !== r.instructor.toLowerCase());
+                              const termCode = r.levelCode || r.program;
+                              const cleanLesson = String(displayLesson).replace(/^L/i, '') || '1';
+                              
+                              let badgeLabel = `${termCode}.${cleanLesson} · ${displayTeacher || 'Unassigned'}`;
+                              if (!displayTeacher && r.isUnassigned) {
+                                badgeLabel = `+ Assign Instructor`;
+                              }
 
-                            return (
-                              <button
-                                type="button"
-                                onClick={() => openArrangementModal(r)}
-                                title={isArranged
-                                  ? `Arranged: ${displayTeacher} (Main: ${r.instructor}). Click to edit.`
-                                  : r.isUnassigned
-                                    ? `Click to arrange lesson & assign an active instructor for ${r.studentName}`
-                                    : `Click to arrange lesson & assign branch instructor for ${r.studentName}`}
-                                style={{
-                                  display: 'inline-flex', alignItems: 'center', gap: '0.35rem',
-                                  padding: '0.28rem 0.6rem', borderRadius: '7px', cursor: 'pointer',
-                                  fontSize: '0.75rem', fontWeight: 600, whiteSpace: 'nowrap',
-                                  border: isArranged
-                                    ? '1.5px solid rgba(217,119,6,0.4)'
+                              return (
+                                <button
+                                  type="button"
+                                  onClick={() => openArrangementModal(r)}
+                                  title={isArranged
+                                    ? `Arranged: ${displayTeacher} (Main: ${r.instructor}). Click to edit.`
                                     : r.isUnassigned
-                                      ? '1.5px dashed rgba(124,58,237,0.45)'
-                                      : '1.5px solid rgba(79,70,229,0.3)',
-                                  background: isArranged
-                                    ? 'rgba(245,158,11,0.1)'
-                                    : r.isUnassigned
-                                      ? 'rgba(124,58,237,0.08)'
-                                      : 'rgba(79,70,229,0.06)',
-                                  color: isArranged ? '#92400e' : r.isUnassigned ? '#6d28d9' : '#3730a3',
-                                  transition: 'all 0.15s ease',
-                                }}
-                              >
-                                <BookOpen size={12} style={{ color: isArranged ? '#d97706' : r.isUnassigned ? '#7c3aed' : 'var(--primary-blue, #4f46e5)', flexShrink: 0 }} />
-                                <span style={{ whiteSpace: 'nowrap' }}>{badgeLabel}</span>
-                                {isArranged && (
-                                  <span style={{ fontSize: '0.62rem', background: 'rgba(217,119,6,0.15)', color: '#92400e', padding: '0 4px', borderRadius: '3px', fontWeight: 700, letterSpacing: '0.3px', whiteSpace: 'nowrap', flexShrink: 0 }}>
-                                    REPLACED
-                                  </span>
-                                )}
-                                <Edit3 size={11} style={{ opacity: 0.7, marginLeft: '2px', flexShrink: 0 }} />
-                              </button>
-                            );
-                          })()}
+                                      ? `Click to arrange lesson & assign an active instructor for ${r.studentName}`
+                                      : `Click to arrange lesson & assign branch instructor for ${r.studentName}`}
+                                  style={{
+                                    display: 'inline-flex', alignItems: 'center', gap: '0.35rem',
+                                    padding: '0.28rem 0.6rem', borderRadius: '7px', cursor: 'pointer',
+                                    fontSize: '0.75rem', fontWeight: 600, whiteSpace: 'nowrap',
+                                    border: isArranged
+                                      ? '1.5px solid rgba(217,119,6,0.4)'
+                                      : r.isUnassigned
+                                        ? '1.5px dashed rgba(124,58,237,0.45)'
+                                        : '1.5px solid rgba(79,70,229,0.3)',
+                                    background: isArranged
+                                      ? 'rgba(245,158,11,0.1)'
+                                      : r.isUnassigned
+                                        ? 'rgba(124,58,237,0.08)'
+                                        : 'rgba(79,70,229,0.06)',
+                                    color: isArranged ? '#92400e' : r.isUnassigned ? '#6d28d9' : '#3730a3',
+                                    transition: 'all 0.15s ease',
+                                  }}
+                                >
+                                  <BookOpen size={12} style={{ color: isArranged ? '#d97706' : r.isUnassigned ? '#7c3aed' : 'var(--primary-blue, #4f46e5)', flexShrink: 0 }} />
+                                  <span style={{ whiteSpace: 'nowrap' }}>{badgeLabel}</span>
+                                  {isArranged && (
+                                    <span style={{ fontSize: '0.62rem', background: 'rgba(217,119,6,0.15)', color: '#92400e', padding: '0 4px', borderRadius: '3px', fontWeight: 700, letterSpacing: '0.3px', whiteSpace: 'nowrap', flexShrink: 0 }}>
+                                      REPLACED
+                                    </span>
+                                  )}
+                                  <Edit3 size={11} style={{ opacity: 0.7, marginLeft: '2px', flexShrink: 0 }} />
+                                </button>
+                              );
+                            })()
+                          )}
                         </td>
 
                         {/* Attendance ticks. The title carries the date and note,

@@ -44,7 +44,12 @@ const PROGRAM_GROUPS = [
 ];
 const LESSON_COUNT = 10;
 // Kinder & Junior codes carry a lesson number; Coder programs do not.
-const codeHasLessons = (code) => !!code && !/^coder/i.test(code);
+const codeHasLessons = (code) => {
+  if (!code) return false;
+  if (categorizeLevel(code) === 'Coder') return false;
+  if (CODER_LEVELS.some((l) => l.toLowerCase() === String(code).trim().toLowerCase())) return false;
+  return !/^coder/i.test(code);
+};
 
 /** Is this program a Kinder program? (Kinder Foundation KF*, Kinder Core K*.) */
 const isKinderProgram = (program) => {
@@ -74,19 +79,17 @@ const categorizeLevel = (str) => {
  * The program code a student's recorded level points at, so allocating them
  * starts from what they are actually enrolled in rather than a blank slate.
  *
- * Levels read like "Junior Foundation", "Kinder Core" or "Coder Basic".
+ * Levels read like "Junior Foundation", "Kinder Core", "Basic 1", or "Foundation 2".
  */
 const defaultCodeForLevel = (level) => {
   const s = String(level || '').trim();
   if (!s) return '';
-  // Coder levels are stored verbatim as the program code. Folded first, so a
-  // student still recorded as "Coder Advance 1" or "Basic 1" resolves to "Coder Basic/Advance"
-  // rather than failing to match and leaving the program field empty.
+  // Coder levels are stored verbatim as the program code.
   if (/^coder/i.test(s) || /basic|intermediate|advance|python|web|app|scratch|roblox/i.test(s) || (/foundation/i.test(s) && !/kinder|junior|^kf|^jf/i.test(s))) {
     const folded = normaliseCoderLevel(s);
     const exact = PROGRAM_GROUPS.find((g) => g.label === 'Coder')
       ?.codes.find((c) => c.toLowerCase() === folded.toLowerCase());
-    return exact || 'Coder Basic';
+    return exact || 'Basic 1';
   }
   const parsed = parseProgram(s);
   if (parsed.code) {
@@ -163,7 +166,7 @@ const deriveCodeFromCategoryAndTerm = (categoryName, termNo, rawLevel) => {
   const termNum = String(termNo || '').match(/\d+/)?.[0] || '1';
 
   if (/coder/i.test(cat)) {
-    return defaultCodeForLevel(rawLevel) || 'Coder Basic';
+    return defaultCodeForLevel(rawLevel) || 'Basic 1';
   }
   if (cat === 'Kinder Foundation') {
     return termNum === '2' ? 'KF2' : 'KF1';

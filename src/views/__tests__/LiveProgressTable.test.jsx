@@ -31,9 +31,12 @@ vi.mock('@/components/ui/Toast', () => ({
   useToast: () => ({ showToast }),
 }));
 
+const updateInternalClass = vi.hoisted(() => vi.fn(async () => ({})));
+const updateInternalStudent = vi.hoisted(() => vi.fn(async () => ({})));
+
 vi.mock('@/services/internalScheduleService', () => ({
   subscribeToInternalClasses,
-  updateInternalClass: vi.fn(async () => ({})),
+  updateInternalClass,
   createInternalClass: vi.fn(async () => ({})),
   deleteInternalClass: vi.fn(async () => ({})),
 }));
@@ -41,8 +44,6 @@ vi.mock('@/services/internalScheduleService', () => ({
 vi.mock('@/services/internalInstructorService', () => ({
   subscribeToInternalInstructors,
 }));
-
-const updateInternalStudent = vi.hoisted(() => vi.fn(async () => ({})));
 
 vi.mock('@/services/internalStudentService', () => ({
   subscribeToInternalStudents,
@@ -662,6 +663,79 @@ describe('LiveProgressTable - Unassigned Students & Unregistered Instructors', (
     fireEvent.click(waitPaymentBtn);
 
     expect(screen.getByText('Next Term Continuation Confirmation')).toBeInTheDocument();
+  });
+
+  it('renders Current Level column header and level selector for Coder without lesson arrangement', async () => {
+    subscribeToInternalClasses.mockImplementation((cb) => {
+      cb([
+        {
+          id: 'c-coder-1',
+          day: 'Saturday',
+          time: '10:00 AM - 12:00 PM',
+          teacher: 'Christian',
+          student: 'Budi Coder',
+          branchName: 'Kelapa Gading',
+          program: 'Basic 1',
+          classType: 'Regular',
+        },
+      ]);
+      return () => {};
+    });
+    subscribeToInternalStudents.mockImplementation((cb) => {
+      cb([
+        {
+          id: 's-coder-1',
+          name: 'Budi Coder',
+          level: 'Basic 1',
+          branchName: 'Kelapa Gading',
+          status: 'Active',
+        },
+      ]);
+      return () => {};
+    });
+
+    render(<LiveProgressTable category="Coder" />);
+
+    // Header must say "Current Level", not "Lesson Arrangement"
+    expect(screen.getByRole('columnheader', { name: /Current Level/i })).toBeInTheDocument();
+    expect(screen.queryByRole('columnheader', { name: /Lesson Arrangement/i })).not.toBeInTheDocument();
+
+    // Must NOT render lesson arrangement button like "Coder · Christian"
+    expect(screen.queryByText(/Coder · Christian/i)).not.toBeInTheDocument();
+    expect(screen.queryByTitle(/Click to arrange lesson/i)).not.toBeInTheDocument();
+
+    // Must render current level dropdown
+    const levelSelect = screen.getByRole('combobox', { name: /Current level for Budi Coder/i });
+    expect(levelSelect).toBeInTheDocument();
+    expect(levelSelect.value).toBe('Basic 1');
+
+    // Verify separated level options exist within the row level select
+    expect(within(levelSelect).getByRole('option', { name: 'Foundation 1' })).toBeInTheDocument();
+    expect(within(levelSelect).getByRole('option', { name: 'Foundation 4' })).toBeInTheDocument();
+    expect(within(levelSelect).getByRole('option', { name: 'Basic 1' })).toBeInTheDocument();
+    expect(within(levelSelect).getByRole('option', { name: 'Basic 2' })).toBeInTheDocument();
+    expect(within(levelSelect).getByRole('option', { name: 'Intermediate 1' })).toBeInTheDocument();
+    expect(within(levelSelect).getByRole('option', { name: 'Intermediate 2' })).toBeInTheDocument();
+    expect(within(levelSelect).getByRole('option', { name: 'Advance 1' })).toBeInTheDocument();
+    expect(within(levelSelect).getByRole('option', { name: 'Advance 2' })).toBeInTheDocument();
+    expect(within(levelSelect).getByRole('option', { name: 'Advance 3' })).toBeInTheDocument();
+
+    // Changing level updates student, class, and persists
+    fireEvent.change(levelSelect, { target: { value: 'Advance 2' } });
+
+    await waitFor(() => {
+      expect(updateInternalStudent).toHaveBeenCalledWith(
+        's-coder-1',
+        expect.objectContaining({ level: 'Advance 2' })
+      );
+      expect(updateInternalClass).toHaveBeenCalledWith(
+        'c-coder-1',
+        expect.objectContaining({ program: 'Advance 2' })
+      );
+      expect(saveLiveProgress).toHaveBeenCalledWith(
+        expect.objectContaining({ programCode: 'Advance 2' })
+      );
+    });
   });
 });
 

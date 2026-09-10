@@ -37,9 +37,11 @@ describe('matchesStudentFilter / filterStudents', () => {
     expect(filterStudents(students, { search: 'nobody' })).toEqual([]);
   });
 
-  it('compares the level folded, so a numbered Coder record still matches its stage', () => {
-    expect(matchesStudentFilter(students[2], { level: 'Coder Advance' })).toBe(true);
-    expect(matchesStudentFilter(students[2], { level: 'Coder Basic' })).toBe(false);
+  it('compares the level normalised, matching separated levels accurately', () => {
+    expect(matchesStudentFilter(students[2], { level: 'Advance 2' })).toBe(true);
+    expect(matchesStudentFilter(students[2], { level: 'Coder Advance 2' })).toBe(true);
+    expect(matchesStudentFilter(students[2], { level: 'Advance 1' })).toBe(false);
+    expect(matchesStudentFilter(students[2], { level: 'Basic 1' })).toBe(false);
   });
 
   it('compares branch and status by equality and combines criteria with AND', () => {

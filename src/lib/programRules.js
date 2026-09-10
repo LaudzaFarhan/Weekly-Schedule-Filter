@@ -25,16 +25,26 @@ const FAMILIES = [
 export const CATEGORIES = ['Kinder', 'Junior', 'Coder'];
 
 /**
- * Coder levels, one per stage.
- *
- * Kinder and Junior name their two stages without numbering them, and the
- * workload and profile screens have always counted Coder the same way — Basic,
- * Intermediate, Advance. Only the student and program dropdowns carried numbered
- * variants, and they disagreed with each other: one listed Coder Foundation 1-4
- * as well, the other did not. Neither Foundation nor Intermediate was ever used.
- * So the numbering is dropped and this is the single list everything reads.
+ * Coder levels:
+ * - Foundation 1-4
+ * - Basic 1-2
+ * - Intermediate 1-2
+ * - Advance 1-3
+ * Each numbered level is a separated level.
  */
-export const CODER_LEVELS = ['Coder Basic', 'Coder Intermediate', 'Coder Advance'];
+export const CODER_LEVELS = [
+  'Foundation 1',
+  'Foundation 2',
+  'Foundation 3',
+  'Foundation 4',
+  'Basic 1',
+  'Basic 2',
+  'Intermediate 1',
+  'Intermediate 2',
+  'Advance 1',
+  'Advance 2',
+  'Advance 3',
+];
 
 /** Every level a student can be enrolled at, in curriculum order. */
 export const STUDENT_LEVELS = [
@@ -113,23 +123,36 @@ export const CONTINUATION_OPTIONS = [
 ];
 
 /**
- * Fold a legacy numbered Coder level onto its stage: "Coder Advance 2" reads as
- * "Coder Advance". Also maps "Basic 1" / "Basic 2" / "Basic" -> "Coder Basic".
- * Records written before the numbering was dropped stay
- * meaningful, so nothing has to be migrated for the app to behave correctly.
- * Anything that is not a Coder level is returned untouched.
+ * Normalise a Coder level value onto one of the 11 separated levels:
+ * Foundation 1-4, Basic 1-2, Intermediate 1-2, Advance 1-3.
+ * Preserves specific level numbers, strips redundant "Coder " prefix if present,
+ * and maps legacy unnumbered stage names onto stage 1.
+ * Non-coder levels are returned untouched.
  */
 export function normaliseCoderLevel(value) {
   const raw = String(value || '').trim();
   if (!raw) return raw;
-  if (/^coder/i.test(raw)) {
-    const stripped = raw.replace(/\s*\d+\s*$/, '').trim();
-    const match = CODER_LEVELS.find((l) => l.toLowerCase() === stripped.toLowerCase());
-    return match || raw;
-  }
-  if (/^basic/i.test(raw)) return 'Coder Basic';
-  if (/^intermediate/i.test(raw)) return 'Coder Intermediate';
-  if (/^advance/i.test(raw)) return 'Coder Advance';
+
+  // Exact or case-insensitive match on canonical CODER_LEVELS
+  const exactMatch = CODER_LEVELS.find((l) => l.toLowerCase() === raw.toLowerCase());
+  if (exactMatch) return exactMatch;
+
+  // Strip leading "Coder " or "Coder-" if present (e.g. "Coder Basic 2" -> "Basic 2")
+  const withoutCoder = raw.replace(/^coder\s*[-–—:]?\s*/i, '').trim();
+  const matchWithoutCoder = CODER_LEVELS.find((l) => l.toLowerCase() === withoutCoder.toLowerCase());
+  if (matchWithoutCoder) return matchWithoutCoder;
+
+  // Spaced numbers: "Foundation-1", "Basic2"
+  const spaced = withoutCoder.replace(/^([a-z]+)\s*[-_]?\s*(\d+)$/i, '$1 $2');
+  const matchSpaced = CODER_LEVELS.find((l) => l.toLowerCase() === spaced.toLowerCase());
+  if (matchSpaced) return matchSpaced;
+
+  // Legacy unnumbered stages map to stage 1:
+  if (/^(?:coder\s*)?foundation$/i.test(raw)) return 'Foundation 1';
+  if (/^(?:coder\s*)?basic$/i.test(raw)) return 'Basic 1';
+  if (/^(?:coder\s*)?intermediate$/i.test(raw)) return 'Intermediate 1';
+  if (/^(?:coder\s*)?advance$/i.test(raw)) return 'Advance 1';
+
   return raw;
 }
 

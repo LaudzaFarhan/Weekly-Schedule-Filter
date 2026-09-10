@@ -1,4 +1,4 @@
-import { parseProgram, CATEGORY_LEVELS } from '../lib/programRules';
+import { parseProgram, CATEGORY_LEVELS, normaliseCoderLevel } from '../lib/programRules';
 import { studentProgramCategory } from '../lib/studentFilter';
 
 export const PROGRESS_UPDATE_STATUSES = {
@@ -218,12 +218,9 @@ export function getModuleGraduationInfo(currentCode, category = 'Kinder') {
       currentCategory: 'Junior',
       graduatedModule: 'Junior Core (J4 / T4)',
       nextCategory: 'Coder',
-      defaultProgram: 'Coder Basic',
-      options: [
-        { code: 'Coder Basic', label: 'Coder Basic', category: 'Coder' },
-        { code: 'Coder Intermediate', label: 'Coder Intermediate', category: 'Coder' },
-      ],
-      notice: '🎓 Student completed Junior T4 (J4). Ready to graduate to Coder Program (Coder Basic).',
+      defaultProgram: 'Basic 1',
+      options: (CATEGORY_LEVELS.Coder || []).map((lvl) => ({ code: lvl, label: lvl, category: 'Coder' })),
+      notice: '🎓 Student completed Junior T4 (J4). Ready to graduate to Coder Program (Basic 1).',
     };
   }
 
@@ -239,8 +236,8 @@ export function getModuleGraduationInfo(currentCode, category = 'Kinder') {
 }
 
 /**
- * Suggest next program code (e.g. K1.10 -> K2, K4 -> J1, J1.10 -> J2, J4 -> Coder Basic, Coder Basic -> Coder Intermediate).
- * Target program represents the term of the program name (e.g. K1, K2, J1, J2, Coder Basic).
+ * Suggest next program code (e.g. K1.10 -> K2, K4 -> J1, J1.10 -> J2, J4 -> Basic 1, Basic 1 -> Basic 2).
+ * Target program represents the term of the program name (e.g. K1, K2, J1, J2, Basic 1).
  */
 export function suggestNextProgramCode(currentCode, category = 'Kinder') {
   if (!currentCode || typeof currentCode !== 'string') return '';
@@ -253,11 +250,12 @@ export function suggestNextProgramCode(currentCode, category = 'Kinder') {
     return 'J1'; // Default graduation to Junior Core
   }
   if (cat.toLowerCase().includes('junior') && baseCode.toUpperCase() === 'J4') {
-    return 'Coder Basic'; // Default graduation to Coder
+    return 'Basic 1'; // Default graduation to Coder
   }
 
   const levels = CATEGORY_LEVELS[cat] || [];
-  const idx = levels.findIndex((lvl) => lvl.toLowerCase() === baseCode.toLowerCase());
+  const normalizedBase = cat === 'Coder' ? normaliseCoderLevel(baseCode) : baseCode;
+  const idx = levels.findIndex((lvl) => lvl.toLowerCase() === normalizedBase.toLowerCase() || lvl.toLowerCase() === baseCode.toLowerCase());
 
   if (idx !== -1 && idx < levels.length - 1) {
     return levels[idx + 1];

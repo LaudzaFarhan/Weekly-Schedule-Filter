@@ -125,17 +125,23 @@ describe('progressUpdateUtils', () => {
     });
 
     it('advances to next program level for Coder', () => {
-      expect(suggestNextProgramCode('Coder Basic', 'Coder')).toBe('Coder Intermediate');
-      expect(suggestNextProgramCode('Coder Intermediate', 'Coder')).toBe('Coder Advance');
+      expect(suggestNextProgramCode('Foundation 1', 'Coder')).toBe('Foundation 2');
+      expect(suggestNextProgramCode('Foundation 4', 'Coder')).toBe('Basic 1');
+      expect(suggestNextProgramCode('Basic 1', 'Coder')).toBe('Basic 2');
+      expect(suggestNextProgramCode('Basic 2', 'Coder')).toBe('Intermediate 1');
+      expect(suggestNextProgramCode('Intermediate 1', 'Coder')).toBe('Intermediate 2');
+      expect(suggestNextProgramCode('Intermediate 2', 'Coder')).toBe('Advance 1');
+      expect(suggestNextProgramCode('Advance 1', 'Coder')).toBe('Advance 2');
+      expect(suggestNextProgramCode('Advance 2', 'Coder')).toBe('Advance 3');
     });
 
     it('graduates to next category after K4 and J4', () => {
       expect(suggestNextProgramCode('K4', 'Kinder')).toBe('J1');
-      expect(suggestNextProgramCode('J4', 'Junior')).toBe('Coder Basic');
+      expect(suggestNextProgramCode('J4', 'Junior')).toBe('Basic 1');
     });
 
     it('returns base code for final curriculum level or empty string', () => {
-      expect(suggestNextProgramCode('Coder Advance', 'Coder')).toBe('Coder Advance');
+      expect(suggestNextProgramCode('Advance 3', 'Coder')).toBe('Advance 3');
       expect(suggestNextProgramCode('')).toBe('');
     });
   });

@@ -13,7 +13,7 @@ import {
   isModuleGraduationLevel,
   getModuleGraduationInfo,
 } from '../../utils/progressUpdateUtils';
-import { CONTINUATION_OPTIONS, levelsForCategory } from '../../lib/programRules';
+import { CONTINUATION_OPTIONS, levelsForCategory, CODER_LEVELS } from '../../lib/programRules';
 
 export default function NextTermContinuationModal({
   isOpen,
@@ -53,7 +53,7 @@ export default function NextTermContinuationModal({
     if (nextProgramCode && !list.includes(nextProgramCode)) {
       list.push(nextProgramCode);
     }
-    return list.length ? list : ['K1', 'K2', 'K3', 'K4', 'KF1', 'KF2', 'J1', 'J2', 'J3', 'J4', 'Coder Basic', 'Coder Intermediate', 'Coder Advance'];
+    return list.length ? list : ['K1', 'K2', 'K3', 'K4', 'KF1', 'KF2', 'J1', 'J2', 'J3', 'J4', ...CODER_LEVELS];
   }, [availableLevels, nextProgramCode]);
 
   useEffect(() => {
@@ -71,7 +71,7 @@ export default function NextTermContinuationModal({
         setProgressionType('graduate');
         const gradInfo = getModuleGraduationInfo(row.program || row.programCode || '', effectiveCategory);
         setTargetCategory(gradInfo.nextCategory);
-        setNextProgramCode(gradInfo.defaultProgram || (gradInfo.nextCategory === 'Junior' ? 'J1' : 'Coder Basic'));
+        setNextProgramCode(gradInfo.defaultProgram || (gradInfo.nextCategory === 'Junior' ? 'J1' : 'Basic 1'));
       } else {
         setProgressionType('regular');
         setTargetCategory(effectiveCategory);
@@ -504,7 +504,7 @@ export default function NextTermContinuationModal({
                         setProgressionType('graduate');
                         const gradCat = effectiveCategory === 'Kinder' ? 'Junior' : effectiveCategory === 'Junior' ? 'Coder' : 'Coder';
                         setTargetCategory(gradCat);
-                        setNextProgramCode(gradCat === 'Junior' ? 'J1' : 'Coder Basic');
+                        setNextProgramCode(gradCat === 'Junior' ? 'J1' : 'Basic 1');
                       }}
                       style={{
                         padding: '0.5rem 0.6rem',
@@ -573,7 +573,7 @@ export default function NextTermContinuationModal({
                       {effectiveCategory === 'Kinder'
                         ? 'Student completed Kinder (K4 / T4). Select Junior Core (J1–J4) or Junior Foundation (JF1–JF2).'
                         : effectiveCategory === 'Junior'
-                        ? 'Student completed Junior (J4 / T4). Select Coder Program (Coder Basic).'
+                        ? 'Student completed Junior (J4 / T4). Select Coder Program (Basic 1).'
                         : 'Student completed current module stage.'}
                     </div>
                   </div>
@@ -690,10 +690,24 @@ export default function NextTermContinuationModal({
                         </>
                       ) : (
                         <>
-                          <optgroup label="Coder Tracks">
-                            <option value="Coder Basic">Coder Basic</option>
-                            <option value="Coder Intermediate">Coder Intermediate</option>
-                            <option value="Coder Advance">Coder Advance</option>
+                          <optgroup label="Coder - Foundation">
+                            <option value="Foundation 1">Foundation 1</option>
+                            <option value="Foundation 2">Foundation 2</option>
+                            <option value="Foundation 3">Foundation 3</option>
+                            <option value="Foundation 4">Foundation 4</option>
+                          </optgroup>
+                          <optgroup label="Coder - Basic">
+                            <option value="Basic 1">Basic 1</option>
+                            <option value="Basic 2">Basic 2</option>
+                          </optgroup>
+                          <optgroup label="Coder - Intermediate">
+                            <option value="Intermediate 1">Intermediate 1</option>
+                            <option value="Intermediate 2">Intermediate 2</option>
+                          </optgroup>
+                          <optgroup label="Coder - Advance">
+                            <option value="Advance 1">Advance 1</option>
+                            <option value="Advance 2">Advance 2</option>
+                            <option value="Advance 3">Advance 3</option>
                           </optgroup>
                         </>
                       )}

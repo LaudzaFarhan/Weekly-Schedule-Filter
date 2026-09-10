@@ -39,6 +39,7 @@ import {
   CATEGORIES,
   CATEGORY_LEVELS,
   STUDENT_LEVELS,
+  CODER_LEVELS,
   normaliseCoderLevel,
   parseProgram,
 } from './programRules';
@@ -82,14 +83,23 @@ const LEVEL_CATEGORY_INDEX = (() => {
   for (const category of CATEGORIES) {
     for (const code of CATEGORY_LEVELS[category] || []) {
       index.set(levelKey(code), category);
+      if (category === 'Coder') {
+        index.set(levelKey(`coder ${code}`), 'Coder');
+      }
     }
   }
 
-  // Level names. Each name opens with its category ("Junior Core" → "Junior"), so the
-  // mapping is derived from CATEGORIES and STUDENT_LEVELS instead of being hand-written.
+  // Level names. Each name opens with its category ("Junior Core" → "Junior"), or matches
+  // a separated Coder level name ("Foundation 1", "Basic 2").
   for (const level of STUDENT_LEVELS) {
-    const category = CATEGORIES.find((c) => levelKey(level).startsWith(levelKey(c)));
-    if (category) index.set(levelKey(level), category);
+    const category = CATEGORIES.find((c) => levelKey(level).startsWith(levelKey(c)))
+      || (CODER_LEVELS.includes(level) ? 'Coder' : null);
+    if (category) {
+      index.set(levelKey(level), category);
+      if (category === 'Coder') {
+        index.set(levelKey(`coder ${level}`), 'Coder');
+      }
+    }
   }
 
   return index;
@@ -188,9 +198,8 @@ export function matchesStudentFilter(student, criteria = {}) {
 
   if (!student) return false;
 
-  // Compared on the folded level so filtering by "Coder Advance" still finds records
-  // written as "Coder Advance 1".
-  if (level !== UNFILTERED && normaliseCoderLevel(student.level) !== level) return false;
+  // Compared on the normalised level so filtering matches canonical and legacy shapes
+  if (level !== UNFILTERED && normaliseCoderLevel(student.level) !== normaliseCoderLevel(level)) return false;
   if (branch !== UNFILTERED && student.branchName !== branch) return false;
   if (status !== UNFILTERED && student.status !== status) return false;
 
