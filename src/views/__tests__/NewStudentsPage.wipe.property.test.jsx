@@ -94,7 +94,7 @@ const { WIPE_CONFIRMATION_PHRASE } = await import('@/lib/wipeConfirmation');
 
 /* ----------------------------------------------------------------- helpers */
 
-const LEVELS = ['Kinder Core', 'Junior Core', 'Coder Advance'];
+const LEVELS = ['Kinder Core', 'Junior Core', 'Advance 1'];
 const STATUSES = ['Active', 'Inactive'];
 
 /** A registry of `n` rows, spread across the branches, levels and statuses. */
