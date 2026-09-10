@@ -160,6 +160,10 @@ export default function QaIssueFormModal({
     setAttachments(prev => prev.filter((_, idx) => idx !== idxToRemove));
   };
 
+  const totalAttachmentsSizeKb = attachments.reduce((sum, a) => {
+    return sum + Math.round(((a.url?.length || 0) * 0.75) / 1024);
+  }, 0);
+
   const handleSaveAnnotatedImage = (annotatedData) => {
     if (annotatingIndex >= 0) {
       setAttachments(prev => prev.map((att, idx) => {
@@ -167,7 +171,6 @@ export default function QaIssueFormModal({
           return {
             ...att,
             url: annotatedData.url,
-            originalUrl: annotatedData.originalUrl,
             annotated: true
           };
         }
@@ -187,8 +190,19 @@ export default function QaIssueFormModal({
       return;
     }
 
+    if (totalAttachmentsSizeKb > 900) {
+      setError(`Total attachments size (~${totalAttachmentsSizeKb} KB) exceeds the safe server limit (900 KB). Please remove or re-capture 1-2 screenshots.`);
+      return;
+    }
+
     setSaving(true);
     setError(null);
+
+    // Clean attachments so no redundant originalUrl is sent to the database
+    const cleanAttachments = attachments.map(att => {
+      const { originalUrl, ...clean } = att;
+      return clean;
+    });
 
     const payload = {
       title: title.trim(),
@@ -199,7 +213,7 @@ export default function QaIssueFormModal({
       module: moduleName,
       assigneeName: assigneeName.trim() || null,
       assigneeEmail: assigneeEmail.trim() || null,
-      attachments,
+      attachments: cleanAttachments,
       environment: includeEnv ? envInfo : {}
     };
 
@@ -464,6 +478,21 @@ export default function QaIssueFormModal({
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.4rem' }}>
                 <label style={{ fontSize: '0.85rem', fontWeight: 600, color: '#334155' }}>
                   Screenshots & Attachments ({attachments.length})
+                  {attachments.length > 0 && (
+                    <span 
+                      style={{ 
+                        marginLeft: '0.45rem', 
+                        fontSize: '0.78rem', 
+                        fontWeight: 600,
+                        color: totalAttachmentsSizeKb > 800 ? '#dc2626' : '#059669',
+                        background: totalAttachmentsSizeKb > 800 ? '#fef2f2' : '#ecfdf5',
+                        padding: '1px 6px',
+                        borderRadius: '4px'
+                      }}
+                    >
+                      ~{totalAttachmentsSizeKb} KB total
+                    </span>
+                  )}
                 </label>
                 <span style={{ fontSize: '0.75rem', color: '#64748b', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
                   <ClipboardPaste size={13} /> You can press <strong>Ctrl+V</strong> anywhere to paste screenshot

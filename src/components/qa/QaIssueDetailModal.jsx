@@ -197,10 +197,10 @@ export default function QaIssueDetailModal({
     if (annotatingIndex >= 0 && issue.attachments) {
       const updatedAttachments = issue.attachments.map((att, idx) => {
         if (idx === annotatingIndex) {
+          const { originalUrl, ...rest } = att;
           return {
-            ...att,
+            ...rest,
             url: annotatedData.url,
-            originalUrl: annotatedData.originalUrl,
             annotated: true
           };
         }

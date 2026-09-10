@@ -106,17 +106,38 @@ export async function getIssueById(id) {
 }
 
 /**
+ * Sanitizes attachments before sending to the server:
+ * Strips redundant large fields like `originalUrl` to reduce payload size.
+ */
+export function sanitizeAttachmentsForPayload(attachments = []) {
+  if (!Array.isArray(attachments)) return [];
+  return attachments.map(att => {
+    if (!att || typeof att !== 'object') return att;
+    const { originalUrl, ...cleanAtt } = att;
+    return cleanAtt;
+  });
+}
+
+/**
  * Create a new QA issue.
  */
 export async function createIssue(data) {
+  const payload = { ...data };
+  if (payload.attachments) {
+    payload.attachments = sanitizeAttachmentsForPayload(payload.attachments);
+  }
+
   const res = await fetch(API_PATH, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(data)
+    body: JSON.stringify(payload)
   });
   if (!res.ok) {
+    if (res.status === 413) {
+      throw new Error('Upload size exceeded server limit (HTTP 413 Request Entity Too Large). Please reduce the number of screenshots or attachment sizes.');
+    }
     const err = await res.json().catch(() => ({}));
-    throw new Error(err.error || 'Failed to create QA issue');
+    throw new Error(err.error || `Failed to create QA issue (HTTP ${res.status})`);
   }
   return await res.json();
 }
@@ -125,14 +146,22 @@ export async function createIssue(data) {
  * Update an existing QA issue.
  */
 export async function updateIssue(id, data) {
+  const payload = { ...data };
+  if (payload.attachments) {
+    payload.attachments = sanitizeAttachmentsForPayload(payload.attachments);
+  }
+
   const res = await fetch(`${API_PATH}?id=${id}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(data)
+    body: JSON.stringify(payload)
   });
   if (!res.ok) {
+    if (res.status === 413) {
+      throw new Error('Upload size exceeded server limit (HTTP 413 Request Entity Too Large). Please reduce screenshot attachments.');
+    }
     const err = await res.json().catch(() => ({}));
-    throw new Error(err.error || 'Failed to update QA issue');
+    throw new Error(err.error || `Failed to update QA issue (HTTP ${res.status})`);
   }
   return await res.json();
 }
@@ -167,14 +196,22 @@ export async function getComments(issueId) {
  * Post a new comment.
  */
 export async function addComment(issueId, commentData) {
+  const payload = { ...commentData };
+  if (payload.attachments) {
+    payload.attachments = sanitizeAttachmentsForPayload(payload.attachments);
+  }
+
   const res = await fetch(`${API_PATH}/${issueId}/comments`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(commentData)
+    body: JSON.stringify(payload)
   });
   if (!res.ok) {
+    if (res.status === 413) {
+      throw new Error('Comment upload size exceeded server limit (HTTP 413). Please reduce attached screenshots.');
+    }
     const err = await res.json().catch(() => ({}));
-    throw new Error(err.error || 'Failed to add comment');
+    throw new Error(err.error || `Failed to add comment (HTTP ${res.status})`);
   }
   return await res.json();
 }
@@ -246,8 +283,16 @@ export function captureEnvironmentInfo() {
 /**
  * Compresses an image dataURL / File using HTML5 canvas.
  * Reduces file payload to ensure fast network transfer and storage.
+ * Automatically tries WebP with JPEG fallback, scaling to target budget.
+ *
+ * @param {File|Blob|string} fileOrDataUrl
+ * @param {number} [maxWidth=1280] Max width in pixels (default 1280)
+ * @param {number} [maxHeight=900] Max height in pixels (default 900)
+ * @param {number} [quality=0.72] Compression quality (default 0.72)
+ * @param {number} [maxBytes=120000] Target max binary byte size (~120KB)
+ * @returns {Promise<string>} dataURL
  */
-export function compressImage(fileOrDataUrl, maxWidth = 1600, maxHeight = 1200, quality = 0.82) {
+export function compressImage(fileOrDataUrl, maxWidth = 1280, maxHeight = 900, quality = 0.72, maxBytes = 120000) {
   return new Promise((resolve, reject) => {
     const processImage = (src) => {
       const img = new Image();
@@ -270,7 +315,35 @@ export function compressImage(fileOrDataUrl, maxWidth = 1600, maxHeight = 1200, 
         const ctx = canvas.getContext('2d');
         ctx.drawImage(img, 0, 0, width, height);
 
-        const dataUrl = canvas.toDataURL('image/jpeg', quality);
+        // Check if browser supports image/webp export
+        let dataUrl = canvas.toDataURL('image/webp', quality);
+        let isWebp = typeof dataUrl === 'string' && dataUrl.startsWith('data:image/webp');
+        if (!isWebp) {
+          dataUrl = canvas.toDataURL('image/jpeg', Math.min(quality, 0.70));
+        }
+
+        // Approximate binary size: base64 payload is ~0.75 of string length after comma
+        const commaIdx = dataUrl.indexOf(',');
+        let estimatedBytes = commaIdx >= 0 ? Math.round((dataUrl.length - commaIdx) * 0.75) : dataUrl.length;
+
+        // If still exceeds maxBytes, perform secondary pass with reduced dimensions and quality
+        if (estimatedBytes > maxBytes && (width > 800 || quality > 0.45)) {
+          const scale = Math.max(0.7, Math.sqrt(maxBytes / estimatedBytes));
+          const secondWidth = Math.max(640, Math.round(width * scale));
+          const secondHeight = Math.max(480, Math.round(height * scale));
+
+          canvas.width = secondWidth;
+          canvas.height = secondHeight;
+          ctx.drawImage(img, 0, 0, secondWidth, secondHeight);
+
+          const lowerQuality = Math.max(0.48, quality - 0.16);
+          if (isWebp) {
+            dataUrl = canvas.toDataURL('image/webp', lowerQuality);
+          } else {
+            dataUrl = canvas.toDataURL('image/jpeg', lowerQuality);
+          }
+        }
+
         resolve(dataUrl);
       };
       img.onerror = (e) => reject(e);

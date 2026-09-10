@@ -101,6 +101,9 @@ nginx in front of it:
 server {
     server_name thelabindonesia.my.id;
 
+    # Allow uploads up to 50MB (screenshots in QA Bug Tracker, imports, attachments)
+    client_max_body_size 50M;
+
     # 1. Hashed Next.js static assets: cache permanently (filenames change on every build)
     location /_next/static/ {
         proxy_pass http://127.0.0.1:3000;
@@ -268,6 +271,7 @@ it only tells you whether `main` is deployable before you SSH in.
 | `/api/new/*` answers without a key | `NEW_OPS_API_KEY` unset leaves the gate open. Set it. |
 | Site serves an old version after deploy | The app was not restarted. Check `pm2 logs thelab` or `journalctl -u thelab -f`. |
 | Deploy refuses to build | A build-time variable is missing. It is telling you which. |
+| `413 (Request Entity Too Large)` on screenshot upload | Nginx `client_max_body_size` is too low (default is 1MB). Add `client_max_body_size 50M;` to `/etc/nginx/sites-available/...` and run `sudo nginx -t && sudo systemctl reload nginx`. |
 
 ---
 

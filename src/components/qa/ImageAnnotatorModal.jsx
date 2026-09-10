@@ -299,7 +299,10 @@ export default function ImageAnnotatorModal({
   const handleSaveAnnotated = () => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    const annotatedDataUrl = canvas.toDataURL('image/jpeg', 0.88);
+    let annotatedDataUrl = canvas.toDataURL('image/webp', 0.75);
+    if (typeof annotatedDataUrl !== 'string' || !annotatedDataUrl.startsWith('data:image/webp')) {
+      annotatedDataUrl = canvas.toDataURL('image/jpeg', 0.72);
+    }
     onSave({
       url: annotatedDataUrl,
       originalUrl: imageSrc,

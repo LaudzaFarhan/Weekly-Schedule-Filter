@@ -9,6 +9,7 @@ import {
   addComment,
   captureEnvironmentInfo,
   subscribeToQaBugs,
+  sanitizeAttachmentsForPayload,
   ISSUE_STATUSES,
   ISSUE_TYPES,
   ISSUE_PRIORITIES,
@@ -187,5 +188,52 @@ describe('qaTrackerService API client', () => {
     );
 
     unsub();
+  });
+
+  it('sanitizes attachments by stripping originalUrl to reduce payload size', () => {
+    const raw = [
+      { id: '1', url: 'data:image/webp;base64,abc', originalUrl: 'data:image/jpeg;base64,large', annotated: true },
+      { id: '2', url: 'data:image/webp;base64,xyz', annotated: false }
+    ];
+    const cleaned = sanitizeAttachmentsForPayload(raw);
+    expect(cleaned).toEqual([
+      { id: '1', url: 'data:image/webp;base64,abc', annotated: true },
+      { id: '2', url: 'data:image/webp;base64,xyz', annotated: false }
+    ]);
+    expect(cleaned[0].originalUrl).toBeUndefined();
+  });
+
+  it('throws descriptive error on 413 Request Entity Too Large in createIssue', async () => {
+    fetch.mockResolvedValueOnce({
+      ok: false,
+      status: 413,
+      json: async () => ({})
+    });
+
+    await expect(createIssue({ title: 'T', description: 'D', attachments: [] }))
+      .rejects
+      .toThrow(/Upload size exceeded server limit \(HTTP 413 Request Entity Too Large\)/);
+  });
+
+  it('throws descriptive error on 413 in updateIssue and addComment', async () => {
+    fetch.mockResolvedValueOnce({
+      ok: false,
+      status: 413,
+      json: async () => ({})
+    });
+
+    await expect(updateIssue(10, { attachments: [] }))
+      .rejects
+      .toThrow(/Upload size exceeded server limit \(HTTP 413 Request Entity Too Large\)/);
+
+    fetch.mockResolvedValueOnce({
+      ok: false,
+      status: 413,
+      json: async () => ({})
+    });
+
+    await expect(addComment(10, { comment: 'test', attachments: [] }))
+      .rejects
+      .toThrow(/Comment upload size exceeded server limit \(HTTP 413\)/);
   });
 });
