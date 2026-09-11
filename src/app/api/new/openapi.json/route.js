@@ -644,10 +644,82 @@ function buildSpec(origin) {
         listDescription: 'List trial leads. Use search for a name, phone, or message.',
         createDescription: 'Create a trial lead. This is the safe write for an inbound enquiry.',
         extraListParams: [
+          { name: 'id', in: 'query', schema: { type: 'integer' }, description: 'Fetch a single lead by its ID.' },
           { name: 'status', in: 'query', schema: { type: 'string' }, description: 'Filter by pipeline status, e.g. "interest_trial", "trial_booked".' },
           { name: 'branch', in: 'query', schema: { type: 'string' }, description: 'Filter to one branch name.' },
+          { name: 'metric', in: 'query', schema: { type: 'string', enum: ['leads', 'profiling', 'scheduled', 'junk'] }, description: 'Filter by classified CRM metric category.' },
         ],
       }),
+
+      '/api/new/crm/performance': {
+        get: {
+          tags: ['CRM'],
+          operationId: 'getCrmPerformance',
+          summary: 'Weekly and Monthly Performance breakdown across 4 metrics: Leads, Profiling, Trial Scheduled, Junk.',
+          description: [
+            'Returns aggregated performance metrics, 12-month progression, and cross-branch comparisons.',
+            'Filterable by year (default current year), branch, and specific month.',
+          ].join('\n'),
+          parameters: [
+            { name: 'year', in: 'query', schema: { type: 'string', example: '2026' }, description: 'Calendar year or "all".' },
+            { name: 'branch', in: 'query', schema: { type: 'string' }, description: 'Filter to one branch name or "all".' },
+            { name: 'month', in: 'query', schema: { type: 'string', example: '2026-08' }, description: 'Specific month key "YYYY-MM" or "1"-"12".' },
+            { name: 'includeLeads', in: 'query', schema: { type: 'boolean' }, description: 'Include individual lead rows inside each month/branch breakdown.' },
+          ],
+          responses: ok('Aggregated CRM performance analytics and monthly trends.', {
+            type: 'object',
+            properties: {
+              success: { type: 'boolean' },
+              filter: { type: 'object' },
+              totals: { type: 'object' },
+              months: { type: 'array', items: { type: 'object' } },
+              branchTotals: { type: 'array', items: { type: 'object' } },
+              availableBranches: { type: 'array', items: { type: 'string' } },
+              allBranchesTotalLeads: { type: 'integer' },
+            },
+          }),
+        },
+      },
+
+      '/api/new/crm/webhook': {
+        post: {
+          tags: ['CRM'],
+          operationId: 'ingestCrmLeadWebhook',
+          summary: 'Inbound lead webhook for WhatsApp bots (Qontak), Meta Ads, Zapier, and web forms.',
+          description: [
+            'Accepts flexible JSON or form-urlencoded payloads. Automatically extracts parent/child names,',
+            'phone numbers, student age, and classifies the lead into the 4 performance categories.',
+          ].join('\n'),
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['phone'],
+                  properties: {
+                    name: { type: 'string' },
+                    parent_name: { type: 'string' },
+                    child_name: { type: 'string' },
+                    phone: { type: 'string', example: '628123456789' },
+                    age: { type: 'string', example: '8' },
+                    branch: { type: 'string', example: 'Bekasi' },
+                    message: { type: 'string' },
+                    trial_date: { type: 'string', example: '2026-08-20' },
+                    status: { type: 'string' },
+                    notes: { type: 'string' },
+                  },
+                },
+              },
+            },
+          },
+          responses: {
+            201: { description: 'Lead successfully ingested and classified.' },
+            400: { description: 'Missing required contact or name fields.' },
+            500: { description: 'Database or server error.' },
+          },
+        },
+      },
 
       '/api/new/operationals': {
         get: {

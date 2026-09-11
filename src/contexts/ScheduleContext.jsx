@@ -164,6 +164,7 @@ export const DEFAULT_SIDEBAR_SUB_ORDER = {
   students: ['students', 'student-subscriptions'],
   'report-cards': ['report-cards', 'report-cards-list', 'report-cards-rubric'],
   'live-progress': ['progress-kinder', 'progress-junior', 'progress-coder'],
+  crm: ['crm', 'crm-weekly-performance'],
 };
 
 /* ─── provider ───────────────────────────────────────────────────── */

@@ -40,6 +40,7 @@ function formatPageName(pageId) {
     'report-cards-rubric': 'Rubrics',
     instructors: 'Instructors',
     crm: 'CRM Pipeline',
+    'crm-weekly-performance': 'CRM Weekly Performance',
     meetings: 'Meetings',
     activity: 'Activity Log',
     'progress-kinder': 'Kinder Progress',

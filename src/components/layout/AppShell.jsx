@@ -21,6 +21,7 @@ import NewStudentReportCardsPage from '@/views/NewStudentReportCardsPage';
 import NewRubricSetupPage from '@/views/NewRubricSetupPage';
 import NewInstructorsPage from '@/views/NewInstructorsPage';
 import NewCrmPage from '@/views/NewCrmPage';
+import NewCrmWeeklyPerformancePage from '@/views/NewCrmWeeklyPerformancePage';
 import NewApiDocsPage from '@/views/NewApiDocsPage';
 import NewUsersPage from '@/views/NewUsersPage';
 import NewWorkloadPage from '@/views/NewWorkloadPage';
@@ -203,6 +204,8 @@ export default function AppShell() {
     PageComponent = NewInstructorsPage;
   } else if (currentPage === 'crm') {
     PageComponent = NewCrmPage;
+  } else if (currentPage === 'crm-weekly-performance') {
+    PageComponent = NewCrmWeeklyPerformancePage;
   } else if (currentPage === 'meetings') {
     PageComponent = NewMeetingsPage;
   } else if (currentPage === 'workload') {
