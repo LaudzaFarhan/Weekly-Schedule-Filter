@@ -64,6 +64,12 @@ const nextConfig = {
     ignoreBuildErrors: true,
   },
   async headers() {
+    // In development mode, do not apply custom cache headers as they interfere
+    // with Turbopack / Next.js chunk compilation and HMR revalidation.
+    if (process.env.NODE_ENV !== 'production') {
+      return [];
+    }
+
     return [
       {
         // Dynamic HTML routes and API routes: never cache
@@ -80,16 +86,6 @@ const nextConfig = {
           {
             key: 'Expires',
             value: '0',
-          },
-        ],
-      },
-      {
-        // Hashed Next.js static assets: cache permanently (hashes change on build)
-        source: '/_next/static/:path*',
-        headers: [
-          {
-            key: 'Cache-Control',
-            value: 'public, max-age=31536000, immutable',
           },
         ],
       },
