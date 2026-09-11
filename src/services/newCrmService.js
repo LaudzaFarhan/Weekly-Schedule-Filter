@@ -173,4 +173,9 @@ export async function ingestWebhookLead(leadData) {
     throw error;
   }
 }
-
+/**
+ * Log a follow-up action for a CRM lead (journey tracking)
+ */
+export async function logFollowUp(leadId, followUpData) {
+  return updateLead(leadId, { newFollowUp: followUpData });
+}

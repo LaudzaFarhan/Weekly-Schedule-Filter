@@ -37,10 +37,59 @@ export function getBranchColors(branchName, index = 0) {
  * 2. Profiling: Lead with student name, parent name, and age captured.
  * 3. Trial Scheduled: Scheduled for a trial and expected to attend.
  * 4. Junk Leads: Spam, invalid contacts, or test inquiries.
+/**
+ * Safely extract follow-up journey array from a lead object or its notes
+ */
+export function getLeadFollowUps(lead) {
+  if (!lead) return [];
+  if (Array.isArray(lead.followUps)) return lead.followUps;
+  if (Array.isArray(lead.follow_ups)) return lead.follow_ups;
+
+  if (typeof lead.followUps === 'string') {
+    try {
+      const parsed = JSON.parse(lead.followUps);
+      if (Array.isArray(parsed)) return parsed;
+    } catch (_) {}
+  }
+  if (typeof lead.follow_ups === 'string') {
+    try {
+      const parsed = JSON.parse(lead.follow_ups);
+      if (Array.isArray(parsed)) return parsed;
+    } catch (_) {}
+  }
+
+  // Fallback search in notes for [FollowUps: [...]]
+  const notesStr = String(lead.notes || '');
+  const match = notesStr.match(/\[FollowUps:\s*(\[.*?\])\]/s);
+  if (match) {
+    try {
+      const parsed = JSON.parse(match[1]);
+      if (Array.isArray(parsed)) return parsed;
+    } catch (_) {}
+  }
+
+  return [];
+}
+
+/**
+ * Classify a CRM lead into the 4 business metrics:
+ * 1. Leads: Total customer inbound chats/inquiries.
+ * 2. Profiling: Lead with student name, parent name, and age captured.
+ * 3. Trial Scheduled: Scheduled for a trial and expected to attend.
+ * 4. Junk Leads: Spam, invalid contacts, or test inquiries.
+ * Also computes follow-up status (needsFollowUp) and journey history.
  */
 export function classifyLead(lead) {
   if (!lead) {
-    return { isJunk: false, isScheduled: false, isProfiled: false };
+    return {
+      isJunk: false,
+      isScheduled: false,
+      isProfiled: false,
+      needsFollowUp: false,
+      followUps: [],
+      followUpCount: 0,
+      lastFollowUp: null,
+    };
   }
 
   const name = String(lead.name || '').trim();
@@ -58,7 +107,15 @@ export function classifyLead(lead) {
     /\b(spam|junk|salah sambung|penipuan|broadcast|testing bot|fake lead)\b/i.test(combinedText);
 
   if (isJunk) {
-    return { isJunk: true, isScheduled: false, isProfiled: false };
+    return {
+      isJunk: true,
+      isScheduled: false,
+      isProfiled: false,
+      needsFollowUp: false,
+      followUps: [],
+      followUpCount: 0,
+      lastFollowUp: null,
+    };
   }
 
   // 2. Trial Scheduled: status is booked or explicit trial date set
@@ -67,25 +124,45 @@ export function classifyLead(lead) {
     Boolean(lead.trialDate || lead.trial_date);
 
   // 3. Profiling: customer already chatted us and filled student name, parent name, age
-  // If scheduled, it already completed profiling.
+  // If status is profiling or scheduled, it is part of profiling.
   const hasParentChildName =
     /(parent of|ortu|ayah|ibu|mama|papa|anak)/i.test(name) ||
     name.includes('(') ||
-    /(parent name|child name|nama anak|nama ortu|ortu:)/i.test(combinedText);
+    /(parent|student|child|nama anak|nama ortu|ortu:|murid)/i.test(combinedText);
 
   const hasAgeIndicator =
     /(age|usia|\b\d{1,2}\s*(th|tahun|yo|years|bln|bulan))\b/i.test(combinedText) ||
     /kelas\s*\d/i.test(combinedText) ||
+    /grade\s*\d/i.test(combinedText) ||
     /(kinder|junior|coder)/i.test(combinedText);
 
   const hasExplicitProfileTag = combinedText.includes('[profiled]');
 
-  const isProfiled = isScheduled || hasExplicitProfileTag || (hasParentChildName && (hasAgeIndicator || name.includes('Parent of')));
+  const isProfiled =
+    status === 'profiling' ||
+    status === 'profile' ||
+    isScheduled ||
+    hasExplicitProfileTag ||
+    (hasParentChildName && (hasAgeIndicator || name.includes('Parent of')));
+
+  // Follow-up Journey metrics
+  const followUps = getLeadFollowUps(lead);
+  const followUpCount = followUps.length;
+  const lastFollowUp = followUpCount > 0 ? followUps[followUpCount - 1] : null;
+
+  // A parent in the profiling category who has not yet scheduled trial is a lead that NEEDS FOLLOW UP
+  const needsFollowUp =
+    !isScheduled &&
+    (isProfiled || combinedText.includes('[need follow up]') || combinedText.includes('[need_follow_up]') || combinedText.includes('[follow up]'));
 
   return {
     isJunk: false,
     isScheduled,
     isProfiled,
+    needsFollowUp,
+    followUps,
+    followUpCount,
+    lastFollowUp,
   };
 }
 

@@ -3,7 +3,7 @@
 import { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react';
 import { CheckCircle, AlertTriangle, XCircle, Info, X } from 'lucide-react';
 
-const ToastContext = createContext(null);
+export const ToastContext = createContext(null);
 
 let toastIdCounter = 0;
 
@@ -124,6 +124,12 @@ function ToastItem({ toast, onDismiss }) {
 
 export function useToast() {
   const ctx = useContext(ToastContext);
-  if (!ctx) throw new Error('useToast must be used within ToastProvider');
+  if (!ctx) {
+    return {
+      showToast: () => {},
+      dismissToast: () => {},
+      toasts: [],
+    };
+  }
   return ctx;
 }

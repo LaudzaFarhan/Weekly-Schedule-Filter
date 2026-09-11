@@ -16,8 +16,10 @@ import { logActivity } from '../services/activityService';
 import { doTimeSlotsOverlap } from '../utils/timeUtils';
 import {
   Plus, X, Search, Trash2, ExternalLink, Phone, Save, Clock, Calendar,
-  CheckCircle2, XCircle, DollarSign, CreditCard, UserCheck, UserX, Check
+  CheckCircle2, XCircle, DollarSign, CreditCard, UserCheck, UserX, Check,
+  History
 } from 'lucide-react';
+import { classifyLead, getLeadFollowUps } from '../utils/crmPerformance';
 
 const COLUMNS = [
   { id: 'interest_trial', title: 'Interest Trial', color: '#4f46e5', badge: 'rgba(79, 70, 229, 0.15)', textColor: '#4f46e5' },
@@ -1628,6 +1630,52 @@ export default function CrmPage() {
                             {formatRelativeTime(lead.createdAt || lead.updatedAt)}
                           </span>
                         </div>
+
+                        {/* Follow Up & Profiling Tags */}
+                        {(() => {
+                          const cls = classifyLead(lead);
+                          const fuCount = lead.followUpCount || cls.followUpCount || 0;
+                          const showNeedFollowUp = lead.needsFollowUp || cls.needsFollowUp;
+
+                          if (!showNeedFollowUp && fuCount === 0) return null;
+
+                          return (
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '4px', flexWrap: 'wrap', marginBottom: '0.45rem' }}>
+                              {showNeedFollowUp && (
+                                <span style={{
+                                  fontSize: '0.64rem',
+                                  fontWeight: 800,
+                                  padding: '1px 6px',
+                                  borderRadius: '4px',
+                                  background: '#fef3c7',
+                                  color: '#b45309',
+                                  border: '1px solid #fde68a',
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: '2px'
+                                }}>
+                                  <Clock size={9} /> NEED TO FOLLOW UP
+                                </span>
+                              )}
+                              {fuCount > 0 && (
+                                <span style={{
+                                  fontSize: '0.64rem',
+                                  fontWeight: 700,
+                                  padding: '1px 6px',
+                                  borderRadius: '4px',
+                                  background: '#e0e7ff',
+                                  color: '#3730a3',
+                                  border: '1px solid #c7d2fe',
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: '2px'
+                                }}>
+                                  <History size={9} /> {fuCount}x Follow-up
+                                </span>
+                              )}
+                            </div>
+                          );
+                        })()}
 
                         {lead.message && (
                           <p style={{

@@ -29,6 +29,26 @@ const mapRow = (row) => {
     else paymentStatus = 'pending';
   }
 
+  let followUps = [];
+  if (row.follow_ups) {
+    if (Array.isArray(row.follow_ups)) followUps = row.follow_ups;
+    else if (typeof row.follow_ups === 'string') {
+      try { followUps = JSON.parse(row.follow_ups); } catch (_) {}
+    }
+  }
+  if (!followUps.length && notesStr) {
+    const fuMatch = notesStr.match(/\[FollowUps:\s*(\[.*?\])\]/s);
+    if (fuMatch) {
+      try { followUps = JSON.parse(fuMatch[1]); } catch (_) {}
+    }
+  }
+
+  const statusLower = String(row.status || '').toLowerCase();
+  const isScheduled = statusLower === 'trial_booked' || Boolean(row.trial_date);
+  const isJunk = statusLower === 'junk' || statusLower === 'spam' || notesStr.toLowerCase().includes('[junk]') || notesStr.toLowerCase().includes('[spam]');
+  const isProfiled = isScheduled || notesStr.toLowerCase().includes('[profiled]') || /(parent of|ortu|ayah|ibu|mama|papa|anak)/i.test(row.name || '');
+  const needsFollowUp = !isJunk && !isScheduled && (isProfiled || notesStr.toLowerCase().includes('[need follow up]'));
+
   return {
     id: row.id,
     name: row.name,
@@ -40,6 +60,10 @@ const mapRow = (row) => {
     notes: row.notes,
     attendanceStatus: attendanceStatus || 'pending',
     paymentStatus: paymentStatus || 'pending',
+    followUps,
+    followUpCount: followUps.length,
+    lastFollowUp: followUps.length > 0 ? followUps[followUps.length - 1] : null,
+    needsFollowUp,
     createdAt: row.created_at,
     updatedAt: row.updated_at
   };
@@ -190,6 +214,11 @@ const ready = async () => {
   } catch (err) {
     console.error('Migration notice payment_status:', err.message);
   }
+  try {
+    await query(`ALTER TABLE new_crm_leads ADD COLUMN IF NOT EXISTS follow_ups JSONB DEFAULT '[]'::jsonb`);
+  } catch (err) {
+    console.error('Migration notice follow_ups:', err.message);
+  }
 };
 
 /**
@@ -289,11 +318,92 @@ async function handleUpdate(req) {
       const trialVal = body.trialDate || body.trial_date || body.date;
       fieldValues.trial_date = trialVal || null;
     }
+
     // Fetch current lead row to embed tags into notes as a 100% fail-safe
-    const curRes = await query(`SELECT notes FROM new_crm_leads WHERE id = $1`, [targetId]);
+    const curRes = await query(`SELECT notes, follow_ups, name FROM new_crm_leads WHERE id = $1`, [targetId]);
     let currentNotes = curRes.rowCount > 0 ? (curRes.rows[0].notes || '') : '';
+    let existingFollowUps = [];
+    let leadName = 'Lead';
+    if (curRes.rowCount > 0) {
+      leadName = curRes.rows[0].name || 'Lead';
+      if (curRes.rows[0].follow_ups) {
+        if (Array.isArray(curRes.rows[0].follow_ups)) existingFollowUps = curRes.rows[0].follow_ups;
+        else if (typeof curRes.rows[0].follow_ups === 'string') {
+          try { existingFollowUps = JSON.parse(curRes.rows[0].follow_ups); } catch (_) {}
+        }
+      }
+      if (!existingFollowUps.length && currentNotes) {
+        const m = currentNotes.match(/\[FollowUps:\s*(\[.*?\])\]/s);
+        if (m) {
+          try { existingFollowUps = JSON.parse(m[1]); } catch (_) {}
+        }
+      }
+    }
+
     if (body.notes !== undefined) {
       currentNotes = body.notes || '';
+    }
+
+    // Support logging a new follow-up attempt
+    if (body.newFollowUp) {
+      let nfu = body.newFollowUp;
+      if (typeof nfu === 'string') nfu = { notes: nfu };
+      const attemptNum = existingFollowUps.length + 1;
+      const entry = {
+        id: `fu_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
+        performedBy: nfu.performedBy || body.userEmail || body.user || 'Admin',
+        userEmail: nfu.userEmail || body.userEmail || null,
+        date: nfu.date || new Date().toISOString(),
+        channel: nfu.channel || 'WhatsApp',
+        outcome: nfu.outcome || null,
+        notes: nfu.notes || '',
+        attempt: attemptNum,
+      };
+      existingFollowUps.push(entry);
+      fieldValues.follow_ups = JSON.stringify(existingFollowUps);
+
+      // Embed into notes as persistent fallback
+      const fuRegex = /\[FollowUps:\s*\[.*?\]\]/gis;
+      currentNotes = currentNotes.replace(fuRegex, '').trim();
+      currentNotes = `${currentNotes} [FollowUps: ${JSON.stringify(existingFollowUps)}]`.trim();
+
+      if (nfu.status) {
+        fieldValues.status = nfu.status;
+      }
+      if (nfu.trialDate) {
+        fieldValues.trial_date = nfu.trialDate;
+      }
+
+      // Log to internal_activity table if exists
+      try {
+        await query(
+          `INSERT INTO internal_activity (action, summary, user_email, source, details) VALUES ($1, $2, $3, $4, $5)`,
+          [
+            'edit',
+            `Followed up ${leadName} (${attemptNum}x) via ${entry.channel}${entry.notes ? `: ${entry.notes.substring(0, 80)}` : ''}`,
+            entry.userEmail || entry.performedBy,
+            'crm',
+            JSON.stringify({ leadId: targetId, attempt: attemptNum, channel: entry.channel }),
+          ]
+        );
+      } catch (_) {}
+    } else if (body.followUps !== undefined || body.follow_ups !== undefined) {
+      const fuList = body.followUps || body.follow_ups;
+      const list = Array.isArray(fuList) ? fuList : [];
+      fieldValues.follow_ups = JSON.stringify(list);
+      const fuRegex = /\[FollowUps:\s*\[.*?\]\]/gis;
+      currentNotes = currentNotes.replace(fuRegex, '').trim();
+      currentNotes = `${currentNotes} [FollowUps: ${JSON.stringify(list)}]`.trim();
+    }
+
+    if (body.needsFollowUp !== undefined) {
+      if (body.needsFollowUp) {
+        if (!currentNotes.toLowerCase().includes('[need follow up]')) {
+          currentNotes = `[need follow up] ${currentNotes}`.trim();
+        }
+      } else {
+        currentNotes = currentNotes.replace(/\[need\s*follow\s*up\]/gi, '').trim();
+      }
     }
 
     if (body.attendanceStatus !== undefined || body.attendance_status !== undefined) {
@@ -337,9 +447,10 @@ async function handleUpdate(req) {
       const { sql, params } = buildSqlAndParams(fieldValues);
       res = await query(sql, params);
     } catch (err) {
-      // Fallback if attendance_status or payment_status column does not exist in DB
+      // Fallback if attendance_status, payment_status, or follow_ups column does not exist in DB
       delete fieldValues.attendance_status;
       delete fieldValues.payment_status;
+      delete fieldValues.follow_ups;
       const { sql, params } = buildSqlAndParams(fieldValues);
       res = await query(sql, params);
     }

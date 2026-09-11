@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { GET as getCrm } from '../route';
+import { GET as getCrm, PUT as putCrm } from '../route';
 
 const { queryMock } = vi.hoisted(() => ({
   queryMock: vi.fn(),
@@ -103,5 +103,82 @@ describe('GET /api/new/crm enhancements', () => {
     const json = await res.json();
     expect(json).toHaveLength(1);
     expect(json[0].id).toBe(20);
+  });
+});
+
+describe('PUT /api/new/crm Follow-up Journey Tracking', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('logs a new follow-up interaction, increments attempts, and tracks who did it', async () => {
+    queryMock.mockImplementation(async (sql) => {
+      if (sql.includes('ALTER TABLE')) {
+        return { rowCount: 0, rows: [] };
+      }
+      if (sql.includes('SELECT notes, follow_ups, name FROM new_crm_leads')) {
+        return {
+          rowCount: 1,
+          rows: [
+            {
+              id: 10,
+              name: 'Ibu Ratna (Parent of Kevin)',
+              notes: 'Kelas 4 SD',
+              follow_ups: JSON.stringify([
+                { id: 'fu_1', attempt: 1, performedBy: 'Kak Sky', channel: 'WhatsApp', notes: 'First touch' },
+              ]),
+            },
+          ],
+        };
+      }
+      if (sql.includes('UPDATE new_crm_leads')) {
+        return {
+          rowCount: 1,
+          rows: [
+            {
+              id: 10,
+              name: 'Ibu Ratna (Parent of Kevin)',
+              phone: '08123456789',
+              status: 'profiling',
+              branch: 'Bekasi',
+              trial_date: null,
+              notes: 'Kelas 4 SD [FollowUps: [{"attempt":1},{"attempt":2}]]',
+              attendance_status: 'pending',
+              payment_status: 'pending',
+              follow_ups: [
+                { id: 'fu_1', attempt: 1, performedBy: 'Kak Sky', channel: 'WhatsApp', notes: 'First touch' },
+                { id: 'fu_2', attempt: 2, performedBy: 'Kak Muhajir', channel: 'Phone Call', notes: 'Discussed schedule' },
+              ],
+              created_at: '2026-08-01T10:00:00.000Z',
+              updated_at: '2026-08-08T10:00:00.000Z',
+            },
+          ],
+        };
+      }
+      return { rowCount: 0, rows: [] };
+    });
+
+    const req = new Request('http://localhost:3000/api/new/crm', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        id: 10,
+        newFollowUp: {
+          performedBy: 'Kak Muhajir',
+          channel: 'Phone Call',
+          notes: 'Discussed schedule',
+        },
+      }),
+    });
+
+    const res = await putCrm(req);
+    expect(res.status).toBe(200);
+    const json = await res.json();
+
+    expect(json.id).toBe(10);
+    expect(json.followUpCount).toBe(2);
+    expect(json.lastFollowUp.performedBy).toBe('Kak Muhajir');
+    expect(json.lastFollowUp.channel).toBe('Phone Call');
+    expect(json.needsFollowUp).toBe(true);
   });
 });

@@ -2,7 +2,9 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { useSchedule } from '@/contexts/ScheduleContext';
-import { listenToLeads } from '@/services/newCrmService';
+import { useAuth } from '@/contexts/AuthContext';
+import { useToast } from '@/components/ui/Toast';
+import { listenToLeads, logFollowUp } from '@/services/newCrmService';
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -21,7 +23,8 @@ import {
   Layers, ArrowRight, ShieldAlert, CheckCircle2,
   RefreshCw, Search, ExternalLink, X, ChevronRight,
   ChevronDown, ChevronUp, Building2, GitCompare,
-  PieChart, SlidersHorizontal, Info, AlertTriangle, ArrowUpRight, Check
+  PieChart, SlidersHorizontal, Info, AlertTriangle, ArrowUpRight, Check,
+  Clock, History, MessageSquare, PhoneCall, Plus, User
 } from 'lucide-react';
 
 ChartJS.register(
@@ -41,6 +44,7 @@ import {
   BRANCH_PALETTES,
   getBranchColors,
   classifyLead,
+  getLeadFollowUps,
   formatMonthLabel,
   getLeadMonth,
   aggregateMonthlyData,
@@ -146,6 +150,137 @@ export default function NewCrmWeeklyPerformancePage({ onNavigate }) {
   const [activeDrilldownMonth, setActiveDrilldownMonth] = useState(null);
   const [drilldownMetricFilter, setDrilldownMetricFilter] = useState('all'); // 'all' | 'profiling' | 'scheduled' | 'junk'
   const [searchQuery, setSearchQuery] = useState('');
+
+  // Follow-Up Journey states
+  const authCtx = useAuth() || {};
+  const currentUser = authCtx.currentUser || null;
+  const { showToast } = useToast() || { showToast: () => {} };
+
+  const [activeJourneyLead, setActiveJourneyLead] = useState(null);
+  const [isSavingFollowUp, setIsSavingFollowUp] = useState(false);
+  const [followUpFormData, setFollowUpFormData] = useState({
+    performedBy: '',
+    channel: 'WhatsApp',
+    outcome: 'Need Follow Up',
+    status: 'profiling',
+    trialDate: '',
+    notes: '',
+  });
+
+  const handleOpenJourney = (lead) => {
+    setActiveJourneyLead(lead);
+    const defaultStaff =
+      currentUser?.displayName ||
+      (currentUser?.email ? currentUser.email.split('@')[0] : '') ||
+      'Staff';
+    setFollowUpFormData({
+      performedBy: defaultStaff,
+      channel: 'WhatsApp',
+      outcome: 'Need Follow Up',
+      status: lead.status || 'profiling',
+      trialDate: lead.trialDate || '',
+      notes: '',
+    });
+  };
+
+  const handleSaveFollowUp = async (e) => {
+    if (e?.preventDefault) e.preventDefault();
+    if (!activeJourneyLead) return;
+
+    const staffName = (followUpFormData.performedBy || '').trim();
+    if (!staffName) {
+      showToast({ title: 'Please enter staff name', variant: 'error' });
+      return;
+    }
+
+    setIsSavingFollowUp(true);
+    try {
+      const payload = {
+        performedBy: staffName,
+        userEmail: currentUser?.email || null,
+        channel: followUpFormData.channel || 'WhatsApp',
+        outcome: followUpFormData.outcome || 'Need Follow Up',
+        status: followUpFormData.status || activeJourneyLead.status || 'profiling',
+        trialDate: followUpFormData.status === 'trial_booked' ? followUpFormData.trialDate : undefined,
+        notes: (followUpFormData.notes || '').trim(),
+        date: new Date().toISOString(),
+      };
+
+      const updatedLead = await logFollowUp(activeJourneyLead.id, payload);
+
+      const existingFus = getLeadFollowUps(activeJourneyLead);
+      const newEntry = {
+        id: `fu_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+        attempt: existingFus.length + 1,
+        performedBy: payload.performedBy,
+        userEmail: payload.userEmail,
+        date: payload.date,
+        channel: payload.channel,
+        outcome: payload.outcome,
+        status: payload.status,
+        notes: payload.notes,
+      };
+      const updatedFus = [...existingFus, newEntry];
+
+      // Optimistically update main leads list
+      setLeads((prev) =>
+        prev.map((l) => {
+          if (l.id === activeJourneyLead.id) {
+            return {
+              ...l,
+              ...updatedLead,
+              status: payload.status,
+              trialDate: payload.trialDate !== undefined ? payload.trialDate : l.trialDate,
+              followUps: updatedFus,
+              followUpCount: updatedFus.length,
+              lastFollowUp: newEntry,
+              classification: {
+                ...(l.classification || classifyLead(l)),
+                followUps: updatedFus,
+                followUpCount: updatedFus.length,
+                lastFollowUp: newEntry,
+                needsFollowUp: payload.status !== 'trial_booked' && payload.status !== 'junk',
+                isScheduled: payload.status === 'trial_booked' || Boolean(payload.trialDate),
+              },
+            };
+          }
+          return l;
+        })
+      );
+
+      // Also update activeJourneyLead in state so journey timeline updates live
+      setActiveJourneyLead((prev) => ({
+        ...prev,
+        ...updatedLead,
+        status: payload.status,
+        trialDate: payload.trialDate !== undefined ? payload.trialDate : prev.trialDate,
+        followUps: updatedFus,
+        classification: {
+          ...(prev.classification || {}),
+          followUps: updatedFus,
+          followUpCount: updatedFus.length,
+          lastFollowUp: newEntry,
+          needsFollowUp: payload.status !== 'trial_booked' && payload.status !== 'junk',
+          isScheduled: payload.status === 'trial_booked' || Boolean(payload.trialDate),
+        },
+      }));
+
+      // Reset notes field
+      setFollowUpFormData((prev) => ({ ...prev, notes: '' }));
+      showToast({
+        title: `Follow-up attempt #${updatedFus.length} recorded!`,
+        variant: 'success',
+      });
+    } catch (err) {
+      console.error('Failed to log follow-up:', err);
+      showToast({
+        title: 'Failed to record follow-up: ' + (err.message || 'Unknown error'),
+        variant: 'error',
+      });
+    } finally {
+      setIsSavingFollowUp(false);
+    }
+  };
 
   // Option for how many cards to show with a filter
   const [visibleCards, setVisibleCards] = useState(['leads', 'profiling', 'scheduled', 'junk']);
@@ -1975,64 +2110,131 @@ export default function NewCrmWeeklyPerformancePage({ onNavigate }) {
                           flexWrap: 'wrap',
                         }}
                       >
-                        <div style={{ flex: 1, minWidth: '220px' }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.2rem' }}>
-                            <span style={{ fontWeight: 700, fontSize: '0.92rem', color: '#0f172a' }}>
+                        <div style={{ flex: 1, minWidth: '240px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.3rem', flexWrap: 'wrap' }}>
+                            <span style={{ fontWeight: 700, fontSize: '0.94rem', color: '#0f172a' }}>
                               {lead.name || 'Unnamed Lead'}
                             </span>
                             {lead.classification.isJunk && (
-                              <span style={{ fontSize: '0.68rem', fontWeight: 700, padding: '1px 6px', borderRadius: '4px', background: '#fee2e2', color: '#b91c1c' }}>
+                              <span style={{ fontSize: '0.68rem', fontWeight: 700, padding: '2px 7px', borderRadius: '4px', background: '#fee2e2', color: '#b91c1c' }}>
                                 JUNK
                               </span>
                             )}
                             {lead.classification.isScheduled && (
-                              <span style={{ fontSize: '0.68rem', fontWeight: 700, padding: '1px 6px', borderRadius: '4px', background: '#dcfce7', color: '#15803d' }}>
+                              <span style={{ fontSize: '0.68rem', fontWeight: 700, padding: '2px 7px', borderRadius: '4px', background: '#dcfce7', color: '#15803d', border: '1px solid #bbf7d0' }}>
                                 TRIAL SCHEDULED
                               </span>
                             )}
-                            {lead.classification.isProfiled && !lead.classification.isScheduled && !lead.classification.isJunk && (
-                              <span style={{ fontSize: '0.68rem', fontWeight: 700, padding: '1px 6px', borderRadius: '4px', background: '#ede9fe', color: '#6d28d9' }}>
+                            {lead.classification.isProfiled && !lead.classification.isJunk && (
+                              <span style={{ fontSize: '0.68rem', fontWeight: 700, padding: '2px 7px', borderRadius: '4px', background: '#ede9fe', color: '#6d28d9', border: '1px solid #ddd6fe' }}>
                                 PROFILED
+                              </span>
+                            )}
+                            {(!lead.classification.isScheduled && !lead.classification.isJunk && (lead.classification.needsFollowUp || lead.classification.isProfiled || drilldownMetricFilter === 'profiling')) && (
+                              <span style={{
+                                fontSize: '0.68rem',
+                                fontWeight: 800,
+                                padding: '2px 8px',
+                                borderRadius: '4px',
+                                background: '#fef3c7',
+                                color: '#b45309',
+                                border: '1px solid #fde68a',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '3px',
+                                boxShadow: '0 1px 2px rgba(245, 158, 11, 0.1)',
+                              }}>
+                                <Clock size={11} />
+                                NEED TO FOLLOW UP
+                              </span>
+                            )}
+                            <span style={{
+                              fontSize: '0.68rem',
+                              fontWeight: 700,
+                              padding: '2px 7px',
+                              borderRadius: '4px',
+                              background: (lead.classification.followUpCount || getLeadFollowUps(lead).length) > 0 ? '#e0e7ff' : '#f1f5f9',
+                              color: (lead.classification.followUpCount || getLeadFollowUps(lead).length) > 0 ? '#3730a3' : '#64748b',
+                              border: `1px solid ${(lead.classification.followUpCount || getLeadFollowUps(lead).length) > 0 ? '#c7d2fe' : '#e2e8f0'}`,
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '4px',
+                            }}>
+                              <History size={11} />
+                              {(lead.classification.followUpCount || getLeadFollowUps(lead).length) > 0
+                                ? `${lead.classification.followUpCount || getLeadFollowUps(lead).length}x Follow-up`
+                                : '0x Follow-up'}
+                            </span>
+                          </div>
+
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', fontSize: '0.78rem', color: '#64748b', flexWrap: 'wrap' }}>
+                            {lead.branch && <span>📍 {lead.branch}</span>}
+                            {lead.trialDate && <span>🗓 Trial: {lead.trialDate}</span>}
+                            <span>Status: <strong>{lead.status}</strong></span>
+                            {lead.classification.lastFollowUp && (
+                              <span style={{ color: '#4f46e5', fontWeight: 600 }}>
+                                • Last touch: {lead.classification.lastFollowUp.performedBy || 'Staff'} ({lead.classification.lastFollowUp.channel || 'WhatsApp'})
                               </span>
                             )}
                           </div>
 
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', fontSize: '0.78rem', color: '#64748b' }}>
-                            {lead.branch && <span>📍 {lead.branch}</span>}
-                            {lead.trialDate && <span>🗓 Trial: {lead.trialDate}</span>}
-                            <span>Status: {lead.status}</span>
-                          </div>
-
                           {(lead.message || lead.notes) && (
-                            <div style={{ fontSize: '0.74rem', color: '#64748b', marginTop: '0.35rem', fontStyle: 'italic' }}>
+                            <div style={{ fontSize: '0.74rem', color: '#475569', marginTop: '0.35rem', fontStyle: 'italic', background: '#f8fafc', padding: '0.35rem 0.6rem', borderRadius: '6px', borderLeft: '3px solid #cbd5e1' }}>
                               &ldquo;{lead.message || lead.notes}&rdquo;
                             </div>
                           )}
                         </div>
 
-                        {/* WhatsApp action */}
-                        {waLink && (
-                          <a
-                            href={waLink}
-                            target="_blank"
-                            rel="noopener noreferrer"
+                        {/* WhatsApp action + Journey button */}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', flexWrap: 'wrap' }}>
+                          {waLink && (
+                            <a
+                              href={waLink}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '4px',
+                                padding: '0.38rem 0.75rem',
+                                borderRadius: '6px',
+                                background: '#25D366',
+                                color: '#ffffff',
+                                fontSize: '0.75rem',
+                                fontWeight: 600,
+                                textDecoration: 'none',
+                                boxShadow: '0 1px 2px rgba(37, 211, 102, 0.25)',
+                              }}
+                            >
+                              <span>WhatsApp</span>
+                              <ExternalLink size={12} />
+                            </a>
+                          )}
+
+                          <button
+                            type="button"
+                            onClick={() => handleOpenJourney(lead)}
                             style={{
                               display: 'inline-flex',
                               alignItems: 'center',
-                              gap: '4px',
-                              padding: '0.35rem 0.75rem',
+                              gap: '5px',
+                              padding: '0.38rem 0.8rem',
                               borderRadius: '6px',
-                              background: '#25D366',
+                              background: '#4f46e5',
                               color: '#ffffff',
                               fontSize: '0.75rem',
                               fontWeight: 600,
-                              textDecoration: 'none',
+                              border: 'none',
+                              cursor: 'pointer',
+                              boxShadow: '0 1px 3px rgba(79, 70, 229, 0.3)',
+                              transition: 'all 0.15s ease',
                             }}
+                            title="View Follow-Up Journey and Log Interactions"
                           >
-                            <span>WhatsApp</span>
-                            <ExternalLink size={12} />
-                          </a>
-                        )}
+                            <History size={13} />
+                            <span>Journey ({(lead.classification.followUpCount || getLeadFollowUps(lead).length)}x)</span>
+                          </button>
+                        </div>
                       </div>
                     );
                   })}
@@ -2051,6 +2253,423 @@ export default function NewCrmWeeklyPerformancePage({ onNavigate }) {
               <button
                 type="button"
                 onClick={() => setActiveDrilldownMonth(null)}
+                style={{
+                  padding: '0.45rem 1rem',
+                  fontSize: '0.82rem',
+                  fontWeight: 600,
+                  borderRadius: '6px',
+                  border: '1px solid #cbd5e1',
+                  background: '#ffffff',
+                  color: '#334155',
+                  cursor: 'pointer',
+                }}
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Customer Journey & Follow-Up Modal */}
+      {activeJourneyLead && (
+        <div style={{
+          position: 'fixed',
+          inset: 0,
+          background: 'rgba(15, 23, 42, 0.72)',
+          backdropFilter: 'blur(5px)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 1100,
+          padding: '1rem',
+        }}>
+          <div style={{
+            background: '#ffffff',
+            borderRadius: '16px',
+            width: '100%',
+            maxWidth: '680px',
+            maxHeight: '88vh',
+            display: 'flex',
+            flexDirection: 'column',
+            overflow: 'hidden',
+            boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.35)',
+            border: '1px solid #e2e8f0',
+          }}>
+            {/* Header */}
+            <div style={{
+              padding: '1.2rem 1.5rem',
+              borderBottom: '1px solid #e2e8f0',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              background: 'linear-gradient(to right, #f8fafc, #ffffff)',
+            }}>
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+                  <h3 style={{ margin: 0, fontSize: '1.15rem', fontWeight: 800, color: '#0f172a' }}>
+                    {activeJourneyLead.name || 'Customer Journey'}
+                  </h3>
+                  <span style={{
+                    fontSize: '0.68rem',
+                    fontWeight: 700,
+                    padding: '2px 7px',
+                    borderRadius: '4px',
+                    background: '#e0e7ff',
+                    color: '#3730a3',
+                    border: '1px solid #c7d2fe',
+                  }}>
+                    {getLeadFollowUps(activeJourneyLead).length}x Followed Up
+                  </span>
+                </div>
+                <div style={{ fontSize: '0.78rem', color: '#64748b', marginTop: '0.2rem', display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
+                  {activeJourneyLead.branch && <span>📍 {activeJourneyLead.branch}</span>}
+                  {activeJourneyLead.phone && <span>📞 {activeJourneyLead.phone}</span>}
+                  <span>Status: <strong>{activeJourneyLead.status}</strong></span>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setActiveJourneyLead(null)}
+                style={{
+                  background: 'transparent',
+                  border: 'none',
+                  color: '#64748b',
+                  cursor: 'pointer',
+                  padding: '6px',
+                  borderRadius: '6px',
+                  display: 'inline-flex',
+                }}
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            {/* Body (Scrollable) */}
+            <div style={{ padding: '1.25rem 1.5rem', overflowY: 'auto', flexGrow: 1, display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+              
+              {/* Customer Profile Details Card */}
+              {(activeJourneyLead.message || activeJourneyLead.notes) && (
+                <div style={{
+                  padding: '0.85rem 1rem',
+                  borderRadius: '8px',
+                  background: '#f8fafc',
+                  border: '1px solid #e2e8f0',
+                  fontSize: '0.8rem',
+                  color: '#334155',
+                }}>
+                  <strong style={{ display: 'block', marginBottom: '0.25rem', color: '#0f172a' }}>Customer Profile & Inbound Context:</strong>
+                  <div>{activeJourneyLead.message || activeJourneyLead.notes}</div>
+                </div>
+              )}
+
+              {/* Journey Timeline */}
+              <div>
+                <h4 style={{ margin: '0 0 0.75rem 0', fontSize: '0.9rem', fontWeight: 700, color: '#0f172a', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                  <History size={16} color="#4f46e5" />
+                  Follow-Up Journey Timeline ({getLeadFollowUps(activeJourneyLead).length} touches)
+                </h4>
+
+                {getLeadFollowUps(activeJourneyLead).length === 0 ? (
+                  <div style={{
+                    padding: '2rem 1rem',
+                    textAlign: 'center',
+                    background: '#f8fafc',
+                    borderRadius: '10px',
+                    border: '1px dashed #cbd5e1',
+                    color: '#64748b',
+                    fontSize: '0.82rem',
+                  }}>
+                    <Clock size={28} style={{ margin: '0 auto 0.5rem', color: '#94a3b8' }} />
+                    <p style={{ margin: 0, fontWeight: 600 }}>No follow-up interactions logged yet.</p>
+                    <span style={{ fontSize: '0.75rem', color: '#94a3b8' }}>
+                      Fill in the form below to record who contacted this parent and track their customer journey.
+                    </span>
+                  </div>
+                ) : (
+                  <div style={{
+                    position: 'relative',
+                    paddingLeft: '1.5rem',
+                    borderLeft: '2px solid #e2e8f0',
+                    marginLeft: '0.75rem',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '1rem',
+                  }}>
+                    {getLeadFollowUps(activeJourneyLead).map((fu, idx) => {
+                      const channelColor =
+                        fu.channel === 'WhatsApp' ? '#22c55e' :
+                        fu.channel === 'Phone Call' ? '#3b82f6' :
+                        fu.channel === 'In-Person Meeting' ? '#f97316' : '#8b5cf6';
+
+                      return (
+                        <div key={fu.id || idx} style={{ position: 'relative' }}>
+                          {/* Dot Marker */}
+                          <div style={{
+                            position: 'absolute',
+                            left: '-1.95rem',
+                            top: '4px',
+                            width: '20px',
+                            height: '20px',
+                            borderRadius: '50%',
+                            background: '#4f46e5',
+                            color: '#ffffff',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            fontSize: '0.65rem',
+                            fontWeight: 800,
+                            border: '2px solid #ffffff',
+                            boxShadow: '0 1px 3px rgba(0,0,0,0.15)',
+                          }}>
+                            {idx + 1}
+                          </div>
+
+                          <div style={{
+                            padding: '0.75rem 1rem',
+                            background: '#ffffff',
+                            borderRadius: '8px',
+                            border: '1px solid #e2e8f0',
+                            boxShadow: '0 1px 2px rgba(0,0,0,0.04)',
+                          }}>
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '0.35rem' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
+                                <span style={{ fontWeight: 700, fontSize: '0.85rem', color: '#0f172a' }}>
+                                  👤 {fu.performedBy || 'Staff'}
+                                </span>
+                                <span style={{
+                                  fontSize: '0.66rem',
+                                  fontWeight: 700,
+                                  padding: '1px 6px',
+                                  borderRadius: '4px',
+                                  background: `${channelColor}18`,
+                                  color: channelColor,
+                                  border: `1px solid ${channelColor}40`,
+                                }}>
+                                  {fu.channel || 'WhatsApp'}
+                                </span>
+                                {fu.outcome && (
+                                  <span style={{
+                                    fontSize: '0.66rem',
+                                    fontWeight: 600,
+                                    padding: '1px 6px',
+                                    borderRadius: '4px',
+                                    background: '#f1f5f9',
+                                    color: '#475569',
+                                  }}>
+                                    {fu.outcome}
+                                  </span>
+                                )}
+                              </div>
+                              <span style={{ fontSize: '0.72rem', color: '#94a3b8' }}>
+                                {fu.date ? new Date(fu.date).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }) : 'Unknown date'}
+                              </span>
+                            </div>
+
+                            {fu.notes && (
+                              <div style={{ fontSize: '0.8rem', color: '#334155', lineHeight: '1.4', marginTop: '0.25rem' }}>
+                                {fu.notes}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              {/* Log Follow-Up Interaction Form */}
+              <form onSubmit={handleSaveFollowUp} style={{
+                background: '#f8fafc',
+                padding: '1.1rem 1.25rem',
+                borderRadius: '12px',
+                border: '1px solid #cbd5e1',
+              }}>
+                <h4 style={{ margin: '0 0 0.85rem 0', fontSize: '0.88rem', fontWeight: 700, color: '#0f172a', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                  <Plus size={16} color="#4f46e5" />
+                  Log Follow-Up Attempt ({getLeadFollowUps(activeJourneyLead).length + 1}x)
+                </h4>
+
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0.75rem', marginBottom: '0.75rem' }}>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 600, color: '#475569', marginBottom: '0.25rem' }}>
+                      Who is doing the follow-up? *
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="e.g. Kak Muhajir, Admin"
+                      value={followUpFormData.performedBy}
+                      onChange={(e) => setFollowUpFormData({ ...followUpFormData, performedBy: e.target.value })}
+                      style={{
+                        width: '100%',
+                        padding: '0.4rem 0.6rem',
+                        fontSize: '0.82rem',
+                        borderRadius: '6px',
+                        border: '1px solid #cbd5e1',
+                        background: '#ffffff',
+                      }}
+                    />
+                  </div>
+
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 600, color: '#475569', marginBottom: '0.25rem' }}>
+                      Channel
+                    </label>
+                    <select
+                      value={followUpFormData.channel}
+                      onChange={(e) => setFollowUpFormData({ ...followUpFormData, channel: e.target.value })}
+                      style={{
+                        width: '100%',
+                        padding: '0.4rem 0.6rem',
+                        fontSize: '0.82rem',
+                        borderRadius: '6px',
+                        border: '1px solid #cbd5e1',
+                        background: '#ffffff',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      <option value="WhatsApp">WhatsApp</option>
+                      <option value="Phone Call">Phone Call</option>
+                      <option value="In-Person Meeting">In-Person Meeting</option>
+                      <option value="Email">Email</option>
+                      <option value="Instagram DM">Instagram DM</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0.75rem', marginBottom: '0.75rem' }}>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 600, color: '#475569', marginBottom: '0.25rem' }}>
+                      Follow-up Outcome / Action
+                    </label>
+                    <select
+                      value={followUpFormData.outcome}
+                      onChange={(e) => setFollowUpFormData({ ...followUpFormData, outcome: e.target.value })}
+                      style={{
+                        width: '100%',
+                        padding: '0.4rem 0.6rem',
+                        fontSize: '0.82rem',
+                        borderRadius: '6px',
+                        border: '1px solid #cbd5e1',
+                        background: '#ffffff',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      <option value="Need Follow Up">Need Follow Up (Still Considering)</option>
+                      <option value="Trial Booked">Trial Booked (Scheduled Trial)</option>
+                      <option value="Interested - Callback Requested">Interested - Callback Requested</option>
+                      <option value="No Response">No Response / Unread</option>
+                      <option value="Not Interested / Junk">Not Interested / Junk</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 600, color: '#475569', marginBottom: '0.25rem' }}>
+                      Update Lead Stage
+                    </label>
+                    <select
+                      value={followUpFormData.status}
+                      onChange={(e) => setFollowUpFormData({ ...followUpFormData, status: e.target.value })}
+                      style={{
+                        width: '100%',
+                        padding: '0.4rem 0.6rem',
+                        fontSize: '0.82rem',
+                        borderRadius: '6px',
+                        border: '1px solid #cbd5e1',
+                        background: '#ffffff',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      <option value="profiling">Profiling (Needs Follow-Up)</option>
+                      <option value="trial_booked">Trial Booked (Scheduled)</option>
+                      <option value="interest_trial">Interest Trial</option>
+                      <option value="no_response">No Response</option>
+                      <option value="junk">Junk / Spam</option>
+                    </select>
+                  </div>
+                </div>
+
+                {followUpFormData.status === 'trial_booked' && (
+                  <div style={{ marginBottom: '0.75rem' }}>
+                    <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 600, color: '#475569', marginBottom: '0.25rem' }}>
+                      Trial Date *
+                    </label>
+                    <input
+                      type="date"
+                      required
+                      value={followUpFormData.trialDate}
+                      onChange={(e) => setFollowUpFormData({ ...followUpFormData, trialDate: e.target.value })}
+                      style={{
+                        width: '100%',
+                        padding: '0.4rem 0.6rem',
+                        fontSize: '0.82rem',
+                        borderRadius: '6px',
+                        border: '1px solid #cbd5e1',
+                        background: '#ffffff',
+                      }}
+                    />
+                  </div>
+                )}
+
+                <div style={{ marginBottom: '0.85rem' }}>
+                  <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 600, color: '#475569', marginBottom: '0.25rem' }}>
+                    Conversation Notes / Remarks
+                  </label>
+                  <textarea
+                    rows={2}
+                    placeholder="Enter what the parent said, questions, student hobbies, next steps..."
+                    value={followUpFormData.notes}
+                    onChange={(e) => setFollowUpFormData({ ...followUpFormData, notes: e.target.value })}
+                    style={{
+                      width: '100%',
+                      padding: '0.45rem 0.65rem',
+                      fontSize: '0.82rem',
+                      borderRadius: '6px',
+                      border: '1px solid #cbd5e1',
+                      background: '#ffffff',
+                      resize: 'vertical',
+                      boxSizing: 'border-box',
+                    }}
+                  />
+                </div>
+
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem' }}>
+                  <button
+                    type="submit"
+                    disabled={isSavingFollowUp}
+                    style={{
+                      padding: '0.45rem 1.1rem',
+                      fontSize: '0.82rem',
+                      fontWeight: 700,
+                      borderRadius: '6px',
+                      border: 'none',
+                      background: '#4f46e5',
+                      color: '#ffffff',
+                      cursor: isSavingFollowUp ? 'not-allowed' : 'pointer',
+                      opacity: isSavingFollowUp ? 0.7 : 1,
+                      boxShadow: '0 2px 4px rgba(79, 70, 229, 0.3)',
+                    }}
+                  >
+                    {isSavingFollowUp ? 'Saving...' : `Save Follow-Up (${getLeadFollowUps(activeJourneyLead).length + 1}x)`}
+                  </button>
+                </div>
+              </form>
+
+            </div>
+
+            {/* Modal Footer */}
+            <div style={{
+              padding: '0.75rem 1.5rem',
+              borderTop: '1px solid #e2e8f0',
+              background: '#f8fafc',
+              display: 'flex',
+              justifyContent: 'flex-end',
+            }}>
+              <button
+                type="button"
+                onClick={() => setActiveJourneyLead(null)}
                 style={{
                   padding: '0.45rem 1rem',
                   fontSize: '0.82rem',
