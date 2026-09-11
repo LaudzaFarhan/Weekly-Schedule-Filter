@@ -110,7 +110,9 @@ placeholder.
 | `/api/new/schedule` | GET POST PUT DELETE | Weekly classes |
 | `/api/new/students` | GET POST PUT DELETE | Student registry |
 | `/api/new/instructors` | GET POST PUT DELETE | Instructors and capability |
-| `/api/new/crm` | GET POST PUT DELETE | Trial leads pipeline |
+| `/api/new/crm` | GET POST PUT PATCH DELETE | Trial leads pipeline |
+| `/api/new/crm/performance` | GET | Weekly & Monthly CRM performance analytics (Leads, Profiling, Scheduled, Junk) |
+| `/api/new/crm/webhook` | POST | Inbound lead webhook for WhatsApp (Qontak), Meta Ads, Zapier |
 | `/api/new/operationals` | GET POST PUT DELETE | Branch hours + class slot plan |
 | `/api/new/leave` | GET POST PUT DELETE | Instructor leave |
 | `/api/new/activity` | GET POST DELETE | Audit trail |
@@ -521,12 +523,61 @@ Required: `name`, `level`, `branches`, `contact`.
   "status": "interest_trial",
   "branch": "Bekasi",
   "trialDate": "2026-08-18",
-  "notes": ""
+  "notes": "",
+  "attendanceStatus": "pending",
+  "paymentStatus": "pending"
 }
 ```
 
-Required: `name`, `phone`. Status: `interest_trial`, `trial_booked`,
+Required on write: `name`, `phone`. Status: `interest_trial`, `trial_booked`,
 `trial_done`, `closed`.
+
+Query filters on GET:
+- `?id=123`: Lookup a single lead by its record ID.
+- `?search=budi`: Partial text search across name, phone, message, notes.
+- `?branch=Bekasi`: Exact branch filter.
+- `?status=interest_trial`: Status filter.
+- `?metric=profiling`: Filter leads classified into `leads`, `profiling`, `scheduled`, or `junk`.
+
+### CRM Performance & Analytics — `/api/new/crm/performance`
+
+Pre-computed and dynamic analytics for weekly & monthly CRM performance:
+- **Leads**: Total customer chat inquiries.
+- **Profiling**: Leads with student name, parent name, and student age captured.
+- **Trial Scheduled**: Leads with booked trial date expected to attend.
+- **Junk Leads**: Spam, invalid contacts, or fake inquiries.
+- **12-Month Trends**: Progression across Jan to Dec.
+- **Cross-Branch Comparisons**: Side-by-side breakdowns for all branches for each month.
+
+```bash
+curl -H "Authorization: Bearer $KEY" \
+  "$BASE/api/new/crm/performance?year=2026&branch=all"
+```
+
+Parameters:
+- `year`: e.g. `2026` (default current year) or `all`.
+- `branch`: e.g. `Bekasi`, `Bintaro`, `Kelapa Gading`, `Pluit Village`, or `all`.
+- `month`: Optional month filter (e.g. `2026-08` or `8`).
+- `includeLeads`: `true` or `false` (default: `false` for concise payload).
+
+### Inbound CRM Webhook — `/api/new/crm/webhook`
+
+Inbound webhook for external integrations (WhatsApp bots, Qontak, Meta Ads, Zapier, landing page forms).
+Automatically extracts parent and child names, formats WhatsApp phone numbers, parses student age, tags profiling, and classifies the lead.
+
+```bash
+curl -X POST -H "Content-Type: application/json" \
+  -d '{
+    "parent_name": "Budi Santoso",
+    "child_name": "Kenzo",
+    "age": "8",
+    "phone": "08123456789",
+    "branch": "Bekasi",
+    "message": "Interested in Saturday coding trial"
+  }' \
+  "$BASE/api/new/crm/webhook"
+```
+
 
 ### Leave — `/api/new/leave`
 

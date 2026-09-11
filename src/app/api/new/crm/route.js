@@ -1,5 +1,6 @@
 import { query } from '@/lib/db';
 import { buildListQuery, withLimit } from '@/lib/listQuery';
+import { classifyLead } from '@/utils/crmPerformance';
 import { NextResponse } from 'next/server';
 
 const setTagInNotes = (existingNotes, key, val) => {
@@ -46,11 +47,21 @@ const mapRow = (row) => {
 
 /**
  * GET: Fetch new CRM leads.
- * Optional: ?search=&status=&branch=&limit=
+ * Optional: ?id=&search=&status=&branch=&metric=&limit=
  */
 export async function GET(req) {
   try {
     const { searchParams } = new URL(req.url);
+    const idParam = searchParams.get('id');
+
+    if (idParam) {
+      const res = await query('SELECT * FROM new_crm_leads WHERE id = $1', [idParam]);
+      if (res.rowCount === 0) {
+        return NextResponse.json({ error: 'Lead not found' }, { status: 404 });
+      }
+      return NextResponse.json(mapRow(res.rows[0]));
+    }
+
     const { clause, params, limit } = buildListQuery(searchParams, {
       searchColumns: ['name', 'phone', 'message', 'notes'],
       filters: { status: 'status', branch: 'branch' },
@@ -61,7 +72,22 @@ export async function GET(req) {
       limit
     );
     const res = await query(sql, finalParams);
-    return NextResponse.json(res.rows.map(mapRow));
+    let mapped = res.rows.map(mapRow);
+
+    const metric = searchParams.get('metric');
+    if (metric) {
+      const m = metric.toLowerCase();
+      mapped = mapped.filter((lead) => {
+        const c = classifyLead(lead);
+        if (m === 'junk' || m === 'spam') return c.isJunk;
+        if (m === 'scheduled' || m === 'trial_scheduled') return c.isScheduled;
+        if (m === 'profiling' || m === 'profile') return c.isProfiled;
+        if (m === 'leads') return true;
+        return true;
+      });
+    }
+
+    return NextResponse.json(mapped);
   } catch (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
@@ -179,13 +205,24 @@ export async function POST(req) {
       return NextResponse.json({ error: 'Name and phone contact are required' }, { status: 400 });
     }
 
-    const sql = `
-      INSERT INTO new_crm_leads (name, phone, message, status, branch, trial_date, notes, attendance_status, payment_status)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-      RETURNING *
-    `;
-    const params = [name, phone, message || null, status || 'interest_trial', branch || null, trialDate || null, notes || null, attendanceStatus, paymentStatus];
-    const res = await query(sql, params);
+    let res;
+    try {
+      const sql = `
+        INSERT INTO new_crm_leads (name, phone, message, status, branch, trial_date, notes, attendance_status, payment_status)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        RETURNING *
+      `;
+      const params = [name, phone, message || null, status || 'interest_trial', branch || null, trialDate || null, notes || null, attendanceStatus, paymentStatus];
+      res = await query(sql, params);
+    } catch (err) {
+      const fallbackSql = `
+        INSERT INTO new_crm_leads (name, phone, message, status, branch, trial_date, notes)
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
+        RETURNING *
+      `;
+      const fallbackParams = [name, phone, message || null, status || 'interest_trial', branch || null, trialDate || null, notes || null];
+      res = await query(fallbackSql, fallbackParams);
+    }
 
     return NextResponse.json(mapRow(res.rows[0]));
   } catch (error) {

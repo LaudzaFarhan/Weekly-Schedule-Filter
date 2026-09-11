@@ -120,7 +120,7 @@ export const APP_MODULES = [
     icon: 'Users',
     category: 'Enrollment',
     description: 'Prospective student leads, parent inquiries, trial status, and enrollment funnel.',
-    pages: ['crm'],
+    pages: ['crm', 'crm-weekly-performance'],
   },
   {
     id: 'meetings',

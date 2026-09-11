@@ -45,7 +45,7 @@ const navItems = [
  */
 const NEW_OPS_PAGES = [
   'home', 'dashboard', 'operationals', 'students', 'student-subscriptions', 'report-cards', 'report-cards-list', 'report-cards-rubric', 'instructors',
-  'crm', 'workload', 'leave', 'trial-availability', 'activity', 'users', 'api', 'qa-tracker',
+  'crm', 'crm-weekly-performance', 'workload', 'leave', 'trial-availability', 'activity', 'users', 'api', 'qa-tracker',
   'progress-kinder', 'progress-junior', 'progress-coder',
 ];
 
@@ -79,11 +79,17 @@ const LIVE_PROGRESS_PAGES = [
   { id: 'progress-coder', label: 'Coder Progress' },
 ];
 
+const CRM_PAGES = [
+  { id: 'crm', label: 'Main' },
+  { id: 'crm-weekly-performance', label: 'Weekly Performance' },
+];
+
 export const SUB_ITEM_DEFINITIONS = {
   schedule: SCHEDULE_PAGES,
   students: STUDENT_PAGES,
   'report-cards': REPORT_CARD_PAGES,
   'live-progress': LIVE_PROGRESS_PAGES,
+  crm: CRM_PAGES,
 };
 
 export function getEffectiveSubItems(parentId, defaultList = [], subOrderMap = {}) {
@@ -321,19 +327,50 @@ const NAV_ITEM_DEFINITIONS = {
     label: 'CRM Pipeline',
     icon: Users,
     checkAccess: (canAccess) => canAccess('crm'),
-    render: ({ currentPage, onNavigate }) => (
-      <button
-        data-tour="nav-crm"
-        className={`nav-item ${currentPage === 'crm' ? 'active' : ''}`}
-        onClick={() => onNavigate('crm')}
-        style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-          <Users size={20} />
-          CRM Pipeline
-        </div>
-      </button>
-    ),
+    render: ({ currentPage, onNavigate, canAccess, crmPagesActive, crmOpen, setCrmOpen, sidebarSubOrder }) => {
+      const orderedSubItems = getEffectiveSubItems('crm', CRM_PAGES, sidebarSubOrder);
+      return (
+        <>
+          <button
+            data-tour="nav-crm"
+            className={`nav-item ${crmPagesActive ? 'active' : ''}`}
+            onClick={() => { setCrmOpen(true); onNavigate('crm'); }}
+            style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+              <Users size={20} />
+              CRM Pipeline
+            </div>
+            <span
+              role="button"
+              tabIndex={0}
+              aria-label={crmOpen ? 'Collapse CRM' : 'Expand CRM'}
+              aria-expanded={crmOpen}
+              onClick={(e) => { e.stopPropagation(); setCrmOpen((v) => !v); }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault(); e.stopPropagation(); setCrmOpen((v) => !v);
+                }
+              }}
+              style={{ display: 'inline-flex', alignItems: 'center', cursor: 'pointer' }}
+            >
+              {crmOpen ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+            </span>
+          </button>
+          {crmOpen && orderedSubItems.filter(sub => canAccess ? canAccess(sub.id) : true).map((sub) => (
+            <button
+              key={sub.id}
+              className={`nav-item nav-subitem ${currentPage === sub.id ? 'active' : ''}`}
+              onClick={() => onNavigate(sub.id)}
+              style={{ display: 'flex', justifyContent: 'flex-start', alignItems: 'center' }}
+            >
+              <span aria-hidden="true" className="nav-subitem-dash" />
+              {sub.label}
+            </button>
+          ))}
+        </>
+      );
+    },
   },
   meetings: {
     id: 'meetings',
@@ -529,6 +566,13 @@ export default function Sidebar({ currentPage, onNavigate, onToggleSearch, opsMo
 
   const reportCardsActive = REPORT_CARD_PAGES.some((p) => p.id === currentPage);
   const [reportCardsOpen, setReportCardsOpen] = useState(() => reportCardsActive);
+
+  const crmPagesActive = CRM_PAGES.some((p) => p.id === currentPage);
+  const [crmOpen, setCrmOpen] = useState(() => crmPagesActive);
+
+  useEffect(() => {
+    if (crmPagesActive) setCrmOpen(true);
+  }, [crmPagesActive]);
 
   // Reorder customization state for Admin
   const [isReordering, setIsReordering] = useState(false);
@@ -1045,6 +1089,9 @@ export default function Sidebar({ currentPage, onNavigate, onToggleSearch, opsMo
                     liveProgressActive,
                     liveProgressOpen,
                     setLiveProgressOpen,
+                    crmPagesActive,
+                    crmOpen,
+                    setCrmOpen,
                     openBugCount,
                     sidebarSubOrder,
                   })}
