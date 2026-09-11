@@ -2,12 +2,13 @@
 import React from 'react';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
-import NewCrmWeeklyPerformancePage, {
+import NewCrmWeeklyPerformancePage from '../NewCrmWeeklyPerformancePage';
+import {
   classifyLead,
   aggregateMonthlyData,
   formatMonthLabel,
-  getLeadMonth
-} from '../NewCrmWeeklyPerformancePage';
+  getLeadMonth,
+} from '@/utils/crmPerformance';
 import { SUB_ITEM_DEFINITIONS } from '@/components/layout/Sidebar';
 
 // Mock react-chartjs-2 to test without real HTML Canvas in JSDOM

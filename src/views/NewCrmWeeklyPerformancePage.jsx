@@ -46,16 +46,6 @@ import {
   aggregateMonthlyData,
 } from '@/utils/crmPerformance';
 
-export {
-  MONTH_NAMES,
-  BRANCH_PALETTES,
-  getBranchColors,
-  classifyLead,
-  formatMonthLabel,
-  getLeadMonth,
-  aggregateMonthlyData,
-};
-
 /**
  * Definition of the 4 KPI metric cards
  */
