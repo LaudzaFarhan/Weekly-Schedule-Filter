@@ -116,7 +116,7 @@ describe('PUT /api/new/crm Follow-up Journey Tracking', () => {
       if (sql.includes('ALTER TABLE')) {
         return { rowCount: 0, rows: [] };
       }
-      if (sql.includes('SELECT notes, follow_ups, name FROM new_crm_leads')) {
+      if (sql.includes('SELECT * FROM new_crm_leads WHERE id = $1')) {
         return {
           rowCount: 1,
           rows: [

@@ -202,23 +202,20 @@ function extractLeadFields(body) {
   return { name, phone, branch, trialDate, status, message, notes, attendanceStatus, paymentStatus };
 }
 
-/** Ensure attendance_status and payment_status columns exist */
+/** Ensure optional columns exist if table owner permissions allow */
+let readyRan = false;
 const ready = async () => {
+  if (readyRan) return;
+  readyRan = true;
   try {
     await query(`ALTER TABLE new_crm_leads ADD COLUMN IF NOT EXISTS attendance_status VARCHAR(50) DEFAULT 'pending'`);
-  } catch (err) {
-    console.error('Migration notice attendance_status:', err.message);
-  }
+  } catch (_) {}
   try {
     await query(`ALTER TABLE new_crm_leads ADD COLUMN IF NOT EXISTS payment_status VARCHAR(50) DEFAULT 'pending'`);
-  } catch (err) {
-    console.error('Migration notice payment_status:', err.message);
-  }
+  } catch (_) {}
   try {
     await query(`ALTER TABLE new_crm_leads ADD COLUMN IF NOT EXISTS follow_ups JSONB DEFAULT '[]'::jsonb`);
-  } catch (err) {
-    console.error('Migration notice follow_ups:', err.message);
-  }
+  } catch (_) {}
 };
 
 /**
@@ -320,25 +317,17 @@ async function handleUpdate(req) {
     }
 
     // Fetch current lead row to embed tags into notes as a 100% fail-safe
-    const curRes = await query(`SELECT notes, follow_ups, name FROM new_crm_leads WHERE id = $1`, [targetId]);
-    let currentNotes = curRes.rowCount > 0 ? (curRes.rows[0].notes || '') : '';
-    let existingFollowUps = [];
-    let leadName = 'Lead';
-    if (curRes.rowCount > 0) {
-      leadName = curRes.rows[0].name || 'Lead';
-      if (curRes.rows[0].follow_ups) {
-        if (Array.isArray(curRes.rows[0].follow_ups)) existingFollowUps = curRes.rows[0].follow_ups;
-        else if (typeof curRes.rows[0].follow_ups === 'string') {
-          try { existingFollowUps = JSON.parse(curRes.rows[0].follow_ups); } catch (_) {}
-        }
-      }
-      if (!existingFollowUps.length && currentNotes) {
-        const m = currentNotes.match(/\[FollowUps:\s*(\[.*?\])\]/s);
-        if (m) {
-          try { existingFollowUps = JSON.parse(m[1]); } catch (_) {}
-        }
-      }
+    // Fetch current lead row to embed tags into notes as a 100% fail-safe
+    const curRes = await query(`SELECT * FROM new_crm_leads WHERE id = $1`, [targetId]);
+    if (curRes.rowCount === 0) {
+      return NextResponse.json({ error: 'Lead not found' }, { status: 404 });
     }
+
+    const currentRow = curRes.rows[0];
+    let currentNotes = currentRow.notes || '';
+    let leadName = currentRow.name || 'Lead';
+    const mappedCurrent = mapRow(currentRow);
+    let existingFollowUps = Array.isArray(mappedCurrent.followUps) ? [...mappedCurrent.followUps] : [];
 
     if (body.notes !== undefined) {
       currentNotes = body.notes || '';
@@ -360,7 +349,6 @@ async function handleUpdate(req) {
         attempt: attemptNum,
       };
       existingFollowUps.push(entry);
-      fieldValues.follow_ups = JSON.stringify(existingFollowUps);
 
       // Embed into notes as persistent fallback
       const fuRegex = /\[FollowUps:\s*\[.*?\]\]/gis;
@@ -390,7 +378,6 @@ async function handleUpdate(req) {
     } else if (body.followUps !== undefined || body.follow_ups !== undefined) {
       const fuList = body.followUps || body.follow_ups;
       const list = Array.isArray(fuList) ? fuList : [];
-      fieldValues.follow_ups = JSON.stringify(list);
       const fuRegex = /\[FollowUps:\s*\[.*?\]\]/gis;
       currentNotes = currentNotes.replace(fuRegex, '').trim();
       currentNotes = `${currentNotes} [FollowUps: ${JSON.stringify(list)}]`.trim();
@@ -409,12 +396,10 @@ async function handleUpdate(req) {
     if (body.attendanceStatus !== undefined || body.attendance_status !== undefined) {
       const attVal = body.attendanceStatus || body.attendance_status || 'pending';
       currentNotes = setTagInNotes(currentNotes, 'Attendance', attVal);
-      fieldValues.attendance_status = attVal;
     }
     if (body.paymentStatus !== undefined || body.payment_status !== undefined) {
       const payVal = body.paymentStatus || body.payment_status || 'pending';
       currentNotes = setTagInNotes(currentNotes, 'Payment', payVal);
-      fieldValues.payment_status = payVal;
     }
 
     fieldValues.notes = currentNotes;
